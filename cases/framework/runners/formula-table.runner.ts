@@ -77,19 +77,16 @@ const getExpectedRow = (
   };
 };
 
-const buildNumericSequenceRecords = (
-  config: FormulaTableCaseConfig,
-  sourceFields: SourceFields,
-) =>
+const buildNumericSequenceRecords = (config: FormulaTableCaseConfig) =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
     const expected = getExpectedRow(rowNumber, config.generator.titlePrefix);
     return {
       fields: {
-        [sourceFields.Title.id]: expected.Title,
-        [sourceFields.A.id]: expected.A,
-        [sourceFields.B.id]: expected.B,
-        [sourceFields.C.id]: expected.C,
+        Title: expected.Title,
+        A: expected.A,
+        B: expected.B,
+        C: expected.C,
       },
     };
   });
@@ -114,7 +111,7 @@ const assertSourceSamples = async (
 
   for (const sampleRow of config.verify.sampleRows) {
     const page = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Id,
+      fieldKeyType: FieldKeyType.Name,
       skip: sampleRow,
       take: 1,
     });
@@ -128,10 +125,10 @@ const assertSourceSamples = async (
     const rowNumber = sampleRow + 1;
     const expected = getExpectedRow(rowNumber, config.generator.titlePrefix);
     const actual = {
-      Title: record.fields[sourceFields.Title.id],
-      A: record.fields[sourceFields.A.id],
-      B: record.fields[sourceFields.B.id],
-      C: record.fields[sourceFields.C.id],
+      Title: record.fields[sourceFields.Title.name],
+      A: record.fields[sourceFields.A.name],
+      B: record.fields[sourceFields.B.name],
+      C: record.fields[sourceFields.C.name],
     };
 
     for (const fieldName of sourceFieldNames) {
@@ -384,7 +381,7 @@ export const runFormulaTableCase = async (
 
     const tableFields = await getFields(tableId);
     const sourceFields = resolveSourceFields(tableFields);
-    const records = buildNumericSequenceRecords(config, sourceFields);
+    const records = buildNumericSequenceRecords(config);
     const batches = chunk(records, config.batchSize);
     const batchDurations: number[] = [];
 
@@ -394,7 +391,7 @@ export const runFormulaTableCase = async (
           `seedBatch:${batchIndex + 1}`,
           () =>
             createRecords(tableId, {
-              fieldKeyType: FieldKeyType.Id,
+              fieldKeyType: FieldKeyType.Name,
               records: batch,
             }),
         );
