@@ -1,8 +1,9 @@
-import { FieldKeyType, FieldType, generateFieldId } from "@teable/core";
+import { FieldKeyType, FieldType } from "@teable/core";
 import {
   createField,
   createRecords,
   createTable,
+  getFields,
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
@@ -35,12 +36,6 @@ const buildNumericSequenceRecords = (config: FormulaTableCaseConfig) =>
       },
     };
   });
-
-const ensureFieldIds = (fields: FormulaTableCaseConfig["fields"]) =>
-  fields.map((field) => ({
-    ...field,
-    id: field.id ?? generateFieldId(),
-  }));
 
 const compileFormulaExpression = (
   expression: string,
@@ -91,7 +86,6 @@ export const runFormulaTableCase = async (
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FormulaTableCaseConfig;
   const baseId = globalThis.testConfig.baseId;
-  const fields = ensureFieldIds(config.fields);
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   let tableId = "";
 
@@ -99,7 +93,7 @@ export const runFormulaTableCase = async (
     const createTableMeasurement = await measureAsync("createTable", () =>
       createTable(baseId, {
         name: tableName,
-        fields,
+        fields: config.fields,
       }),
     );
     tableId = createTableMeasurement.result.id;
@@ -123,9 +117,10 @@ export const runFormulaTableCase = async (
       }
     });
 
+    const tableFields = await getFields(tableId);
     const compiledExpression = compileFormulaExpression(
       config.formula.expression,
-      fields,
+      tableFields,
     );
     const formulaReadyMeasurement = await measureAsync(
       "formulaReady",
