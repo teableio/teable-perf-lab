@@ -1,69 +1,59 @@
-name: teable perf regression
+name: Teable EE e2e perf
 
 on:
   workflow_dispatch:
     inputs:
-      target_url:
-        description: Teable target URL
-        required: true
-        type: string
-      target_kind:
-        description: Target kind
-        required: true
-        default: preview
-        type: choice
-        options:
-          - preview
-          - staging
-          - release
-      case_filter:
-        description: Case id, tag, or glob
+      teable_ee_ref:
+        description: Branch, tag, or commit SHA in teableio/teable-ee
         required: false
-        default: smoke
+        default: develop
+        type: string
+      case_filter:
+        description: Perf case to inject into teable-ee e2e
+        required: false
+        default: smoke/auth-user
         type: string
       samples:
-        description: Number of measured samples per case
+        description: Measured samples for the case
         required: false
-        default: '3'
+        default: "10"
         type: string
-      keep_environment_on_failure:
-        description: Keep BYODB and space after failure
+      perf_threshold_p95_ms:
+        description: p95 threshold for the smoke case
         required: false
-        default: false
-        type: boolean
-
-  schedule:
-    # Daily at 18:00 UTC / 02:00 Asia-Shanghai.
-    - cron: '0 18 * * *'
-
-  repository_dispatch:
-    types:
-      - teable-release-candidate
+        default: "2000"
+        type: string
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: perf-regression-${{ github.event_name }}-${{ github.ref }}
+  group: teable-ee-e2e-perf-${{ github.ref }}-${{ inputs.case_filter }}
   cancel-in-progress: false
 
 jobs:
-  perf-regression:
-    name: Run performance regression suite
+  teable-ee-e2e-perf:
+    name: Run ${{ inputs.case_filter }} on teable-ee e2e
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     env:
-      PERF_LAB_HISTORY_DATABASE_URL: ${{ secrets.PERF_LAB_HISTORY_DATABASE_URL }}
-      PERF_LAB_ARTIFACT_BUCKET: ${{ secrets.PERF_LAB_ARTIFACT_BUCKET }}
-      PERF_LAB_ARTIFACT_ACCESS_KEY_ID: ${{ secrets.PERF_LAB_ARTIFACT_ACCESS_KEY_ID }}
-      PERF_LAB_ARTIFACT_SECRET_ACCESS_KEY: ${{ secrets.PERF_LAB_ARTIFACT_SECRET_ACCESS_KEY }}
-      TEABLE_API_TOKEN: ${{ secrets.TEABLE_API_TOKEN }}
-      BYODB_ADMIN_DATABASE_URL: ${{ secrets.BYODB_ADMIN_DATABASE_URL }}
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout perf lab
+        uses: actions/checkout@v4
+        with:
+          path: perf-lab
+
+      - name: Checkout teable-ee
+        uses: actions/checkout@v4
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ inputs.teable_ee_ref }}
+          path: teable-ee
+          token: ${{ secrets.TEABLE_EE_CHECKOUT_TOKEN || github.token }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -72,34 +62,35 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9.13.0
 
-      - name: Install dependencies
+      - name: Install teable-ee dependencies
+        working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve run config
-        id: config
+      - name: Inject smoke case
         run: |
-          echo "target_url=${{ inputs.target_url || vars.DAILY_PERF_TARGET_URL }}" >> "$GITHUB_OUTPUT"
-          echo "target_kind=${{ inputs.target_kind || 'staging' }}" >> "$GITHUB_OUTPUT"
-          echo "case_filter=${{ inputs.case_filter || 'daily' }}" >> "$GITHUB_OUTPUT"
-          echo "samples=${{ inputs.samples || '3' }}" >> "$GITHUB_OUTPUT"
+          mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
+          cp perf-lab/cases/smoke/auth-user.e2e-spec.ts \
+            teable-ee/community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts
 
-      - name: Run perf lab
+      - name: Run perf case through teable-ee e2e
+        working-directory: teable-ee
         run: |
-          pnpm perf-lab run \
-            --target-url "${{ steps.config.outputs.target_url }}" \
-            --target-kind "${{ steps.config.outputs.target_kind }}" \
-            --case-filter "${{ steps.config.outputs.case_filter }}" \
-            --samples "${{ steps.config.outputs.samples }}" \
-            --persist-history \
-            --persist-traces
+          # See .github/workflows/teable-ee-e2e-perf.yml for the full runnable
+          # workflow, including Postgres/Redis startup and cleanup.
+          pnpm -F @teable/backend-ee exec vitest run \
+            --config ./vitest-e2e-community.config.ts \
+            ../../community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts \
+            --silent=false \
+            --bail 1
 
       - name: Publish job summary
         if: always()
         run: |
-          if [ -f artifacts/latest/summary.md ]; then
-            cat artifacts/latest/summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f perf-lab-artifacts/summary.md ]; then
+            cat perf-lab-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
           fi
-

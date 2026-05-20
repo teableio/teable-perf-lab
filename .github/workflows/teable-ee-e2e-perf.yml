@@ -1,0 +1,186 @@
+name: Teable EE e2e perf
+
+on:
+  workflow_dispatch:
+    inputs:
+      teable_ee_ref:
+        description: Branch, tag, or commit SHA in teableio/teable-ee
+        required: false
+        default: develop
+        type: string
+      case_filter:
+        description: Perf case to inject into teable-ee e2e
+        required: false
+        default: smoke/auth-user
+        type: string
+      samples:
+        description: Measured samples for the case
+        required: false
+        default: "10"
+        type: string
+      perf_threshold_p95_ms:
+        description: p95 threshold for the smoke case
+        required: false
+        default: "2000"
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: teable-ee-e2e-perf-${{ github.ref }}-${{ inputs.case_filter }}
+  cancel-in-progress: false
+
+jobs:
+  teable-ee-e2e-perf:
+    name: Run ${{ inputs.case_filter }} on teable-ee e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      NODE_ENV: test
+      PRISMA_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
+      PRISMA_META_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
+      PRISMA_TRANSACTION_TIMEOUT: "30000"
+      BACKEND_CACHE_PROVIDER: redis
+      BACKEND_CACHE_REDIS_URI: "redis://default:teable@127.0.0.1:6379/1"
+      BACKEND_PERFORMANCE_CACHE: "redis://default:teable@127.0.0.1:6379/1"
+      TEABLE_SSRF_PROTECTION_DISABLED: "true"
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v4
+        with:
+          path: perf-lab
+
+      - name: Checkout teable-ee
+        uses: actions/checkout@v4
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ inputs.teable_ee_ref }}
+          path: teable-ee
+          token: ${{ secrets.TEABLE_EE_CHECKOUT_TOKEN || github.token }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.13.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+          cache-dependency-path: teable-ee/pnpm-lock.yaml
+
+      - name: Install teable-ee dependencies
+        working-directory: teable-ee
+        run: pnpm install --frozen-lockfile
+
+      - name: Select perf case
+        id: case
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.case_filter }}" in
+            smoke|auth-user|smoke/auth-user)
+              mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
+              cp perf-lab/cases/smoke/auth-user.e2e-spec.ts \
+                teable-ee/community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts
+              echo "teable_ee_spec=../../community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts" >> "$GITHUB_OUTPUT"
+              echo "artifact_case=smoke-auth-user" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported case_filter: ${{ inputs.case_filter }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Run perf case through teable-ee e2e
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          export DOCKER_UID="$(id -u)"
+          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+          export NETWORK_MODE="teablenet-${CI_JOB_ID}"
+          export TEST_PG_CONTAINER_NAME="teable-postgres-${CI_JOB_ID}"
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_SAMPLES="${{ inputs.samples }}"
+          export PERF_LAB_P95_THRESHOLD_MS="${{ inputs.perf_threshold_p95_ms }}"
+
+          make docker.create.network
+          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+          docker rm -fv teable-cache || true
+
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/database-postgres.yml \
+            -f ./dockers/cache-redis.yml \
+            run -p 25432:5432 -d -T --no-deps --rm \
+            --name "$TEST_PG_CONTAINER_NAME" teable-postgres
+
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/cache-redis.yml \
+            up --no-recreate -d teable-cache
+
+          chmod +x scripts/wait-for
+          scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
+          scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
+          until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
+            sleep 1
+          done
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable || true
+
+          make postgres.mode
+          pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
+
+          pnpm -F @teable/backend-ee exec vitest run \
+            --config ./vitest-e2e-community.config.ts \
+            "${{ steps.case.outputs.teable_ee_spec }}" \
+            --silent=false \
+            --bail 1
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teable-ee-e2e-perf-${{ steps.case.outputs.artifact_case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-artifacts
+          if-no-files-found: warn
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          if [ -f perf-lab-artifacts/summary.md ]; then
+            cat perf-lab-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cleanup teable-ee e2e services
+        if: always()
+        working-directory: teable-ee
+        run: |
+          set +e
+
+          export DOCKER_UID="$(id -u)"
+          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+          export NETWORK_MODE="teablenet-${CI_JOB_ID}"
+          export TEST_PG_CONTAINER_NAME="teable-postgres-${CI_JOB_ID}"
+
+          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+          docker rm -fv teable-cache || true
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/database-postgres.yml \
+            -f ./dockers/cache-redis.yml \
+            down -v || true
+          docker network rm "$NETWORK_MODE" || true
