@@ -69,14 +69,13 @@ const assertFormulaSamples = async (
     const record = page.records[0];
     expect(record).toBeTruthy();
 
-    const a = Number(record.fields.A);
-    const b = Number(record.fields.B);
-    const c = Number(record.fields.C);
-    const expected = a * b + c;
+    const rowNumber = sampleRow + 1;
+    const expected = rowNumber * ((rowNumber % 97) + 1) + (rowNumber % 13);
     expect(record.fields[formulaName]).toBe(expected);
 
     verifiedSamples.push({
       rowOffset: sampleRow,
+      rowNumber,
       recordId: record.id,
       actual: record.fields[formulaName],
       expected,
