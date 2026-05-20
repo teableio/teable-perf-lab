@@ -23,8 +23,9 @@ Manual inputs:
 - `samples`: measured samples for the case.
 - `perf_threshold_p95_ms`: p95 threshold for the smoke case.
 
-If `teableio/teable-ee` is private, configure a repository secret named
-`TEABLE_EE_CHECKOUT_TOKEN` with read access to that repository.
+Because `teableio/teable-ee` is private, configure a read-only deploy key on
+that repository and store the private key in this repository as
+`TEABLE_EE_CHECKOUT_SSH_KEY`.
 
 ## First case
 
