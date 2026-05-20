@@ -6,7 +6,10 @@
 - [x] Draft architecture plan
 - [x] Add first executable `teable-ee` e2e smoke workflow
 - [x] Add first smoke case for authenticated `/auth/user/me`
-- [ ] Run the workflow in GitHub Actions
+- [x] Run the first smoke workflow in GitHub Actions
+- [x] Add typed perf case framework with a single e2e entrypoint
+- [x] Add 10k formula calculation case
+- [ ] Validate the generic framework in GitHub Actions
 - [ ] Convert plan into milestone issues
 
 ## Open Decisions

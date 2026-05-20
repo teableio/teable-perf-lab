@@ -9,7 +9,7 @@ on:
         default: develop
         type: string
       case_filter:
-        description: Perf case to inject into teable-ee e2e
+        description: Perf case id to run through teable-ee e2e
         required: false
         default: smoke/auth-user
         type: string
@@ -18,10 +18,10 @@ on:
         required: false
         default: "10"
         type: string
-      perf_threshold_p95_ms:
-        description: p95 threshold for the smoke case
+      primary_threshold_ms:
+        description: Optional primary threshold override in milliseconds
         required: false
-        default: "2000"
+        default: ""
         type: string
 
 permissions:
@@ -84,19 +84,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "${{ inputs.case_filter }}" in
-            smoke|auth-user|smoke/auth-user)
-              mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
-              cp perf-lab/cases/smoke/auth-user.e2e-spec.ts \
-                teable-ee/community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts
-              echo "teable_ee_spec=../../community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts" >> "$GITHUB_OUTPUT"
-              echo "artifact_case=smoke-auth-user" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "Unsupported case_filter: ${{ inputs.case_filter }}" >&2
-              exit 1
-              ;;
-          esac
+          case_id="${{ inputs.case_filter }}"
+          artifact_case="$(printf '%s' "$case_id" | tr -c '[:alnum:]_.-' '-')"
+
+          echo "case_id=${case_id}" >> "$GITHUB_OUTPUT"
+          echo "artifact_case=${artifact_case}" >> "$GITHUB_OUTPUT"
+
+      - name: Install perf cases
+        run: |
+          set -euo pipefail
+
+          rm -rf teable-ee/community/apps/nestjs-backend/test/perf-lab
+          mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
+          cp -R perf-lab/cases/. teable-ee/community/apps/nestjs-backend/test/perf-lab/
 
       - name: Run perf case through teable-ee e2e
         working-directory: teable-ee
@@ -109,8 +109,9 @@ jobs:
           export TEST_PG_CONTAINER_NAME="teable-postgres-${CI_JOB_ID}"
           export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts"
           export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_CASE_ID="${{ steps.case.outputs.case_id }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
-          export PERF_LAB_P95_THRESHOLD_MS="${{ inputs.perf_threshold_p95_ms }}"
+          export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
 
           make docker.create.network
           docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
@@ -143,7 +144,7 @@ jobs:
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-e2e-community.config.ts \
-            "${{ steps.case.outputs.teable_ee_spec }}" \
+            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false \
             --bail 1
 

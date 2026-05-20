@@ -78,8 +78,9 @@ The first runner path reuses:
   `make postgres.mode`
 
 Perf cases are copied into
-`community/apps/nestjs-backend/test/perf-lab/*.e2e-spec.ts` at workflow runtime
-and then executed by `pnpm -F @teable/backend-ee exec vitest run`.
+`community/apps/nestjs-backend/test/perf-lab/` at workflow runtime. The workflow
+always executes `perf-lab.e2e-spec.ts`; the spec resolves `PERF_LAB_CASE_ID` from
+the typed registry and dispatches to the appropriate runner.
 
 ### Preview Trace
 
@@ -151,16 +152,18 @@ teable-perf-lab/
     workflows/
       teable-ee-e2e-perf.yml
   cases/
+    perf-lab.e2e-spec.ts
+    registry.ts
+    framework/
+      define-perf-case.ts
+      run-perf-case.ts
+      runners/
+        http-endpoint.runner.ts
+        formula-table.runner.ts
     smoke/
-      auth-user.e2e-spec.ts
+      auth-user.case.ts
     formula/
-      10k-basic/
-        case.yaml
-        schema.tea
-        seed.ts
-        steps.ts
-        thresholds.yaml
-        README.md
+      10k-calc.case.ts
   packages/
     cli/
     runner/
@@ -189,37 +192,30 @@ on committed files.
 ## 6. Case Model
 
 Each case should define intent, environment needs, setup, measured steps, and
-thresholds.
+thresholds. The MVP uses TypeScript case configs instead of YAML so field types,
+formula expressions, deterministic generators, and verification hooks stay
+typed and close to the e2e helpers.
 
 Example:
 
-```yaml
-id: formula.10k-basic
-name: Formula recompute on 10k rows
-owner: v2
-tags:
-  - formula
-  - computed
-  - byodb
-dataset:
-  rows: 10000
-  generator: ./seed.ts
-schema:
-  tea: ./schema.tea
-steps:
-  - id: update-source-cell
-    runner: api
-    script: ./steps.ts
-    measure: true
-  - id: wait-computed-drain
-    runner: collector
-    measure: true
-thresholds:
-  absolute:
-    http_ms_p95: 2000
-    computed_drain_ms: 8000
-  relative:
-    max_regression_percent: 20
+```ts
+export default definePerfCase({
+  id: "formula/10k-calc",
+  title: "10k rows formula calculation",
+  runner: "formula-table",
+  config: {
+    recordCount: 10_000,
+    batchSize: 1_000,
+    formula: {
+      name: "Total",
+      expression: "({A} * {B}) + {C}",
+    },
+    threshold: {
+      metric: "formulaReadyMs",
+      maxMs: 60_000,
+    },
+  },
+});
 ```
 
 `.tea` should be used for schema and view structure. Large records should be

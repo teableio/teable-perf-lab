@@ -9,7 +9,7 @@ on:
         default: develop
         type: string
       case_filter:
-        description: Perf case to inject into teable-ee e2e
+        description: Perf case id to run through teable-ee e2e
         required: false
         default: smoke/auth-user
         type: string
@@ -18,10 +18,10 @@ on:
         required: false
         default: "10"
         type: string
-      perf_threshold_p95_ms:
-        description: p95 threshold for the smoke case
+      primary_threshold_ms:
+        description: Optional primary threshold override in milliseconds
         required: false
-        default: "2000"
+        default: ""
         type: string
 
 permissions:
@@ -69,20 +69,22 @@ jobs:
         working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
-      - name: Inject smoke case
+      - name: Install perf cases
         run: |
+          rm -rf teable-ee/community/apps/nestjs-backend/test/perf-lab
           mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
-          cp perf-lab/cases/smoke/auth-user.e2e-spec.ts \
-            teable-ee/community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts
+          cp -R perf-lab/cases/. teable-ee/community/apps/nestjs-backend/test/perf-lab/
 
       - name: Run perf case through teable-ee e2e
         working-directory: teable-ee
         run: |
           # See .github/workflows/teable-ee-e2e-perf.yml for the full runnable
           # workflow, including Postgres/Redis startup and cleanup.
+          export PERF_LAB_CASE_ID="${{ inputs.case_filter }}"
+          export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-e2e-community.config.ts \
-            ../../community/apps/nestjs-backend/test/perf-lab/auth-user.e2e-spec.ts \
+            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false \
             --bail 1
 
