@@ -36,6 +36,16 @@ export interface PerfRunResult {
   details?: Record<string, unknown>;
 }
 
+export class PerfRunDiagnosticError extends Error {
+  constructor(
+    message: string,
+    public readonly result: PerfRunResult,
+  ) {
+    super(message);
+    this.name = "PerfRunDiagnosticError";
+  }
+}
+
 export interface HttpEndpointCaseConfig {
   method: "GET";
   path: string;
@@ -63,6 +73,8 @@ export interface FormulaTableCaseConfig {
   };
   verify: {
     sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
   };
   threshold: {
     metric: "formulaReadyMs";

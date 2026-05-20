@@ -3,6 +3,7 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { PerfRunDiagnosticError } from "./types";
 import type {
   MetricThreshold,
   PerfCase,
@@ -97,6 +98,31 @@ export const runPerfCase = async (
     }
   } catch (error) {
     if (payloadWritten) {
+      throw error;
+    }
+
+    if (error instanceof PerfRunDiagnosticError) {
+      const thresholdResults = evaluateThresholds(
+        error.result.metrics,
+        error.result.thresholds,
+      );
+      const payload: PerfArtifactPayload = {
+        caseId: perfCase.id,
+        title: perfCase.title,
+        runId: context.runId,
+        appUrl: context.appUrl,
+        result: "fail",
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: roundMetric(performance.now() - started),
+        metrics: error.result.metrics,
+        thresholds: thresholdResults,
+        phases: error.result.phases,
+        details: error.result.details,
+        error: normalizeError(error),
+      };
+
+      await writePerfArtifacts(context.artifactDir, perfCase, payload);
       throw error;
     }
 
