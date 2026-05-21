@@ -18,8 +18,9 @@ regression validation:
 - publish manual and scheduled regression reports
 
 The executable entrypoint is `perf-lab.e2e-spec.ts`. Case definitions live under
-`cases/**/*.case.ts`, while shared runners and artifacts live in `framework/`.
-Cases are registered in `registry.ts`.
+`cases/**/*.case.ts`, and each case must have a same-name `cases/**/*.md`
+description beside it. Shared runners and artifacts live in `framework/`. Cases
+are registered in `registry.ts`.
 
 Available cases:
 
@@ -35,3 +36,24 @@ Available cases:
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
 design remains in [docs/plan.md](docs/plan.md).
+
+## Case Registry
+
+Developer-facing case metadata is mirrored into the Teable `Perf Cases` table:
+
+- Base: `bselS3I2MeVI6RJhS4g`
+- Table: `tbl0pa9PtLeNPCRNCKe`
+
+The table stores the case id, title, owner, tags, runner, threshold, local
+reproduce command, GitHub Actions reproduce command, and a GitHub URL for the
+case description markdown. The sync source of truth is the repository:
+
+- `cases/<group>/<case>.case.ts` defines executable behavior and thresholds.
+- `cases/<group>/<case>.md` explains the data setup, operation, and metric.
+- `registry.ts` decides which cases are runnable.
+
+Run `pnpm check:cases` to validate the registry and markdown descriptions
+without writing Teable. Run `pnpm sync:cases` with `TEABLE_PERF_LAB_TOKEN` to
+upsert the table locally. GitHub Actions also runs `Sync perf cases` on pushes
+to `main` that touch case definitions, descriptions, registry, or the sync
+script, so the Teable table stays aligned with the repo.

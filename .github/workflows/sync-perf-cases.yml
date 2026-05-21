@@ -1,0 +1,44 @@
+name: Sync perf cases
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cases/**/*.case.ts"
+      - "cases/**/*.md"
+      - "registry.ts"
+      - "scripts/sync-perf-cases.mjs"
+      - "package.json"
+      - ".github/workflows/sync-perf-cases.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-perf-cases-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
+  TEABLE_PERF_CASES_TABLE_ID: tbl0pa9PtLeNPCRNCKe
+  TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+
+jobs:
+  sync-perf-cases:
+    name: Sync case registry to Teable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.18.0
+
+      - name: Sync perf cases
+        run: node scripts/sync-perf-cases.mjs

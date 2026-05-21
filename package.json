@@ -5,9 +5,11 @@
   "scripts": {
     "format": "prettier --write \"**/*.{ts,js,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,js,json,md,yml,yaml}\"",
+    "sync:cases": "node scripts/sync-perf-cases.mjs",
+    "check:cases": "PERF_LAB_CASE_SYNC_DRY_RUN=true node scripts/sync-perf-cases.mjs",
     "check:yaml": "node scripts/check-yaml.mjs",
     "check:ts": "node scripts/check-ts-syntax.mjs",
-    "check": "pnpm format:check && pnpm check:yaml && pnpm check:ts"
+    "check": "pnpm format:check && pnpm check:yaml && pnpm check:ts && pnpm check:cases"
   },
   "devDependencies": {
     "prettier": "3.6.2",
