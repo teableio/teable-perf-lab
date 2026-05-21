@@ -29,6 +29,7 @@ export default definePerfCase({
       sampleRows: [0, 4_999, 9_999],
       timeoutMs: 120_000,
       pollIntervalMs: 500,
+      fullScanPageSize: 1_000,
     },
     threshold: {
       metric: "conditionalLookupReadyMs",

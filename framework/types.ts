@@ -92,9 +92,14 @@ export interface FormulaTableCaseConfig {
     sampleRows: number[];
     timeoutMs?: number;
     pollIntervalMs?: number;
+    fullScanPageSize?: number;
   };
   threshold: {
-    metric: "formulaReadyMs" | "formulasReadyMs";
+    metric:
+      | "formulaReadyMs"
+      | "formulasReadyMs"
+      | "formulaFullReadyMs"
+      | "formulasFullReadyMs";
     maxMs: number;
   };
 }
@@ -123,6 +128,7 @@ export interface ConditionalLookupCaseConfig {
     sampleRows: number[];
     timeoutMs?: number;
     pollIntervalMs?: number;
+    fullScanPageSize?: number;
   };
   threshold: {
     metric: "conditionalLookupReadyMs";

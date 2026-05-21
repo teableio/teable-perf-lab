@@ -4,6 +4,7 @@ import {
   createRecords,
   createTable,
   getRecord,
+  getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
@@ -42,6 +43,11 @@ type Measurement<T> = {
   name: string;
   durationMs: number;
   result: T;
+};
+
+type HostFields = {
+  keyFieldId: string;
+  lookupKeyFieldId: string;
 };
 
 const SOURCE_KEY_FIELD_NAME = "A Key";
@@ -99,6 +105,21 @@ const getExpectedValue = (
   sourceRowNumber: number,
   config: ConditionalLookupCaseConfig,
 ) => `${config.generator.sourceValuePrefix}-${sourceRowNumber}`;
+
+const parseRowNumber = (value: unknown, prefix: string) => {
+  if (typeof value !== "string") {
+    throw new Error(
+      `Expected ${prefix} value to be a string, got ${String(value)}`,
+    );
+  }
+
+  const rowNumber = Number(value.slice(`${prefix}-`.length));
+  if (!value.startsWith(`${prefix}-`) || !Number.isInteger(rowNumber)) {
+    throw new Error(`Expected ${value} to match ${prefix}-<rowNumber>`);
+  }
+
+  return rowNumber;
+};
 
 const buildSourceRecords = (
   config: ConditionalLookupCaseConfig,
@@ -215,6 +236,145 @@ const waitForLookupSamples = async (
   );
 };
 
+const assertLookupFullScan = async (
+  tableId: string,
+  lookupFieldId: string,
+  config: ConditionalLookupCaseConfig,
+  hostFields: HostFields,
+) => {
+  const pageSize = config.verify.fullScanPageSize ?? 1_000;
+  const sampleRowOffsets = new Set(config.verify.sampleRows);
+  const verifiedSamples = [];
+  const seenRowNumbers = new Set<number>();
+  let scannedRecords = 0;
+  let pageCount = 0;
+
+  for (let skip = 0; skip < config.recordCount; skip += pageSize) {
+    const expectedTake = Math.min(pageSize, config.recordCount - skip);
+    const result = await getRecords(tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [
+        hostFields.keyFieldId,
+        hostFields.lookupKeyFieldId,
+        lookupFieldId,
+      ],
+      skip,
+      take: expectedTake,
+    });
+    pageCount += 1;
+
+    if (result.records.length !== expectedTake) {
+      throw new Error(
+        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
+      );
+    }
+
+    for (const record of result.records) {
+      const hostRowNumber = parseRowNumber(
+        record.fields[hostFields.keyFieldId],
+        config.generator.hostKeyPrefix,
+      );
+      const sourceRowNumber = getSourceRowNumberForHostRow(
+        hostRowNumber,
+        config,
+      );
+      const expectedLookupKey = getSourceKey(sourceRowNumber, config);
+      const actualLookupKey = record.fields[hostFields.lookupKeyFieldId];
+      const expected = [getExpectedValue(sourceRowNumber, config)];
+      const actual = record.fields[lookupFieldId];
+
+      if (seenRowNumbers.has(hostRowNumber)) {
+        throw new Error(
+          `Duplicate host row number in full scan: ${hostRowNumber}`,
+        );
+      }
+      seenRowNumbers.add(hostRowNumber);
+
+      if (actualLookupKey !== expectedLookupKey) {
+        throw new Error(
+          `Host row ${hostRowNumber} lookup key mismatch: expected ${expectedLookupKey}, actual ${String(
+            actualLookupKey,
+          )}`,
+        );
+      }
+
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new Error(
+          `Conditional lookup full scan mismatch at host row ${hostRowNumber}: expected ${JSON.stringify(
+            expected,
+          )}, actual ${JSON.stringify(actual)}`,
+        );
+      }
+
+      const rowOffset = hostRowNumber - 1;
+      if (sampleRowOffsets.has(rowOffset)) {
+        verifiedSamples.push({
+          rowOffset,
+          rowNumber: hostRowNumber,
+          sourceRowNumber,
+          recordId: record.id,
+          actual,
+          expected,
+        });
+      }
+      scannedRecords += 1;
+    }
+  }
+
+  if (scannedRecords !== config.recordCount) {
+    throw new Error(
+      `Full scan record count mismatch: expected ${config.recordCount}, scanned ${scannedRecords}`,
+    );
+  }
+
+  if (seenRowNumbers.size !== config.recordCount) {
+    throw new Error(
+      `Full scan unique row mismatch: expected ${config.recordCount}, got ${seenRowNumbers.size}`,
+    );
+  }
+
+  return {
+    scannedRecords,
+    pageSize,
+    pageCount,
+    verifiedSamples: verifiedSamples.sort(
+      (left, right) => left.rowOffset - right.rowOffset,
+    ),
+  };
+};
+
+const waitForLookupFullScan = async (
+  tableId: string,
+  lookupFieldId: string,
+  config: ConditionalLookupCaseConfig,
+  hostFields: HostFields,
+) => {
+  const startedAt = Date.now();
+  const timeoutMs = config.verify.timeoutMs ?? 60_000;
+  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
+  let lastError: unknown;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      return await assertLookupFullScan(
+        tableId,
+        lookupFieldId,
+        config,
+        hostFields,
+      );
+    } catch (error) {
+      lastError = error;
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for full conditional lookup scan after ${timeoutMs}ms: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+};
+
 const buildConditionalLookupCaseResult = ({
   config,
   sourceTableId,
@@ -227,7 +387,8 @@ const buildConditionalLookupCaseResult = ({
   createTablesMeasurement,
   seedSourceMeasurement,
   seedHostMeasurement,
-  conditionalLookupReadyMeasurement,
+  createLookupFieldMeasurement,
+  fullLookupScanReadyMeasurement,
   lookupField,
   sourceFields,
   hostFields,
@@ -244,35 +405,41 @@ const buildConditionalLookupCaseResult = ({
   createTablesMeasurement: Measurement<unknown>;
   seedSourceMeasurement: Measurement<unknown>;
   seedHostMeasurement: Measurement<unknown>;
-  conditionalLookupReadyMeasurement?: Measurement<
-    Awaited<ReturnType<typeof waitForLookupSamples>>
+  createLookupFieldMeasurement?: Measurement<{ id: string }>;
+  fullLookupScanReadyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof waitForLookupFullScan>>
   >;
   lookupField?: { id: string };
   sourceFields: {
     keyFieldId: string;
     valueFieldId: string;
   };
-  hostFields: {
-    keyFieldId: string;
-    lookupKeyFieldId: string;
-  };
+  hostFields: HostFields;
   error?: unknown;
 }): PerfRunResult => ({
   metrics: {
     createTablesMs: createTablesMeasurement.durationMs,
     seedSourceRecordsMs: seedSourceMeasurement.durationMs,
     seedHostRecordsMs: seedHostMeasurement.durationMs,
-    ...(conditionalLookupReadyMeasurement
+    ...(createLookupFieldMeasurement
       ? {
-          conditionalLookupReadyMs:
-            conditionalLookupReadyMeasurement.durationMs,
+          createLookupFieldMs: createLookupFieldMeasurement.durationMs,
+        }
+      : {}),
+    ...(fullLookupScanReadyMeasurement
+      ? {
+          fullLookupScanReadyMs: fullLookupScanReadyMeasurement.durationMs,
+          conditionalLookupReadyMs: roundMetric(
+            (createLookupFieldMeasurement?.durationMs ?? 0) +
+              fullLookupScanReadyMeasurement.durationMs,
+          ),
         }
       : {}),
     maxSeedBatchMs: roundMetric(
       Math.max(...sourceBatchDurations, ...hostBatchDurations),
     ),
   },
-  thresholds: conditionalLookupReadyMeasurement
+  thresholds: fullLookupScanReadyMeasurement
     ? [
         {
           metric: config.threshold.metric,
@@ -294,11 +461,19 @@ const buildConditionalLookupCaseResult = ({
       name: seedHostMeasurement.name,
       durationMs: seedHostMeasurement.durationMs,
     },
-    ...(conditionalLookupReadyMeasurement
+    ...(createLookupFieldMeasurement
       ? [
           {
-            name: conditionalLookupReadyMeasurement.name,
-            durationMs: conditionalLookupReadyMeasurement.durationMs,
+            name: createLookupFieldMeasurement.name,
+            durationMs: createLookupFieldMeasurement.durationMs,
+          },
+        ]
+      : []),
+    ...(fullLookupScanReadyMeasurement
+      ? [
+          {
+            name: fullLookupScanReadyMeasurement.name,
+            durationMs: fullLookupScanReadyMeasurement.durationMs,
           },
         ]
       : []),
@@ -318,7 +493,14 @@ const buildConditionalLookupCaseResult = ({
       name: config.lookup.name,
       limit: config.lookup.limit,
     },
-    verifiedSamples: conditionalLookupReadyMeasurement?.result,
+    fullScan: fullLookupScanReadyMeasurement?.result
+      ? {
+          scannedRecords: fullLookupScanReadyMeasurement.result.scannedRecords,
+          pageSize: fullLookupScanReadyMeasurement.result.pageSize,
+          pageCount: fullLookupScanReadyMeasurement.result.pageCount,
+        }
+      : undefined,
+    verifiedSamples: fullLookupScanReadyMeasurement?.result.verifiedSamples,
     error:
       error instanceof Error
         ? {
@@ -442,10 +624,10 @@ export const runConditionalLookupCase = async (
     let createdLookupField: { id: string } | undefined;
 
     try {
-      const conditionalLookupReadyMeasurement = await measureAsync(
-        "conditionalLookupReady",
-        async () => {
-          const lookupField = await createField(hostTableId, {
+      const createLookupFieldMeasurement = await measureAsync(
+        "createLookupField",
+        () =>
+          createField(hostTableId, {
             name: config.lookup.name,
             type: FieldType.SingleLineText,
             isLookup: true,
@@ -468,15 +650,19 @@ export const runConditionalLookupCase = async (
               },
               limit: config.lookup.limit,
             },
-          });
-          createdLookupField = lookupField;
-          return waitForLookupSamples(
+          }),
+      );
+      createdLookupField = createLookupFieldMeasurement.result;
+
+      const fullLookupScanReadyMeasurement = await measureAsync(
+        "fullLookupScanReady",
+        () =>
+          waitForLookupFullScan(
             hostTableId,
-            lookupField.id,
+            createLookupFieldMeasurement.result.id,
             config,
-            sampleRecords,
-          );
-        },
+            hostFields,
+          ),
       );
 
       return buildConditionalLookupCaseResult({
@@ -491,7 +677,8 @@ export const runConditionalLookupCase = async (
         createTablesMeasurement,
         seedSourceMeasurement,
         seedHostMeasurement,
-        conditionalLookupReadyMeasurement,
+        createLookupFieldMeasurement,
+        fullLookupScanReadyMeasurement,
         lookupField: createdLookupField,
         sourceFields,
         hostFields,

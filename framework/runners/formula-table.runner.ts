@@ -5,6 +5,7 @@ import {
   createTable,
   getFields,
   getRecord,
+  getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
@@ -119,6 +120,20 @@ const getExpectedRow = (
       weightedABC: a * 3 + b * 5 + c * 7,
     },
   };
+};
+
+const parseTitleRowNumber = (value: unknown, titlePrefix: string) => {
+  if (typeof value !== "string") {
+    throw new Error(`Expected Title to be a string, got ${String(value)}`);
+  }
+
+  const prefix = `${titlePrefix} `;
+  const rowNumber = Number(value.slice(prefix.length));
+  if (!value.startsWith(prefix) || !Number.isInteger(rowNumber)) {
+    throw new Error(`Expected ${value} to match "${prefix}<rowNumber>"`);
+  }
+
+  return rowNumber;
 };
 
 const resolveFormulas = (
@@ -352,6 +367,143 @@ const waitForFormulaSamples = async (
   );
 };
 
+const assertFormulaFullScan = async (
+  tableId: string,
+  formulas: Array<FormulaFieldCaseConfig & { id: string }>,
+  config: FormulaTableCaseConfig,
+  sourceFields: SourceFields,
+) => {
+  const pageSize = config.verify.fullScanPageSize ?? 1_000;
+  const sampleRowOffsets = new Set(config.verify.sampleRows);
+  const verifiedSamples = [];
+  const seenRowNumbers = new Set<number>();
+  let scannedRecords = 0;
+  let pageCount = 0;
+
+  for (let skip = 0; skip < config.recordCount; skip += pageSize) {
+    const expectedTake = Math.min(pageSize, config.recordCount - skip);
+    const result = await getRecords(tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [
+        sourceFields.Title.id,
+        ...formulas.map((formula) => formula.id),
+      ],
+      skip,
+      take: expectedTake,
+    });
+    pageCount += 1;
+
+    if (result.records.length !== expectedTake) {
+      throw new Error(
+        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
+      );
+    }
+
+    for (const record of result.records) {
+      const rowNumber = parseTitleRowNumber(
+        record.fields[sourceFields.Title.id],
+        config.generator.titlePrefix,
+      );
+      if (seenRowNumbers.has(rowNumber)) {
+        throw new Error(
+          `Duplicate formula row number in full scan: ${rowNumber}`,
+        );
+      }
+      seenRowNumbers.add(rowNumber);
+
+      const expectedRow = getExpectedRow(
+        rowNumber,
+        config.generator.titlePrefix,
+      );
+      const verifiedFormulaValues = [];
+
+      for (const formula of formulas) {
+        const expectedKind = formula.expected ?? "aTimesBPlusC";
+        const expected = expectedRow.formulaValues[expectedKind];
+        const actual = record.fields[formula.id];
+        if (actual !== expected) {
+          throw new Error(
+            `Formula ${formula.name} full scan mismatch at row ${rowNumber}: expected ${expected}, actual ${String(
+              actual,
+            )}`,
+          );
+        }
+
+        verifiedFormulaValues.push({
+          name: formula.name,
+          fieldId: formula.id,
+          actual,
+          expected,
+        });
+      }
+
+      const rowOffset = rowNumber - 1;
+      if (sampleRowOffsets.has(rowOffset)) {
+        verifiedSamples.push({
+          rowOffset,
+          rowNumber,
+          recordId: record.id,
+          formulas: verifiedFormulaValues,
+        });
+      }
+      scannedRecords += 1;
+    }
+  }
+
+  if (scannedRecords !== config.recordCount) {
+    throw new Error(
+      `Full formula scan record count mismatch: expected ${config.recordCount}, scanned ${scannedRecords}`,
+    );
+  }
+
+  if (seenRowNumbers.size !== config.recordCount) {
+    throw new Error(
+      `Full formula scan unique row mismatch: expected ${config.recordCount}, got ${seenRowNumbers.size}`,
+    );
+  }
+
+  return {
+    scannedRecords,
+    pageSize,
+    pageCount,
+    verifiedSamples: verifiedSamples.sort(
+      (left, right) => left.rowOffset - right.rowOffset,
+    ),
+  };
+};
+
+const waitForFormulaFullScan = async (
+  tableId: string,
+  formulas: Array<FormulaFieldCaseConfig & { id: string }>,
+  config: FormulaTableCaseConfig,
+  sourceFields: SourceFields,
+) => {
+  const startedAt = Date.now();
+  const timeoutMs = config.verify.timeoutMs ?? 30_000;
+  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
+  let lastError: unknown;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      return await assertFormulaFullScan(
+        tableId,
+        formulas,
+        config,
+        sourceFields,
+      );
+    } catch (error) {
+      lastError = error;
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for full formula scan after ${timeoutMs}ms: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+};
+
 const buildFormulaCaseResult = ({
   config,
   tableId,
@@ -365,6 +517,7 @@ const buildFormulaCaseResult = ({
   sourceFields,
   formulas,
   formulasReadyMeasurement,
+  fullFormulaScanReadyMeasurement,
   error,
 }: {
   config: FormulaTableCaseConfig;
@@ -383,9 +536,19 @@ const buildFormulaCaseResult = ({
     FormulaFieldCaseConfig & { compiledExpression: string; id?: string }
   >;
   formulasReadyMeasurement?: Measurement<FormulaRunResult[]>;
+  fullFormulaScanReadyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof waitForFormulaFullScan>>
+  >;
   error?: unknown;
 }): PerfRunResult => {
   const formulaResults = formulasReadyMeasurement?.result;
+  const fullReadyMs =
+    formulasReadyMeasurement && fullFormulaScanReadyMeasurement
+      ? roundMetric(
+          formulasReadyMeasurement.durationMs +
+            fullFormulaScanReadyMeasurement.durationMs,
+        )
+      : undefined;
   const metrics = {
     createTableMs: createTableMeasurement.durationMs,
     seedRecordsMs: seedMeasurement.durationMs,
@@ -397,6 +560,15 @@ const buildFormulaCaseResult = ({
       : {}),
     ...(formulaResults && formulaResults.length > 1
       ? { formulasReadyMs: formulasReadyMeasurement.durationMs }
+      : {}),
+    ...(fullFormulaScanReadyMeasurement
+      ? { fullFormulaScanReadyMs: fullFormulaScanReadyMeasurement.durationMs }
+      : {}),
+    ...(formulaResults?.length === 1 && fullReadyMs !== undefined
+      ? { formulaFullReadyMs: fullReadyMs }
+      : {}),
+    ...(formulaResults && formulaResults.length > 1 && fullReadyMs !== undefined
+      ? { formulasFullReadyMs: fullReadyMs }
       : {}),
     maxSeedBatchMs: roundMetric(Math.max(...batchDurations)),
   };
@@ -412,6 +584,14 @@ const buildFormulaCaseResult = ({
           {
             name: sourceReadyMeasurement.name,
             durationMs: sourceReadyMeasurement.durationMs,
+          },
+        ]
+      : []),
+    ...(fullFormulaScanReadyMeasurement
+      ? [
+          {
+            name: fullFormulaScanReadyMeasurement.name,
+            durationMs: fullFormulaScanReadyMeasurement.durationMs,
           },
         ]
       : []),
@@ -454,6 +634,16 @@ const buildFormulaCaseResult = ({
         durationMs: result.durationMs,
         verifiedSamples: result.verifiedSamples,
       })),
+      fullScan: fullFormulaScanReadyMeasurement?.result
+        ? {
+            scannedRecords:
+              fullFormulaScanReadyMeasurement.result.scannedRecords,
+            pageSize: fullFormulaScanReadyMeasurement.result.pageSize,
+            pageCount: fullFormulaScanReadyMeasurement.result.pageCount,
+          }
+        : undefined,
+      verifiedFullScanSamples:
+        fullFormulaScanReadyMeasurement?.result.verifiedSamples,
       formula:
         formulas.length === 1
           ? {
@@ -567,6 +757,9 @@ export const runFormulaTableCase = async (
     }
 
     let formulasReadyMeasurement: Measurement<FormulaRunResult[]>;
+    let fullFormulaScanReadyMeasurement: Measurement<
+      Awaited<ReturnType<typeof waitForFormulaFullScan>>
+    >;
     const createdFormulaFields = new Map<
       string,
       FormulaFieldCaseConfig & { id: string; compiledExpression: string }
@@ -612,6 +805,16 @@ export const runFormulaTableCase = async (
           }),
         ),
       );
+      fullFormulaScanReadyMeasurement = await measureAsync(
+        "fullFormulaScanReady",
+        () =>
+          waitForFormulaFullScan(
+            tableId,
+            formulasReadyMeasurement.result.map(({ formula }) => formula),
+            config,
+            sourceFields,
+          ),
+      );
     } catch (error) {
       const formulasWithCreatedIds = formulas.map((formula) => {
         const createdFormula = createdFormulaFields.get(formula.name);
@@ -629,6 +832,7 @@ export const runFormulaTableCase = async (
         sourceReadyMeasurement,
         sourceFields,
         formulas: formulasWithCreatedIds,
+        formulasReadyMeasurement,
         error,
       });
 
@@ -651,6 +855,7 @@ export const runFormulaTableCase = async (
       sourceFields,
       formulas: formulasReadyMeasurement.result.map(({ formula }) => formula),
       formulasReadyMeasurement,
+      fullFormulaScanReadyMeasurement,
     });
 
     return {

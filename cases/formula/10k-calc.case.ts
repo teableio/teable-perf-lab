@@ -39,9 +39,10 @@ export default definePerfCase({
     },
     verify: {
       sampleRows: [0, 4_999, 9_999],
+      fullScanPageSize: 1_000,
     },
     threshold: {
-      metric: "formulaReadyMs",
+      metric: "formulaFullReadyMs",
       maxMs: 60_000,
     },
   },
