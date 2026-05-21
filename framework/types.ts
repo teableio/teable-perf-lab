@@ -106,9 +106,14 @@ export interface ConditionalLookupCaseConfig {
   recordCount: number;
   batchSize: number;
   generator: {
-    type: "matching-key-sequence";
-    keyPrefix: string;
+    type: "permuted-unique-key-sequence";
+    sourceKeyPrefix: string;
+    hostKeyPrefix: string;
     sourceValuePrefix: string;
+    permutation: {
+      multiplier: number;
+      offset: number;
+    };
   };
   lookup: {
     name: string;

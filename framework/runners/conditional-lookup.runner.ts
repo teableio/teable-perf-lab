@@ -29,10 +29,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 type SeedRecordInput = {
   rowOffset: number;
   rowNumber: number;
-  fields: {
-    Key: string;
-    Value?: string;
-  };
+  fields: Record<string, string>;
 };
 
 type SeededSampleRecord = {
@@ -47,15 +44,61 @@ type Measurement<T> = {
   result: T;
 };
 
-const getExpectedKey = (
-  rowNumber: number,
+const SOURCE_KEY_FIELD_NAME = "A Key";
+const SOURCE_VALUE_FIELD_NAME = "A Value";
+const HOST_KEY_FIELD_NAME = "B Key";
+const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup A Key";
+
+const getGreatestCommonDivisor = (left: number, right: number): number => {
+  let a = Math.abs(left);
+  let b = Math.abs(right);
+  while (b !== 0) {
+    const next = a % b;
+    a = b;
+    b = next;
+  }
+  return a;
+};
+
+const assertPermutationConfig = (config: ConditionalLookupCaseConfig) => {
+  const { multiplier, offset } = config.generator.permutation;
+  if (
+    !Number.isInteger(multiplier) ||
+    !Number.isInteger(offset) ||
+    multiplier <= 0 ||
+    offset < 0
+  ) {
+    throw new Error(
+      `Invalid conditional lookup permutation config: multiplier=${multiplier}, offset=${offset}`,
+    );
+  }
+
+  if (getGreatestCommonDivisor(multiplier, config.recordCount) !== 1) {
+    throw new Error(
+      `Permutation multiplier ${multiplier} must be coprime with recordCount ${config.recordCount}`,
+    );
+  }
+};
+
+const getSourceRowNumberForHostRow = (
+  hostRowNumber: number,
   config: ConditionalLookupCaseConfig,
-) => `${config.generator.keyPrefix}-${rowNumber}`;
+) => {
+  const { multiplier, offset } = config.generator.permutation;
+  const hostRowOffset = hostRowNumber - 1;
+  return ((hostRowOffset * multiplier + offset) % config.recordCount) + 1;
+};
+
+const getSourceKey = (rowNumber: number, config: ConditionalLookupCaseConfig) =>
+  `${config.generator.sourceKeyPrefix}-${rowNumber}`;
+
+const getHostKey = (rowNumber: number, config: ConditionalLookupCaseConfig) =>
+  `${config.generator.hostKeyPrefix}-${rowNumber}`;
 
 const getExpectedValue = (
-  rowNumber: number,
+  sourceRowNumber: number,
   config: ConditionalLookupCaseConfig,
-) => `${config.generator.sourceValuePrefix}-${rowNumber}`;
+) => `${config.generator.sourceValuePrefix}-${sourceRowNumber}`;
 
 const buildSourceRecords = (
   config: ConditionalLookupCaseConfig,
@@ -66,8 +109,8 @@ const buildSourceRecords = (
       rowOffset: index,
       rowNumber,
       fields: {
-        Key: getExpectedKey(rowNumber, config),
-        Value: getExpectedValue(rowNumber, config),
+        [SOURCE_KEY_FIELD_NAME]: getSourceKey(rowNumber, config),
+        [SOURCE_VALUE_FIELD_NAME]: getExpectedValue(rowNumber, config),
       },
     };
   });
@@ -79,7 +122,11 @@ const buildHostRecords = (config: ConditionalLookupCaseConfig) =>
       rowOffset: index,
       rowNumber,
       fields: {
-        Key: getExpectedKey(rowNumber, config),
+        [HOST_KEY_FIELD_NAME]: getHostKey(rowNumber, config),
+        [HOST_LOOKUP_KEY_FIELD_NAME]: getSourceKey(
+          getSourceRowNumberForHostRow(rowNumber, config),
+          config,
+        ),
       },
     };
   });
@@ -109,7 +156,11 @@ const assertLookupSamples = async (
   for (const sampleRecord of sampleRecords) {
     const record = await getRecord(tableId, sampleRecord.recordId);
     const actual = record.fields[lookupFieldId];
-    const expected = [getExpectedValue(sampleRecord.rowNumber, config)];
+    const sourceRowNumber = getSourceRowNumberForHostRow(
+      sampleRecord.rowNumber,
+      config,
+    );
+    const expected = [getExpectedValue(sourceRowNumber, config)];
 
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error(
@@ -122,6 +173,7 @@ const assertLookupSamples = async (
     verifiedSamples.push({
       rowOffset: sampleRecord.rowOffset,
       rowNumber: sampleRecord.rowNumber,
+      sourceRowNumber,
       recordId: sampleRecord.recordId,
       actual,
       expected,
@@ -202,6 +254,7 @@ const buildConditionalLookupCaseResult = ({
   };
   hostFields: {
     keyFieldId: string;
+    lookupKeyFieldId: string;
   };
   error?: unknown;
 }): PerfRunResult => ({
@@ -289,20 +342,28 @@ export const runConditionalLookupCase = async (
   let hostTableId = "";
 
   try {
+    assertPermutationConfig(config);
+
     const createTablesMeasurement = await measureAsync(
       "createTables",
       async () => {
         const sourceTable = await createTable(baseId, {
           name: sourceTableName,
           fields: [
-            { name: "Key", type: FieldType.SingleLineText },
-            { name: "Value", type: FieldType.SingleLineText },
+            { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+            { name: SOURCE_VALUE_FIELD_NAME, type: FieldType.SingleLineText },
           ],
           records: [],
         });
         const hostTable = await createTable(baseId, {
           name: hostTableName,
-          fields: [{ name: "Key", type: FieldType.SingleLineText }],
+          fields: [
+            { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+            {
+              name: HOST_LOOKUP_KEY_FIELD_NAME,
+              type: FieldType.SingleLineText,
+            },
+          ],
           records: [],
         });
         return { sourceTable, hostTable };
@@ -317,6 +378,7 @@ export const runConditionalLookupCase = async (
     };
     const hostFields = {
       keyFieldId: createTablesMeasurement.result.hostTable.fields[0].id,
+      lookupKeyFieldId: createTablesMeasurement.result.hostTable.fields[1].id,
     };
     const sourceRecords = buildSourceRecords(config);
     const hostRecords = buildHostRecords(config);
@@ -397,7 +459,10 @@ export const runConditionalLookupCase = async (
                   {
                     fieldId: sourceFields.keyFieldId,
                     operator: "is",
-                    value: { type: "field", fieldId: hostFields.keyFieldId },
+                    value: {
+                      type: "field",
+                      fieldId: hostFields.lookupKeyFieldId,
+                    },
                   },
                 ],
               },

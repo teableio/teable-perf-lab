@@ -51,8 +51,8 @@ Current cases:
   prove computed values are available.
 - `formula/10k-5-concurrent`: creates 10k deterministic rows once and measures
   five formula fields created concurrently on one table.
-- `lookup/conditional-10k`: creates two 10k deterministic tables and measures
-  conditional lookup readiness.
+- `lookup/conditional-10k`: creates two 10k deterministic tables with permuted
+  unique keys and measures conditional lookup readiness.
 
 To add a case, add a `*.case.ts` config under `cases/` and register it in
 `registry.ts`.

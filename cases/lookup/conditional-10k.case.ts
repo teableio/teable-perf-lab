@@ -2,7 +2,7 @@ import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
   id: "lookup/conditional-10k",
-  title: "10k x 10k conditional lookup",
+  title: "10k x 10k unique-key conditional lookup",
   runner: "conditional-lookup",
   timeoutMs: 300_000,
   config: {
@@ -12,12 +12,17 @@ export default definePerfCase({
     recordCount: 10_000,
     batchSize: 1_000,
     generator: {
-      type: "matching-key-sequence",
-      keyPrefix: "CL-Key",
-      sourceValuePrefix: "CL-Value",
+      type: "permuted-unique-key-sequence",
+      sourceKeyPrefix: "A-Key",
+      hostKeyPrefix: "B-Key",
+      sourceValuePrefix: "A-Value",
+      permutation: {
+        multiplier: 73,
+        offset: 19,
+      },
     },
     lookup: {
-      name: "Matched Value",
+      name: "Matched A Value",
       limit: 1,
     },
     verify: {
