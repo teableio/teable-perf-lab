@@ -4,7 +4,7 @@ import {
   createRecords,
   createTable,
   getFields,
-  getRecords,
+  getRecord,
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
@@ -34,6 +34,31 @@ type SourceFields = {
   A: NamedField;
   B: NamedField;
   C: NamedField;
+};
+
+type SeedRecordInput = {
+  rowOffset: number;
+  rowNumber: number;
+  record: {
+    fields: {
+      Title: string | number;
+      A: string | number;
+      B: string | number;
+      C: string | number;
+    };
+  };
+};
+
+type SeededSampleRecord = {
+  rowOffset: number;
+  rowNumber: number;
+  recordId: string;
+};
+
+type Measurement<T> = {
+  name: string;
+  durationMs: number;
+  result: T;
 };
 
 const sourceFieldNames = ["Title", "A", "B", "C"] as const;
@@ -77,16 +102,22 @@ const getExpectedRow = (
   };
 };
 
-const buildNumericSequenceRecords = (config: FormulaTableCaseConfig) =>
+const buildNumericSequenceRecords = (
+  config: FormulaTableCaseConfig,
+): SeedRecordInput[] =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
     const expected = getExpectedRow(rowNumber, config.generator.titlePrefix);
     return {
-      fields: {
-        Title: expected.Title,
-        A: expected.A,
-        B: expected.B,
-        C: expected.C,
+      rowOffset: index,
+      rowNumber,
+      record: {
+        fields: {
+          Title: expected.Title,
+          A: expected.A,
+          B: expected.B,
+          C: expected.C,
+        },
       },
     };
   });
@@ -102,39 +133,51 @@ const compileFormulaExpression = (
   });
 };
 
+const getRequiredSampleRecords = (
+  config: FormulaTableCaseConfig,
+  seededSampleRecordByOffset: Map<number, SeededSampleRecord>,
+) =>
+  config.verify.sampleRows.map((rowOffset) => {
+    const sampleRecord = seededSampleRecordByOffset.get(rowOffset);
+    if (!sampleRecord) {
+      throw new Error(
+        `Missing seeded sample record for row offset ${rowOffset}. recordCount=${config.recordCount}`,
+      );
+    }
+    return sampleRecord;
+  });
+
 const assertSourceSamples = async (
   tableId: string,
   sourceFields: SourceFields,
   config: FormulaTableCaseConfig,
+  sampleRecords: SeededSampleRecord[],
 ) => {
   const verifiedSamples = [];
 
-  for (const sampleRow of config.verify.sampleRows) {
-    const page = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Name,
-      skip: sampleRow,
-      take: 1,
-    });
-    const record = page.records[0];
+  for (const sampleRecord of sampleRecords) {
+    const record = await getRecord(tableId, sampleRecord.recordId);
     if (!record) {
       throw new Error(
-        `Missing source sample record at row offset ${sampleRow}`,
+        `Missing source sample record ${sampleRecord.recordId} at row ${sampleRecord.rowNumber}`,
       );
     }
 
-    const rowNumber = sampleRow + 1;
-    const expected = getExpectedRow(rowNumber, config.generator.titlePrefix);
+    const expected = getExpectedRow(
+      sampleRecord.rowNumber,
+      config.generator.titlePrefix,
+    );
     const actual = {
-      Title: record.fields[sourceFields.Title.name],
-      A: record.fields[sourceFields.A.name],
-      B: record.fields[sourceFields.B.name],
-      C: record.fields[sourceFields.C.name],
+      Title: record.fields[sourceFields.Title.id],
+      A: record.fields[sourceFields.A.id],
+      B: record.fields[sourceFields.B.id],
+      C: record.fields[sourceFields.C.id],
     };
 
     for (const fieldName of sourceFieldNames) {
       if (actual[fieldName] !== expected[fieldName]) {
         throw new Error(
-          `Source sample mismatch at row ${rowNumber}.${fieldName}: expected ${String(
+          `Source sample mismatch at row ${sampleRecord.rowNumber}.${fieldName}: expected ${String(
             expected[fieldName],
           )}, actual ${String(actual[fieldName])}; row=${JSON.stringify(
             actual,
@@ -144,9 +187,9 @@ const assertSourceSamples = async (
     }
 
     verifiedSamples.push({
-      rowOffset: sampleRow,
-      rowNumber,
-      recordId: record.id,
+      rowOffset: sampleRecord.rowOffset,
+      rowNumber: sampleRecord.rowNumber,
+      recordId: sampleRecord.recordId,
       actual,
       expected: {
         Title: expected.Title,
@@ -164,6 +207,7 @@ const waitForSourceSamples = async (
   tableId: string,
   sourceFields: SourceFields,
   config: FormulaTableCaseConfig,
+  sampleRecords: SeededSampleRecord[],
 ) => {
   const startedAt = Date.now();
   const timeoutMs = config.verify.timeoutMs ?? 30_000;
@@ -172,7 +216,12 @@ const waitForSourceSamples = async (
 
   while (Date.now() - startedAt <= timeoutMs) {
     try {
-      return await assertSourceSamples(tableId, sourceFields, config);
+      return await assertSourceSamples(
+        tableId,
+        sourceFields,
+        config,
+        sampleRecords,
+      );
     } catch (error) {
       lastError = error;
       await sleep(pollIntervalMs);
@@ -189,40 +238,36 @@ const waitForSourceSamples = async (
 const assertFormulaSamples = async (
   tableId: string,
   formulaFieldId: string,
-  sampleRows: number[],
+  sampleRecords: SeededSampleRecord[],
   config: FormulaTableCaseConfig,
 ) => {
   const verifiedSamples = [];
 
-  for (const sampleRow of sampleRows) {
-    const page = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      skip: sampleRow,
-      take: 1,
-    });
-    const record = page.records[0];
+  for (const sampleRecord of sampleRecords) {
+    const record = await getRecord(tableId, sampleRecord.recordId);
     if (!record) {
-      throw new Error(`Missing sample record at row offset ${sampleRow}`);
+      throw new Error(
+        `Missing sample record ${sampleRecord.recordId} at row ${sampleRecord.rowNumber}`,
+      );
     }
 
-    const rowNumber = sampleRow + 1;
     const expected = getExpectedRow(
-      rowNumber,
+      sampleRecord.rowNumber,
       config.generator.titlePrefix,
     ).Total;
     const actual = record.fields[formulaFieldId];
     if (actual !== expected) {
       throw new Error(
-        `Formula sample mismatch at row ${rowNumber}: expected ${expected}, actual ${String(
+        `Formula sample mismatch at row ${sampleRecord.rowNumber}: expected ${expected}, actual ${String(
           actual,
         )}`,
       );
     }
 
     verifiedSamples.push({
-      rowOffset: sampleRow,
-      rowNumber,
-      recordId: record.id,
+      rowOffset: sampleRecord.rowOffset,
+      rowNumber: sampleRecord.rowNumber,
+      recordId: sampleRecord.recordId,
       actual,
       expected,
     });
@@ -234,7 +279,7 @@ const assertFormulaSamples = async (
 const waitForFormulaSamples = async (
   tableId: string,
   formulaFieldId: string,
-  sampleRows: number[],
+  sampleRecords: SeededSampleRecord[],
   config: FormulaTableCaseConfig,
   {
     timeoutMs = 30_000,
@@ -249,7 +294,7 @@ const waitForFormulaSamples = async (
       return await assertFormulaSamples(
         tableId,
         formulaFieldId,
-        sampleRows,
+        sampleRecords,
         config,
       );
     } catch (error) {
@@ -271,6 +316,7 @@ const buildFormulaCaseResult = ({
   tableName,
   batches,
   batchDurations,
+  sampleRecords,
   createTableMeasurement,
   seedMeasurement,
   sourceReadyMeasurement,
@@ -285,13 +331,12 @@ const buildFormulaCaseResult = ({
   tableName: string;
   batches: unknown[][];
   batchDurations: number[];
-  createTableMeasurement: { name: string; durationMs: number };
-  seedMeasurement: { name: string; durationMs: number };
-  sourceReadyMeasurement: {
-    name: string;
-    durationMs: number;
-    result: Awaited<ReturnType<typeof waitForSourceSamples>>;
-  };
+  sampleRecords: SeededSampleRecord[];
+  createTableMeasurement: Measurement<unknown>;
+  seedMeasurement: Measurement<unknown>;
+  sourceReadyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof waitForSourceSamples>>
+  >;
   sourceFields: SourceFields;
   compiledExpression: string;
   formulaField?: { id: string };
@@ -301,9 +346,11 @@ const buildFormulaCaseResult = ({
   const metrics = {
     createTableMs: createTableMeasurement.durationMs,
     seedRecordsMs: seedMeasurement.durationMs,
-    sourceReadyMs: sourceReadyMeasurement.durationMs,
+    ...(sourceReadyMeasurement
+      ? { sourceReadyMs: sourceReadyMeasurement.durationMs }
+      : {}),
     ...(verifiedFormulaSamples
-      ? { formulaReadyMs: sourceReadyMeasurement.durationMs }
+      ? { formulaReadyMs: sourceReadyMeasurement?.durationMs ?? 0 }
       : {}),
     maxSeedBatchMs: roundMetric(Math.max(...batchDurations)),
   };
@@ -314,10 +361,14 @@ const buildFormulaCaseResult = ({
       durationMs: createTableMeasurement.durationMs,
     },
     { name: seedMeasurement.name, durationMs: seedMeasurement.durationMs },
-    {
-      name: sourceReadyMeasurement.name,
-      durationMs: sourceReadyMeasurement.durationMs,
-    },
+    ...(sourceReadyMeasurement
+      ? [
+          {
+            name: sourceReadyMeasurement.name,
+            durationMs: sourceReadyMeasurement.durationMs,
+          },
+        ]
+      : []),
   ];
 
   return {
@@ -342,7 +393,8 @@ const buildFormulaCaseResult = ({
         name: sourceFields[fieldName].name,
         id: sourceFields[fieldName].id,
       })),
-      verifiedSourceSamples: sourceReadyMeasurement.result,
+      sampleRecords,
+      verifiedSourceSamples: sourceReadyMeasurement?.result,
       formula: {
         fieldId: formulaField?.id,
         name: config.formula.name,
@@ -384,6 +436,8 @@ export const runFormulaTableCase = async (
     const records = buildNumericSequenceRecords(config);
     const batches = chunk(records, config.batchSize);
     const batchDurations: number[] = [];
+    const wantedSampleOffsets = new Set(config.verify.sampleRows);
+    const seededSampleRecordByOffset = new Map<number, SeededSampleRecord>();
 
     const seedMeasurement = await measureAsync("seedRecords", async () => {
       for (const [batchIndex, batch] of batches.entries()) {
@@ -392,21 +446,63 @@ export const runFormulaTableCase = async (
           () =>
             createRecords(tableId, {
               fieldKeyType: FieldKeyType.Name,
-              records: batch,
+              records: batch.map((item) => item.record),
             }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
+        batchMeasurement.result.records.forEach((record, index) => {
+          const input = batch[index];
+          if (input && wantedSampleOffsets.has(input.rowOffset)) {
+            seededSampleRecordByOffset.set(input.rowOffset, {
+              rowOffset: input.rowOffset,
+              rowNumber: input.rowNumber,
+              recordId: record.id,
+            });
+          }
+        });
       }
     });
 
-    const sourceReadyMeasurement = await measureAsync("sourceReady", () =>
-      waitForSourceSamples(tableId, sourceFields, config),
+    const sampleRecords = getRequiredSampleRecords(
+      config,
+      seededSampleRecordByOffset,
     );
     const compiledExpression = compileFormulaExpression(
       config.formula.expression,
       tableFields,
     );
+    let sourceReadyMeasurement: Awaited<
+      ReturnType<
+        typeof measureAsync<Awaited<ReturnType<typeof waitForSourceSamples>>>
+      >
+    >;
+
+    try {
+      sourceReadyMeasurement = await measureAsync("sourceReady", () =>
+        waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
+      );
+    } catch (error) {
+      const diagnosticResult = buildFormulaCaseResult({
+        config,
+        tableId,
+        tableName,
+        batches,
+        batchDurations,
+        sampleRecords,
+        createTableMeasurement,
+        seedMeasurement,
+        sourceFields,
+        compiledExpression,
+        error,
+      });
+
+      throw new PerfRunDiagnosticError(
+        error instanceof Error ? error.message : String(error),
+        diagnosticResult,
+      );
+    }
+
     let formulaReadyMeasurement: Awaited<
       ReturnType<
         typeof measureAsync<{
@@ -430,7 +526,7 @@ export const runFormulaTableCase = async (
         const verifiedSamples = await waitForFormulaSamples(
           tableId,
           formulaField.id,
-          config.verify.sampleRows,
+          sampleRecords,
           config,
           {
             timeoutMs: config.verify.timeoutMs,
@@ -449,6 +545,7 @@ export const runFormulaTableCase = async (
         tableName,
         batches,
         batchDurations,
+        sampleRecords,
         createTableMeasurement,
         seedMeasurement,
         sourceReadyMeasurement,
@@ -470,6 +567,7 @@ export const runFormulaTableCase = async (
       tableName,
       batches,
       batchDurations,
+      sampleRecords,
       createTableMeasurement,
       seedMeasurement,
       sourceReadyMeasurement,
