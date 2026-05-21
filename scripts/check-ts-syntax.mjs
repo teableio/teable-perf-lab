@@ -1,22 +1,28 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import ts from "typescript";
 
+const collectTsFiles = async (dir) => {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        return collectTsFiles(path);
+      }
+      return entry.isFile() && path.endsWith(".ts") ? [path] : [];
+    }),
+  );
+
+  return files.flat();
+};
+
 const tsFiles = [
-  "cases/perf-lab.e2e-spec.ts",
-  "cases/registry.ts",
-  "cases/smoke/auth-user.case.ts",
-  "cases/formula/10k-calc.case.ts",
-  "cases/formula/10k-5-concurrent.case.ts",
-  "cases/lookup/conditional-10k.case.ts",
-  "cases/framework/artifacts.ts",
-  "cases/framework/env.ts",
-  "cases/framework/metrics.ts",
-  "cases/framework/run-perf-case.ts",
-  "cases/framework/types.ts",
-  "cases/framework/runners/conditional-lookup.runner.ts",
-  "cases/framework/runners/http-endpoint.runner.ts",
-  "cases/framework/runners/formula-table.runner.ts",
-];
+  "perf-lab.e2e-spec.ts",
+  "registry.ts",
+  ...(await collectTsFiles("cases")),
+  ...(await collectTsFiles("framework")),
+].sort();
 
 for (const file of tsFiles) {
   const source = await readFile(file, "utf8");

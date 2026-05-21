@@ -1,7 +1,7 @@
-import authUserCase from "./smoke/auth-user.case";
-import formula10kCalcCase from "./formula/10k-calc.case";
-import formula10k5ConcurrentCase from "./formula/10k-5-concurrent.case";
-import conditionalLookup10kCase from "./lookup/conditional-10k.case";
+import authUserCase from "./cases/smoke/auth-user.case";
+import formula10kCalcCase from "./cases/formula/10k-calc.case";
+import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
+import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [

@@ -1,5 +1,5 @@
 import { FieldType } from "@teable/core";
-import { definePerfCase } from "../framework/types";
+import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
   id: "formula/10k-5-concurrent",

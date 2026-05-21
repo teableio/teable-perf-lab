@@ -15,8 +15,9 @@ regression validation:
 - persist run history, metrics, artifacts, and trace snapshots
 - publish manual and scheduled regression reports
 
-The executable entrypoint is `cases/perf-lab.e2e-spec.ts`. Case definitions live
-under `cases/**/*.case.ts` and are registered in `cases/registry.ts`.
+The executable entrypoint is `perf-lab.e2e-spec.ts`. Case definitions live under
+`cases/**/*.case.ts`, while shared runners and artifacts live in `framework/`.
+Cases are registered in `registry.ts`.
 
 Available cases:
 

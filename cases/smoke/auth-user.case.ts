@@ -1,5 +1,5 @@
 import { USER_ME } from "@teable/openapi";
-import { definePerfCase } from "../framework/types";
+import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
   id: "smoke/auth-user",

@@ -151,15 +151,15 @@ teable-perf-lab/
   .github/
     workflows/
       teable-ee-e2e-perf.yml
+  perf-lab.e2e-spec.ts
+  registry.ts
+  framework/
+    define-perf-case.ts
+    run-perf-case.ts
+    runners/
+      http-endpoint.runner.ts
+      formula-table.runner.ts
   cases/
-    perf-lab.e2e-spec.ts
-    registry.ts
-    framework/
-      define-perf-case.ts
-      run-perf-case.ts
-      runners/
-        http-endpoint.runner.ts
-        formula-table.runner.ts
     smoke/
       auth-user.case.ts
     formula/

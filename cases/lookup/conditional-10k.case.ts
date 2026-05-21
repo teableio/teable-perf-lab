@@ -1,4 +1,4 @@
-import { definePerfCase } from "../framework/types";
+import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
   id: "lookup/conditional-10k",

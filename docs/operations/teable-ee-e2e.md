@@ -4,7 +4,7 @@ The first executable path for this repository is intentionally thin:
 
 1. GitHub Actions checks out `teable-perf-lab`.
 2. GitHub Actions checks out `teableio/teable-ee` at a selected ref.
-3. The workflow injects the `cases/` framework into
+3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. The selected case runs through `@teable/backend-ee` and
    `vitest-e2e-community.config.ts`.
@@ -30,9 +30,9 @@ that repository and store the private key in this repository as
 
 ## Case model
 
-The workflow always runs `cases/perf-lab.e2e-spec.ts`. That spec reads
-`PERF_LAB_CASE_ID`, resolves the case in `cases/registry.ts`, and dispatches to a
-runner in `cases/framework/runners/`.
+The workflow always runs `perf-lab.e2e-spec.ts`. That spec reads
+`PERF_LAB_CASE_ID`, resolves the case in `registry.ts`, and dispatches to a
+runner in `framework/runners/`.
 
 Current runners:
 
@@ -40,6 +40,8 @@ Current runners:
   durations.
 - `formula-table`: create a temporary table, seed deterministic records, create
   a formula field, verify computed values, then clean up.
+- `conditional-lookup`: create two temporary tables, seed deterministic records,
+  create a conditional lookup field, verify sample values, then clean up.
 
 Current cases:
 
@@ -47,8 +49,13 @@ Current cases:
 - `formula/10k-calc`: creates 10k deterministic rows and measures
   `formulaReadyMs`, which includes formula field creation plus sample reads that
   prove computed values are available.
+- `formula/10k-5-concurrent`: creates 10k deterministic rows once and measures
+  five formula fields created concurrently on one table.
+- `lookup/conditional-10k`: creates two 10k deterministic tables and measures
+  conditional lookup readiness.
 
-To add a case, add a `*.case.ts` config and register it in `cases/registry.ts`.
+To add a case, add a `*.case.ts` config under `cases/` and register it in
+`registry.ts`.
 Only add a new runner when the setup or measurement behavior is genuinely new.
 The workflow should not need a case-specific branch.
 
