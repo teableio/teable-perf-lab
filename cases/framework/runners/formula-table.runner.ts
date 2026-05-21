@@ -427,6 +427,7 @@ export const runFormulaTableCase = async (
       createTable(baseId, {
         name: tableName,
         fields: config.fields,
+        records: [],
       }),
     );
     tableId = createTableMeasurement.result.id;
