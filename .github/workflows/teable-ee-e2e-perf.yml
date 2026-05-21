@@ -67,6 +67,9 @@ jobs:
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
       TRACE_LINK_BASE_URL: "http://127.0.0.1:16686"
       OTEL_EXPORT_RATIO: "1.0"
+      TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
+      TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
+      TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
 
     steps:
       - name: Checkout perf lab
@@ -195,6 +198,20 @@ jobs:
           name: teable-ee-e2e-perf-${{ steps.case.outputs.artifact_case }}-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-artifacts
           if-no-files-found: warn
+
+      - name: Report perf result to Teable
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_CASE_ID: ${{ steps.case.outputs.case_id }}
+          PERF_LAB_ARTIFACT_CASE: ${{ steps.case.outputs.artifact_case }}
+          PERF_LAB_ENGINE: ${{ matrix.engine }}
+          PERF_LAB_JOB_RESULT: ${{ job.status }}
+          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
+          PERF_LAB_ARTIFACT_NAME: teable-ee-e2e-perf-${{ steps.case.outputs.artifact_case }}-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/report-teable-result.mjs
 
       - name: Publish job summary
         if: always()
