@@ -256,6 +256,7 @@ jobs:
             perf-lab/perf-lab.e2e-spec.ts \
             perf-lab/registry.ts \
             teable-ee/community/apps/nestjs-backend/test/perf-lab/
+          cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
 
       - name: Start e2e services
         working-directory: teable-ee
@@ -325,7 +326,7 @@ jobs:
           export OTEL_SERVICE_NAME="${{ matrix.otel_service_name }}"
 
           pnpm -F @teable/backend-ee exec vitest run \
-            --config ./vitest-e2e-community.config.ts \
+            --config ./vitest-perf-lab.config.ts \
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false \
             --bail 1

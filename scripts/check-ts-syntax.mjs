@@ -20,6 +20,7 @@ const collectTsFiles = async (dir) => {
 const tsFiles = [
   "perf-lab.e2e-spec.ts",
   "registry.ts",
+  "vitest-perf-lab.config.ts",
   ...(await collectTsFiles("cases")),
   ...(await collectTsFiles("framework")),
 ].sort();
