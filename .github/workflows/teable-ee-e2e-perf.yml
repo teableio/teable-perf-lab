@@ -23,6 +23,11 @@ on:
         required: false
         default: ""
         type: string
+      max_parallel:
+        description: Maximum number of perf matrix jobs to run at once
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: read
@@ -61,6 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      max_parallel: ${{ steps.matrix.outputs.max_parallel }}
     steps:
       - name: Checkout perf lab
         uses: actions/checkout@v4
@@ -72,12 +78,16 @@ jobs:
         working-directory: perf-lab
         env:
           PERF_LAB_CASE_FILTER: ${{ inputs.case_filter }}
+          PERF_LAB_MAX_PARALLEL: ${{ inputs.max_parallel }}
         run: |
           set -euo pipefail
 
           matrix="$(node scripts/resolve-case-matrix.mjs)"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          max_parallel="$(node scripts/resolve-case-max-parallel.mjs)"
+          echo "max_parallel=${max_parallel}" >> "$GITHUB_OUTPUT"
           echo "${matrix}" >> "$GITHUB_STEP_SUMMARY"
+          echo "max_parallel=${max_parallel}" >> "$GITHUB_STEP_SUMMARY"
 
   prepare-e2e-seed:
     name: Prepare teable-ee e2e seed snapshot
@@ -191,6 +201,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: ${{ fromJson(needs.resolve-case-matrix.outputs.max_parallel) }}
       matrix: ${{ fromJson(needs.resolve-case-matrix.outputs.matrix) }}
 
     env:
