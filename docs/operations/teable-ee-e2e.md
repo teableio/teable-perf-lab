@@ -85,14 +85,43 @@ the session cookie on the shared OpenAPI axios instance.
 Each matrix job writes artifacts into `perf-lab-artifacts/`:
 
 - `<case-id>.json`: raw samples/details, aggregate metrics, thresholds, and
-  phases, including the `engine` field.
+  phases, including the `engine` field and trace collection manifest details.
 - `summary.md`: a compact GitHub job summary for that matrix job.
 - `summary-v1.md` or `summary-v2.md`: engine-specific summary for downloaded
   artifacts.
+- `traces/<case-id>-<engine>/manifest.json`: trace refs captured from response
+  headers and the list of Jaeger snapshots saved for the run.
+- `traces/<case-id>-<engine>/<step>-<trace-id>.json`: raw Jaeger trace snapshots
+  for selected requests.
 
 The uploaded artifact names include the engine, for example
 `teable-ee-e2e-perf-lookup-conditional-10k-v1-<run>-<attempt>` and
 `teable-ee-e2e-perf-lookup-conditional-10k-v2-<run>-<attempt>`.
+
+## Trace collection
+
+The workflow starts a local Jaeger container in each matrix job and points the
+e2e backend at it with:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces`
+- `TRACE_LINK_BASE_URL=http://127.0.0.1:16686`
+- `OTEL_EXPORT_RATIO=1.0`
+
+`perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
+`initApp()` creates the Nest test app. The perf framework then captures
+`traceparent` response headers from OpenAPI axios calls, polls Jaeger at
+`/api/traces/<traceId>`, and writes the raw JSON snapshots to the artifact
+directory.
+
+To verify observability after a run:
+
+1. Open the job summary and check the `Trace Artifact` table.
+2. Download the matrix artifact and inspect `traces/**/manifest.json`.
+3. Confirm `savedTraceCount` is greater than zero and the saved JSON files have
+   Jaeger `data` entries.
+
+The Jaeger UI link is only valid while the GitHub runner job is alive. The JSON
+artifact is the durable evidence.
 
 ## Manual examples
 

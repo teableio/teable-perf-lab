@@ -9,6 +9,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
+import { withPerfTraceStep } from "../trace-collector";
 import type {
   ConditionalLookupCaseConfig,
   PerfCase,
@@ -513,7 +514,7 @@ const buildConditionalLookupCaseResult = ({
 
 export const runConditionalLookupCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
+  context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as ConditionalLookupCaseConfig;
   const baseId = globalThis.testConfig.baseId;
@@ -526,30 +527,33 @@ export const runConditionalLookupCase = async (
   try {
     assertPermutationConfig(config);
 
-    const createTablesMeasurement = await measureAsync(
+    const createTablesMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
       "createTables",
-      async () => {
-        const sourceTable = await createTable(baseId, {
-          name: sourceTableName,
-          fields: [
-            { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-            { name: SOURCE_VALUE_FIELD_NAME, type: FieldType.SingleLineText },
-          ],
-          records: [],
-        });
-        const hostTable = await createTable(baseId, {
-          name: hostTableName,
-          fields: [
-            { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-            {
-              name: HOST_LOOKUP_KEY_FIELD_NAME,
-              type: FieldType.SingleLineText,
-            },
-          ],
-          records: [],
-        });
-        return { sourceTable, hostTable };
-      },
+      () =>
+        measureAsync("createTables", async () => {
+          const sourceTable = await createTable(baseId, {
+            name: sourceTableName,
+            fields: [
+              { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+              { name: SOURCE_VALUE_FIELD_NAME, type: FieldType.SingleLineText },
+            ],
+            records: [],
+          });
+          const hostTable = await createTable(baseId, {
+            name: hostTableName,
+            fields: [
+              { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+              {
+                name: HOST_LOOKUP_KEY_FIELD_NAME,
+                type: FieldType.SingleLineText,
+              },
+            ],
+            records: [],
+          });
+          return { sourceTable, hostTable };
+        }),
     );
     sourceTableId = createTablesMeasurement.result.sourceTable.id;
     hostTableId = createTablesMeasurement.result.hostTable.id;
@@ -578,10 +582,16 @@ export const runConditionalLookupCase = async (
           const batchMeasurement = await measureAsync(
             `seedSourceBatch:${batchIndex + 1}`,
             () =>
-              createRecords(sourceTableId, {
-                fieldKeyType: FieldKeyType.Name,
-                records: batch.map(({ fields }) => ({ fields })),
-              }),
+              withPerfTraceStep(
+                context,
+                perfCase,
+                `seedSourceBatch:${batchIndex + 1}`,
+                () =>
+                  createRecords(sourceTableId, {
+                    fieldKeyType: FieldKeyType.Name,
+                    records: batch.map(({ fields }) => ({ fields })),
+                  }),
+              ),
           );
           sourceBatchDurations.push(batchMeasurement.durationMs);
           expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -596,10 +606,16 @@ export const runConditionalLookupCase = async (
           const batchMeasurement = await measureAsync(
             `seedHostBatch:${batchIndex + 1}`,
             () =>
-              createRecords(hostTableId, {
-                fieldKeyType: FieldKeyType.Name,
-                records: batch.map(({ fields }) => ({ fields })),
-              }),
+              withPerfTraceStep(
+                context,
+                perfCase,
+                `seedHostBatch:${batchIndex + 1}`,
+                () =>
+                  createRecords(hostTableId, {
+                    fieldKeyType: FieldKeyType.Name,
+                    records: batch.map(({ fields }) => ({ fields })),
+                  }),
+              ),
           );
           hostBatchDurations.push(batchMeasurement.durationMs);
           expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -624,44 +640,52 @@ export const runConditionalLookupCase = async (
     let createdLookupField: { id: string } | undefined;
 
     try {
-      const createLookupFieldMeasurement = await measureAsync(
+      const createLookupFieldMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
         "createLookupField",
         () =>
-          createField(hostTableId, {
-            name: config.lookup.name,
-            type: FieldType.SingleLineText,
-            isLookup: true,
-            isConditionalLookup: true,
-            lookupOptions: {
-              foreignTableId: sourceTableId,
-              lookupFieldId: sourceFields.valueFieldId,
-              filter: {
-                conjunction: "and",
-                filterSet: [
-                  {
-                    fieldId: sourceFields.keyFieldId,
-                    operator: "is",
-                    value: {
-                      type: "field",
-                      fieldId: hostFields.lookupKeyFieldId,
+          measureAsync("createLookupField", () =>
+            createField(hostTableId, {
+              name: config.lookup.name,
+              type: FieldType.SingleLineText,
+              isLookup: true,
+              isConditionalLookup: true,
+              lookupOptions: {
+                foreignTableId: sourceTableId,
+                lookupFieldId: sourceFields.valueFieldId,
+                filter: {
+                  conjunction: "and",
+                  filterSet: [
+                    {
+                      fieldId: sourceFields.keyFieldId,
+                      operator: "is",
+                      value: {
+                        type: "field",
+                        fieldId: hostFields.lookupKeyFieldId,
+                      },
                     },
-                  },
-                ],
+                  ],
+                },
+                limit: config.lookup.limit,
               },
-              limit: config.lookup.limit,
-            },
-          }),
+            }),
+          ),
       );
       createdLookupField = createLookupFieldMeasurement.result;
 
-      const fullLookupScanReadyMeasurement = await measureAsync(
+      const fullLookupScanReadyMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
         "fullLookupScanReady",
         () =>
-          waitForLookupFullScan(
-            hostTableId,
-            createLookupFieldMeasurement.result.id,
-            config,
-            hostFields,
+          measureAsync("fullLookupScanReady", () =>
+            waitForLookupFullScan(
+              hostTableId,
+              createLookupFieldMeasurement.result.id,
+              config,
+              hostFields,
+            ),
           ),
       );
 

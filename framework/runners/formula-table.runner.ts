@@ -10,6 +10,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
+import { withPerfTraceStep } from "../trace-collector";
 import type {
   FormulaFieldCaseConfig,
   FormulaExpectedKind,
@@ -670,7 +671,7 @@ const buildFormulaCaseResult = ({
 
 export const runFormulaTableCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
+  context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FormulaTableCaseConfig;
   const baseId = globalThis.testConfig.baseId;
@@ -678,12 +679,18 @@ export const runFormulaTableCase = async (
   let tableId = "";
 
   try {
-    const createTableMeasurement = await measureAsync("createTable", () =>
-      createTable(baseId, {
-        name: tableName,
-        fields: config.fields,
-        records: [],
-      }),
+    const createTableMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      "createTable",
+      () =>
+        measureAsync("createTable", () =>
+          createTable(baseId, {
+            name: tableName,
+            fields: config.fields,
+            records: [],
+          }),
+        ),
     );
     tableId = createTableMeasurement.result.id;
 
@@ -700,10 +707,16 @@ export const runFormulaTableCase = async (
         const batchMeasurement = await measureAsync(
           `seedBatch:${batchIndex + 1}`,
           () =>
-            createRecords(tableId, {
-              fieldKeyType: FieldKeyType.Name,
-              records: batch.map((item) => item.record),
-            }),
+            withPerfTraceStep(
+              context,
+              perfCase,
+              `seedBatch:${batchIndex + 1}`,
+              () =>
+                createRecords(tableId, {
+                  fieldKeyType: FieldKeyType.Name,
+                  records: batch.map((item) => item.record),
+                }),
+            ),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -732,8 +745,14 @@ export const runFormulaTableCase = async (
     >;
 
     try {
-      sourceReadyMeasurement = await measureAsync("sourceReady", () =>
-        waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
+      sourceReadyMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        "sourceReady",
+        () =>
+          measureAsync("sourceReady", () =>
+            waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
+          ),
       );
     } catch (error) {
       const diagnosticResult = buildFormulaCaseResult({
@@ -769,34 +788,40 @@ export const runFormulaTableCase = async (
       formulasReadyMeasurement = await measureAsync("formulasReady", () =>
         Promise.all(
           formulas.map(async (formula) => {
-            const measurement = await measureAsync(formula.name, async () => {
-              const formulaField = await createField(tableId, {
-                type: FieldType.Formula,
-                name: formula.name,
-                options: {
-                  expression: formula.compiledExpression,
-                },
-              });
-              const createdFormula = {
-                ...formula,
-                id: formulaField.id,
-              };
-              createdFormulaFields.set(formula.name, createdFormula);
-              const verifiedSamples = await waitForFormulaSamples(
-                tableId,
-                createdFormula,
-                sampleRecords,
-                config,
-                {
-                  timeoutMs: config.verify.timeoutMs,
-                  pollIntervalMs: config.verify.pollIntervalMs,
-                },
-              );
-              return {
-                formula: createdFormula,
-                verifiedSamples,
-              };
-            });
+            const measurement = await withPerfTraceStep(
+              context,
+              perfCase,
+              `createFormulaField:${formula.name}`,
+              () =>
+                measureAsync(formula.name, async () => {
+                  const formulaField = await createField(tableId, {
+                    type: FieldType.Formula,
+                    name: formula.name,
+                    options: {
+                      expression: formula.compiledExpression,
+                    },
+                  });
+                  const createdFormula = {
+                    ...formula,
+                    id: formulaField.id,
+                  };
+                  createdFormulaFields.set(formula.name, createdFormula);
+                  const verifiedSamples = await waitForFormulaSamples(
+                    tableId,
+                    createdFormula,
+                    sampleRecords,
+                    config,
+                    {
+                      timeoutMs: config.verify.timeoutMs,
+                      pollIntervalMs: config.verify.pollIntervalMs,
+                    },
+                  );
+                  return {
+                    formula: createdFormula,
+                    verifiedSamples,
+                  };
+                }),
+            );
 
             return {
               ...measurement.result,
@@ -805,14 +830,18 @@ export const runFormulaTableCase = async (
           }),
         ),
       );
-      fullFormulaScanReadyMeasurement = await measureAsync(
+      fullFormulaScanReadyMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
         "fullFormulaScanReady",
         () =>
-          waitForFormulaFullScan(
-            tableId,
-            formulasReadyMeasurement.result.map(({ formula }) => formula),
-            config,
-            sourceFields,
+          measureAsync("fullFormulaScanReady", () =>
+            waitForFormulaFullScan(
+              tableId,
+              formulasReadyMeasurement.result.map(({ formula }) => formula),
+              config,
+              sourceFields,
+            ),
           ),
       );
     } catch (error) {

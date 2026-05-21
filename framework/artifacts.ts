@@ -72,6 +72,43 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     });
   }
 
+  const traces = (
+    payload.details as
+      | {
+          observability?: {
+            traces?: {
+              enabled?: boolean;
+              traceRefCount?: number;
+              uniqueTraceCount?: number;
+              savedTraceCount?: number;
+              failedTraceCount?: number;
+              manifestPath?: string;
+              artifactDir?: string;
+            };
+          };
+        }
+      | undefined
+  )?.observability?.traces;
+
+  if (traces) {
+    lines.push(
+      "",
+      "| Trace Artifact | Value |",
+      "| --- | ---: |",
+      `| enabled | ${String(traces.enabled)} |`,
+      `| captured refs | ${traces.traceRefCount ?? 0} |`,
+      `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
+      `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
+      `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
+    );
+    if (traces.manifestPath) {
+      lines.push(`| manifest | \`${traces.manifestPath}\` |`);
+    }
+    if (traces.artifactDir) {
+      lines.push(`| trace dir | \`${traces.artifactDir}\` |`);
+    }
+  }
+
   lines.push(
     "",
     `App URL: \`${payload.appUrl}\``,

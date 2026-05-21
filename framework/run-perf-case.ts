@@ -4,6 +4,7 @@ import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
   MetricThreshold,
@@ -53,6 +54,25 @@ const normalizeError = (error: unknown) => {
   return { message: String(error) };
 };
 
+const withTraceDetails = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  details: PerfRunResult["details"],
+) => {
+  const traceArtifacts = await writeTraceArtifacts({
+    artifactDir: context.artifactDir,
+    perfCase,
+    engine: context.engine,
+  });
+
+  return {
+    ...details,
+    observability: {
+      traces: traceArtifacts,
+    },
+  };
+};
+
 export const runPerfCase = async (
   perfCase: PerfCase,
   appContext: Pick<PerfRunContext, "app" | "appUrl">,
@@ -87,7 +107,7 @@ export const runPerfCase = async (
       metrics: result.metrics,
       thresholds: thresholdResults,
       phases: result.phases,
-      details: result.details,
+      details: await withTraceDetails(context, perfCase, result.details),
     };
 
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
@@ -124,7 +144,11 @@ export const runPerfCase = async (
         metrics: error.result.metrics,
         thresholds: thresholdResults,
         phases: error.result.phases,
-        details: error.result.details,
+        details: await withTraceDetails(
+          context,
+          perfCase,
+          error.result.details,
+        ),
         error: normalizeError(error),
       };
 
@@ -144,6 +168,7 @@ export const runPerfCase = async (
       durationMs: roundMetric(performance.now() - started),
       metrics: {},
       thresholds: [],
+      details: await withTraceDetails(context, perfCase, undefined),
       error: normalizeError(error),
     };
 
