@@ -230,6 +230,14 @@ jobs:
         working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma clients
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
+          pnpm -F @teable/db-data-prisma prisma-generate-ci
+
       - name: Download e2e seed snapshot
         uses: actions/download-artifact@v4
         with:
