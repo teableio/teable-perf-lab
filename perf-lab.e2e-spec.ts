@@ -4,7 +4,11 @@ import "../../src/tracing";
 import { initApp } from "../utils/init-app";
 import { listPerfCases } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
-import { installPerfTraceCollector } from "./framework/trace-collector";
+import {
+  installPerfTraceCollector,
+  uninstallPerfTraceCollector,
+} from "./framework/trace-collector";
+import { axios } from "@teable/openapi";
 
 const specStarted = performance.now();
 
@@ -55,6 +59,13 @@ const parseEngineList = (engineList = "v1,v2"): Engine[] => {
 };
 
 const getForceV2All = (engine: Engine) => (engine === "v2" ? "true" : "false");
+
+const resetAxiosInterceptors = () => {
+  uninstallPerfTraceCollector();
+  axios.interceptors.request.clear?.();
+  axios.interceptors.response.clear?.();
+  installPerfTraceCollector();
+};
 
 const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   const previousForceV2All = process.env.FORCE_V2_ALL;
@@ -116,6 +127,7 @@ describe("perf-lab serial case runner (e2e)", () => {
       beforeAll(async () => {
         logPhase("engine:beforeAll:start", { engine });
         await withEngineEnv(engine, async () => {
+          resetAxiosInterceptors();
           const initStarted = performance.now();
           const appCtx = await initApp();
           app = appCtx.app;

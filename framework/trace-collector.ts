@@ -61,6 +61,8 @@ const traceStepStorage = new AsyncLocalStorage<PerfTraceStep>();
 const traceRefs: PerfTraceRef[] = [];
 
 let installed = false;
+let requestInterceptorId: number | undefined;
+let responseInterceptorId: number | undefined;
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -247,7 +249,7 @@ export const installPerfTraceCollector = () => {
   }
   installed = true;
 
-  axios.interceptors.request.use((config) => {
+  requestInterceptorId = axios.interceptors.request.use((config) => {
     const step = traceStepStorage.getStore();
     if (!step) {
       return config;
@@ -261,7 +263,7 @@ export const installPerfTraceCollector = () => {
     return config;
   });
 
-  axios.interceptors.response.use((response) => {
+  responseInterceptorId = axios.interceptors.response.use((response) => {
     const traceparent = getHeaderValue(response.headers, "traceparent");
     const parsedTraceparent = parseTraceparent(traceparent);
     const step = traceStepStorage.getStore();
@@ -285,6 +287,23 @@ export const installPerfTraceCollector = () => {
 
     return response;
   });
+};
+
+export const uninstallPerfTraceCollector = () => {
+  if (!installed) {
+    return;
+  }
+
+  if (requestInterceptorId != null) {
+    axios.interceptors.request.eject(requestInterceptorId);
+  }
+  if (responseInterceptorId != null) {
+    axios.interceptors.response.eject(responseInterceptorId);
+  }
+
+  requestInterceptorId = undefined;
+  responseInterceptorId = undefined;
+  installed = false;
 };
 
 export const withPerfTraceStep = <T>(
