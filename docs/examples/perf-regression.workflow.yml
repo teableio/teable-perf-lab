@@ -34,12 +34,21 @@ concurrency:
 
 jobs:
   teable-ee-e2e-perf:
-    name: Run ${{ inputs.case_filter }} on teable-ee e2e
+    name: Run ${{ inputs.case_filter }} on teable-ee e2e (${{ matrix.engine }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: v1
+            force_v2_all: "false"
+          - engine: v2
+            force_v2_all: "true"
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
+      FORCE_V2_ALL: ${{ matrix.force_v2_all }}
 
     steps:
       - name: Checkout perf lab
@@ -86,6 +95,7 @@ jobs:
           # See .github/workflows/teable-ee-e2e-perf.yml for the full runnable
           # workflow, including Postgres/Redis startup and cleanup.
           export PERF_LAB_CASE_ID="${{ inputs.case_filter }}"
+          export PERF_LAB_ENGINE="${{ matrix.engine }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-e2e-community.config.ts \

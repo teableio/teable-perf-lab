@@ -6,6 +6,7 @@ export interface PerfArtifactPayload {
   caseId: string;
   title: string;
   runId: string;
+  engine: string;
   appUrl: string;
   result: "pass" | "fail";
   startedAt: string;
@@ -30,11 +31,16 @@ const sanitizeCaseId = (caseId: string) =>
 export const getArtifactJsonName = (caseId: string) =>
   `${sanitizeCaseId(caseId)}.json`;
 
+export const getSummaryMarkdownName = (engine: string) =>
+  `summary-${engine.replace(/[^a-zA-Z0-9_.-]+/g, "-")}.md`;
+
 export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
   const lines = [
     `# Perf lab summary: ${payload.caseId}`,
     "",
     `Result: **${payload.result}**`,
+    "",
+    `Engine: \`${payload.engine}\``,
     "",
     "| Metric | Value |",
     "| --- | ---: |",
@@ -97,6 +103,10 @@ export const writePerfArtifacts = async (
   );
   await writeFile(
     join(artifactDir, "summary.md"),
+    buildSummaryMarkdown(payload),
+  );
+  await writeFile(
+    join(artifactDir, getSummaryMarkdownName(payload.engine)),
     buildSummaryMarkdown(payload),
   );
 };

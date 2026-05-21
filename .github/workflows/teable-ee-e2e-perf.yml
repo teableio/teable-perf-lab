@@ -34,12 +34,20 @@ concurrency:
 
 jobs:
   teable-ee-e2e-perf:
-    name: Run ${{ inputs.case_filter }} on teable-ee e2e
+    name: Run ${{ inputs.case_filter }} on teable-ee e2e (${{ matrix.engine }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: v1
+            force_v2_all: "false"
+          - engine: v2
+            force_v2_all: "true"
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
       NODE_ENV: test
       PRISMA_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
       PRISMA_META_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
@@ -48,7 +56,7 @@ jobs:
       BACKEND_CACHE_REDIS_URI: "redis://default:teable@127.0.0.1:6379/1"
       BACKEND_PERFORMANCE_CACHE: "redis://default:teable@127.0.0.1:6379/1"
       TEABLE_SSRF_PROTECTION_DISABLED: "true"
-      FORCE_V2_ALL: "true"
+      FORCE_V2_ALL: ${{ matrix.force_v2_all }}
 
     steps:
       - name: Checkout perf lab
@@ -114,7 +122,8 @@ jobs:
           export NETWORK_MODE="teablenet-${CI_JOB_ID}"
           export TEST_PG_CONTAINER_NAME="teable-postgres-${CI_JOB_ID}"
           export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts"
-          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.engine }}"
+          export PERF_LAB_ENGINE="${{ matrix.engine }}"
           export PERF_LAB_CASE_ID="${{ steps.case.outputs.case_id }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
@@ -158,7 +167,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teable-ee-e2e-perf-${{ steps.case.outputs.artifact_case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: teable-ee-e2e-perf-${{ steps.case.outputs.artifact_case }}-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-artifacts
           if-no-files-found: warn
 

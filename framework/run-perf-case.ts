@@ -63,6 +63,7 @@ export const runPerfCase = async (
   const context: PerfRunContext = {
     ...appContext,
     runId: process.env.PERF_LAB_RUN_ID ?? `local-${Date.now()}`,
+    engine: process.env.PERF_LAB_ENGINE ?? "local",
     artifactDir: process.env.PERF_LAB_ARTIFACT_DIR,
   };
 
@@ -77,6 +78,7 @@ export const runPerfCase = async (
       caseId: perfCase.id,
       title: perfCase.title,
       runId: context.runId,
+      engine: context.engine,
       appUrl: context.appUrl,
       result: passed ? "pass" : "fail",
       startedAt: startedAt.toISOString(),
@@ -113,6 +115,7 @@ export const runPerfCase = async (
         caseId: perfCase.id,
         title: perfCase.title,
         runId: context.runId,
+        engine: context.engine,
         appUrl: context.appUrl,
         result: "fail",
         startedAt: startedAt.toISOString(),
@@ -133,6 +136,7 @@ export const runPerfCase = async (
       caseId: perfCase.id,
       title: perfCase.title,
       runId: context.runId,
+      engine: context.engine,
       appUrl: context.appUrl,
       result: "fail",
       startedAt: startedAt.toISOString(),

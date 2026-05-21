@@ -21,6 +21,7 @@ export interface PerfRunContext {
   app: INestApplication;
   appUrl: string;
   runId: string;
+  engine: string;
   artifactDir?: string;
 }
 

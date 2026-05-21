@@ -7,12 +7,16 @@ The first executable path for this repository is intentionally thin:
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. The selected case runs through `@teable/backend-ee` and
-   `vitest-e2e-community.config.ts`.
+   `vitest-e2e-community.config.ts` in parallel V1 and V2 jobs.
 
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
 
-The workflow sets `FORCE_V2_ALL=true` so perf cases run through the V2 path.
+The workflow uses a two-entry matrix for every selected case:
+
+- `v1`: sets `FORCE_V2_ALL=false`.
+- `v2`: sets `FORCE_V2_ALL=true`.
+
 The `teable-ee` e2e setup sets `V2_COMPUTED_UPDATE_MODE=sync` for deterministic
 computed field updates during tests.
 
@@ -34,9 +38,10 @@ that repository and store the private key in this repository as
 
 ## Case model
 
-The workflow always runs `perf-lab.e2e-spec.ts`. That spec reads
+Each matrix job runs `perf-lab.e2e-spec.ts`. That spec reads
 `PERF_LAB_CASE_ID`, resolves the case in `registry.ts`, and dispatches to a
-runner in `framework/runners/`.
+runner in `framework/runners/`. The workflow also sets `PERF_LAB_ENGINE` to
+`v1` or `v2`; this value is written into the JSON artifact and summary.
 
 Current runners:
 
@@ -77,15 +82,21 @@ the session cookie on the shared OpenAPI axios instance.
 
 ## Artifacts
 
-The workflow writes artifacts into `perf-lab-artifacts/`:
+Each matrix job writes artifacts into `perf-lab-artifacts/`:
 
 - `<case-id>.json`: raw samples/details, aggregate metrics, thresholds, and
-  phases.
-- `summary.md`: a compact GitHub job summary.
+  phases, including the `engine` field.
+- `summary.md`: a compact GitHub job summary for that matrix job.
+- `summary-v1.md` or `summary-v2.md`: engine-specific summary for downloaded
+  artifacts.
+
+The uploaded artifact names include the engine, for example
+`teable-ee-e2e-perf-lookup-conditional-10k-v1-<run>-<attempt>` and
+`teable-ee-e2e-perf-lookup-conditional-10k-v2-<run>-<attempt>`.
 
 ## Manual examples
 
-Run smoke:
+Run smoke in both V1 and V2:
 
 ```bash
 gh workflow run teable-ee-e2e-perf.yml \
@@ -96,7 +107,7 @@ gh workflow run teable-ee-e2e-perf.yml \
   -f samples=10
 ```
 
-Run the 10k formula case using its default threshold:
+Run the 10k formula case in both V1 and V2 using its default threshold:
 
 ```bash
 gh workflow run teable-ee-e2e-perf.yml \
