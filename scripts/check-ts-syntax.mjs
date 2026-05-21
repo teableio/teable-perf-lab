@@ -7,11 +7,13 @@ const tsFiles = [
   "cases/smoke/auth-user.case.ts",
   "cases/formula/10k-calc.case.ts",
   "cases/formula/10k-5-concurrent.case.ts",
+  "cases/lookup/conditional-10k.case.ts",
   "cases/framework/artifacts.ts",
   "cases/framework/env.ts",
   "cases/framework/metrics.ts",
   "cases/framework/run-perf-case.ts",
   "cases/framework/types.ts",
+  "cases/framework/runners/conditional-lookup.runner.ts",
   "cases/framework/runners/http-endpoint.runner.ts",
   "cases/framework/runners/formula-table.runner.ts",
 ];

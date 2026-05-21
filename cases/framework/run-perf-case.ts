@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
+import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { PerfRunDiagnosticError } from "./types";
@@ -20,6 +21,8 @@ const runCaseByKind = async (
       return runHttpEndpointCase(perfCase, context);
     case "formula-table":
       return runFormulaTableCase(perfCase, context);
+    case "conditional-lookup":
+      return runConditionalLookupCase(perfCase, context);
     default:
       throw new Error(`Unsupported perf runner: ${perfCase.runner}`);
   }

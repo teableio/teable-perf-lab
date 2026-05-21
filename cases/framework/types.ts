@@ -1,14 +1,20 @@
 import type { INestApplication } from "@nestjs/common";
 import type { IFieldRo } from "@teable/core";
 
-export type PerfRunnerKind = "http-endpoint" | "formula-table";
+export type PerfRunnerKind =
+  | "http-endpoint"
+  | "formula-table"
+  | "conditional-lookup";
 
 export interface PerfCase {
   id: string;
   title: string;
   runner: PerfRunnerKind;
   timeoutMs: number;
-  config: HttpEndpointCaseConfig | FormulaTableCaseConfig;
+  config:
+    | HttpEndpointCaseConfig
+    | FormulaTableCaseConfig
+    | ConditionalLookupCaseConfig;
 }
 
 export interface PerfRunContext {
@@ -89,6 +95,32 @@ export interface FormulaTableCaseConfig {
   };
   threshold: {
     metric: "formulaReadyMs" | "formulasReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface ConditionalLookupCaseConfig {
+  baseId: "seed-base";
+  sourceTableNamePrefix: string;
+  hostTableNamePrefix: string;
+  recordCount: number;
+  batchSize: number;
+  generator: {
+    type: "matching-key-sequence";
+    keyPrefix: string;
+    sourceValuePrefix: string;
+  };
+  lookup: {
+    name: string;
+    limit: number;
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "conditionalLookupReadyMs";
     maxMs: number;
   };
 }
