@@ -218,8 +218,8 @@ const assertRegisteredCasesMatchDisk = async () => {
 const getMarkdownPath = (casePath) =>
   join(dirname(casePath), `${basename(casePath, ".case.ts")}.md`);
 
-const buildGithubBlobUrl = ({ repository, ref, path }) =>
-  `https://github.com/${repository}/blob/${ref}/${path}`;
+const buildGithubBlobUrl = ({ repository, path }) =>
+  `https://github.com/${repository}/blob/main/${path}`;
 
 const buildCiCommand = ({ caseId }) =>
   [
@@ -357,7 +357,6 @@ const main = async () => {
   const tableId = env("TEABLE_PERF_CASES_TABLE_ID", DEFAULT_TABLE_ID);
   const repository = env("GITHUB_REPOSITORY", DEFAULT_REPOSITORY);
   const sourceSha = env("GITHUB_SHA") || env("PERF_LAB_SOURCE_SHA");
-  const ref = env("PERF_LAB_DOC_REF") || sourceSha || "main";
   const syncedAt = new Date().toISOString();
   const caseFiles = await assertRegisteredCasesMatchDisk();
 
@@ -378,7 +377,6 @@ const main = async () => {
     const relativeMarkdownPath = relative(repoRoot, markdownPath);
     const descriptionUrl = buildGithubBlobUrl({
       repository,
-      ref,
       path: relativeMarkdownPath,
     });
 
