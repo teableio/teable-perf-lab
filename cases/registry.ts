@@ -1,8 +1,13 @@
 import authUserCase from "./smoke/auth-user.case";
 import formula10kCalcCase from "./formula/10k-calc.case";
+import formula10k5ConcurrentCase from "./formula/10k-5-concurrent.case";
 import type { PerfCase } from "./framework/types";
 
-const cases = [authUserCase, formula10kCalcCase] satisfies PerfCase[];
+const cases = [
+  authUserCase,
+  formula10kCalcCase,
+  formula10k5ConcurrentCase,
+] satisfies PerfCase[];
 
 const caseById = new Map(cases.map((perfCase) => [perfCase.id, perfCase]));
 const caseAliases = new Map([
@@ -10,6 +15,8 @@ const caseAliases = new Map([
   ["auth-user", "smoke/auth-user"],
   ["formula", "formula/10k-calc"],
   ["formula/10k", "formula/10k-calc"],
+  ["formula/10k-5", "formula/10k-5-concurrent"],
+  ["formula/10k/concurrent", "formula/10k-5-concurrent"],
 ]);
 
 export const getPerfCase = (caseId: string): PerfCase => {

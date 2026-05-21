@@ -6,6 +6,7 @@ const tsFiles = [
   "cases/registry.ts",
   "cases/smoke/auth-user.case.ts",
   "cases/formula/10k-calc.case.ts",
+  "cases/formula/10k-5-concurrent.case.ts",
   "cases/framework/artifacts.ts",
   "cases/framework/env.ts",
   "cases/framework/metrics.ts",

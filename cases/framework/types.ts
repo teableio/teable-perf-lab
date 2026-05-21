@@ -57,6 +57,19 @@ export interface HttpEndpointCaseConfig {
   validateSeedUser?: boolean;
 }
 
+export type FormulaExpectedKind =
+  | "aTimesBPlusC"
+  | "aPlusBPlusC"
+  | "aTimesCPlusB"
+  | "aPlusBTimesC"
+  | "weightedABC";
+
+export interface FormulaFieldCaseConfig {
+  name: string;
+  expression: string;
+  expected?: FormulaExpectedKind;
+}
+
 export interface FormulaTableCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
@@ -67,17 +80,15 @@ export interface FormulaTableCaseConfig {
     type: "numeric-sequence";
     titlePrefix: string;
   };
-  formula: {
-    name: string;
-    expression: string;
-  };
+  formula?: FormulaFieldCaseConfig;
+  formulas?: FormulaFieldCaseConfig[];
   verify: {
     sampleRows: number[];
     timeoutMs?: number;
     pollIntervalMs?: number;
   };
   threshold: {
-    metric: "formulaReadyMs";
+    metric: "formulaReadyMs" | "formulasReadyMs";
     maxMs: number;
   };
 }

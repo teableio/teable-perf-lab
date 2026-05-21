@@ -10,6 +10,8 @@ import {
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import type {
+  FormulaFieldCaseConfig,
+  FormulaExpectedKind,
   FormulaTableCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -61,6 +63,15 @@ type Measurement<T> = {
   result: T;
 };
 
+type FormulaRunResult = {
+  formula: FormulaFieldCaseConfig & {
+    id: string;
+    compiledExpression: string;
+  };
+  durationMs: number;
+  verifiedSamples: Awaited<ReturnType<typeof waitForFormulaSamples>>;
+};
+
 const sourceFieldNames = ["Title", "A", "B", "C"] as const;
 
 const resolveSourceFields = (fields: NamedField[]): SourceFields => {
@@ -88,7 +99,9 @@ const resolveSourceFields = (fields: NamedField[]): SourceFields => {
 const getExpectedRow = (
   rowNumber: number,
   titlePrefix: string,
-): Record<keyof SourceFields | "Total", string | number> => {
+): Record<keyof SourceFields, string | number> & {
+  formulaValues: Record<FormulaExpectedKind, number>;
+} => {
   const a = rowNumber;
   const b = (rowNumber % 97) + 1;
   const c = rowNumber % 13;
@@ -98,8 +111,27 @@ const getExpectedRow = (
     A: a,
     B: b,
     C: c,
-    Total: a * b + c,
+    formulaValues: {
+      aTimesBPlusC: a * b + c,
+      aPlusBPlusC: a + b + c,
+      aTimesCPlusB: a * c + b,
+      aPlusBTimesC: a + b * c,
+      weightedABC: a * 3 + b * 5 + c * 7,
+    },
   };
+};
+
+const resolveFormulas = (
+  config: FormulaTableCaseConfig,
+): FormulaFieldCaseConfig[] => {
+  const formulas = config.formulas ?? (config.formula ? [config.formula] : []);
+  if (formulas.length === 0) {
+    throw new Error("Formula table case must define formula or formulas");
+  }
+  return formulas.map((formula) => ({
+    expected: "aTimesBPlusC",
+    ...formula,
+  }));
 };
 
 const buildNumericSequenceRecords = (
@@ -132,6 +164,15 @@ const compileFormulaExpression = (
     return fieldId ? `{${fieldId}}` : match;
   });
 };
+
+const buildCompiledFormulas = (
+  config: FormulaTableCaseConfig,
+  fields: Array<FormulaTableCaseConfig["fields"][number] & { id: string }>,
+) =>
+  resolveFormulas(config).map((formula) => ({
+    ...formula,
+    compiledExpression: compileFormulaExpression(formula.expression, fields),
+  }));
 
 const getRequiredSampleRecords = (
   config: FormulaTableCaseConfig,
@@ -237,7 +278,7 @@ const waitForSourceSamples = async (
 
 const assertFormulaSamples = async (
   tableId: string,
-  formulaFieldId: string,
+  formula: FormulaFieldCaseConfig & { id: string },
   sampleRecords: SeededSampleRecord[],
   config: FormulaTableCaseConfig,
 ) => {
@@ -251,14 +292,15 @@ const assertFormulaSamples = async (
       );
     }
 
+    const expectedKind = formula.expected ?? "aTimesBPlusC";
     const expected = getExpectedRow(
       sampleRecord.rowNumber,
       config.generator.titlePrefix,
-    ).Total;
-    const actual = record.fields[formulaFieldId];
+    ).formulaValues[expectedKind];
+    const actual = record.fields[formula.id];
     if (actual !== expected) {
       throw new Error(
-        `Formula sample mismatch at row ${sampleRecord.rowNumber}: expected ${expected}, actual ${String(
+        `Formula ${formula.name} sample mismatch at row ${sampleRecord.rowNumber}: expected ${expected}, actual ${String(
           actual,
         )}`,
       );
@@ -278,7 +320,7 @@ const assertFormulaSamples = async (
 
 const waitForFormulaSamples = async (
   tableId: string,
-  formulaFieldId: string,
+  formula: FormulaFieldCaseConfig & { id: string },
   sampleRecords: SeededSampleRecord[],
   config: FormulaTableCaseConfig,
   {
@@ -293,7 +335,7 @@ const waitForFormulaSamples = async (
     try {
       return await assertFormulaSamples(
         tableId,
-        formulaFieldId,
+        formula,
         sampleRecords,
         config,
       );
@@ -304,7 +346,7 @@ const waitForFormulaSamples = async (
   }
 
   throw new Error(
-    `Timed out waiting for formula samples after ${timeoutMs}ms: ${
+    `Timed out waiting for formula ${formula.name} samples after ${timeoutMs}ms: ${
       lastError instanceof Error ? lastError.message : String(lastError)
     }`,
   );
@@ -321,9 +363,8 @@ const buildFormulaCaseResult = ({
   seedMeasurement,
   sourceReadyMeasurement,
   sourceFields,
-  compiledExpression,
-  formulaField,
-  verifiedFormulaSamples,
+  formulas,
+  formulasReadyMeasurement,
   error,
 }: {
   config: FormulaTableCaseConfig;
@@ -338,19 +379,24 @@ const buildFormulaCaseResult = ({
     Awaited<ReturnType<typeof waitForSourceSamples>>
   >;
   sourceFields: SourceFields;
-  compiledExpression: string;
-  formulaField?: { id: string };
-  verifiedFormulaSamples?: Awaited<ReturnType<typeof waitForFormulaSamples>>;
+  formulas: Array<
+    FormulaFieldCaseConfig & { compiledExpression: string; id?: string }
+  >;
+  formulasReadyMeasurement?: Measurement<FormulaRunResult[]>;
   error?: unknown;
 }): PerfRunResult => {
+  const formulaResults = formulasReadyMeasurement?.result;
   const metrics = {
     createTableMs: createTableMeasurement.durationMs,
     seedRecordsMs: seedMeasurement.durationMs,
     ...(sourceReadyMeasurement
       ? { sourceReadyMs: sourceReadyMeasurement.durationMs }
       : {}),
-    ...(verifiedFormulaSamples
-      ? { formulaReadyMs: sourceReadyMeasurement?.durationMs ?? 0 }
+    ...(formulaResults?.length === 1
+      ? { formulaReadyMs: formulasReadyMeasurement.durationMs }
+      : {}),
+    ...(formulaResults && formulaResults.length > 1
+      ? { formulasReadyMs: formulasReadyMeasurement.durationMs }
       : {}),
     maxSeedBatchMs: roundMetric(Math.max(...batchDurations)),
   };
@@ -373,7 +419,7 @@ const buildFormulaCaseResult = ({
 
   return {
     metrics,
-    thresholds: verifiedFormulaSamples
+    thresholds: formulaResults
       ? [
           {
             metric: config.threshold.metric,
@@ -395,13 +441,32 @@ const buildFormulaCaseResult = ({
       })),
       sampleRecords,
       verifiedSourceSamples: sourceReadyMeasurement?.result,
-      formula: {
-        fieldId: formulaField?.id,
-        name: config.formula.name,
-        expression: config.formula.expression,
-        compiledExpression,
-      },
-      verifiedSamples: verifiedFormulaSamples,
+      formulas: formulas.map((formula) => ({
+        fieldId: formula.id,
+        name: formula.name,
+        expression: formula.expression,
+        compiledExpression: formula.compiledExpression,
+        expected: formula.expected,
+      })),
+      formulaResults: formulaResults?.map((result) => ({
+        name: result.formula.name,
+        fieldId: result.formula.id,
+        durationMs: result.durationMs,
+        verifiedSamples: result.verifiedSamples,
+      })),
+      formula:
+        formulas.length === 1
+          ? {
+              fieldId: formulas[0].id,
+              name: formulas[0].name,
+              expression: formulas[0].expression,
+              compiledExpression: formulas[0].compiledExpression,
+            }
+          : undefined,
+      verifiedSamples:
+        formulaResults?.length === 1
+          ? formulaResults[0].verifiedSamples
+          : undefined,
       error:
         error instanceof Error
           ? {
@@ -469,10 +534,7 @@ export const runFormulaTableCase = async (
       config,
       seededSampleRecordByOffset,
     );
-    const compiledExpression = compileFormulaExpression(
-      config.formula.expression,
-      tableFields,
-    );
+    const formulas = buildCompiledFormulas(config, tableFields);
     let sourceReadyMeasurement: Awaited<
       ReturnType<
         typeof measureAsync<Awaited<ReturnType<typeof waitForSourceSamples>>>
@@ -494,7 +556,7 @@ export const runFormulaTableCase = async (
         createTableMeasurement,
         seedMeasurement,
         sourceFields,
-        compiledExpression,
+        formulas,
         error,
       });
 
@@ -504,42 +566,57 @@ export const runFormulaTableCase = async (
       );
     }
 
-    let formulaReadyMeasurement: Awaited<
-      ReturnType<
-        typeof measureAsync<{
-          formulaField: { id: string };
-          verifiedSamples: Awaited<ReturnType<typeof waitForFormulaSamples>>;
-        }>
-      >
-    >;
-    let createdFormulaField: { id: string } | undefined;
+    let formulasReadyMeasurement: Measurement<FormulaRunResult[]>;
+    const createdFormulaFields = new Map<
+      string,
+      FormulaFieldCaseConfig & { id: string; compiledExpression: string }
+    >();
 
     try {
-      formulaReadyMeasurement = await measureAsync("formulaReady", async () => {
-        const formulaField = await createField(tableId, {
-          type: FieldType.Formula,
-          name: config.formula.name,
-          options: {
-            expression: compiledExpression,
-          },
-        });
-        createdFormulaField = formulaField;
-        const verifiedSamples = await waitForFormulaSamples(
-          tableId,
-          formulaField.id,
-          sampleRecords,
-          config,
-          {
-            timeoutMs: config.verify.timeoutMs,
-            pollIntervalMs: config.verify.pollIntervalMs,
-          },
-        );
-        return {
-          formulaField,
-          verifiedSamples,
-        };
-      });
+      formulasReadyMeasurement = await measureAsync("formulasReady", () =>
+        Promise.all(
+          formulas.map(async (formula) => {
+            const measurement = await measureAsync(formula.name, async () => {
+              const formulaField = await createField(tableId, {
+                type: FieldType.Formula,
+                name: formula.name,
+                options: {
+                  expression: formula.compiledExpression,
+                },
+              });
+              const createdFormula = {
+                ...formula,
+                id: formulaField.id,
+              };
+              createdFormulaFields.set(formula.name, createdFormula);
+              const verifiedSamples = await waitForFormulaSamples(
+                tableId,
+                createdFormula,
+                sampleRecords,
+                config,
+                {
+                  timeoutMs: config.verify.timeoutMs,
+                  pollIntervalMs: config.verify.pollIntervalMs,
+                },
+              );
+              return {
+                formula: createdFormula,
+                verifiedSamples,
+              };
+            });
+
+            return {
+              ...measurement.result,
+              durationMs: measurement.durationMs,
+            };
+          }),
+        ),
+      );
     } catch (error) {
+      const formulasWithCreatedIds = formulas.map((formula) => {
+        const createdFormula = createdFormulaFields.get(formula.name);
+        return createdFormula ?? formula;
+      });
       const diagnosticResult = buildFormulaCaseResult({
         config,
         tableId,
@@ -551,8 +628,7 @@ export const runFormulaTableCase = async (
         seedMeasurement,
         sourceReadyMeasurement,
         sourceFields,
-        compiledExpression,
-        formulaField: createdFormulaField,
+        formulas: formulasWithCreatedIds,
         error,
       });
 
@@ -573,22 +649,20 @@ export const runFormulaTableCase = async (
       seedMeasurement,
       sourceReadyMeasurement,
       sourceFields,
-      compiledExpression,
-      formulaField: formulaReadyMeasurement.result.formulaField,
-      verifiedFormulaSamples: formulaReadyMeasurement.result.verifiedSamples,
+      formulas: formulasReadyMeasurement.result.map(({ formula }) => formula),
+      formulasReadyMeasurement,
     });
 
     return {
       ...result,
-      metrics: {
-        ...result.metrics,
-        formulaReadyMs: formulaReadyMeasurement.durationMs,
-      },
       phases: [
         ...(result.phases ?? []),
         {
-          name: formulaReadyMeasurement.name,
-          durationMs: formulaReadyMeasurement.durationMs,
+          name:
+            formulasReadyMeasurement.result.length === 1
+              ? "formulaReady"
+              : formulasReadyMeasurement.name,
+          durationMs: formulasReadyMeasurement.durationMs,
         },
       ],
     };

@@ -23,6 +23,8 @@ Available cases:
 - `smoke/auth-user`: authenticated `GET /api/auth/user/me` smoke timing.
 - `formula/10k-calc`: create 10k rows, add a formula field, and verify computed
   values are ready.
+- `formula/10k-5-concurrent`: create 10k rows once, concurrently add 5 formula
+  fields on the same table, and verify computed values are ready.
 
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
