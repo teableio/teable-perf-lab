@@ -30,6 +30,7 @@ const REQUIRED_FIELD_NAMES = [
   "Artifact Name",
   "Artifact URL",
   "Run URL",
+  "Trace URL",
   "Manifest Path",
   "Metrics JSON",
   "Thresholds JSON",
@@ -118,6 +119,30 @@ const buildMissingPayload = ({ caseId, payloadPath }) => {
 const jsonText = (value) =>
   value == null ? "" : JSON.stringify(value, null, 2);
 
+const isPriorityTraceRef = (ref) =>
+  /create.*field|formula|lookup/i.test(ref?.stepId ?? "") ||
+  /\/field\//i.test(ref?.url ?? "");
+
+const buildTraceUrl = (traceId) => {
+  const baseUrl =
+    env("TRACE_LINK_BASE_URL") || env("PERF_LAB_JAEGER_API_BASE_URL");
+  if (!baseUrl || !traceId) {
+    return "";
+  }
+  return `${baseUrl.replace(/\/+$/, "")}/trace/${traceId}?uiEmbed=v0`;
+};
+
+const resolvePrimaryTraceUrl = ({ payload, traceManifest }) => {
+  const refs =
+    traceManifest?.refs ?? payload.details?.observability?.traces?.refs;
+  if (!Array.isArray(refs) || refs.length === 0) {
+    return "";
+  }
+
+  const ref = refs.find(isPriorityTraceRef) ?? refs[0];
+  return stringOrUndefined(ref.traceLink) || buildTraceUrl(ref.traceId);
+};
+
 const numberOrUndefined = (value) => {
   if (value == null || value === "") {
     return undefined;
@@ -157,7 +182,9 @@ const githubApi = async (path) => {
   });
 
   if (!res.ok) {
-    throw new Error(`GitHub API ${path} failed: ${res.status} ${await res.text()}`);
+    throw new Error(
+      `GitHub API ${path} failed: ${res.status} ${await res.text()}`,
+    );
   }
 
   return res.json();
@@ -174,7 +201,9 @@ const resolveArtifactUrl = async ({ artifactName, runUrl }) => {
     const data = await githubApi(
       `/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`,
     );
-    const artifact = data?.artifacts?.find((item) => item.name === artifactName);
+    const artifact = data?.artifacts?.find(
+      (item) => item.name === artifactName,
+    );
     if (artifact?.id) {
       return `https://github.com/${repository}/actions/runs/${runId}/artifacts/${artifact.id}`;
     }
@@ -324,12 +353,15 @@ const buildReportFields = async ({
       env("GITHUB_RUN_ATTEMPT") || "0",
     ].join("-");
   const artifactUrl = await resolveArtifactUrl({ artifactName, runUrl });
-  const thresholds = Array.isArray(payload.thresholds) ? payload.thresholds : [];
+  const thresholds = Array.isArray(payload.thresholds)
+    ? payload.thresholds
+    : [];
   const primaryThreshold = thresholds[0];
   const traces = payload.details?.observability?.traces ?? {};
   const traceManifestPath =
     stringOrUndefined(traces.manifestPath) ||
     stringOrUndefined(traceManifest?.manifestPath);
+  const traceUrl = resolvePrimaryTraceUrl({ payload, traceManifest });
 
   return {
     runKey,
@@ -363,6 +395,7 @@ const buildReportFields = async ({
       "Artifact Name": stringOrUndefined(artifactName),
       "Artifact URL": stringOrUndefined(artifactUrl),
       "Run URL": stringOrUndefined(runUrl),
+      "Trace URL": stringOrUndefined(traceUrl),
       "Manifest Path": stringOrUndefined(traceManifestPath),
       "Metrics JSON": jsonText(payload.metrics),
       "Thresholds JSON": jsonText(payload.thresholds),
@@ -394,7 +427,8 @@ const main = async () => {
   const summaryMarkdown = await readTextFileIfExists(
     join(artifactDir, "summary.md"),
   );
-  const traceManifestPath = payload.details?.observability?.traces?.manifestPath;
+  const traceManifestPath =
+    payload.details?.observability?.traces?.manifestPath;
   const traceManifest = traceManifestPath
     ? await readJsonFileIfExists(join(artifactDir, traceManifestPath))
     : undefined;

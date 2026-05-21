@@ -47,14 +47,14 @@ env:
   BACKEND_PERFORMANCE_CACHE: "redis://default:teable@127.0.0.1:6379/1"
   TEABLE_SSRF_PROTECTION_DISABLED: "true"
   PERF_LAB_TRACE_ENABLED: "true"
-  PERF_LAB_JAEGER_API_BASE_URL: "http://127.0.0.1:16686"
+  PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "25"
   PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "20000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
-  TRACE_LINK_BASE_URL: "http://127.0.0.1:16686"
+  TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
   OTEL_EXPORT_RATIO: "1.0"
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
@@ -208,7 +208,6 @@ jobs:
       CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
       NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
       TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
-      TEST_JAEGER_CONTAINER_NAME: teable-jaeger-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
       FORCE_V2_ALL: ${{ matrix.force_v2_all }}
 
     steps:
@@ -280,17 +279,6 @@ jobs:
           make docker.create.network
           docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
           docker rm -fv teable-cache || true
-          docker rm -fv "$TEST_JAEGER_CONTAINER_NAME" || true
-
-          docker run -d \
-            --name "$TEST_JAEGER_CONTAINER_NAME" \
-            --network "$NETWORK_MODE" \
-            -p 16686:16686 \
-            -p 4317:4317 \
-            -p 4318:4318 \
-            jaegertracing/jaeger:2.16.0 \
-            --set=receivers.otlp.protocols.http.endpoint=0.0.0.0:4318 \
-            --set=receivers.otlp.protocols.grpc.endpoint=0.0.0.0:4317
 
           docker compose \
             --env-file ./dockers/.env \
@@ -307,7 +295,6 @@ jobs:
             up --no-recreate -d teable-cache
 
           chmod +x scripts/wait-for
-          scripts/wait-for 127.0.0.1:16686 --timeout=60 -- echo 'jaeger started successfully'
           scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
           scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
           until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
@@ -384,7 +371,6 @@ jobs:
 
           docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
           docker rm -fv teable-cache || true
-          docker rm -fv "$TEST_JAEGER_CONTAINER_NAME" || true
           docker compose \
             --env-file ./dockers/.env \
             -f ./dockers/networks.yml \

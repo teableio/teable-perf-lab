@@ -84,6 +84,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               failedTraceCount?: number;
               manifestPath?: string;
               artifactDir?: string;
+              refs?: Array<{ traceLink?: string; traceId?: string }>;
             };
           };
         }
@@ -106,6 +107,12 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     }
     if (traces.artifactDir) {
       lines.push(`| trace dir | \`${traces.artifactDir}\` |`);
+    }
+    const primaryTrace = traces.refs?.find(
+      (ref) => ref.traceLink ?? ref.traceId,
+    );
+    if (primaryTrace?.traceLink) {
+      lines.push(`| primary trace | ${primaryTrace.traceLink} |`);
     }
   }
 
