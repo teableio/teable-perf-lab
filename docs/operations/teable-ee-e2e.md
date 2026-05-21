@@ -12,6 +12,10 @@ The first executable path for this repository is intentionally thin:
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
 
+The workflow sets `FORCE_V2_ALL=true` so perf cases run through the V2 path.
+The `teable-ee` e2e setup sets `V2_COMPUTED_UPDATE_MODE=sync` for deterministic
+computed field updates during tests.
+
 ## Workflow
 
 Use `.github/workflows/teable-ee-e2e-perf.yml`.
