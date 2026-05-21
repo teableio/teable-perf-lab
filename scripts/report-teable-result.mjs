@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
@@ -56,7 +56,15 @@ const requiredEnv = (name) => {
 
 const sanitizeCaseId = (caseId) => caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 
-const artifactJsonName = (caseId) => `${sanitizeCaseId(caseId)}.json`;
+const sanitizeSegment = (value) => value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+
+const artifactJsonName = (caseId, engine) =>
+  `${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.json`;
+
+const legacyArtifactJsonName = (caseId) => `${sanitizeCaseId(caseId)}.json`;
+
+const summaryMarkdownName = (caseId, engine) =>
+  `summary-${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.md`;
 
 const fileExists = async (path) => {
   try {
@@ -74,6 +82,51 @@ const readTextFileIfExists = async (path) =>
 
 const readJsonFileIfExists = async (path) =>
   (await fileExists(path)) ? readJsonFile(path) : undefined;
+
+const readArtifactPayloads = async ({ artifactDir, fallbackCaseId }) => {
+  const entries = await readdir(artifactDir, { withFileTypes: true });
+  const payloadFiles = entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".json") &&
+        entry.name !== "manifest.json",
+    )
+    .map((entry) => entry.name)
+    .sort();
+
+  const payloads = [];
+  for (const fileName of payloadFiles) {
+    const payloadPath = join(artifactDir, fileName);
+    const payload = await readJsonFile(payloadPath);
+    if (payload?.caseId && payload?.engine) {
+      payloads.push({ payload, payloadPath, fileName });
+    }
+  }
+
+  if (payloads.length > 0) {
+    return payloads;
+  }
+
+  const caseId = fallbackCaseId ?? env("PERF_LAB_CASE_ID");
+  if (!caseId) {
+    throw new Error(
+      `No perf payloads found in ${artifactDir}, and PERF_LAB_CASE_ID is not set`,
+    );
+  }
+
+  const engine = env("PERF_LAB_ENGINE", "local");
+  const newPayloadPath = join(artifactDir, artifactJsonName(caseId, engine));
+  const legacyPayloadPath = join(artifactDir, legacyArtifactJsonName(caseId));
+  const payloadPath = (await fileExists(newPayloadPath))
+    ? newPayloadPath
+    : legacyPayloadPath;
+  const payload = (await fileExists(payloadPath))
+    ? await readJsonFile(payloadPath)
+    : buildMissingPayload({ caseId, payloadPath });
+
+  return [{ payload, payloadPath, fileName: payloadPath }];
+};
 
 const githubResultToPerfResult = (result) => {
   switch (result) {
@@ -332,10 +385,11 @@ const buildReportFields = async ({
   payload,
   traceManifest,
   summaryMarkdown,
+  artifactName,
 }) => {
   const runId = env("GITHUB_RUN_ID");
   const runAttempt = numberOrUndefined(env("GITHUB_RUN_ATTEMPT"));
-  const engine = env("PERF_LAB_ENGINE", payload.engine);
+  const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
   const runKey = [
     runId || payload.runId,
     env("GITHUB_RUN_ATTEMPT") || "0",
@@ -343,7 +397,8 @@ const buildReportFields = async ({
     engine,
   ].join("-");
   const runUrl = buildRunUrl();
-  const artifactName =
+  const resolvedArtifactName =
+    artifactName ||
     env("PERF_LAB_ARTIFACT_NAME") ||
     [
       "teable-ee-e2e-perf",
@@ -352,7 +407,10 @@ const buildReportFields = async ({
       runId || payload.runId,
       env("GITHUB_RUN_ATTEMPT") || "0",
     ].join("-");
-  const artifactUrl = await resolveArtifactUrl({ artifactName, runUrl });
+  const artifactUrl = await resolveArtifactUrl({
+    artifactName: resolvedArtifactName,
+    runUrl,
+  });
   const thresholds = Array.isArray(payload.thresholds)
     ? payload.thresholds
     : [];
@@ -392,7 +450,7 @@ const buildReportFields = async ({
       "Trace Ref Count": numberOrUndefined(traces.traceRefCount),
       "Saved Trace Count": numberOrUndefined(traces.savedTraceCount),
       "Failed Trace Count": numberOrUndefined(traces.failedTraceCount),
-      "Artifact Name": stringOrUndefined(artifactName),
+      "Artifact Name": stringOrUndefined(resolvedArtifactName),
       "Artifact URL": stringOrUndefined(artifactUrl),
       "Run URL": stringOrUndefined(runUrl),
       "Trace URL": stringOrUndefined(traceUrl),
@@ -418,43 +476,48 @@ const main = async () => {
   const baseId = env("TEABLE_PERF_LAB_BASE_ID", DEFAULT_BASE_ID);
   const tableId = env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE_ID);
   const artifactDir = requiredEnv("PERF_LAB_ARTIFACT_DIR");
-  const caseId = requiredEnv("PERF_LAB_CASE_ID");
-  const payloadPath = join(artifactDir, artifactJsonName(caseId));
-
-  const payload = (await fileExists(payloadPath))
-    ? await readJsonFile(payloadPath)
-    : buildMissingPayload({ caseId, payloadPath });
-  const summaryMarkdown = await readTextFileIfExists(
-    join(artifactDir, "summary.md"),
-  );
-  const traceManifestPath =
-    payload.details?.observability?.traces?.manifestPath;
-  const traceManifest = traceManifestPath
-    ? await readJsonFileIfExists(join(artifactDir, traceManifestPath))
-    : undefined;
+  const payloads = await readArtifactPayloads({
+    artifactDir,
+    fallbackCaseId: env("PERF_LAB_CASE_ID"),
+  });
 
   await ensureFields({ endpoint, token, tableId });
 
-  const { runKey, fields } = await buildReportFields({
-    artifactDir,
-    caseId,
-    payload,
-    traceManifest,
-    summaryMarkdown,
-  });
+  for (const { payload } of payloads) {
+    const caseId = payload.caseId;
+    const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
+    const summaryMarkdown =
+      (await readTextFileIfExists(
+        join(artifactDir, summaryMarkdownName(caseId, engine)),
+      )) || (await readTextFileIfExists(join(artifactDir, "summary.md")));
+    const traceManifestPath =
+      payload.details?.observability?.traces?.manifestPath;
+    const traceManifest = traceManifestPath
+      ? await readJsonFileIfExists(join(artifactDir, traceManifestPath))
+      : undefined;
 
-  const result = await upsertRecord({
-    endpoint,
-    token,
-    tableId,
-    runKey,
-    fields,
-  });
+    const { runKey, fields } = await buildReportFields({
+      artifactDir,
+      caseId,
+      payload,
+      traceManifest,
+      summaryMarkdown,
+      artifactName: env("PERF_LAB_ARTIFACT_NAME"),
+    });
 
-  console.log(
-    `Teable perf report ${result.action}: ${result.recordId ?? "(unknown record id)"}`,
-  );
-  console.log(`Base: ${baseId}, table: ${tableId}, run key: ${runKey}`);
+    const result = await upsertRecord({
+      endpoint,
+      token,
+      tableId,
+      runKey,
+      fields,
+    });
+
+    console.log(
+      `Teable perf report ${result.action}: ${result.recordId ?? "(unknown record id)"}`,
+    );
+    console.log(`Base: ${baseId}, table: ${tableId}, run key: ${runKey}`);
+  }
 };
 
 main().catch((error) => {

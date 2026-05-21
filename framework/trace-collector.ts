@@ -166,16 +166,21 @@ const uniqueTraceRefs = () => {
   });
 };
 
+const uniqueTraceRefsForRun = (perfCase: PerfCase, engine: string) =>
+  uniqueTraceRefs().filter(
+    (ref) => ref.caseId === perfCase.id && ref.engine === engine,
+  );
+
 const isPriorityTraceRef = (ref: PerfTraceRef) =>
   /create.*field|formula|lookup/i.test(ref.stepId) ||
   /\/field\//i.test(ref.url ?? "");
 
-const selectTraceRefsToSave = () => {
+const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   const maxSnapshots = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_MAX_SNAPSHOTS",
     25,
   );
-  const uniqueRefs = uniqueTraceRefs();
+  const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine);
   const priorityRefs = uniqueRefs.filter(isPriorityTraceRef);
   const selected = [...priorityRefs];
   const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
@@ -310,15 +315,18 @@ export const writeTraceArtifacts = async ({
   const enabled = isTraceCollectionEnabled();
   const jaegerApiBaseUrl = getJaegerApiBaseUrl();
   const selectedRefs =
-    enabled && jaegerApiBaseUrl ? selectTraceRefsToSave() : [];
+    enabled && jaegerApiBaseUrl ? selectTraceRefsToSave(perfCase, engine) : [];
+  const runRefs = uniqueTraceRefsForRun(perfCase, engine);
   const summary: PerfTraceArtifactSummary = {
     enabled,
-    traceRefCount: traceRefs.length,
-    uniqueTraceCount: uniqueTraceRefs().length,
+    traceRefCount: traceRefs.filter(
+      (ref) => ref.caseId === perfCase.id && ref.engine === engine,
+    ).length,
+    uniqueTraceCount: runRefs.length,
     savedTraceCount: 0,
     failedTraceCount: 0,
     jaegerApiBaseUrl,
-    refs: uniqueTraceRefs(),
+    refs: runRefs,
     savedTraces: [],
   };
 

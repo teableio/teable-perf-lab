@@ -5,8 +5,9 @@ Performance regression lab for Teable v2.
 The current MVP runs perf cases through the existing `teable-ee` e2e harness.
 This keeps setup lightweight: GitHub Actions checks out `teable-ee`, injects the
 perf case framework, starts the same e2e Postgres/Redis services, runs the
-existing seed, and executes one selected case with `@teable/backend-ee` in
-parallel V1 and V2 jobs.
+existing seed, and executes the selected cases with `@teable/backend-ee` in one
+serial job. V1 and V2 are still measured separately, but they share the same
+runner checkout, dependency install, database, Redis, and e2e seed setup.
 
 This repository is intended to become the control plane for Teable performance
 regression validation:

@@ -28,11 +28,14 @@ export interface PerfArtifactPayload {
 const sanitizeCaseId = (caseId: string) =>
   caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 
-export const getArtifactJsonName = (caseId: string) =>
-  `${sanitizeCaseId(caseId)}.json`;
+const sanitizeSegment = (value: string) =>
+  value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 
-export const getSummaryMarkdownName = (engine: string) =>
-  `summary-${engine.replace(/[^a-zA-Z0-9_.-]+/g, "-")}.md`;
+export const getArtifactJsonName = (caseId: string, engine: string) =>
+  `${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.json`;
+
+export const getSummaryMarkdownName = (caseId: string, engine: string) =>
+  `summary-${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.md`;
 
 export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
   const lines = [
@@ -141,16 +144,13 @@ export const writePerfArtifacts = async (
   }
 
   await mkdir(artifactDir, { recursive: true });
+  const summaryMarkdown = buildSummaryMarkdown(payload);
   await writeFile(
-    join(artifactDir, getArtifactJsonName(perfCase.id)),
+    join(artifactDir, getArtifactJsonName(perfCase.id, payload.engine)),
     JSON.stringify(payload, null, 2),
   );
   await writeFile(
-    join(artifactDir, "summary.md"),
-    buildSummaryMarkdown(payload),
-  );
-  await writeFile(
-    join(artifactDir, getSummaryMarkdownName(payload.engine)),
-    buildSummaryMarkdown(payload),
+    join(artifactDir, getSummaryMarkdownName(perfCase.id, payload.engine)),
+    summaryMarkdown,
   );
 };

@@ -24,9 +24,14 @@ on:
         default: ""
         type: string
       max_parallel:
-        description: Maximum number of perf matrix jobs to run at once
+        description: Deprecated; serial mode runs all selected cases in one job
         required: false
         default: "0"
+        type: string
+      engine_filter:
+        description: Engine list to run, comma-separated from v1,v2
+        required: false
+        default: v1,v2
         type: string
 
 permissions:
@@ -61,154 +66,15 @@ env:
   TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
 
 jobs:
-  resolve-case-matrix:
-    name: Resolve perf case matrix
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-      max_parallel: ${{ steps.matrix.outputs.max_parallel }}
-    steps:
-      - name: Checkout perf lab
-        uses: actions/checkout@v4
-        with:
-          path: perf-lab
-
-      - name: Resolve case matrix
-        id: matrix
-        working-directory: perf-lab
-        env:
-          PERF_LAB_CASE_FILTER: ${{ inputs.case_filter }}
-          PERF_LAB_MAX_PARALLEL: ${{ inputs.max_parallel }}
-        run: |
-          set -euo pipefail
-
-          matrix="$(node scripts/resolve-case-matrix.mjs)"
-          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
-          max_parallel="$(node scripts/resolve-case-max-parallel.mjs)"
-          echo "max_parallel=${max_parallel}" >> "$GITHUB_OUTPUT"
-          echo "${matrix}" >> "$GITHUB_STEP_SUMMARY"
-          echo "max_parallel=${max_parallel}" >> "$GITHUB_STEP_SUMMARY"
-
-  prepare-e2e-seed:
-    name: Prepare teable-ee e2e seed snapshot
-    runs-on: ubuntu-latest
-    needs: resolve-case-matrix
-    timeout-minutes: 45
-    env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed
-      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed
-      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed
-
-    steps:
-      - name: Checkout teable-ee
-        uses: actions/checkout@v4
-        with:
-          repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
-          path: teable-ee
-          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.13.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.18.0
-          cache: pnpm
-          cache-dependency-path: teable-ee/pnpm-lock.yaml
-
-      - name: Install teable-ee dependencies
-        working-directory: teable-ee
-        run: pnpm install --frozen-lockfile
-
-      - name: Start Postgres
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-          export NETWORK_MODE="${NETWORK_MODE}"
-          export TEST_PG_CONTAINER_NAME="${TEST_PG_CONTAINER_NAME}"
-
-          make docker.create.network
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            run -p 25432:5432 -d -T --no-deps --rm \
-            --name "$TEST_PG_CONTAINER_NAME" teable-postgres
-
-          chmod +x scripts/wait-for
-          scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
-          until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
-            sleep 1
-          done
-          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable || true
-
-      - name: Migrate and seed e2e database
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          make postgres.mode
-          pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
-
-      - name: Dump seeded e2e database
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          mkdir -p "${GITHUB_WORKSPACE}/seed-snapshot"
-          docker exec "$TEST_PG_CONTAINER_NAME" pg_dump -U teable -Fc e2e_test_teable > "${GITHUB_WORKSPACE}/seed-snapshot/e2e_test_teable.dump"
-
-      - name: Upload e2e seed snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: teable-ee-e2e-seed-${{ github.run_id }}-${{ github.run_attempt }}
-          path: seed-snapshot/e2e_test_teable.dump
-          if-no-files-found: error
-
-      - name: Cleanup seed services
-        if: always()
-        working-directory: teable-ee
-        run: |
-          set +e
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-          export NETWORK_MODE="${NETWORK_MODE}"
-          export TEST_PG_CONTAINER_NAME="${TEST_PG_CONTAINER_NAME}"
-
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            down -v || true
-          docker network rm "$NETWORK_MODE" || true
-
   teable-ee-e2e-perf:
-    name: Run ${{ matrix.case_id }} on teable-ee e2e (${{ matrix.engine }})
+    name: Run teable-ee e2e perf serial
     runs-on: ubuntu-latest
-    needs:
-      - resolve-case-matrix
-      - prepare-e2e-seed
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      max-parallel: ${{ fromJson(needs.resolve-case-matrix.outputs.max_parallel) }}
-      matrix: ${{ fromJson(needs.resolve-case-matrix.outputs.matrix) }}
+    timeout-minutes: 180
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
-      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
-      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.artifact_case }}-${{ matrix.engine }}
-      FORCE_V2_ALL: ${{ matrix.force_v2_all }}
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-serial
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-serial
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-serial
 
     steps:
       - name: Checkout perf lab
@@ -247,12 +113,6 @@ jobs:
 
           pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
           pnpm -F @teable/db-data-prisma prisma-generate-ci
-
-      - name: Download e2e seed snapshot
-        uses: actions/download-artifact@v4
-        with:
-          name: teable-ee-e2e-seed-${{ github.run_id }}-${{ github.run_attempt }}
-          path: seed-snapshot
 
       - name: Install perf cases
         run: |
@@ -301,61 +161,62 @@ jobs:
             sleep 1
           done
 
-      - name: Restore e2e seed snapshot
+      - name: Migrate and seed e2e database
         working-directory: teable-ee
         run: |
           set -euo pipefail
 
-          docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable || true
-          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
-          docker exec -i "$TEST_PG_CONTAINER_NAME" pg_restore -U teable -d e2e_test_teable --clean --if-exists < "${GITHUB_WORKSPACE}/seed-snapshot/e2e_test_teable.dump"
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable || true
+          make postgres.mode
+          pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
-      - name: Run perf case through teable-ee e2e
+      - name: Run perf cases through teable-ee e2e serial
         working-directory: teable-ee
         run: |
           set -euo pipefail
 
           export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts"
-          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.artifact_case }}-${{ matrix.engine }}"
-          export PERF_LAB_ENGINE="${{ matrix.engine }}"
-          export PERF_LAB_CASE_ID="${{ matrix.case_id }}"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_CASE_FILTER="${{ inputs.case_filter }}"
+          export PERF_LAB_ENGINE_LIST="${{ inputs.engine_filter }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
-          export OTEL_SERVICE_NAME="${{ matrix.otel_service_name }}"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-serial"
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
-            --silent=false \
-            --bail 1
+            --silent=false
 
       - name: Upload perf artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teable-ee-e2e-perf-${{ matrix.artifact_case }}-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: teable-ee-e2e-perf-serial-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-artifacts
           if-no-files-found: warn
 
-      - name: Report perf result to Teable
+      - name: Report perf results to Teable
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         working-directory: perf-lab
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_CASE_ID: ${{ matrix.case_id }}
-          PERF_LAB_ARTIFACT_CASE: ${{ matrix.artifact_case }}
-          PERF_LAB_ENGINE: ${{ matrix.engine }}
           PERF_LAB_JOB_RESULT: ${{ job.status }}
           PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
-          PERF_LAB_ARTIFACT_NAME: teable-ee-e2e-perf-${{ matrix.artifact_case }}-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+          PERF_LAB_ARTIFACT_NAME: teable-ee-e2e-perf-serial-${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/report-teable-result.mjs
 
       - name: Publish job summary
         if: always()
         run: |
-          if [ -f perf-lab-artifacts/summary.md ]; then
-            cat perf-lab-artifacts/summary.md >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob
+          summaries=(perf-lab-artifacts/summary-*.md)
+          if [ "${#summaries[@]}" -gt 0 ]; then
+            for summary in "${summaries[@]}"; do
+              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            done
           else
             echo "No perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
           fi

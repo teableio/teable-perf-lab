@@ -23,6 +23,34 @@ const caseAliases = new Map([
   ["conditional-lookup", "lookup/conditional-10k"],
 ]);
 
+export const listPerfCaseIds = () => cases.map((perfCase) => perfCase.id);
+
+export const resolvePerfCaseIds = (
+  caseFilter = "smoke/auth-user",
+): string[] => {
+  const trimmed = caseFilter.trim();
+  if (!trimmed || trimmed === "all" || trimmed === "*") {
+    return listPerfCaseIds();
+  }
+
+  const caseIds = trimmed
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((caseId) => caseAliases.get(caseId) ?? caseId);
+
+  const unknownCaseIds = caseIds.filter((caseId) => !caseById.has(caseId));
+  if (unknownCaseIds.length > 0) {
+    throw new Error(
+      `Unsupported PERF_LAB_CASE_FILTER: ${unknownCaseIds.join(
+        ", ",
+      )}. Available cases: ${listPerfCaseIds().join(", ")}, or "all".`,
+    );
+  }
+
+  return [...new Set(caseIds)];
+};
+
 export const getPerfCase = (caseId: string): PerfCase => {
   const canonicalCaseId = caseAliases.get(caseId) ?? caseId;
   const perfCase = caseById.get(canonicalCaseId);
@@ -36,3 +64,6 @@ export const getPerfCase = (caseId: string): PerfCase => {
       .join(", ")}`,
   );
 };
+
+export const listPerfCases = (caseFilter?: string) =>
+  resolvePerfCaseIds(caseFilter).map(getPerfCase);

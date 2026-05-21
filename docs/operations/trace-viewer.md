@@ -28,4 +28,4 @@ curl -fsS http://136.119.178.56:16686/api/services
 
 The GitHub workflow sets both `OTEL_EXPORTER_OTLP_ENDPOINT` and
 `TRACE_LINK_BASE_URL` to this service. Teable result rows use the `Trace URL`
-field to link to the primary trace for the matrix job.
+field to link to the primary trace for each case/engine result.
