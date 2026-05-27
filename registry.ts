@@ -2,6 +2,7 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [
@@ -9,6 +10,7 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  recordPasteFlat10k4FieldsCopyPasteCase,
 ] satisfies PerfCase[];
 
 const caseById = new Map(cases.map((perfCase) => [perfCase.id, perfCase]));
@@ -21,6 +23,8 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
+  ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
 ]);
 
 export const listPerfCaseIds = () => cases.map((perfCase) => perfCase.id);

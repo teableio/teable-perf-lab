@@ -4,6 +4,7 @@ import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { runRecordPasteCase } from "./runners/record-paste.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
@@ -24,6 +25,8 @@ const runCaseByKind = async (
       return runFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return runConditionalLookupCase(perfCase, context);
+    case "record-paste":
+      return runRecordPasteCase(perfCase, context);
     default:
       throw new Error(`Unsupported perf runner: ${perfCase.runner}`);
   }

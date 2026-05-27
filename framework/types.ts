@@ -4,7 +4,8 @@ import type { IFieldRo } from "@teable/core";
 export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
-  | "conditional-lookup";
+  | "conditional-lookup"
+  | "record-paste";
 
 export interface PerfCase {
   id: string;
@@ -14,7 +15,8 @@ export interface PerfCase {
   config:
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
-    | ConditionalLookupCaseConfig;
+    | ConditionalLookupCaseConfig
+    | RecordPasteCaseConfig;
 }
 
 export interface PerfRunContext {
@@ -133,6 +135,27 @@ export interface ConditionalLookupCaseConfig {
   };
   threshold: {
     metric: "conditionalLookupReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordPasteCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "flat-copy-paste";
+    titlePrefix: string;
+    groups: string[];
+    payloadPrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "paste10kMs";
     maxMs: number;
   };
 }
