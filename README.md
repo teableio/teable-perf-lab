@@ -61,10 +61,10 @@ upsert the table locally. GitHub Actions also runs `Sync perf cases` on pushes
 to `main` that touch case definitions, descriptions, registry, or the sync
 script, so the Teable table stays aligned with the repo.
 
-## Initialization And Measurement Boundaries
+## Seed And Execution Boundaries
 
-The most important design rule in this repository is: **split expensive,
-deterministic fixture setup from the operation being measured**.
+The most important design rule in this repository is: **every non-trivial case
+has two explicit stages: `seed` and `execute`**.
 
 There are three different layers that should not be mixed together:
 
@@ -77,6 +77,68 @@ There are three different layers that should not be mixed together:
 
 The first two layers may be reused or restored when the cache key is still
 valid. The measured operation must stay fresh for every run.
+
+The runner architecture should therefore look like this:
+
+```text
+resolve case
+compute seed hash from case seed config + seed code
+restore seed artifact by hash
+if missing: run seed stage, validate fixture, save seed artifact
+run execute stage against restored fixture
+collect metrics, traces, and verification evidence
+cleanup execute-only changes
+```
+
+This lets GitHub Actions, local runs, and future scheduled jobs skip expensive
+data import whenever the seed hash has not changed. A 100k-row fixture should be
+created once per hash, then reused until the case's seed config or seed code
+changes.
+
+### Seed Hash Contract
+
+Each runner must define a stable seed hash for the fixture it creates. The hash
+is the cache key for the seed artifact.
+
+Hash inputs should include:
+
+- case id and runner kind
+- the seed-relevant part of the case config: row count, fields, generator,
+  relationships, batch size, and fixture version
+- the case file content when it contributes seed behavior
+- runner seed implementation files and shared seed helpers
+- the database/schema signature needed to safely restore the fixture
+
+Hash inputs should not include:
+
+- threshold values, sample count, owner, tags, or description markdown
+- execute-only code that creates the measured formula, lookup, rollup, paste, or
+  request workload
+- trace/reporting code
+
+If a runner cannot separate seed code from execute code yet, use the whole
+runner file as a conservative hash input. That may rebuild the fixture more
+often, but it is still correct. Later refactors should move seed builders and
+execute logic into separate functions or files so the hash can be precise.
+
+Seed artifacts must include enough metadata to prove they are safe to reuse:
+
+```text
+caseId
+runner
+seedHash
+fixtureVersion
+recordCount
+tableIds / baseId or database snapshot location
+field ids and field layout
+sample record ids or deterministic sample lookup rules
+createdAt
+schemaSignature
+```
+
+On a cache hit, the runner must still run a fast `seedReady` validation before
+`execute`: check table existence, field layout, record count, and a few sample
+values. If validation fails, discard the artifact and rebuild the seed.
 
 ### What The Current CI Reuses
 
@@ -122,7 +184,7 @@ because the serial job no longer repeats migration and e2e seed per case/job.
 If matrix parallelism is reintroduced, restore this pattern before adding more
 per-case setup work.
 
-### Case Fixture Caching
+### Seed Stage
 
 The existing 10k formula and conditional lookup runners currently create
 temporary source tables, seed deterministic records, and permanently delete the
@@ -139,7 +201,7 @@ larger import-heavy cases. For a 100k-row case, the table creation and import
 phase should be cacheable: the first run for a fixture key pays the cost, and
 later runs restore or reuse the already-built source fixture.
 
-A fixture cache should contain only the deterministic source state needed before
+The seed stage should contain only the deterministic source state needed before
 the measured operation starts:
 
 - base/table ids or a database snapshot for the source fixture
@@ -147,16 +209,38 @@ the measured operation starts:
 - deterministic generator version and case fixture version
 - enough sample record ids to validate the restored fixture quickly
 
-Do not cache the computed formula, lookup, rollup, or previously measured result
-unless the case is explicitly designed to measure reads from a precomputed
-state. For normal regression cases, remove or create a fresh measured field on
-top of the restored source fixture, then measure that field creation and
-readiness.
+For cached fixtures, persist the small sample-id map with the seed artifact
+metadata or recover it from deterministic rows after restore. The cache should
+save import time, not push the runner into loading the whole dataset into
+memory.
 
-Use a fixture key that changes when the data shape changes, for example:
+### Execute Stage
+
+The execute stage is the part the case is actually measuring. It runs after
+`seedReady`, even when the seed was restored from cache.
+
+Do not cache the computed formula, lookup, rollup, pasted records, or previously
+measured result unless the case is explicitly designed to measure reads from a
+precomputed state. For normal regression cases, remove or create a fresh
+measured field/workload on top of the restored seed fixture, then measure that
+operation and readiness.
+
+Execute cleanup should remove only per-run measured changes:
+
+- formula, lookup, rollup, or other computed fields created for this run
+- temporary execute-only tables
+- records created by an execute workload such as paste, if the seed fixture
+  itself must stay reusable
+
+The cleanup step should not delete reusable seed tables on a cacheable case.
+
+### Cache Key Shape
+
+Use a seed key that changes when the fixture shape or seed implementation
+changes, for example:
 
 ```text
-<case-id>:<fixture-version>:<record-count>:<field-layout>:<generator-version>:<schema-signature>
+<case-id>:<runner>:<fixture-version>:<record-count>:<field-layout>:<generator-version>:<seed-code-hash>:<schema-signature>
 ```
 
 The `schema-signature` should be tied to the database shape that the fixture
@@ -217,25 +301,20 @@ Do not keep all 10k records in memory just for later assertions. Full
 verification should page through the real read path with `getRecords`, usually
 `1_000` records at a time.
 
-For a cached fixture, persist the same small sample-id map with the fixture
-metadata or recover it from deterministic rows after restore. The cache should
-save import time, not push the runner into loading the whole dataset into
-memory.
-
 ### Split Setup From The Measured Operation
 
 When adding a heavy case, split the flow into these phases:
 
-1. `fixtureRestore` / `fixtureBuild`: restore a cached source fixture when
-   available; otherwise create the source tables and insert deterministic data
-   in batches.
-2. `fixtureReady` / `sourceReady`: verify record count, field layout, sample
+1. `seedHash`: compute the seed cache key from case seed config and seed code.
+2. `seedRestore` / `seedBuild`: restore a cached source fixture when available;
+   otherwise create the source tables and insert deterministic data in batches.
+3. `seedReady` / `sourceReady`: verify record count, field layout, sample
    values, and any source-side indexes or links needed by the case.
-3. `createFormulaField:*` / `createLookupField`: trigger the operation being
+4. `createFormulaField:*` / `createLookupField`: trigger the operation being
    measured on top of that source fixture.
-4. `fullFormulaScanReady` / `fullLookupScanReady`: page through records until
+5. `fullFormulaScanReady` / `fullLookupScanReady`: page through records until
    every computed value matches the locally expected value.
-5. cleanup: remove per-run measured fields or derived temporary tables. Preserve
+6. cleanup: remove per-run measured fields or derived temporary tables. Preserve
    reusable source fixtures unless the fixture key is invalid or the case is
    intentionally testing cold import/setup.
 
@@ -252,9 +331,9 @@ should still be recorded. They help explain noisy runs, but they should not be
 mixed into the primary computed-field metric unless the case explicitly says it
 is measuring setup.
 
-For cached fixtures, also record `fixtureCacheHit`, `fixtureRestoreMs`, and
-`fixtureBuildMs`. A cache miss is still a valid run, but the report should make
-it obvious that the run paid fixture construction cost.
+For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
+`seedBuildMs`, and `seedReadyMs`. A cache miss is still a valid run, but the
+report should make it obvious that the run paid seed construction cost.
 
 ### Verification Contract
 
@@ -357,11 +436,15 @@ case from Teable without reading the runner internals first.
 
    The body should include these sections:
    - `Goal`: what regression this case is meant to catch.
-   - `Data Setup`: tables, fields, row counts, generators, and important
-     relationships.
-   - `Operation`: ordered steps the runner performs.
+   - `Seed Phase`: tables, fields, row counts, generators, relationships, and
+     which config/code is expected to affect the seed hash.
+   - `Execute Phase`: ordered steps that run after seed restore/build, including
+     the operation being measured and execute-only cleanup.
    - `Primary Metric`: the metric used for threshold comparison.
    - `Notes`: useful debugging hints, phase names, or known tradeoffs.
+
+   If the case is intentionally cold-starting data import instead of reusing a
+   seed artifact, say that explicitly in `Seed Phase`.
 
 4. Register the case.
 

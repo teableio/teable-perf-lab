@@ -14,14 +14,16 @@ enabled: true
 Verify that the seeded e2e user can call the authenticated user profile endpoint
 and measure basic request latency.
 
-## Data Setup
+## Seed Phase
 
 - Uses the standard Teable e2e seed user.
 - User id: `usrTestUserId`
 - Email: `test@e2e.com`
 - No extra tables or records are created.
+- Seed hash inputs are limited to the e2e seed baseline and this case id. There
+  is no case-specific fixture artifact.
 
-## Operation
+## Execute Phase
 
 1. Start the `teable-ee` e2e Nest application.
 2. Sign in through the existing e2e `initApp()` flow.
