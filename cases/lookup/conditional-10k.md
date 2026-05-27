@@ -16,7 +16,7 @@ enabled: true
 Measure conditional lookup creation on two 10k-row tables where every host row
 matches a different source row through a unique key.
 
-## Data Setup
+## Seed Phase
 
 - Creates source table A with 10,000 rows.
 - Creates host table B with 10,000 rows.
@@ -28,16 +28,23 @@ matches a different source row through a unique key.
   - `Lookup A Key`: a permuted `A-Key-<n>`
 - The permutation uses multiplier `73` and offset `19`, so every B row maps to a
   unique A row and every lookup result is different.
+- Seed hash inputs should include the case id, `conditional-lookup` runner kind,
+  source/host field layout, `recordCount`, `batchSize`, permutation config,
+  fixture version, and seed implementation code.
 
-## Operation
+The current runner cold-builds both seed tables and deletes them after the run.
+When seed artifact caching is enabled, this phase should be restored by
+`seedHash` and only rebuilt on a cache miss or failed `seedReady` validation.
 
-1. Create source table A and host table B.
-2. Insert 10k deterministic rows into A.
-3. Insert 10k deterministic rows into B.
-4. Create conditional lookup field `Matched A Value` on B.
-5. The lookup filters A rows where `A Key` equals B's `Lookup A Key`.
-6. Full scan all 10k B rows and verify every lookup result.
-7. Permanently delete both temporary tables.
+## Execute Phase
+
+1. Restore or build the two 10k-row seed tables.
+2. Verify source and host samples are readable before measuring lookup work.
+3. Create conditional lookup field `Matched A Value` on B.
+4. The lookup filters A rows where `A Key` equals B's `Lookup A Key`.
+5. Full scan all 10k B rows and verify every lookup result.
+6. Clean up execute-only changes. Until seed caching exists, the current runner
+   deletes both temporary tables as part of cleanup.
 
 ## Primary Metric
 

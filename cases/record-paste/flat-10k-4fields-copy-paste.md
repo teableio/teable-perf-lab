@@ -17,7 +17,7 @@ enabled: true
 Measure the grid paste API path for inserting 10,000 flat records into an empty
 table through `PATCH /api/table/{tableId}/selection/paste`.
 
-## Prepare
+## Seed Phase
 
 - Creates one temporary empty table in the e2e seed base.
 - The table has four fields:
@@ -30,23 +30,30 @@ table through `PATCH /api/table/{tableId}/selection/paste`.
   - `Index`: `1` through `10000`
   - `Group`: cycles through `A`, `B`, `C`, `D`, and `E`
   - `Payload`: `payload-<row>-<group>`
+- Seed hash inputs should include the case id, `record-paste` runner kind, empty
+  table field layout, paste row count, TSV generator config, fixture version,
+  and seed implementation code.
 
-## Operation
+The seed artifact for this case should contain the empty table and generated
+clipboard payload metadata, but not the pasted records. The current runner
+cold-builds the seed table and deletes it after the run.
 
-1. Run `prepare` before measurement:
-   - create the empty temporary table
-   - resolve the table fields and first grid view
-   - build the 10k-row TSV clipboard content in memory
-2. Start the primary timer only after the fixture is ready.
-3. Call `PATCH /selection/paste` with:
+## Execute Phase
+
+1. Restore or build the empty seed table.
+2. Resolve the table fields and first grid view.
+3. Build or restore the deterministic 10k-row TSV clipboard content.
+4. Start the primary timer only after the fixture is ready.
+5. Call `PATCH /selection/paste` with:
    - `ranges: [[0, 0], [0, 0]]`
    - `projection`: the four visible field IDs in grid order
    - `content`: the generated TSV clipboard content
-4. Stop the primary timer after the paste response returns.
-5. Verify the paste response range is `[[0, 0], [3, 9999]]`.
-6. Full scan all 10k records and verify deterministic row values, including
+6. Stop the primary timer after the paste response returns.
+7. Verify the paste response range is `[[0, 0], [3, 9999]]`.
+8. Full scan all 10k records and verify deterministic row values, including
    first, middle, and last sample rows.
-7. Permanently delete the temporary table.
+9. Clean up the pasted records or execute table state. Until seed caching
+   exists, the current runner deletes the temporary table as part of cleanup.
 
 ## Primary Metric
 

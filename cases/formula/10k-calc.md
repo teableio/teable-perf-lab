@@ -15,7 +15,7 @@ enabled: true
 Measure how long it takes to create one formula field on a 10k-row table and
 make the computed values fully readable.
 
-## Data Setup
+## Seed Phase
 
 - Creates one temporary table in the e2e seed base.
 - Inserts 10,000 deterministic records in 1,000-record batches.
@@ -24,15 +24,23 @@ make the computed values fully readable.
   - `A`: row number
   - `B`: `(rowNumber % 97) + 1`
   - `C`: `rowNumber % 13`
+- Seed hash inputs should include the case id, `formula-table` runner kind,
+  source field layout, `recordCount`, `batchSize`, numeric-sequence generator
+  config, fixture version, and seed implementation code.
 
-## Operation
+The current runner cold-builds this seed table and deletes it after the run.
+When seed artifact caching is enabled, this phase should be restored by
+`seedHash` and only rebuilt on a cache miss or failed `seedReady` validation.
 
-1. Create a temporary table with `Title`, `A`, `B`, and `C`.
-2. Insert 10k deterministic records.
+## Execute Phase
+
+1. Restore or build the 10k-row seed table.
+2. Verify the source samples are readable before measuring formula work.
 3. Create formula field `Total` with `({A} * {B}) + {C}`.
 4. Poll until sample rows are correct.
 5. Full scan all 10k records and verify the formula result for every row.
-6. Permanently delete the temporary table.
+6. Clean up execute-only changes. Until seed caching exists, the current runner
+   deletes the temporary table as part of cleanup.
 
 ## Primary Metric
 
