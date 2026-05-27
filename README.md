@@ -58,6 +58,164 @@ upsert the table locally. GitHub Actions also runs `Sync perf cases` on pushes
 to `main` that touch case definitions, descriptions, registry, or the sync
 script, so the Teable table stays aligned with the repo.
 
+## Initialization And Measurement Boundaries
+
+The most important design rule in this repository is: **reuse the expensive e2e
+environment, but keep each case's test data isolated, deterministic, and
+measured in explicit phases**.
+
+This avoids two common failure modes:
+
+- starting a new Teable instance for every case, which makes the suite slow and
+  noisy
+- caching computed results or reusing dirty test tables, which makes the
+  benchmark less trustworthy
+
+### What Is Reused
+
+The GitHub job initializes the heavy environment once:
+
+```text
+checkout teable-ee
+install dependencies
+generate prisma clients
+start Postgres and Redis
+migrate and seed the e2e database
+install perf-lab cases into the teable-ee e2e test path
+run the perf-lab serial spec
+```
+
+Inside `perf-lab.e2e-spec.ts`, each engine initializes the Nest e2e app once and
+then runs all selected cases in that same app context:
+
+```text
+engine v1 -> initApp once -> run selected cases serially
+engine v2 -> initApp once -> run selected cases serially
+```
+
+That means database services, Redis, the e2e seed user, authentication setup,
+and Nest app startup are amortized across cases. They are not part of an
+individual case's primary metric.
+
+### What Is Not Reused
+
+Case data is not shared across cases. Heavy table cases create temporary tables
+with unique timestamped names, then permanently delete them in `finally`:
+
+```text
+perf-formula-10k-<timestamp>
+perf-conditional-lookup-source-10k-<timestamp>
+perf-conditional-lookup-host-10k-<timestamp>
+```
+
+This keeps each case close to an empty-data starting point while still avoiding
+the cost of booting a new Teable instance.
+
+Do not cache formula values, lookup values, or previously computed tables across
+runs. The benchmark should measure whether Teable can compute fresh data from a
+clean case-local setup.
+
+### Deterministic Data Construction
+
+Case data must be deterministic. The runner should be able to calculate the
+expected result locally from the row number and config.
+
+Formula cases use deterministic numeric rows:
+
+```text
+Title = Formula row <rowNumber>
+A = rowNumber
+B = (rowNumber % 97) + 1
+C = rowNumber % 13
+```
+
+The expected formula values are computed locally, for example:
+
+```text
+({A} * {B}) + {C}
+```
+
+Conditional lookup cases use a deterministic permutation:
+
+```text
+sourceRow = ((hostRowOffset * multiplier + offset) % recordCount) + 1
+```
+
+The permutation multiplier must be coprime with `recordCount`, so each host row
+maps to a unique source row. This lets the full scan prove that every row gets a
+different expected lookup value, instead of accidentally testing repeated keys.
+
+### Seed In Batches, Cache Only Sample IDs
+
+Large data setup is written in batches, for example `10_000` records with
+`batchSize = 1_000`. Batch timings are recorded as setup phases:
+
+```text
+seedBatch:1
+seedBatch:2
+...
+seedRecordsMs
+maxSeedBatchMs
+```
+
+During seeding, runners only keep the record ids needed for sample validation:
+
+```text
+rowOffset -> recordId / rowNumber
+```
+
+Do not keep all 10k records in memory just for later assertions. Full
+verification should page through the real read path with `getRecords`, usually
+`1_000` records at a time.
+
+### Split Setup From The Measured Operation
+
+When adding a heavy case, split the flow into these phases:
+
+1. `createTable` / `createTables`: create empty temporary tables with required
+   source fields.
+2. `seedRecords` / `seedSourceRecords` / `seedHostRecords`: insert deterministic
+   data in batches.
+3. `sourceReady`: verify that source data is readable before triggering computed
+   work.
+4. `createFormulaField:*` / `createLookupField`: trigger the operation being
+   measured.
+5. `fullFormulaScanReady` / `fullLookupScanReady`: page through records until
+   every computed value matches the locally expected value.
+6. cleanup: permanently delete temporary tables in `finally`.
+
+Primary metrics should focus on the operation and readiness verification, not
+on setup cost:
+
+```text
+formulaFullReadyMs = formulasReadyMs + fullFormulaScanReadyMs
+conditionalLookupReadyMs = createLookupFieldMs + fullLookupScanReadyMs
+```
+
+Setup metrics such as `createTableMs`, `seedRecordsMs`, and `maxSeedBatchMs`
+should still be recorded. They help explain noisy runs, but they should not be
+mixed into the primary computed-field metric unless the case explicitly says it
+is measuring setup.
+
+### Verification Contract
+
+Use two levels of verification:
+
+- sample verification: quick polling on a few known rows to confirm the system
+  has started returning correct values
+- full scan verification: paged read of every row to prove the computed field is
+  fully ready
+
+If a case fails, throw a diagnostic result that still includes completed phase
+durations, table ids, field ids, sample records, partial metrics, and error
+details. A failed run should still leave enough evidence for a developer to
+understand whether the failure happened during setup, trigger, readiness
+polling, full scan, or cleanup.
+
+Wrap important phases with `withPerfTraceStep()` so trace artifacts line up with
+case phases. The dashboard should be able to guide a developer from a trend
+point to the exact step that consumed time.
+
 ## Adding A Case
 
 Use this flow when adding or changing a perf case. The goal is that another
