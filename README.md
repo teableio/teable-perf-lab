@@ -63,20 +63,25 @@ script, so the Teable table stays aligned with the repo.
 
 ## Initialization And Measurement Boundaries
 
-The most important design rule in this repository is: **reuse the expensive e2e
-environment, but keep each case's test data isolated, deterministic, and
-measured in explicit phases**.
+The most important design rule in this repository is: **split expensive,
+deterministic fixture setup from the operation being measured**.
 
-This avoids two common failure modes:
+There are three different layers that should not be mixed together:
 
-- starting a new Teable instance for every case, which makes the suite slow and
-  noisy
-- caching computed results or reusing dirty test tables, which makes the
-  benchmark less trustworthy
+- environment bootstrap: checkout, dependency install, Postgres/Redis startup,
+  migrations, e2e seed, and Nest app startup
+- case fixture setup: large deterministic source tables and records, such as a
+  future 100k-row table that is expensive to import
+- measured operation: creating or changing the formula, lookup, rollup, or other
+  computed field and waiting until its result is correct
 
-### What Is Reused
+The first two layers may be reused or restored when the cache key is still
+valid. The measured operation must stay fresh for every run.
 
-The GitHub job initializes the heavy environment once:
+### What The Current CI Reuses
+
+The current GitHub job runs all selected cases serially in one job. It
+initializes the heavy environment once:
 
 ```text
 checkout teable-ee
@@ -85,7 +90,7 @@ generate prisma clients
 start Postgres and Redis
 migrate and seed the e2e database
 install perf-lab cases into the teable-ee e2e test path
-run the perf-lab serial spec
+run all selected perf-lab cases in the serial spec
 ```
 
 Inside `perf-lab.e2e-spec.ts`, each engine initializes the Nest e2e app once and
@@ -100,10 +105,28 @@ That means database services, Redis, the e2e seed user, authentication setup,
 and Nest app startup are amortized across cases. They are not part of an
 individual case's primary metric.
 
-### What Is Not Reused
+When the workflow used parallel matrix jobs, it also prepared an e2e seed
+snapshot once:
 
-Case data is not shared across cases. Heavy table cases create temporary tables
-with unique timestamped names, then permanently delete them in `finally`:
+```text
+migrate and seed e2e database
+pg_dump -Fc e2e_test_teable -> seed-snapshot/e2e_test_teable.dump
+upload artifact
+matrix job downloads artifact
+pg_restore e2e_test_teable.dump
+```
+
+That optimization restored the e2e seed baseline across jobs in the same
+workflow run. It was removed when the suite moved back to a single serial job,
+because the serial job no longer repeats migration and e2e seed per case/job.
+If matrix parallelism is reintroduced, restore this pattern before adding more
+per-case setup work.
+
+### Case Fixture Caching
+
+The existing 10k formula and conditional lookup runners currently create
+temporary source tables, seed deterministic records, and permanently delete the
+tables in `finally`:
 
 ```text
 perf-formula-10k-<timestamp>
@@ -111,12 +134,35 @@ perf-conditional-lookup-source-10k-<timestamp>
 perf-conditional-lookup-host-10k-<timestamp>
 ```
 
-This keeps each case close to an empty-data starting point while still avoiding
-the cost of booting a new Teable instance.
+That is acceptable for the current 10k cases, but it is not the right shape for
+larger import-heavy cases. For a 100k-row case, the table creation and import
+phase should be cacheable: the first run for a fixture key pays the cost, and
+later runs restore or reuse the already-built source fixture.
 
-Do not cache formula values, lookup values, or previously computed tables across
-runs. The benchmark should measure whether Teable can compute fresh data from a
-clean case-local setup.
+A fixture cache should contain only the deterministic source state needed before
+the measured operation starts:
+
+- base/table ids or a database snapshot for the source fixture
+- source fields and record count
+- deterministic generator version and case fixture version
+- enough sample record ids to validate the restored fixture quickly
+
+Do not cache the computed formula, lookup, rollup, or previously measured result
+unless the case is explicitly designed to measure reads from a precomputed
+state. For normal regression cases, remove or create a fresh measured field on
+top of the restored source fixture, then measure that field creation and
+readiness.
+
+Use a fixture key that changes when the data shape changes, for example:
+
+```text
+<case-id>:<fixture-version>:<record-count>:<field-layout>:<generator-version>:<schema-signature>
+```
+
+The `schema-signature` should be tied to the database shape that the fixture
+depends on, not blindly to every source commit. If a looser restore key is used
+to pick up an older compatible fixture, the case must validate the restored
+table before measuring anything.
 
 ### Deterministic Data Construction
 
@@ -148,7 +194,7 @@ The permutation multiplier must be coprime with `recordCount`, so each host row
 maps to a unique source row. This lets the full scan prove that every row gets a
 different expected lookup value, instead of accidentally testing repeated keys.
 
-### Seed In Batches, Cache Only Sample IDs
+### Seed In Batches, Keep Only Sample IDs
 
 Large data setup is written in batches, for example `10_000` records with
 `batchSize = 1_000`. Batch timings are recorded as setup phases:
@@ -171,21 +217,27 @@ Do not keep all 10k records in memory just for later assertions. Full
 verification should page through the real read path with `getRecords`, usually
 `1_000` records at a time.
 
+For a cached fixture, persist the same small sample-id map with the fixture
+metadata or recover it from deterministic rows after restore. The cache should
+save import time, not push the runner into loading the whole dataset into
+memory.
+
 ### Split Setup From The Measured Operation
 
 When adding a heavy case, split the flow into these phases:
 
-1. `createTable` / `createTables`: create empty temporary tables with required
-   source fields.
-2. `seedRecords` / `seedSourceRecords` / `seedHostRecords`: insert deterministic
-   data in batches.
-3. `sourceReady`: verify that source data is readable before triggering computed
-   work.
-4. `createFormulaField:*` / `createLookupField`: trigger the operation being
-   measured.
-5. `fullFormulaScanReady` / `fullLookupScanReady`: page through records until
+1. `fixtureRestore` / `fixtureBuild`: restore a cached source fixture when
+   available; otherwise create the source tables and insert deterministic data
+   in batches.
+2. `fixtureReady` / `sourceReady`: verify record count, field layout, sample
+   values, and any source-side indexes or links needed by the case.
+3. `createFormulaField:*` / `createLookupField`: trigger the operation being
+   measured on top of that source fixture.
+4. `fullFormulaScanReady` / `fullLookupScanReady`: page through records until
    every computed value matches the locally expected value.
-6. cleanup: permanently delete temporary tables in `finally`.
+5. cleanup: remove per-run measured fields or derived temporary tables. Preserve
+   reusable source fixtures unless the fixture key is invalid or the case is
+   intentionally testing cold import/setup.
 
 Primary metrics should focus on the operation and readiness verification, not
 on setup cost:
@@ -199,6 +251,10 @@ Setup metrics such as `createTableMs`, `seedRecordsMs`, and `maxSeedBatchMs`
 should still be recorded. They help explain noisy runs, but they should not be
 mixed into the primary computed-field metric unless the case explicitly says it
 is measuring setup.
+
+For cached fixtures, also record `fixtureCacheHit`, `fixtureRestoreMs`, and
+`fixtureBuildMs`. A cache miss is still a valid run, but the report should make
+it obvious that the run paid fixture construction cost.
 
 ### Verification Contract
 
