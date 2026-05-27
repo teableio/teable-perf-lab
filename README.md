@@ -32,6 +32,9 @@ Available cases:
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
+- `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
+  paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
+  inserted records.
 
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
@@ -72,6 +75,8 @@ case from Teable without reading the runner internals first.
      rows, create one or more formula fields, and verify computed values.
    - `conditional-lookup`: create source and host tables, insert deterministic
      key/value rows, create a conditional lookup, and verify lookup values.
+   - `record-paste`: create an empty table, paste deterministic clipboard-style
+     content through the selection paste API, and verify inserted records.
 
    Add a new runner only when the operation cannot be expressed by these
    configs. A new runner needs type support in `framework/types.ts`, dispatch in
