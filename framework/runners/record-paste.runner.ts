@@ -34,42 +34,57 @@ type PasteFixture = {
   tableName: string;
   viewId: string;
   pasteFields: NamedField[];
-  requiredFields: RequiredFields;
   projection: string[];
   content: string;
 };
-
-const requiredFieldNames = ["Name", "Index", "Group", "Payload"] as const;
-type RequiredFieldName = (typeof requiredFieldNames)[number];
-
-type RequiredFields = Record<RequiredFieldName, NamedField>;
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 const getGroupValue = (rowNumber: number, config: RecordPasteCaseConfig) => {
   const group =
-    config.generator.groups[(rowNumber - 1) % config.generator.groups.length];
+    config.generator.groups?.[(rowNumber - 1) % config.generator.groups.length];
   if (!group) {
-    throw new Error("Record paste generator must define at least one group");
+    throw new Error(
+      "Record paste generator must define at least one group for Group fields",
+    );
   }
   return group;
 };
 
-const getExpectedRow = (rowNumber: number, config: RecordPasteCaseConfig) => {
+const getExpectedCellValue = (
+  fieldName: string,
+  rowNumber: number,
+  config: RecordPasteCaseConfig,
+) => {
   const padded = padRowNumber(rowNumber);
-  const group = getGroupValue(rowNumber, config);
-  return {
-    Name: `${config.generator.titlePrefix} ${padded}`,
-    Index: rowNumber,
-    Group: group,
-    Payload: `${config.generator.payloadPrefix}-${padded}-${group}`,
-  };
+  if (fieldName === "Name") {
+    return `${config.generator.titlePrefix} ${padded}`;
+  }
+  if (fieldName === "Index") {
+    return rowNumber;
+  }
+  if (fieldName === "Group") {
+    return getGroupValue(rowNumber, config);
+  }
+  if (fieldName === "Payload") {
+    return `${config.generator.payloadPrefix ?? "payload"}-${padded}-${getGroupValue(
+      rowNumber,
+      config,
+    )}`;
+  }
+
+  return `${config.generator.valuePrefix ?? "Cell"}-${padded}-${fieldName.replace(
+    /\s+/g,
+    "-",
+  )}`;
 };
 
 const buildPasteContent = (config: RecordPasteCaseConfig) =>
   Array.from({ length: config.rowCount }, (_, index) => {
-    const row = getExpectedRow(index + 1, config);
-    return [row.Name, row.Index, row.Group, row.Payload].join("\t");
+    const rowNumber = index + 1;
+    return config.fields
+      .map((field) => getExpectedCellValue(field.name, rowNumber, config))
+      .join("\t");
   }).join("\n");
 
 const resolvePasteFields = (
@@ -90,70 +105,32 @@ const resolvePasteFields = (
   });
 };
 
-const resolveRequiredFields = (fields: NamedField[]): RequiredFields => {
-  const fieldByName = new Map(fields.map((field) => [field.name, field]));
-  const missingFields = requiredFieldNames.filter(
-    (fieldName) => !fieldByName.has(fieldName),
-  );
-
-  if (missingFields.length > 0) {
-    throw new Error(
-      `Missing required record paste fields: ${missingFields.join(", ")}`,
-    );
-  }
-
-  return Object.fromEntries(
-    requiredFieldNames.map((fieldName) => [
-      fieldName,
-      fieldByName.get(fieldName)!,
-    ]),
-  ) as RequiredFields;
-};
-
 const assertRow = (
   rowNumber: number,
-  fields: RequiredFields,
+  fields: NamedField[],
   recordFields: Record<string, unknown>,
   config: RecordPasteCaseConfig,
 ) => {
-  const expected = getExpectedRow(rowNumber, config);
-  const actual = {
-    Name: recordFields[fields.Name.id],
-    Index: recordFields[fields.Index.id],
-    Group: recordFields[fields.Group.id],
-    Payload: recordFields[fields.Payload.id],
-  };
+  const actual: Record<string, unknown> = {};
+  const expected: Record<string, unknown> = {};
 
-  if (actual.Name !== expected.Name) {
-    throw new Error(
-      `Row ${rowNumber} Name mismatch: expected ${expected.Name}, actual ${String(
-        actual.Name,
-      )}`,
-    );
-  }
+  for (const field of fields) {
+    const expectedValue = getExpectedCellValue(field.name, rowNumber, config);
+    const actualValue = recordFields[field.id];
+    actual[field.name] = actualValue;
+    expected[field.name] = expectedValue;
 
-  if (Number(actual.Index) !== expected.Index) {
-    throw new Error(
-      `Row ${rowNumber} Index mismatch: expected ${expected.Index}, actual ${String(
-        actual.Index,
-      )}`,
-    );
-  }
-
-  if (actual.Group !== expected.Group) {
-    throw new Error(
-      `Row ${rowNumber} Group mismatch: expected ${expected.Group}, actual ${String(
-        actual.Group,
-      )}`,
-    );
-  }
-
-  if (actual.Payload !== expected.Payload) {
-    throw new Error(
-      `Row ${rowNumber} Payload mismatch: expected ${expected.Payload}, actual ${String(
-        actual.Payload,
-      )}`,
-    );
+    if (
+      typeof expectedValue === "number"
+        ? Number(actualValue) !== expectedValue
+        : actualValue !== expectedValue
+    ) {
+      throw new Error(
+        `Row ${rowNumber} ${field.name} mismatch: expected ${String(
+          expectedValue,
+        )}, actual ${String(actualValue)}`,
+      );
+    }
   }
 
   return { actual, expected };
@@ -181,7 +158,7 @@ const assertPasteResponseRange = (
 const assertPastedRows = async (
   tableId: string,
   viewId: string,
-  fields: RequiredFields,
+  fields: NamedField[],
   projection: string[],
   config: RecordPasteCaseConfig,
 ) => {
@@ -261,7 +238,6 @@ const preparePasteFixture = async (
   }
 
   const pasteFields = resolvePasteFields(tableFields, config);
-  const requiredFields = resolveRequiredFields(pasteFields);
   const projection = pasteFields.map((field) => field.id);
 
   return {
@@ -269,7 +245,6 @@ const preparePasteFixture = async (
     tableName,
     viewId,
     pasteFields,
-    requiredFields,
     projection,
     content: buildPasteContent(config),
   };
@@ -333,8 +308,10 @@ const buildRecordPasteCaseResult = ({
       prepare: prepared
         ? {
             durationMs: prepareMeasurement.durationMs,
-            tableShape: "empty 4-field table",
+            tableShape: `empty ${prepared.pasteFields.length}-field table`,
             contentRows: config.rowCount,
+            contentCells: config.rowCount * prepared.pasteFields.length,
+            maxPasteCells: config.maxPasteCells,
             preparedBeforeMetric: true,
           }
         : undefined,
@@ -411,7 +388,7 @@ export const runRecordPasteCase = async (
       verifiedRows = await assertPastedRows(
         prepared.tableId,
         prepared.viewId,
-        prepared.requiredFields,
+        prepared.pasteFields,
         prepared.projection,
         config,
       );

@@ -4,6 +4,7 @@ import "../../src/tracing";
 import { initApp } from "../utils/init-app";
 import { listPerfCases } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
+import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
 import {
   installPerfTraceCollector,
   uninstallPerfTraceCollector,
@@ -60,6 +61,35 @@ const parseEngineList = (engineList = "v1,v2"): Engine[] => {
 
 const getForceV2All = (engine: Engine) => (engine === "v2" ? "true" : "false");
 
+const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
+  const requiredMaxPasteCells = Math.max(
+    0,
+    ...perfCases
+      .filter((perfCase) => perfCase.runner === "record-paste")
+      .map(
+        (perfCase) =>
+          (perfCase.config as RecordPasteCaseConfig).maxPasteCells ?? 0,
+      ),
+  );
+
+  if (requiredMaxPasteCells <= 0) {
+    return;
+  }
+
+  const currentMaxPasteCells = Number.parseInt(
+    process.env.MAX_PASTE_CELLS ?? "",
+    10,
+  );
+  if (
+    Number.isFinite(currentMaxPasteCells) &&
+    currentMaxPasteCells >= requiredMaxPasteCells
+  ) {
+    return;
+  }
+
+  process.env.MAX_PASTE_CELLS = String(requiredMaxPasteCells);
+};
+
 const resetAxiosInterceptors = () => {
   uninstallPerfTraceCollector();
   axios.interceptors.request.clear?.();
@@ -108,11 +138,13 @@ describe("perf-lab serial case runner (e2e)", () => {
       process.env.PERF_LAB_CASE_ID ??
       "smoke/auth-user",
   );
+  applyCaseRuntimeEnv(perfCases);
   const engines = parseEngineList(process.env.PERF_LAB_ENGINE_LIST);
 
   logPhase("module-loaded", {
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
     engines: engines.join(","),
+    maxPasteCells: process.env.MAX_PASTE_CELLS,
   });
 
   beforeAll(() => {
