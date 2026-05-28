@@ -146,7 +146,7 @@ export interface RecordPasteCaseConfig {
   maxPasteCells?: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
   generator: {
-    type: "flat-copy-paste";
+    type: "flat-copy-paste" | "mixed-copy-paste";
     titlePrefix: string;
     groups?: string[];
     payloadPrefix?: string;

@@ -1,4 +1,4 @@
-import { FieldKeyType } from "@teable/core";
+import { FieldKeyType, FieldType } from "@teable/core";
 import { paste } from "@teable/openapi";
 import {
   createTable,
@@ -29,16 +29,53 @@ type NamedField = {
   name: string;
 };
 
+type PasteField = RecordPasteCaseConfig["fields"][number] & {
+  id: string;
+  name: string;
+};
+
+type ExpectedCellValue = string | number | boolean | string[] | null;
+
 type PasteFixture = {
   tableId: string;
   tableName: string;
   viewId: string;
-  pasteFields: NamedField[];
+  pasteFields: PasteField[];
   projection: string[];
   content: string;
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
+
+const fieldNameKey = (fieldName: string) => fieldName.replace(/\s+/g, "-");
+
+const selectChoices = (field: RecordPasteCaseConfig["fields"][number]) =>
+  (
+    field.options as
+      | {
+          choices?: Array<{ name: string }>;
+        }
+      | undefined
+  )?.choices ?? [];
+
+const ratingMax = (field: RecordPasteCaseConfig["fields"][number]) =>
+  (
+    field.options as
+      | {
+          max?: number;
+        }
+      | undefined
+  )?.max ?? 5;
+
+const dateOnlyForRow = (rowNumber: number, offsetDays = 0) => {
+  const date = new Date(
+    Date.UTC(2026, 0, 1 + offsetDays + ((rowNumber - 1) % 365)),
+  );
+  return date.toISOString().slice(0, 10);
+};
+
+const dateIsoForRow = (rowNumber: number, offsetDays = 0) =>
+  `${dateOnlyForRow(rowNumber, offsetDays)}T00:00:00.000Z`;
 
 const getGroupValue = (rowNumber: number, config: RecordPasteCaseConfig) => {
   const group =
@@ -52,12 +89,16 @@ const getGroupValue = (rowNumber: number, config: RecordPasteCaseConfig) => {
 };
 
 const getExpectedCellValue = (
-  fieldName: string,
+  field: RecordPasteCaseConfig["fields"][number],
   rowNumber: number,
   config: RecordPasteCaseConfig,
-) => {
+): ExpectedCellValue => {
+  const fieldName = field.name;
   const padded = padRowNumber(rowNumber);
   if (fieldName === "Name") {
+    return `${config.generator.titlePrefix} ${padded}`;
+  }
+  if (fieldName === "Title") {
     return `${config.generator.titlePrefix} ${padded}`;
   }
   if (fieldName === "Index") {
@@ -73,24 +114,85 @@ const getExpectedCellValue = (
     )}`;
   }
 
-  return `${config.generator.valuePrefix ?? "Cell"}-${padded}-${fieldName.replace(
-    /\s+/g,
-    "-",
-  )}`;
+  switch (field.type) {
+    case FieldType.SingleLineText:
+      return `${config.generator.valuePrefix ?? "Cell"}-${padded}-${fieldNameKey(
+        fieldName,
+      )}`;
+    case FieldType.LongText:
+      return `${config.generator.payloadPrefix ?? "long"}-${padded}-${fieldNameKey(
+        fieldName,
+      )}-paste-payload`;
+    case FieldType.Number:
+      return Number(
+        (rowNumber * ((fieldName.length % 7) + 1) + 0.25).toFixed(2),
+      );
+    case FieldType.SingleSelect: {
+      const choices = selectChoices(field);
+      if (choices.length === 0) {
+        throw new Error(`Single select field ${fieldName} has no choices`);
+      }
+      return choices[(rowNumber - 1) % choices.length].name;
+    }
+    case FieldType.MultipleSelect: {
+      const choices = selectChoices(field);
+      if (choices.length === 0) {
+        throw new Error(`Multiple select field ${fieldName} has no choices`);
+      }
+      const first = choices[(rowNumber - 1) % choices.length].name;
+      const second = choices[rowNumber % choices.length].name;
+      return first === second ? [first] : [first, second];
+    }
+    case FieldType.Date:
+      return dateIsoForRow(
+        rowNumber,
+        fieldName.toLowerCase().includes("due") ? 7 : 0,
+      );
+    case FieldType.Checkbox:
+      return rowNumber % 2 === 1 ? true : null;
+    case FieldType.Rating:
+      return ((rowNumber - 1) % ratingMax(field)) + 1;
+    default:
+      return `${config.generator.valuePrefix ?? "Cell"}-${padded}-${fieldNameKey(
+        fieldName,
+      )}`;
+  }
+};
+
+const getClipboardCellValue = (
+  field: RecordPasteCaseConfig["fields"][number],
+  rowNumber: number,
+  config: RecordPasteCaseConfig,
+) => {
+  if (field.type === FieldType.Date) {
+    return dateOnlyForRow(
+      rowNumber,
+      field.name.toLowerCase().includes("due") ? 7 : 0,
+    );
+  }
+
+  const expectedValue = getExpectedCellValue(field, rowNumber, config);
+  if (Array.isArray(expectedValue)) {
+    return expectedValue.join(", ");
+  }
+  if (expectedValue == null) {
+    return "";
+  }
+  return String(expectedValue);
 };
 
 const buildPasteContent = (config: RecordPasteCaseConfig) =>
   Array.from({ length: config.rowCount }, (_, index) => {
     const rowNumber = index + 1;
     return config.fields
-      .map((field) => getExpectedCellValue(field.name, rowNumber, config))
+      .map((field) => getClipboardCellValue(field, rowNumber, config))
       .join("\t");
   }).join("\n");
 
 const resolvePasteFields = (
   fields: NamedField[],
   config: RecordPasteCaseConfig,
-) => {
+): PasteField[] => {
   const fieldByName = new Map(fields.map((field) => [field.name, field]));
   return config.fields.map((field) => {
     const resolvedField = fieldByName.get(field.name);
@@ -101,13 +203,75 @@ const resolvePasteFields = (
           .join(", ")}`,
       );
     }
-    return resolvedField;
+    return {
+      ...field,
+      id: resolvedField.id,
+      name: resolvedField.name,
+    };
   });
+};
+
+const normalizeMultiSelectValue = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const valuesMatch = (
+  expectedValue: ExpectedCellValue,
+  actualValue: unknown,
+  field: PasteField,
+) => {
+  if (expectedValue == null) {
+    return actualValue == null;
+  }
+
+  if (Array.isArray(expectedValue)) {
+    return (
+      JSON.stringify(normalizeMultiSelectValue(actualValue)) ===
+      JSON.stringify(expectedValue)
+    );
+  }
+
+  if (typeof expectedValue === "number") {
+    return Number(actualValue) === expectedValue;
+  }
+
+  if (typeof expectedValue === "boolean") {
+    return actualValue === expectedValue;
+  }
+
+  if (field.type === FieldType.Date) {
+    return (
+      typeof actualValue === "string" &&
+      new Date(actualValue).toISOString() === expectedValue
+    );
+  }
+
+  return actualValue === expectedValue;
 };
 
 const assertRow = (
   rowNumber: number,
-  fields: NamedField[],
+  fields: PasteField[],
   recordFields: Record<string, unknown>,
   config: RecordPasteCaseConfig,
 ) => {
@@ -115,16 +279,12 @@ const assertRow = (
   const expected: Record<string, unknown> = {};
 
   for (const field of fields) {
-    const expectedValue = getExpectedCellValue(field.name, rowNumber, config);
+    const expectedValue = getExpectedCellValue(field, rowNumber, config);
     const actualValue = recordFields[field.id];
     actual[field.name] = actualValue;
     expected[field.name] = expectedValue;
 
-    if (
-      typeof expectedValue === "number"
-        ? Number(actualValue) !== expectedValue
-        : actualValue !== expectedValue
-    ) {
+    if (!valuesMatch(expectedValue, actualValue, field)) {
       throw new Error(
         `Row ${rowNumber} ${field.name} mismatch: expected ${String(
           expectedValue,
@@ -158,7 +318,7 @@ const assertPasteResponseRange = (
 const assertPastedRows = async (
   tableId: string,
   viewId: string,
-  fields: NamedField[],
+  fields: PasteField[],
   projection: string[],
   config: RecordPasteCaseConfig,
 ) => {
@@ -304,6 +464,7 @@ const buildRecordPasteCaseResult = ({
       fields: prepared?.pasteFields.map((field) => ({
         id: field.id,
         name: field.name,
+        type: field.type,
       })),
       prepare: prepared
         ? {

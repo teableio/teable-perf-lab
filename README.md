@@ -38,6 +38,9 @@ Available cases:
 - `record-paste/flat-10k-20fields-copy-paste`: create an empty 20-field table,
   paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
   inserted records.
+- `record-paste/mixed-10k-20fields-complex-copy-paste`: create an empty
+  20-field mixed-type table, paste 10k deterministic rows through
+  `PATCH /selection/paste`, and verify the typed inserted records.
 
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
