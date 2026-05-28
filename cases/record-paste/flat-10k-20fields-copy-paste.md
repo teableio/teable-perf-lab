@@ -1,0 +1,55 @@
+---
+owner: backend-v2
+tags:
+  - record-paste
+  - selection
+  - paste
+  - 10k
+  - 20fields
+  - wide-table
+  - v1-v2
+  - large-data
+enabled: true
+---
+
+# record-paste/flat-10k-20fields-copy-paste
+
+## Goal
+
+Measure the grid paste API path for inserting 10,000 flat records into an empty
+20-field table through `PATCH /api/table/{tableId}/selection/paste`.
+
+## Prepare
+
+- Creates one temporary empty table in the e2e seed base.
+- The table has 20 single line text fields named `Field 01` through `Field 20`.
+- Builds deterministic clipboard-style TSV content with 10,000 rows and 20
+  columns, for 200,000 pasted cells total.
+- Declares `maxPasteCells: 200_000` so the e2e app starts with a paste-cell
+  limit that permits this wide payload.
+
+## Operation
+
+1. Run `prepare` before measurement:
+   - create the empty temporary table
+   - resolve the table fields and first grid view
+   - build the 10k x 20-field TSV clipboard content in memory
+2. Start the primary timer only after `prepare` is ready.
+3. Call `PATCH /selection/paste` with:
+   - `ranges: [[0, 0], [0, 0]]`
+   - `projection`: the 20 visible field IDs in grid order
+   - `content`: the generated TSV clipboard content
+4. Stop the primary timer after the paste response returns.
+5. Verify the paste response range is `[[0, 0], [19, 9999]]`.
+6. Full scan all 10k records and verify deterministic row values, including
+   first, middle, and last sample rows.
+7. Permanently delete the temporary table.
+
+## Primary Metric
+
+- `paste10kMs`: elapsed time for the single `PATCH /selection/paste` request.
+
+## Notes
+
+This case isolates table width. It keeps the row count equal to the 4-field case
+but increases pasted cell count from 40,000 to 200,000.

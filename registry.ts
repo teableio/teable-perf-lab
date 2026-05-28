@@ -2,7 +2,9 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
+import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [
@@ -10,7 +12,9 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
+  recordPasteMixed10k20FieldsComplexCopyPasteCase,
 ] satisfies PerfCase[];
 
 const caseById = new Map(cases.map((perfCase) => [perfCase.id, perfCase]));
@@ -25,6 +29,12 @@ const caseAliases = new Map([
   ["conditional-lookup", "lookup/conditional-10k"],
   ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
+  ["paste/10k-20fields", "record-paste/flat-10k-20fields-copy-paste"],
+  [
+    "paste/10k-mixed-20fields",
+    "record-paste/mixed-10k-20fields-complex-copy-paste",
+  ],
+  ["paste/10k-complex", "record-paste/mixed-10k-20fields-complex-copy-paste"],
 ]);
 
 export const listPerfCaseIds = () => cases.map((perfCase) => perfCase.id);

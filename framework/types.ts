@@ -143,12 +143,14 @@ export interface RecordPasteCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
   rowCount: number;
+  maxPasteCells?: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
   generator: {
-    type: "flat-copy-paste";
+    type: "flat-copy-paste" | "mixed-copy-paste";
     titlePrefix: string;
-    groups: string[];
-    payloadPrefix: string;
+    groups?: string[];
+    payloadPrefix?: string;
+    valuePrefix?: string;
   };
   verify: {
     sampleRows: number[];
