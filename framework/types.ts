@@ -6,6 +6,9 @@ export type PerfRunnerKind =
   | "formula-table"
   | "conditional-lookup"
   | "record-paste"
+  | "record-delete"
+  | "record-undo"
+  | "record-redo"
   | "selection-clear";
 
 export interface PerfCase {
@@ -18,6 +21,9 @@ export interface PerfCase {
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
     | RecordPasteCaseConfig
+    | RecordDeleteCaseConfig
+    | RecordUndoCaseConfig
+    | RecordRedoCaseConfig
     | SelectionClearCaseConfig;
 }
 
@@ -183,6 +189,45 @@ export interface SelectionClearCaseConfig {
   };
   threshold: {
     metric: "clear10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordUndoRedoBaseCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "mixed-undo-redo";
+    titlePrefix: string;
+    payloadPrefix: string;
+    source?: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+}
+
+export interface RecordDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "delete10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordUndoCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "undoReplay10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordRedoCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "redoReplay10kMs";
     maxMs: number;
   };
 }
