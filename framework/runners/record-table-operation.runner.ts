@@ -1,6 +1,6 @@
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
-  clear,
+  clearSelectionStream,
   deleteSelection,
   duplicateSelectionStream,
   RangeType,
@@ -207,6 +207,15 @@ const buildAllRowsRange = (fixture: OperationFixture) => ({
   projection: fixture.projection,
 });
 
+const buildAllCellsRange = (fixture: OperationFixture) => ({
+  viewId: fixture.viewId,
+  ranges: [
+    [0, 0],
+    [fixture.projection.length - 1, fixture.seededRecords.length - 1],
+  ] as [[number, number], [number, number]],
+  projection: fixture.projection,
+});
+
 const getStreamHeaders = (context: PerfRunContext) =>
   context.cookie ? { Cookie: context.cookie } : undefined;
 
@@ -375,10 +384,31 @@ const deleteAllRows = async (fixture: OperationFixture) => {
   return response.data;
 };
 
-const clearAllRows = async (fixture: OperationFixture) => {
-  const response = await clear(fixture.tableId, buildAllRowsRange(fixture));
-  expect(response.status).toBe(200);
-  return { clearedCount: fixture.seededRecords.length };
+const clearAllRows = async (
+  fixture: OperationFixture,
+  context: PerfRunContext,
+) => {
+  let progressEventCount = 0;
+  const result = await clearSelectionStream(
+    fixture.tableId,
+    buildAllCellsRange(fixture),
+    {
+      headers: getStreamHeaders(context),
+      onProgress: () => {
+        progressEventCount += 1;
+      },
+    },
+  );
+  expect(result.errors).toHaveLength(0);
+  expect(result.done.totalCount).toBe(fixture.seededRecords.length);
+  expect(result.done.processedCount).toBe(fixture.seededRecords.length);
+  expect(result.done.clearedCount).toBe(fixture.seededRecords.length);
+  return {
+    totalCount: result.done.totalCount,
+    processedCount: result.done.processedCount,
+    clearedCount: result.done.clearedCount,
+    progressEventCount,
+  };
 };
 
 const duplicateAllRows = async (
@@ -409,7 +439,7 @@ const executeOperation = async (
     case "update":
       return updateRecordsInBatches(fixture, config);
     case "clear":
-      return clearAllRows(fixture);
+      return clearAllRows(fixture, context);
     case "delete":
       return deleteAllRows(fixture);
     case "duplicate":

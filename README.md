@@ -39,8 +39,9 @@ Available cases:
   table, update every row through batched `PATCH /record` requests, and verify
   the updated records.
 - `selection-clear/flat-10k-4fields-row-clear`: create a 10k-row 4-field table,
-  clear all rows through `PATCH /selection/clear`, and verify the records remain
-  with empty cells.
+  clear all visible cells through the large-selection
+  `PATCH /selection/clear-stream` path, and verify the records remain with empty
+  cells.
 - `record-delete/flat-10k-row-delete`: create a 10k-row 4-field table, delete
   all rows through `DELETE /selection/delete`, and verify the table is empty.
 - `selection-duplicate/flat-1k-row-duplicate-stream`: create a 1k-row 4-field
@@ -394,8 +395,9 @@ case from Teable without reading the runner internals first.
      and verify inserted values.
    - `record-update`: create a deterministic source table, batch-update records,
      and verify updated values.
-   - `selection-clear`: create a deterministic source table, clear row
-     selections, and verify records remain with empty cells.
+   - `selection-clear`: create a deterministic source table, clear large cell
+     selections through the stream API, and verify records remain with empty
+     cells.
    - `record-delete`: create a deterministic source table, delete row
      selections, and verify records are removed.
    - `selection-duplicate`: create a deterministic source table, duplicate row
@@ -405,6 +407,26 @@ case from Teable without reading the runner internals first.
    configs. A new runner needs type support in `framework/types.ts`, dispatch in
    `framework/run-perf-case.ts`, and a `framework/runners/*.runner.ts`
    implementation.
+
+   Large clear stream request notes:
+   - Product UI sends `PATCH /table/{tableId}/selection/clear-stream` when the
+     selected range affects more than 200 rows. Smaller clears use
+     `PATCH /table/{tableId}/selection/clear`.
+   - For clearing all visible cells in a wide table, use the cell-selection
+     shape, not the row-selection shape: `ranges: [[0, 0], [lastCol, lastRow]]`.
+     Do not add `type: "rows"` for this product-shaped case.
+   - `lastCol` is `projection.length - 1`; `lastRow` is `rowCount - 1`. For
+     example, a 20-field by 10k-row table uses `ranges: [[0, 0], [19, 9999]]`.
+   - Always include `viewId` and a `projection` array ordered by the current
+     view's visible column order. The range column indexes map into this
+     projection, so missing or reordered field ids clear the wrong cells.
+   - A successful large clear stream returns HTTP 200 and a final SSE `done`
+     event. Do not print the raw SSE body during manual testing: drain the stream
+     and output only a compact summary such as HTTP status, final `done`,
+     progress event count, and error count. If using a generic CLI/API wrapper,
+     redirect large output to a temp file or avoid it entirely, then verify by
+     reading records back and confirming selected fields are empty while record
+     ids still exist.
 
 2. Create the case file.
 

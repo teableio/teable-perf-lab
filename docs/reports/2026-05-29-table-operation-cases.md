@@ -7,7 +7,7 @@ This pass adds five API-level table operation cases based on the current
 
 - `POST /api/table/{tableId}/record`
 - `PATCH /api/table/{tableId}/record`
-- `PATCH /api/table/{tableId}/selection/clear`
+- `PATCH /api/table/{tableId}/selection/clear-stream`
 - `DELETE /api/table/{tableId}/selection/delete`
 - `GET /api/table/{tableId}/selection/duplicate-stream`
 
@@ -16,13 +16,13 @@ confirm endpoint shape, range semantics, stream behavior, and practical scale.
 
 ## Implemented Cases
 
-| Case                                               | Real Scenario                                                      | Runner                | Primary Metric  | Verification                                                         |
-| -------------------------------------------------- | ------------------------------------------------------------------ | --------------------- | --------------- | -------------------------------------------------------------------- |
-| `record-create/flat-10k-4fields-batch-create`      | Import or tool creates many rows through the record API.           | `record-create`       | `create10kMs`   | Full scan verifies 10k deterministic records.                        |
-| `record-update/flat-10k-4fields-batch-update`      | Bulk edit or tool updates many existing rows.                      | `record-update`       | `update10kMs`   | Full scan verifies all updated values.                               |
-| `selection-clear/flat-10k-4fields-row-clear`       | User selects many rows and clears visible cell content.            | `selection-clear`     | `clear10kMs`    | Full scan verifies 10k rows remain and selected cells are empty.     |
-| `record-delete/flat-10k-row-delete`                | User selects many rows and deletes them from the grid.             | `record-delete`       | `delete10kMs`   | Delete response includes 10k ids and the table reads back empty.     |
-| `selection-duplicate/flat-1k-row-duplicate-stream` | User duplicates selected rows through the streamed selection path. | `selection-duplicate` | `duplicate1kMs` | Full scan verifies each deterministic `Index` appears exactly twice. |
+| Case                                               | Real Scenario                                                       | Runner                | Primary Metric  | Verification                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------- | --------------------- | --------------- | -------------------------------------------------------------------- |
+| `record-create/flat-10k-4fields-batch-create`      | Import or tool creates many rows through the record API.            | `record-create`       | `create10kMs`   | Full scan verifies 10k deterministic records.                        |
+| `record-update/flat-10k-4fields-batch-update`      | Bulk edit or tool updates many existing rows.                       | `record-update`       | `update10kMs`   | Full scan verifies all updated values.                               |
+| `selection-clear/flat-10k-4fields-row-clear`       | User clears a large visible cell selection through the stream path. | `selection-clear`     | `clear10kMs`    | Full scan verifies 10k rows remain and selected cells are empty.     |
+| `record-delete/flat-10k-row-delete`                | User selects many rows and deletes them from the grid.              | `record-delete`       | `delete10kMs`   | Delete response includes 10k ids and the table reads back empty.     |
+| `selection-duplicate/flat-1k-row-duplicate-stream` | User duplicates selected rows through the streamed selection path.  | `selection-duplicate` | `duplicate1kMs` | Full scan verifies each deterministic `Index` appears exactly twice. |
 
 ## Runner Design
 
@@ -37,7 +37,9 @@ The primary metric starts only after the fixture is ready:
 - create: empty table is ready, then batched create starts
 - update: seeded table and record-id list are ready, then batched update starts
 - clear/delete/duplicate: seeded table and view id are ready, then selection
-  operation starts
+  operation starts. The 10k clear case uses the product large-selection
+  `clear-stream` path because product UI switches clear to stream above 200
+  affected rows.
 
 This branch intentionally contains only the five table-operation cases listed
 above. Request-replay and history-operation cases should land separately after
@@ -45,11 +47,11 @@ their request design is reviewed.
 
 ## Scale Choices
 
-Create, update, clear, and delete use 10,000 rows because those paths are either
-batched by the runner or use compact row-range selection requests. Duplicate
-starts at 1,000 rows because the legacy stream fallback duplicates records
-sequentially. That gives an executable first baseline while still covering the
-real streamed selection endpoint.
+Create, update, clear, and delete use 10,000 rows. Create/update are batched by
+the runner, delete uses a compact row-range request, and clear uses the product
+large-selection clear stream. Duplicate starts at 1,000 rows because the legacy
+stream fallback duplicates records sequentially. That gives an executable first
+baseline while still covering the real streamed selection endpoints.
 
 ## Review Commands
 

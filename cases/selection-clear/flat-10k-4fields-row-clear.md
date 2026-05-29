@@ -14,7 +14,8 @@ enabled: true
 ## Goal
 
 Measure the grid clear path for clearing every visible cell across 10,000 rows
-and four fields through `PATCH /api/table/{tableId}/selection/clear`.
+and four fields through
+`PATCH /api/table/{tableId}/selection/clear-stream`.
 
 ## Seed Phase
 
@@ -27,16 +28,19 @@ and four fields through `PATCH /api/table/{tableId}/selection/clear`.
 ## Execute Phase
 
 1. Start the primary timer after the source table is ready.
-2. Call `PATCH /selection/clear` with `type: rows` and `ranges: [[0, 9999]]`.
-3. Stop the primary timer after the clear response returns.
+2. Call `PATCH /selection/clear-stream` with the product large-selection shape:
+   `ranges: [[0, 0], [3, 9999]]`, `projection`, and `viewId`.
+3. Stop the primary timer after the clear stream emits its final `done` event.
 4. Full scan all 10,000 records and verify the selected fields are empty.
 5. Permanently delete the temporary table.
 
 ## Primary Metric
 
-- `clear10kMs`: elapsed time for the single selection-clear request.
+- `clear10kMs`: elapsed time for the single selection-clear stream request.
 
 ## Notes
 
-This case follows the grid row-selection workflow. It measures clearing content,
-not deleting records, so verification expects the row count to remain 10,000.
+The product switches clear to the stream endpoint when the affected row count is
+greater than 200. This 10k case intentionally measures that large-clear path. It
+measures clearing content, not deleting records, so verification expects the row
+count to remain 10,000.
