@@ -155,6 +155,7 @@ describe("perf-lab serial case runner (e2e)", () => {
     describe(`engine ${engine}`, () => {
       let app: INestApplication;
       let appUrl: string;
+      let cookie: string | undefined;
 
       beforeAll(async () => {
         logPhase("engine:beforeAll:start", { engine });
@@ -164,6 +165,7 @@ describe("perf-lab serial case runner (e2e)", () => {
           const appCtx = await initApp();
           app = appCtx.app;
           appUrl = appCtx.appUrl;
+          cookie = appCtx.cookie;
           logPhase("engine:beforeAll:ready", {
             engine,
             initAppMs: Math.round(performance.now() - initStarted),
@@ -189,7 +191,7 @@ describe("perf-lab serial case runner (e2e)", () => {
             await withEngineEnv(engine, async () => {
               logPhase("case:start", { caseId: perfCase.id, engine });
               const caseStarted = performance.now();
-              await runPerfCase(perfCase, { app, appUrl });
+              await runPerfCase(perfCase, { app, appUrl, cookie });
               logPhase("case:done", {
                 caseId: perfCase.id,
                 engine,

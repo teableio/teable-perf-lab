@@ -32,6 +32,9 @@ Available cases:
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
+- `selection-clear/flat-10k-20fields-cell-clear-stream`: create a 10k-row
+  mixed-field table, clear all visible cells through
+  `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
 - `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
   paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
   inserted records.
@@ -45,6 +48,33 @@ Available cases:
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
 design remains in [docs/plan.md](docs/plan.md).
+
+### Selection Clear Stream Requests
+
+The product uses `PATCH /api/table/{tableId}/selection/clear-stream` when the
+selection affects more than 200 rows. For a full-table cell clear, use the same
+cell-range payload shape as the grid UI:
+
+```json
+{
+  "viewId": "viw...",
+  "ranges": [
+    [0, 0],
+    [19, 9999]
+  ],
+  "projection": ["fld...", "fld..."]
+}
+```
+
+`projection` must be the visible field id list in view order. `ranges[1][0]` is
+`projection.length - 1`, and `ranges[1][1]` is `rowCount - 1`. Do not add
+`type: "rows"` for this cell-clear path; that shape belongs to row operations
+such as delete or duplicate.
+
+The endpoint returns `text/event-stream`. Avoid printing the raw SSE body in
+local scripts or CLI probes because the final event can be large for 10k rows.
+Record compact metrics from the parsed `done` event and verify correctness with
+a paged record scan.
 
 ## Case Registry
 
@@ -376,6 +406,8 @@ case from Teable without reading the runner internals first.
      key/value rows, create a conditional lookup, and verify lookup values.
    - `record-paste`: create an empty table, paste deterministic clipboard-style
      content through the selection paste API, and verify inserted records.
+   - `selection-clear`: create a seeded table, call the selection clear stream
+     API, and verify that records remain while selected cells are empty.
 
    Add a new runner only when the operation cannot be expressed by these
    configs. A new runner needs type support in `framework/types.ts`, dispatch in
