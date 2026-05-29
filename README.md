@@ -38,8 +38,8 @@ Available cases:
 - `record-update/flat-10k-4fields-batch-update`: create a 10k-row 4-field
   table, update every row through batched `PATCH /record` requests, and verify
   the updated records.
-- `selection-clear/flat-10k-4fields-row-clear`: create a 10k-row 4-field table,
-  clear all visible cells through the large-selection
+- `selection-clear/flat-10k-20fields-cell-clear-stream`: create a 10k-row
+  20-field mixed table, clear all visible cells through the large-selection
   `PATCH /selection/clear-stream` path, and verify the records remain with empty
   cells.
 - `record-delete/flat-10k-row-delete`: create a 10k-row 4-field table, delete

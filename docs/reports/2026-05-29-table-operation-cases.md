@@ -16,13 +16,13 @@ confirm endpoint shape, range semantics, stream behavior, and practical scale.
 
 ## Implemented Cases
 
-| Case                                               | Real Scenario                                                       | Runner                | Primary Metric  | Verification                                                         |
-| -------------------------------------------------- | ------------------------------------------------------------------- | --------------------- | --------------- | -------------------------------------------------------------------- |
-| `record-create/flat-10k-4fields-batch-create`      | Import or tool creates many rows through the record API.            | `record-create`       | `create10kMs`   | Full scan verifies 10k deterministic records.                        |
-| `record-update/flat-10k-4fields-batch-update`      | Bulk edit or tool updates many existing rows.                       | `record-update`       | `update10kMs`   | Full scan verifies all updated values.                               |
-| `selection-clear/flat-10k-4fields-row-clear`       | User clears a large visible cell selection through the stream path. | `selection-clear`     | `clear10kMs`    | Full scan verifies 10k rows remain and selected cells are empty.     |
-| `record-delete/flat-10k-row-delete`                | User selects many rows and deletes them from the grid.              | `record-delete`       | `delete10kMs`   | Delete response includes 10k ids and the table reads back empty.     |
-| `selection-duplicate/flat-1k-row-duplicate-stream` | User duplicates selected rows through the streamed selection path.  | `selection-duplicate` | `duplicate1kMs` | Full scan verifies each deterministic `Index` appears exactly twice. |
+| Case                                                  | Real Scenario                                                                | Runner                | Primary Metric  | Verification                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------- | --------------- | -------------------------------------------------------------------- |
+| `record-create/flat-10k-4fields-batch-create`         | Import or tool creates many rows through the record API.                     | `record-create`       | `create10kMs`   | Full scan verifies 10k deterministic records.                        |
+| `record-update/flat-10k-4fields-batch-update`         | Bulk edit or tool updates many existing rows.                                | `record-update`       | `update10kMs`   | Full scan verifies all updated values.                               |
+| `selection-clear/flat-10k-20fields-cell-clear-stream` | User clears a large 20-field visible cell selection through the stream path. | `selection-clear`     | `clear10kMs`    | Full scan verifies 10k rows remain and selected cells are empty.     |
+| `record-delete/flat-10k-row-delete`                   | User selects many rows and deletes them from the grid.                       | `record-delete`       | `delete10kMs`   | Delete response includes 10k ids and the table reads back empty.     |
+| `selection-duplicate/flat-1k-row-duplicate-stream`    | User duplicates selected rows through the streamed selection path.           | `selection-duplicate` | `duplicate1kMs` | Full scan verifies each deterministic `Index` appears exactly twice. |
 
 ## Runner Design
 

@@ -59,7 +59,7 @@ type OperationFixture = {
   seedBatchDurations: number[];
 };
 
-type ExpectedCellValue = string | number | null;
+type ExpectedCellValue = string | number | boolean | string[] | null;
 
 const DEFAULT_GROUPS = ["A", "B", "C", "D", "E"];
 
@@ -74,6 +74,38 @@ const chunk = <T>(items: T[], size: number) => {
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 const fieldNameKey = (fieldName: string) => fieldName.replace(/\s+/g, "-");
+
+const selectChoices = (
+  field: RecordTableOperationBaseCaseConfig["fields"][number],
+) =>
+  (
+    field.options as
+      | {
+          choices?: Array<{ name: string }>;
+        }
+      | undefined
+  )?.choices ?? [];
+
+const ratingMax = (
+  field: RecordTableOperationBaseCaseConfig["fields"][number],
+) =>
+  (
+    field.options as
+      | {
+          max?: number;
+        }
+      | undefined
+  )?.max ?? 5;
+
+const dateOnlyForRow = (rowNumber: number, offsetDays = 0) => {
+  const date = new Date(
+    Date.UTC(2026, 0, 1 + offsetDays + ((rowNumber - 1) % 365)),
+  );
+  return date.toISOString().slice(0, 10);
+};
+
+const dateIsoForRow = (rowNumber: number, offsetDays = 0) =>
+  `${dateOnlyForRow(rowNumber, offsetDays)}T00:00:00.000Z`;
 
 const getGroups = (config: RecordTableOperationBaseCaseConfig) =>
   config.generator.groups?.length ? config.generator.groups : DEFAULT_GROUPS;
@@ -119,8 +151,30 @@ const getExpectedCellValue = (
   switch (field.type) {
     case FieldType.Number:
       return mode === "updated" ? rowNumber + 100_000 : rowNumber;
-    case FieldType.SingleSelect:
-      return group;
+    case FieldType.SingleSelect: {
+      const choices = selectChoices(field);
+      return choices.length
+        ? choices[(rowNumber - 1) % choices.length].name
+        : group;
+    }
+    case FieldType.MultipleSelect: {
+      const choices = selectChoices(field);
+      if (choices.length === 0) {
+        return [];
+      }
+      const first = choices[(rowNumber - 1) % choices.length].name;
+      const second = choices[rowNumber % choices.length].name;
+      return first === second ? [first] : [first, second];
+    }
+    case FieldType.Date:
+      return dateIsoForRow(
+        rowNumber,
+        field.name.toLowerCase().includes("due") ? 7 : 0,
+      );
+    case FieldType.Checkbox:
+      return rowNumber % 2 === 1 ? true : null;
+    case FieldType.Rating:
+      return ((rowNumber - 1) % ratingMax(field)) + 1;
     case FieldType.LongText:
       return `${payloadPrefix}-${padded}-${fieldNameKey(field.name)}`;
     case FieldType.SingleLineText:
@@ -147,6 +201,30 @@ const buildRecordFields = (
       getExpectedCellValue(field, rowNumber, config, mode),
     ]),
   );
+
+const normalizeMultiSelectValue = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
 
 const resolveOperationFields = (
   fields: NamedField[],
@@ -177,8 +255,17 @@ const valuesMatch = (
   if (expectedValue == null) {
     return actualValue == null;
   }
+  if (Array.isArray(expectedValue)) {
+    return (
+      JSON.stringify(normalizeMultiSelectValue(actualValue)) ===
+      JSON.stringify(expectedValue)
+    );
+  }
   if (typeof expectedValue === "number") {
     return Number(actualValue) === expectedValue;
+  }
+  if (typeof expectedValue === "boolean") {
+    return actualValue === expectedValue;
   }
   return actualValue === expectedValue;
 };

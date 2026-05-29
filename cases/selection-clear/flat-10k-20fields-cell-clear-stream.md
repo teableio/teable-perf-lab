@@ -9,18 +9,18 @@ tags:
 enabled: true
 ---
 
-# selection-clear/flat-10k-4fields-row-clear
+# selection-clear/flat-10k-20fields-cell-clear-stream
 
 ## Goal
 
-Measure the grid clear path for clearing every visible cell across 10,000 rows
-and four fields through
+Measure the product large-clear path for clearing every visible cell across
+10,000 rows and 20 mixed fields through
 `PATCH /api/table/{tableId}/selection/clear-stream`.
 
 ## Seed Phase
 
 - Creates one temporary table in the e2e seed base.
-- Seeds 10,000 deterministic records in 1,000-record batches.
+- Seeds 10,000 deterministic mixed records in 1,000-record batches.
 - Resolves the first grid view id and visible field ids.
 - Seed hash inputs should include the case id, runner kind, field layout, row
   count, batch size, generator config, fixture version, and runner seed code.
@@ -29,7 +29,7 @@ and four fields through
 
 1. Start the primary timer after the source table is ready.
 2. Call `PATCH /selection/clear-stream` with the product large-selection shape:
-   `ranges: [[0, 0], [3, 9999]]`, `projection`, and `viewId`.
+   `ranges: [[0, 0], [19, 9999]]`, `projection`, and `viewId`.
 3. Stop the primary timer after the clear stream emits its final `done` event.
 4. Full scan all 10,000 records and verify the selected fields are empty.
 5. Permanently delete the temporary table.

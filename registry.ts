@@ -8,7 +8,7 @@ import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-1
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
 import recordUpdateFlat10k4FieldsBatchUpdateCase from "./cases/record-update/flat-10k-4fields-batch-update.case";
-import selectionClearFlat10k4FieldsRowClearCase from "./cases/selection-clear/flat-10k-4fields-row-clear.case";
+import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
 import selectionDuplicateFlat1kRowDuplicateStreamCase from "./cases/selection-duplicate/flat-1k-row-duplicate-stream.case";
 import type { PerfCase } from "./framework/types";
 
@@ -19,7 +19,7 @@ const cases = [
   conditionalLookup10kCase,
   recordCreateFlat10k4FieldsBatchCreateCase,
   recordUpdateFlat10k4FieldsBatchUpdateCase,
-  selectionClearFlat10k4FieldsRowClearCase,
+  selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDeleteFlat10kRowDeleteCase,
   selectionDuplicateFlat1kRowDuplicateStreamCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
@@ -41,8 +41,9 @@ const caseAliases = new Map([
   ["create/10k", "record-create/flat-10k-4fields-batch-create"],
   ["record-update", "record-update/flat-10k-4fields-batch-update"],
   ["update/10k", "record-update/flat-10k-4fields-batch-update"],
-  ["selection-clear", "selection-clear/flat-10k-4fields-row-clear"],
-  ["clear/10k", "selection-clear/flat-10k-4fields-row-clear"],
+  ["selection-clear", "selection-clear/flat-10k-20fields-cell-clear-stream"],
+  ["clear/10k", "selection-clear/flat-10k-20fields-cell-clear-stream"],
+  ["clear/10k-20fields", "selection-clear/flat-10k-20fields-cell-clear-stream"],
   ["record-delete", "record-delete/flat-10k-row-delete"],
   ["delete/10k", "record-delete/flat-10k-row-delete"],
   ["selection-duplicate", "selection-duplicate/flat-1k-row-duplicate-stream"],
