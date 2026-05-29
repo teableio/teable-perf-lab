@@ -2,9 +2,14 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import recordCreateFlat10k4FieldsBatchCreateCase from "./cases/record-create/flat-10k-4fields-batch-create.case";
+import recordDeleteFlat10kRowDeleteCase from "./cases/record-delete/flat-10k-row-delete.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
+import recordUpdateFlat10k4FieldsBatchUpdateCase from "./cases/record-update/flat-10k-4fields-batch-update.case";
+import selectionClearFlat10k4FieldsRowClearCase from "./cases/selection-clear/flat-10k-4fields-row-clear.case";
+import selectionDuplicateFlat1kRowDuplicateStreamCase from "./cases/selection-duplicate/flat-1k-row-duplicate-stream.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [
@@ -12,6 +17,11 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  recordCreateFlat10k4FieldsBatchCreateCase,
+  recordUpdateFlat10k4FieldsBatchUpdateCase,
+  selectionClearFlat10k4FieldsRowClearCase,
+  recordDeleteFlat10kRowDeleteCase,
+  selectionDuplicateFlat1kRowDuplicateStreamCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,
@@ -27,6 +37,16 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["record-create", "record-create/flat-10k-4fields-batch-create"],
+  ["create/10k", "record-create/flat-10k-4fields-batch-create"],
+  ["record-update", "record-update/flat-10k-4fields-batch-update"],
+  ["update/10k", "record-update/flat-10k-4fields-batch-update"],
+  ["selection-clear", "selection-clear/flat-10k-4fields-row-clear"],
+  ["clear/10k", "selection-clear/flat-10k-4fields-row-clear"],
+  ["record-delete", "record-delete/flat-10k-row-delete"],
+  ["delete/10k", "record-delete/flat-10k-row-delete"],
+  ["selection-duplicate", "selection-duplicate/flat-1k-row-duplicate-stream"],
+  ["duplicate/1k", "selection-duplicate/flat-1k-row-duplicate-stream"],
   ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k-20fields", "record-paste/flat-10k-20fields-copy-paste"],

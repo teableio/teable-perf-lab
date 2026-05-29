@@ -5,7 +5,12 @@ export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
   | "conditional-lookup"
-  | "record-paste";
+  | "record-paste"
+  | "record-create"
+  | "record-update"
+  | "selection-clear"
+  | "selection-duplicate"
+  | "record-delete";
 
 export interface PerfCase {
   id: string;
@@ -16,12 +21,18 @@ export interface PerfCase {
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
-    | RecordPasteCaseConfig;
+    | RecordPasteCaseConfig
+    | RecordCreateCaseConfig
+    | RecordUpdateCaseConfig
+    | SelectionClearCaseConfig
+    | SelectionDuplicateCaseConfig
+    | RecordDeleteCaseConfig;
 }
 
 export interface PerfRunContext {
   app: INestApplication;
   appUrl: string;
+  cookie?: string;
   runId: string;
   engine: string;
   artifactDir?: string;
@@ -158,6 +169,65 @@ export interface RecordPasteCaseConfig {
   };
   threshold: {
     metric: "paste10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordTableOperationBaseCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "flat-table-operation";
+    titlePrefix: string;
+    payloadPrefix: string;
+    updatePayloadPrefix?: string;
+    groups?: string[];
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+}
+
+export interface RecordCreateCaseConfig
+  extends RecordTableOperationBaseCaseConfig {
+  threshold: {
+    metric: "create10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordUpdateCaseConfig
+  extends RecordTableOperationBaseCaseConfig {
+  threshold: {
+    metric: "update10kMs";
+    maxMs: number;
+  };
+}
+
+export interface SelectionClearCaseConfig
+  extends RecordTableOperationBaseCaseConfig {
+  threshold: {
+    metric: "clear10kMs";
+    maxMs: number;
+  };
+}
+
+export interface SelectionDuplicateCaseConfig
+  extends RecordTableOperationBaseCaseConfig {
+  threshold: {
+    metric: "duplicate1kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordDeleteCaseConfig
+  extends RecordTableOperationBaseCaseConfig {
+  threshold: {
+    metric: "delete10kMs";
     maxMs: number;
   };
 }

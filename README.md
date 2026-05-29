@@ -32,6 +32,20 @@ Available cases:
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
+- `record-create/flat-10k-4fields-batch-create`: create an empty 4-field table,
+  insert 10k deterministic rows through batched `POST /record` requests, and
+  verify the inserted records.
+- `record-update/flat-10k-4fields-batch-update`: create a 10k-row 4-field
+  table, update every row through batched `PATCH /record` requests, and verify
+  the updated records.
+- `selection-clear/flat-10k-4fields-row-clear`: create a 10k-row 4-field table,
+  clear all rows through `PATCH /selection/clear`, and verify the records remain
+  with empty cells.
+- `record-delete/flat-10k-row-delete`: create a 10k-row 4-field table, delete
+  all rows through `DELETE /selection/delete`, and verify the table is empty.
+- `selection-duplicate/flat-1k-row-duplicate-stream`: create a 1k-row 4-field
+  table, duplicate all rows through `GET /selection/duplicate-stream`, and
+  verify every deterministic row appears twice.
 - `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
   paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
   inserted records.
@@ -376,6 +390,16 @@ case from Teable without reading the runner internals first.
      key/value rows, create a conditional lookup, and verify lookup values.
    - `record-paste`: create an empty table, paste deterministic clipboard-style
      content through the selection paste API, and verify inserted records.
+   - `record-create`: create an empty table, batch-create deterministic records,
+     and verify inserted values.
+   - `record-update`: create a deterministic source table, batch-update records,
+     and verify updated values.
+   - `selection-clear`: create a deterministic source table, clear row
+     selections, and verify records remain with empty cells.
+   - `record-delete`: create a deterministic source table, delete row
+     selections, and verify records are removed.
+   - `selection-duplicate`: create a deterministic source table, duplicate row
+     selections through the stream API, and verify duplicated values.
 
    Add a new runner only when the operation cannot be expressed by these
    configs. A new runner needs type support in `framework/types.ts`, dispatch in
