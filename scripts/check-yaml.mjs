@@ -3,7 +3,7 @@ import { parse } from "yaml";
 
 const yamlFiles = [
   ".github/workflows/teable-ee-e2e-perf.yml",
-  "docs/examples/perf-regression.workflow.yml",
+  ".github/workflows/sync-perf-cases.yml",
 ];
 
 for (const file of yamlFiles) {
