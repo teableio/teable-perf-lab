@@ -5,7 +5,8 @@ export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
   | "conditional-lookup"
-  | "record-paste";
+  | "record-paste"
+  | "selection-clear";
 
 export interface PerfCase {
   id: string;
@@ -16,12 +17,14 @@ export interface PerfCase {
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
-    | RecordPasteCaseConfig;
+    | RecordPasteCaseConfig
+    | SelectionClearCaseConfig;
 }
 
 export interface PerfRunContext {
   app: INestApplication;
   appUrl: string;
+  cookie?: string;
   runId: string;
   engine: string;
   artifactDir?: string;
@@ -158,6 +161,28 @@ export interface RecordPasteCaseConfig {
   };
   threshold: {
     metric: "paste10kMs";
+    maxMs: number;
+  };
+}
+
+export interface SelectionClearCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "flat-table-operation";
+    titlePrefix: string;
+    payloadPrefix: string;
+    groups?: string[];
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "clear10kMs";
     maxMs: number;
   };
 }

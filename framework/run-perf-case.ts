@@ -5,6 +5,7 @@ import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
+import { runSelectionClearCase } from "./runners/selection-clear.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
@@ -27,6 +28,8 @@ const runCaseByKind = async (
       return runConditionalLookupCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
+    case "selection-clear":
+      return runSelectionClearCase(perfCase, context);
     default:
       throw new Error(`Unsupported perf runner: ${perfCase.runner}`);
   }
@@ -78,7 +81,7 @@ const withTraceDetails = async (
 
 export const runPerfCase = async (
   perfCase: PerfCase,
-  appContext: Pick<PerfRunContext, "app" | "appUrl">,
+  appContext: Pick<PerfRunContext, "app" | "appUrl" | "cookie">,
 ) => {
   const startedAt = new Date();
   const started = performance.now();
