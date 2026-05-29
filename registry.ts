@@ -5,6 +5,7 @@ import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
+import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [
@@ -12,6 +13,7 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  selectionClearFlat10k20FieldsCellClearStreamCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,
@@ -27,6 +29,9 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["selection-clear", "selection-clear/flat-10k-20fields-cell-clear-stream"],
+  ["clear/10k", "selection-clear/flat-10k-20fields-cell-clear-stream"],
+  ["clear/10k-20fields", "selection-clear/flat-10k-20fields-cell-clear-stream"],
   ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k-20fields", "record-paste/flat-10k-20fields-copy-paste"],
