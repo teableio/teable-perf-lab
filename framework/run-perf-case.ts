@@ -4,7 +4,10 @@ import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { runRecordDeleteCase } from "./runners/record-delete.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
+import { runRecordRedoCase } from "./runners/record-redo.runner";
+import { runRecordUndoCase } from "./runners/record-undo.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
@@ -28,6 +31,12 @@ const runCaseByKind = async (
       return runConditionalLookupCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
+    case "record-delete":
+      return runRecordDeleteCase(perfCase, context);
+    case "record-undo":
+      return runRecordUndoCase(perfCase, context);
+    case "record-redo":
+      return runRecordRedoCase(perfCase, context);
     case "selection-clear":
       return runSelectionClearCase(perfCase, context);
     default:

@@ -35,6 +35,12 @@ Available cases:
 - `selection-clear/flat-10k-20fields-cell-clear-stream`: create a 10k-row
   mixed-field table, clear all visible cells through
   `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
+- `record-delete/delete-10k`: create a 10k-row mixed-field table, delete all rows
+  through `GET /selection/delete-stream`, and verify the table is empty.
+- `record-undo/delete-10k`: create a 10k-row mixed-field table, delete all
+  rows before measurement, replay undo, and verify sample rows are restored.
+- `record-redo/delete-10k`: create a 10k-row mixed-field table, delete and
+  undo before measurement, replay redo, and verify the table is empty.
 - `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
   paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
   inserted records.
@@ -44,6 +50,35 @@ Available cases:
 - `record-paste/mixed-10k-20fields-complex-copy-paste`: create an empty
   20-field mixed-type table, paste 10k deterministic rows through
   `PATCH /selection/paste`, and verify the typed inserted records.
+
+### Stateful Stream Request Checklist
+
+Use this checklist when a perf case constructs a stream request that depends on
+server-side state from earlier requests.
+
+- First decide whether the measured request depends on state created by setup.
+- If a request chain depends on the same operation history, every related
+  request must share the same context identifier.
+- Context identifiers usually belong in headers, not query strings or request
+  bodies. For record history streams, use the same `X-Window-Id` value across
+  the dependent request chain.
+- Setup streams must fully finish before the measured stream starts.
+- Do not treat HTTP `200` as stream completion; read the stream until its final
+  completion event.
+- If the final event has a business status field, assert that it reports
+  success before moving to the next phase.
+- For selection or range streams, verify `viewId`, `ranges`, `type`, and
+  `projection[]` match the seeded view.
+- If the affected row count is wrong, check seed count, range boundaries, view
+  sort/filter/group state, and projected field ids first.
+- If a dependent request cannot find prior state, check table id, authenticated
+  session, shared context identifier, and whether the preceding stream really
+  completed.
+- In perf cases, keep setup timing out of the primary metric unless the case is
+  explicitly measuring setup.
+- Store setup durations as diagnostic metrics when they help explain a run.
+- Verify the final table state through reads; do not rely only on a stream
+  success event.
 
 For operational details, see
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). The broader
@@ -408,6 +443,12 @@ case from Teable without reading the runner internals first.
      content through the selection paste API, and verify inserted records.
    - `selection-clear`: create a seeded table, call the selection clear stream
      API, and verify that records remain while selected cells are empty.
+   - `record-delete`: create a mixed 10k-row table, delete all rows through
+     `GET /selection/delete-stream`, and verify records are removed.
+   - `record-undo`: create a mixed 10k-row table, run delete-stream as setup,
+     then measure `POST /undo-redo/undo-stream`.
+   - `record-redo`: create a mixed 10k-row table, run delete-stream and
+     undo-stream as setup, then measure `POST /undo-redo/redo-stream`.
 
    Add a new runner only when the operation cannot be expressed by these
    configs. A new runner needs type support in `framework/types.ts`, dispatch in
