@@ -11,6 +11,7 @@ import {
   assertDeleted,
   assertRowsRestored,
   buildRecordReplayResult,
+  buildRecordReplayPhaseName,
   buildRecordWindowId,
   cleanupRecordUndoRedoFixture,
   deleteAllRows,
@@ -72,8 +73,9 @@ export const runRecordUndoCase = async (
       await withRecordWindowId(windowId, async () => {
         setupMeasurements = {
           ...setupMeasurements,
-          deleteSetupMeasurement: await measureAsync("deleteSetup10k", () =>
-            deleteAllRows(fixture, context),
+          deleteSetupMeasurement: await measureAsync(
+            buildRecordReplayPhaseName("deleteSetup", config.rowCount),
+            () => deleteAllRows(fixture, context),
           ),
         };
         setupMeasurements = {

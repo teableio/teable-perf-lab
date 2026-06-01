@@ -330,6 +330,17 @@ const getStreamHeaders = (context: PerfRunContext) =>
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const formatRowCountLabel = (rowCount: number) =>
+  rowCount % 1_000 === 0 ? `${rowCount / 1_000}k` : String(rowCount);
+
+export const buildRecordReplayPhaseName = (
+  prefix: "deleteSetup" | "undoSetup",
+  rowCount: number,
+) => `${prefix}${formatRowCountLabel(rowCount)}`;
+
+const durationMetricKey = (phaseName: string) =>
+  phaseName.endsWith("Ms") ? phaseName : `${phaseName}Ms`;
+
 export const buildRecordWindowId = (
   context: PerfRunContext,
   perfCase: PerfCase,
@@ -767,182 +778,207 @@ export const buildRecordReplayResult = ({
   operationMeasurement?: Measurement<unknown>;
   verifyMeasurement?: Measurement<RecordReplayVerification>;
   error?: unknown;
-}): PerfRunResult => ({
-  metrics: {
-    ...(prepareMeasurement ? { prepareMs: prepareMeasurement.durationMs } : {}),
-    ...(fixture?.seedCacheInfo
-      ? {
-          seedCacheHit: fixture.seedCacheHit ? 1 : 0,
-          seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
-          ...(fixture.seedCacheHit
-            ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
-            : fixture.seedCacheInfo.enabled
-              ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
-              : {}),
-        }
-      : {}),
-    ...(seedReadyMeasurement
-      ? { seedReadyMs: seedReadyMeasurement.durationMs }
-      : {}),
-    ...(setupMeasurements?.deleteSetupMeasurement
-      ? {
-          deleteSetup10kMs: setupMeasurements.deleteSetupMeasurement.durationMs,
-        }
-      : {}),
-    ...(setupMeasurements?.deleteSetupVerifyMeasurement
-      ? {
-          deleteSetupVerifyMs:
-            setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
-        }
-      : {}),
-    ...(setupMeasurements?.undoSetupMeasurement
-      ? { undoSetup10kMs: setupMeasurements.undoSetupMeasurement.durationMs }
-      : {}),
-    ...(setupMeasurements?.undoSetupVerifyMeasurement
-      ? {
-          undoSetupVerifyMs:
-            setupMeasurements.undoSetupVerifyMeasurement.durationMs,
-        }
-      : {}),
-    ...(operationMeasurement
-      ? { [config.threshold.metric]: operationMeasurement.durationMs }
-      : {}),
-  },
-  thresholds: operationMeasurement
-    ? [
-        {
-          metric: config.threshold.metric,
-          max: getPrimaryThresholdMs(config.threshold.maxMs),
-          unit: "ms",
-        },
-      ]
-    : [],
-  phases: [
-    ...(prepareMeasurement
-      ? [
-          {
-            name: prepareMeasurement.name,
-            durationMs: prepareMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(seedReadyMeasurement
-      ? [
-          {
-            name: seedReadyMeasurement.name,
-            durationMs: seedReadyMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(setupMeasurements?.deleteSetupMeasurement
-      ? [
-          {
-            name: setupMeasurements.deleteSetupMeasurement.name,
-            durationMs: setupMeasurements.deleteSetupMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(setupMeasurements?.deleteSetupVerifyMeasurement
-      ? [
-          {
-            name: setupMeasurements.deleteSetupVerifyMeasurement.name,
-            durationMs:
-              setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(setupMeasurements?.undoSetupMeasurement
-      ? [
-          {
-            name: setupMeasurements.undoSetupMeasurement.name,
-            durationMs: setupMeasurements.undoSetupMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(setupMeasurements?.undoSetupVerifyMeasurement
-      ? [
-          {
-            name: setupMeasurements.undoSetupVerifyMeasurement.name,
-            durationMs: setupMeasurements.undoSetupVerifyMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(operationMeasurement
-      ? [
-          {
-            name: operationMeasurement.name,
-            durationMs: operationMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(verifyMeasurement
-      ? [
-          {
-            name: verifyMeasurement.name,
-            durationMs: verifyMeasurement.durationMs,
-          },
-        ]
-      : []),
-  ],
-  details: {
-    operation,
-    windowId,
-    tableId: fixture?.tableId,
-    tableName: fixture?.tableName,
-    viewId: fixture?.viewId,
-    rowCount: config.rowCount,
-    batchSize: config.batchSize,
-    fields: fixture?.fields.map((field) => ({
-      id: field.id,
-      name: field.name,
-      type: field.type,
-    })),
-    seed: fixture
-      ? {
-          seededRecords: fixture.seededRecords.length,
-          batchCount: fixture.seedBatchDurations.length,
-          maxSeedBatchMs: fixture.seedBatchDurations.length
-            ? Math.max(...fixture.seedBatchDurations)
-            : undefined,
-          ready: seedReadyMeasurement?.result,
-          cache: fixture.seedCacheInfo
-            ? {
-                enabled: fixture.seedCacheInfo.enabled,
-                cacheHit: Boolean(fixture.seedCacheHit),
-                reusable: Boolean(fixture.reusableSeed),
-                seedHash: fixture.seedCacheInfo.seedHash,
-                seedHashShort: fixture.seedCacheInfo.seedHashShort,
-                seedTableName: fixture.seedCacheInfo.seedTableName,
-                schemaSignature: fixture.seedCacheInfo.schemaSignature,
-              }
-            : undefined,
-        }
-      : undefined,
-    replaySetup: setupMeasurements
-      ? {
-          deleteSetup10kMs:
-            setupMeasurements.deleteSetupMeasurement?.durationMs,
-          deleteSetupVerifyMs:
-            setupMeasurements.deleteSetupVerifyMeasurement?.durationMs,
-          undoSetup10kMs: setupMeasurements.undoSetupMeasurement?.durationMs,
-          undoSetupVerifyMs:
-            setupMeasurements.undoSetupVerifyMeasurement?.durationMs,
-        }
-      : undefined,
-    fullScan: verifyMeasurement?.result
-      ? {
-          scannedRecords: verifyMeasurement.result.scannedRecords,
-          pageSize: verifyMeasurement.result.pageSize,
-          pageCount: verifyMeasurement.result.pageCount,
-        }
-      : undefined,
-    verifiedSamples: verifyMeasurement?.result.verifiedSamples,
-    error:
-      error instanceof Error
+}): PerfRunResult => {
+  const deleteSetupMetricKey = setupMeasurements?.deleteSetupMeasurement
+    ? durationMetricKey(setupMeasurements.deleteSetupMeasurement.name)
+    : undefined;
+  const undoSetupMetricKey = setupMeasurements?.undoSetupMeasurement
+    ? durationMetricKey(setupMeasurements.undoSetupMeasurement.name)
+    : undefined;
+
+  return {
+    metrics: {
+      ...(prepareMeasurement
+        ? { prepareMs: prepareMeasurement.durationMs }
+        : {}),
+      ...(fixture?.seedCacheInfo
         ? {
-            name: error.name,
-            message: error.message,
+            seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+            seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+            ...(fixture.seedCacheHit
+              ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
+              : fixture.seedCacheInfo.enabled
+                ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
+                : {}),
+          }
+        : {}),
+      ...(seedReadyMeasurement
+        ? { seedReadyMs: seedReadyMeasurement.durationMs }
+        : {}),
+      ...(setupMeasurements?.deleteSetupMeasurement
+        ? {
+            [deleteSetupMetricKey!]:
+              setupMeasurements.deleteSetupMeasurement.durationMs,
+          }
+        : {}),
+      ...(setupMeasurements?.deleteSetupVerifyMeasurement
+        ? {
+            deleteSetupVerifyMs:
+              setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
+          }
+        : {}),
+      ...(setupMeasurements?.undoSetupMeasurement
+        ? {
+            [undoSetupMetricKey!]:
+              setupMeasurements.undoSetupMeasurement.durationMs,
+          }
+        : {}),
+      ...(setupMeasurements?.undoSetupVerifyMeasurement
+        ? {
+            undoSetupVerifyMs:
+              setupMeasurements.undoSetupVerifyMeasurement.durationMs,
+          }
+        : {}),
+      ...(operationMeasurement
+        ? { [config.threshold.metric]: operationMeasurement.durationMs }
+        : {}),
+    },
+    thresholds: operationMeasurement
+      ? [
+          {
+            metric: config.threshold.metric,
+            max: getPrimaryThresholdMs(config.threshold.maxMs),
+            unit: "ms",
+          },
+        ]
+      : [],
+    phases: [
+      ...(prepareMeasurement
+        ? [
+            {
+              name: prepareMeasurement.name,
+              durationMs: prepareMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(seedReadyMeasurement
+        ? [
+            {
+              name: seedReadyMeasurement.name,
+              durationMs: seedReadyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(setupMeasurements?.deleteSetupMeasurement
+        ? [
+            {
+              name: setupMeasurements.deleteSetupMeasurement.name,
+              durationMs: setupMeasurements.deleteSetupMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(setupMeasurements?.deleteSetupVerifyMeasurement
+        ? [
+            {
+              name: setupMeasurements.deleteSetupVerifyMeasurement.name,
+              durationMs:
+                setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(setupMeasurements?.undoSetupMeasurement
+        ? [
+            {
+              name: setupMeasurements.undoSetupMeasurement.name,
+              durationMs: setupMeasurements.undoSetupMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(setupMeasurements?.undoSetupVerifyMeasurement
+        ? [
+            {
+              name: setupMeasurements.undoSetupVerifyMeasurement.name,
+              durationMs:
+                setupMeasurements.undoSetupVerifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(operationMeasurement
+        ? [
+            {
+              name: operationMeasurement.name,
+              durationMs: operationMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(verifyMeasurement
+        ? [
+            {
+              name: verifyMeasurement.name,
+              durationMs: verifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+    ],
+    details: {
+      operation,
+      windowId,
+      tableId: fixture?.tableId,
+      tableName: fixture?.tableName,
+      viewId: fixture?.viewId,
+      rowCount: config.rowCount,
+      batchSize: config.batchSize,
+      fields: fixture?.fields.map((field) => ({
+        id: field.id,
+        name: field.name,
+        type: field.type,
+      })),
+      seed: fixture
+        ? {
+            seededRecords: fixture.seededRecords.length,
+            batchCount: fixture.seedBatchDurations.length,
+            maxSeedBatchMs: fixture.seedBatchDurations.length
+              ? Math.max(...fixture.seedBatchDurations)
+              : undefined,
+            ready: seedReadyMeasurement?.result,
+            cache: fixture.seedCacheInfo
+              ? {
+                  enabled: fixture.seedCacheInfo.enabled,
+                  cacheHit: Boolean(fixture.seedCacheHit),
+                  reusable: Boolean(fixture.reusableSeed),
+                  seedHash: fixture.seedCacheInfo.seedHash,
+                  seedHashShort: fixture.seedCacheInfo.seedHashShort,
+                  seedTableName: fixture.seedCacheInfo.seedTableName,
+                  schemaSignature: fixture.seedCacheInfo.schemaSignature,
+                }
+              : undefined,
           }
         : undefined,
-  },
-});
+      replaySetup: setupMeasurements
+        ? {
+            ...(setupMeasurements.deleteSetupMeasurement && deleteSetupMetricKey
+              ? {
+                  [deleteSetupMetricKey]:
+                    setupMeasurements.deleteSetupMeasurement.durationMs,
+                }
+              : {}),
+            deleteSetupVerifyMs:
+              setupMeasurements.deleteSetupVerifyMeasurement?.durationMs,
+            ...(setupMeasurements.undoSetupMeasurement && undoSetupMetricKey
+              ? {
+                  [undoSetupMetricKey]:
+                    setupMeasurements.undoSetupMeasurement.durationMs,
+                }
+              : {}),
+            undoSetupVerifyMs:
+              setupMeasurements.undoSetupVerifyMeasurement?.durationMs,
+          }
+        : undefined,
+      fullScan: verifyMeasurement?.result
+        ? {
+            scannedRecords: verifyMeasurement.result.scannedRecords,
+            pageSize: verifyMeasurement.result.pageSize,
+            pageCount: verifyMeasurement.result.pageCount,
+          }
+        : undefined,
+      verifiedSamples: verifyMeasurement?.result.verifiedSamples,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : undefined,
+    },
+  };
+};

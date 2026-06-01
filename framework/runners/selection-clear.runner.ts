@@ -8,7 +8,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, shouldRunUnsupportedV1Cases } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -768,7 +768,7 @@ export const runSelectionClearCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as SelectionClearCaseConfig;
-  if (context.engine === "v1" && !shouldRunUnsupportedV1Cases()) {
+  if (context.engine === "v1") {
     return {
       result: "skipped",
       metrics: {},
@@ -777,7 +777,7 @@ export const runSelectionClearCase = async (
         operation: "clear-stream",
         skipped: true,
         reason:
-          "V1 selection clear stream resolves the selected 10k range through the legacy search-index path, which is capped at 1000 records. The case measures the V2 large clear stream path.",
+          "This case measures the V2 large selection clear stream path. V1 does not expose a comparable stream implementation, so a V1 run would not be an engine-to-engine comparison.",
         engine: context.engine,
         rowCount: config.rowCount,
       },
