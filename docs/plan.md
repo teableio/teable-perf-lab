@@ -1,5 +1,11 @@
 # teable-perf-lab Plan
 
+> **Design snapshot.** This is the original design vision and rationale, not a
+> description of the current code. Where it diverges from the repository (for
+> example the proposed layout in §5 or the case example in §6), the repository is
+> authoritative: see `README.md`, `.agent/`, and `framework/` for the real
+> structure. Treat this file as intent and history, not current state.
+
 ## 1. Goal
 
 `teable-perf-lab` is an independent performance regression control plane for
@@ -415,8 +421,9 @@ keeps the execution path inside `teable-ee`. That is acceptable for the first
 smoke gate. Later comparison-grade suites can move the target compute while
 keeping case authoring and reporting in this repo.
 
-See [docs/examples/perf-regression.workflow.yml](examples/perf-regression.workflow.yml)
-for a draft.
+The runnable workflow is
+[.github/workflows/teable-ee-e2e-perf.yml](../.github/workflows/teable-ee-e2e-perf.yml);
+it is the source of truth for the execution path.
 
 ## 12. Report Shape
 
