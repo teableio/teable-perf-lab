@@ -121,10 +121,13 @@ The workflow exports traces to the shared Jaeger service. Its endpoints and the
 the endpoint URLs here.
 
 `perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
-`initApp()` creates the Nest test app. The perf framework then captures
-`traceparent` response headers from OpenAPI axios calls, polls Jaeger at
-`/api/traces/<traceId>`, and writes the raw JSON snapshots to the artifact
-directory.
+`initApp()` creates the Nest test app. The perf framework captures `traceparent`
+response headers from OpenAPI axios calls and from raw SSE/fetch stream
+requests that use the perf SSE helper. It then polls Jaeger at
+`/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
+directory. Stream artifacts should also include the response routing headers,
+such as `x-teable-v2`, so V1 legacy streams and V2 streams can be distinguished
+even when they share the same HTTP endpoint.
 
 To verify observability after a run:
 
