@@ -508,19 +508,17 @@ const main = async () => {
     return;
   }
 
-  for (const { payload } of reportPayloads) {
+  for (const { payload, payloadPath } of reportPayloads) {
     const caseId = payload.caseId;
     const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
     const summaryMarkdown =
       (await readTextFileIfExists(
-        join(dirname(payload.payloadPath), summaryMarkdownName(caseId, engine)),
+        join(dirname(payloadPath), summaryMarkdownName(caseId, engine)),
       )) || (await readTextFileIfExists(join(artifactDir, "summary.md")));
     const traceManifestPath =
       payload.details?.observability?.traces?.manifestPath;
     const traceManifest = traceManifestPath
-      ? await readJsonFileIfExists(
-          join(dirname(payload.payloadPath), traceManifestPath),
-        )
+      ? await readJsonFileIfExists(join(dirname(payloadPath), traceManifestPath))
       : undefined;
 
     const { runKey, fields } = await buildReportFields({
