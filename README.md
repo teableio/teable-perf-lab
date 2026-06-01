@@ -82,7 +82,7 @@ builder code through `buildSeedCacheInfo`, and report `seedHash`,
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
-- `selection-clear/flat-10k-20fields-cell-clear-stream`: create a 10k-row
+- `selection-clear/flat-1k-20fields-cell-clear-stream`: create a 1k-row
   mixed-field table, clear all visible cells through
   `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
 - `record-delete/delete-10k`: create a 10k-row mixed-field table, delete all rows

@@ -189,7 +189,7 @@ export interface SelectionClearCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "clear10kMs";
+    metric: "clear1kMs";
     maxMs: number;
   };
 }

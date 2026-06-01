@@ -38,7 +38,7 @@ Manual inputs:
 - `run_unsupported_v1_cases`: diagnostic-only switch. Leave it `false` for
   normal runs; set it to `true` to force execution of V1 cases that otherwise
   report `skipped` because of a suspected backend gap, so a backend fix can be
-  verified without editing case code. V2-only cases still skip V1.
+  verified without editing case code.
 
 Because `teableio/teable-ee` is private, configure a read-only deploy key on
 that repository and store the private key in this repository as
@@ -91,14 +91,11 @@ seed-ready state after the measured operation; selection clear writes the
 deterministic cell values back during cleanup. Paste cases intentionally do not
 skip the 10k paste workload because that import is the measured execute step.
 When a case reports `skipped`, the workflow still succeeds and writes artifacts;
-this is used for engine-specific capability gaps and intentionally V2-only
-workloads such as the 10k selection-clear stream case.
+this is used for engine-specific capability gaps.
 
 To check whether a V1 backend gap has been fixed in `teable-ee`, rerun the case
 with `run_unsupported_v1_cases=true`. The runner will execute the real V1 path
-and fail normally if the backend still cannot satisfy the case semantics. Do not
-use this for V2-only cases such as the 10k selection-clear stream case; those
-need a separate comparable V1/V2 workload.
+and fail normally if the backend still cannot satisfy the case semantics.
 
 ## Artifacts
 
