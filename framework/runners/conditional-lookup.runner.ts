@@ -1187,6 +1187,78 @@ const buildConditionalLookupCaseResult = ({
   },
 });
 
+export const seedConditionalLookupCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as ConditionalLookupCaseConfig;
+  const baseId = globalThis.testConfig.baseId;
+  const timestamp = Date.now();
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase,
+    runner: "conditional-lookup",
+    fixtureVersion: "conditional-lookup-v1",
+    seedConfig: getConditionalLookupSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+  const sourceTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "source")
+    : `${config.sourceTableNamePrefix}-seed-${timestamp}`;
+  const hostTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "host")
+    : `${config.hostTableNamePrefix}-seed-${timestamp}`;
+
+  assertPermutationConfig(config);
+  const seedFixture = await buildConditionalLookupSeedFixture(
+    perfCase,
+    context,
+    baseId,
+    sourceTableName,
+    hostTableName,
+    config,
+    seedCacheInfo,
+  );
+  const seedReadyMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    "seedReady",
+    () =>
+      measureAsync("seedReady", () =>
+        assertConditionalLookupSeedReady(
+          seedFixture.sourceTableId,
+          seedFixture.hostTableId,
+          seedFixture.sourceFields,
+          seedFixture.hostFields,
+          config,
+          seedFixture.sampleRecords,
+        ),
+      ),
+  );
+
+  return buildConditionalLookupCaseResult({
+    config,
+    sourceTableId: seedFixture.sourceTableId,
+    sourceTableName: seedFixture.sourceTableName,
+    hostTableId: seedFixture.hostTableId,
+    hostTableName: seedFixture.hostTableName,
+    sourceBatchDurations: seedFixture.sourceBatchDurations,
+    hostBatchDurations: seedFixture.hostBatchDurations,
+    sampleRecords: seedFixture.sampleRecords,
+    createTablesMeasurement: seedFixture.createTablesMeasurement,
+    seedSourceMeasurement: seedFixture.seedSourceMeasurement,
+    seedHostMeasurement: seedFixture.seedHostMeasurement,
+    seedReadyMeasurement,
+    seedCacheInfo,
+    seedCacheHit: seedFixture.seedCacheHit,
+    reusableSeed: seedFixture.reusable,
+    sourceFields: seedFixture.sourceFields,
+    hostFields: seedFixture.hostFields,
+  });
+};
+
 export const runConditionalLookupCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,

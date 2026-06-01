@@ -69,15 +69,62 @@ env:
   PERF_LAB_SEED_DB_DUMP: ${{ github.workspace }}/perf-lab-seed-cache/e2e_test_teable.dump
 
 jobs:
-  teable-ee-e2e-perf:
-    name: Run teable-ee e2e perf serial
+  resolve_inputs:
+    name: Resolve workflow inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      engines: ${{ steps.engines.outputs.engines }}
+
+    steps:
+      - name: Resolve engine matrix
+        id: engines
+        env:
+          ENGINE_FILTER: ${{ inputs.engine_filter }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const raw = process.env.ENGINE_FILTER ?? "";
+          const engines = [
+            ...new Set(
+              raw
+                .split(",")
+                .map((engine) => engine.trim())
+                .filter(Boolean),
+            ),
+          ];
+          const validEngines = new Set(["v1", "v2"]);
+          const invalidEngines = engines.filter((engine) => !validEngines.has(engine));
+
+          if (engines.length === 0) {
+            console.error("engine_filter must include at least one engine.");
+            process.exit(1);
+          }
+
+          if (invalidEngines.length > 0) {
+            console.error(
+              `Unsupported engine_filter value(s): ${invalidEngines.join(", ")}. Use v1, v2, or v1,v2.`,
+            );
+            process.exit(1);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `engines=${JSON.stringify(engines)}\n`);
+          console.log(`Resolved engines: ${engines.join(", ")}`);
+          NODE
+
+  seed:
+    name: Prepare perf seed DB
+    needs: resolve_inputs
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-serial
-      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-serial
-      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-serial
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed
 
     steps:
       - name: Checkout perf lab
@@ -208,19 +255,20 @@ jobs:
           make postgres.mode
           pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
-      - name: Run perf cases through teable-ee e2e serial
+      - name: Build perf seed DB
         working-directory: teable-ee
         run: |
           set -euo pipefail
 
-          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts"
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-seed-artifacts"
           export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_MODE="seed"
           export PERF_LAB_CASE_FILTER="${{ inputs.case_filter }}"
-          export PERF_LAB_ENGINE_LIST="${{ inputs.engine_filter }}"
+          export PERF_LAB_ENGINE_LIST="v1"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           export PERF_LAB_RUN_UNSUPPORTED_V1_CASES="${{ inputs.run_unsupported_v1_cases }}"
-          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-serial"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
 
           pnpm -F @teable/backend-ee exec vitest run \
@@ -228,7 +276,7 @@ jobs:
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false
 
-      - name: Dump perf seed database cache
+      - name: Dump perf seed database
         if: success()
         working-directory: teable-ee
         run: |
@@ -249,37 +297,34 @@ jobs:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Upload perf artifacts
+      - name: Upload perf seed database
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-seed-cache
+          if-no-files-found: error
+
+      - name: Upload perf seed artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: teable-ee-e2e-perf-serial-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-lab-artifacts
+          name: teable-ee-e2e-perf-seed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-seed-artifacts
           if-no-files-found: warn
 
-      - name: Report perf results to Teable
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
-        working-directory: perf-lab
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ job.status }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
-          PERF_LAB_ARTIFACT_NAME: teable-ee-e2e-perf-serial-${{ github.run_id }}-${{ github.run_attempt }}
-        run: node scripts/report-teable-result.mjs
-
-      - name: Publish job summary
+      - name: Publish seed summary
         if: always()
         run: |
           shopt -s nullglob
-          summaries=(perf-lab-artifacts/summary-*.md)
+          summaries=(perf-lab-seed-artifacts/summary-*.md)
           if [ "${#summaries[@]}" -gt 0 ]; then
             for summary in "${summaries[@]}"; do
               cat "$summary" >> "$GITHUB_STEP_SUMMARY"
               printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
             done
           else
-            echo "No perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
+            echo "No perf seed summary was generated." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Cleanup teable-ee e2e services
@@ -300,3 +345,234 @@ jobs:
             -f ./dockers/cache-redis.yml \
             down -v || true
           docker network rm "$NETWORK_MODE" || true
+
+  execute:
+    name: Run perf cases (${{ matrix.engine }})
+    needs:
+      - resolve_inputs
+      - seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: ${{ fromJSON(needs.resolve_inputs.outputs.engines) }}
+
+    env:
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v4
+        with:
+          path: perf-lab
+
+      - name: Checkout teable-ee
+        uses: actions/checkout@v4
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ inputs.teable_ee_ref }}
+          path: teable-ee
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Download perf seed database
+        uses: actions/download-artifact@v4
+        with:
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-seed-cache
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.13.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+          cache-dependency-path: teable-ee/pnpm-lock.yaml
+
+      - name: Install teable-ee dependencies
+        working-directory: teable-ee
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma clients
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
+          pnpm -F @teable/db-data-prisma prisma-generate-ci
+
+      - name: Install perf cases
+        run: |
+          set -euo pipefail
+
+          rm -rf teable-ee/community/apps/nestjs-backend/test/perf-lab
+          mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
+          cp -R \
+            perf-lab/cases \
+            perf-lab/framework \
+            perf-lab/perf-lab.e2e-spec.ts \
+            perf-lab/registry.ts \
+            teable-ee/community/apps/nestjs-backend/test/perf-lab/
+          cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
+
+      - name: Start e2e services
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          export DOCKER_UID="$(id -u)"
+          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+
+          make docker.create.network
+          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+          docker rm -fv teable-cache || true
+
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/database-postgres.yml \
+            -f ./dockers/cache-redis.yml \
+            run -p 25432:5432 -d -T --no-deps --rm \
+            --name "$TEST_PG_CONTAINER_NAME" teable-postgres
+
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/cache-redis.yml \
+            up --no-recreate -d teable-cache
+
+          chmod +x scripts/wait-for
+          scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
+          scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
+          until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
+            sleep 1
+          done
+
+      - name: Restore perf seed database
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          test -s "$PERF_LAB_SEED_DB_DUMP"
+          docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
+          docker exec -i "$TEST_PG_CONTAINER_NAME" pg_restore \
+            -U teable \
+            -d e2e_test_teable \
+            --clean \
+            --if-exists \
+            < "$PERF_LAB_SEED_DB_DUMP"
+
+      - name: Run perf cases through teable-ee e2e
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts/${{ matrix.engine }}"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_MODE="execute"
+          export PERF_LAB_CASE_FILTER="${{ inputs.case_filter }}"
+          export PERF_LAB_ENGINE_LIST="${{ matrix.engine }}"
+          export PERF_LAB_SAMPLES="${{ inputs.samples }}"
+          export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
+          export PERF_LAB_RUN_UNSUPPORTED_V1_CASES="${{ inputs.run_unsupported_v1_cases }}"
+          export PERF_LAB_EXECUTE_DB_ISOLATED="true"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.engine }}"
+          export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
+
+          pnpm -F @teable/backend-ee exec vitest run \
+            --config ./vitest-perf-lab.config.ts \
+            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
+            --silent=false
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teable-ee-e2e-perf-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-artifacts/${{ matrix.engine }}
+          if-no-files-found: warn
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          summaries=(perf-lab-artifacts/${{ matrix.engine }}/summary-*.md)
+          if [ "${#summaries[@]}" -gt 0 ]; then
+            for summary in "${summaries[@]}"; do
+              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "No perf summary was generated for ${{ matrix.engine }}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cleanup teable-ee e2e services
+        if: always()
+        working-directory: teable-ee
+        run: |
+          set +e
+
+          export DOCKER_UID="$(id -u)"
+          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+
+          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+          docker rm -fv teable-cache || true
+          docker compose \
+            --env-file ./dockers/.env \
+            -f ./dockers/networks.yml \
+            -f ./dockers/database-postgres.yml \
+            -f ./dockers/cache-redis.yml \
+            down -v || true
+          docker network rm "$NETWORK_MODE" || true
+
+  report:
+    name: Report perf results
+    needs: execute
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v4
+        with:
+          path: perf-lab
+
+      - name: Download perf artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: teable-ee-e2e-perf-v*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-artifacts
+          merge-multiple: true
+
+      - name: Report perf results to Teable
+        if: env.TEABLE_PERF_LAB_TOKEN != ''
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
+          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
+        run: node scripts/report-teable-result.mjs
+
+      - name: Publish combined summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          summaries=(perf-lab-artifacts/summary-*.md)
+          if [ "${#summaries[@]}" -gt 0 ]; then
+            for summary in "${summaries[@]}"; do
+              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "No combined perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi

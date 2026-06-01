@@ -5,19 +5,18 @@ tags:
   - delete
   - selection
   - stream
-  - 10k
+  - 1k
   - 20fields
   - mixed-fields
   - v1-v2
-  - large-data
 enabled: true
 ---
 
-# record-delete/delete-10k
+# record-delete/delete-1k
 
 ## Goal
 
-Measure the grid row-selection delete stream for deleting 10,000 mixed-type
+Measure the grid row-selection delete stream for deleting 1,000 mixed-type
 records from a 20-field table.
 
 This case isolates delete performance. It does not measure undo or redo replay.
@@ -27,33 +26,36 @@ This case isolates delete performance. It does not measure undo or redo replay.
 - Creates one temporary table in the e2e seed base.
 - The table mirrors the staging Tibo test shape: 20 mixed fields covering text,
   long text, single select, multiple select, number, date, checkbox, and rating.
-- Inserts 10,000 deterministic records in 1,000-record batches.
+- Inserts 1,000 deterministic records in one 1,000-record batch.
 - Uses a plain grid view with no sort, filter, or group so row range
-  `[[0,9999]]` maps to the full inserted dataset.
-- Verifies the source table is ready by full-scanning 10,000 records and
-  checking sample rows `0`, `4999`, and `9999`.
+  `[[0,999]]` maps to the full inserted dataset.
+- Verifies the source table is ready by full-scanning 1,000 records and checking
+  sample rows `0`, `499`, and `999`.
 - When seed cache is enabled, the hash-derived source table is reused across
-  engines and workflow runs. After execute deletes the rows, cleanup replays the
-  matching undo operation to return the cached table to seed-ready state.
+  workflow runs. In GitHub Actions each engine restores its own seed database
+  copy, so execute may delete local rows without repairing the shared seed dump.
+  Local single-database runs can still replay the matching undo operation during
+  cleanup to return the table to seed-ready state.
 
 ## Execute Phase
 
-1. Start the primary timer only after the 10k source table is ready.
+1. Start the primary timer only after the 1k source table is ready.
 2. Call `GET /api/table/{tableId}/selection/delete-stream` with:
-   - `ranges=[[0,9999]]`
+   - `ranges=[[0,999]]`
    - `type=rows`
    - the 20-field `projection[]`
    - the first grid `viewId`
    - a stable per-run `x-window-id`
 3. Read the `text/event-stream` response until the `done` event.
-4. Stop the primary timer after the stream reports all 10,000 rows deleted.
+4. Stop the primary timer after the stream reports all 1,000 rows deleted.
 5. Verify the table has no visible records.
-6. Cleanup restores the cached seed table when reusable, otherwise permanently
-   deletes the temporary table.
+6. Cleanup restores the cached seed table when a single database is being reused
+   across engines, otherwise the isolated execute database is discarded after
+   the job.
 
 ## Primary Metric
 
-- `delete10kMs`: elapsed time from opening `delete-stream` until the stream
+- `delete1kMs`: elapsed time from opening `delete-stream` until the stream
   emits `done`.
 
 ## Notes

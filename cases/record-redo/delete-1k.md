@@ -34,8 +34,10 @@ the primary timer starts.
 - Verifies the source table is ready by full-scanning 1,000 records and
   checking sample rows `0`, `499`, and `999`.
 - When seed cache is enabled, the hash-derived source table is reused across
-  engines and workflow runs. After execute redoes the delete, cleanup replays
-  the matching undo operation to return the cached table to seed-ready state.
+  workflow runs. In GitHub Actions each engine restores its own seed database
+  copy, so execute may redo the delete locally without repairing the shared seed
+  dump. Local single-database runs can still replay the matching undo operation
+  during cleanup to return the table to seed-ready state.
 
 ## Execute Phase
 
@@ -57,8 +59,9 @@ the primary timer starts.
    `status: fulfilled`.
 6. Stop the primary timer.
 7. Verify the table has no visible records.
-8. Cleanup restores the cached seed table when reusable, otherwise permanently
-   deletes the temporary table.
+8. Cleanup restores the cached seed table when a single database is being reused
+   across engines, otherwise the isolated execute database is discarded after
+   the job.
 
 ## Primary Metric
 

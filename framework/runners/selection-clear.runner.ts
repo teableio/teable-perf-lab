@@ -14,7 +14,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -871,6 +871,10 @@ export const runSelectionClearCase = async (
       verifyMeasurement,
     });
   } finally {
+    if (prepareMeasurement?.result.reusableSeed && isExecuteDbIsolated()) {
+      return;
+    }
+
     if (prepareMeasurement?.result.reusableSeed) {
       try {
         restoreMeasurement = await measureAsync("restoreSeed", () =>
@@ -909,4 +913,43 @@ export const runSelectionClearCase = async (
       );
     }
   }
+};
+
+export const seedSelectionClearCase = async (
+  perfCase: PerfCase,
+  _context: PerfRunContext,
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as SelectionClearCaseConfig;
+  const baseId = globalThis.testConfig.baseId;
+  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
+  const prepareMeasurement = await measureAsync("prepare", () =>
+    prepareClearFixture(baseId, tableName, config, perfCase),
+  );
+  const fixture = prepareMeasurement.result;
+  const seedReadyMeasurement = await measureAsync("seedReady", () =>
+    assertCellsRestored(fixture, config),
+  );
+
+  return buildSelectionClearResult({
+    config,
+    fixture,
+    prepareMeasurement,
+    verifyMeasurement: {
+      name: seedReadyMeasurement.name,
+      durationMs: seedReadyMeasurement.durationMs,
+      result: {
+        scannedRecords: seedReadyMeasurement.result.scannedRecords,
+        pageSize: seedReadyMeasurement.result.pageSize,
+        pageCount: seedReadyMeasurement.result.pageCount,
+        verifiedSamples: seedReadyMeasurement.result.verifiedSamples.map(
+          ({ rowOffset, rowNumber, recordId, actual }) => ({
+            rowOffset,
+            rowNumber,
+            recordId,
+            actual,
+          }),
+        ),
+      },
+    },
+  });
 };

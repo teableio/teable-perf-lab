@@ -18,3 +18,6 @@ export const getBooleanEnv = (name: string) =>
 
 export const shouldRunUnsupportedV1Cases = () =>
   getBooleanEnv("PERF_LAB_RUN_UNSUPPORTED_V1_CASES");
+
+export const isExecuteDbIsolated = () =>
+  getBooleanEnv("PERF_LAB_EXECUTE_DB_ISOLATED");

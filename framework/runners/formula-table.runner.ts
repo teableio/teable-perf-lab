@@ -975,6 +975,67 @@ const buildFormulaSeedFixture = async (
   }
 };
 
+export const seedFormulaTableCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as FormulaTableCaseConfig;
+  const baseId = globalThis.testConfig.baseId;
+  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase,
+    runner: "formula-table",
+    fixtureVersion: "formula-table-v1",
+    seedConfig: getFormulaSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+  const seedFixture = await buildFormulaSeedFixture(
+    perfCase,
+    context,
+    baseId,
+    tableName,
+    config,
+    seedCacheInfo,
+  );
+  const sourceReadyMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    "seedReady",
+    () =>
+      measureAsync("seedReady", () =>
+        waitForSourceSamples(
+          seedFixture.tableId,
+          seedFixture.sourceFields,
+          config,
+          seedFixture.sampleRecords,
+        ),
+      ),
+  );
+
+  return buildFormulaCaseResult({
+    config,
+    tableId: seedFixture.tableId,
+    tableName: seedFixture.tableName,
+    batches: seedFixture.batches,
+    batchDurations: seedFixture.batchDurations,
+    sampleRecords: seedFixture.sampleRecords,
+    createTableMeasurement: seedFixture.createTableMeasurement,
+    seedMeasurement: seedFixture.seedMeasurement,
+    sourceReadyMeasurement,
+    seedCacheInfo,
+    seedCacheHit: seedFixture.seedCacheHit,
+    reusableSeed: seedFixture.reusable,
+    sourceFields: seedFixture.sourceFields,
+    formulas: buildCompiledFormulas(
+      config,
+      await getFields(seedFixture.tableId),
+    ),
+  });
+};
+
 export const runFormulaTableCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
