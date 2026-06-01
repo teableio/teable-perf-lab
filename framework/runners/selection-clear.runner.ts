@@ -871,11 +871,7 @@ export const runSelectionClearCase = async (
       verifyMeasurement,
     });
   } finally {
-    if (prepareMeasurement?.result.reusableSeed && isExecuteDbIsolated()) {
-      return;
-    }
-
-    if (prepareMeasurement?.result.reusableSeed) {
+    if (prepareMeasurement?.result.reusableSeed && !isExecuteDbIsolated()) {
       try {
         restoreMeasurement = await measureAsync("restoreSeed", () =>
           restoreClearedCells(prepareMeasurement!.result, config),
@@ -894,7 +890,10 @@ export const runSelectionClearCase = async (
           );
         }
       }
-    } else if (prepareMeasurement?.result.tableId) {
+    } else if (
+      prepareMeasurement?.result.tableId &&
+      !prepareMeasurement.result.reusableSeed
+    ) {
       try {
         await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
       } catch (error) {
