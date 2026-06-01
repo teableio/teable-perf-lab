@@ -28,11 +28,6 @@ on:
         required: false
         default: v1,v2
         type: string
-      run_unsupported_v1_cases:
-        description: Force diagnostic execution of v1 cases that normally report skipped
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -219,7 +214,6 @@ jobs:
           export PERF_LAB_ENGINE_LIST="${{ inputs.engine_filter }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
-          export PERF_LAB_RUN_UNSUPPORTED_V1_CASES="${{ inputs.run_unsupported_v1_cases }}"
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-serial"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
 

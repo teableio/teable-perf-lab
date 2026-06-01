@@ -6,9 +6,9 @@ import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-1
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
-import recordDelete10kCase from "./cases/record-delete/delete-10k.case";
+import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
-import recordUndoDelete10kCase from "./cases/record-undo/delete-10k.case";
+import recordUndoDelete1kCase from "./cases/record-undo/delete-1k.case";
 import type { PerfCase } from "./framework/types";
 
 const cases = [
@@ -17,8 +17,8 @@ const cases = [
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
-  recordDelete10kCase,
-  recordUndoDelete10kCase,
+  recordDelete1kCase,
+  recordUndoDelete1kCase,
   recordRedoDelete1kCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
@@ -38,20 +38,12 @@ const caseAliases = new Map([
   ["selection-clear", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
-  ["clear/10k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
-  ["clear/10k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
-  [
-    "selection-clear/flat-10k-20fields-cell-clear-stream",
-    "selection-clear/flat-1k-20fields-cell-clear-stream",
-  ],
-  ["record-delete", "record-delete/delete-10k"],
-  ["delete/10k", "record-delete/delete-10k"],
-  ["record-undo", "record-undo/delete-10k"],
-  ["undo/10k", "record-undo/delete-10k"],
+  ["record-delete", "record-delete/delete-1k"],
+  ["delete/1k", "record-delete/delete-1k"],
+  ["record-undo", "record-undo/delete-1k"],
+  ["undo/1k", "record-undo/delete-1k"],
   ["record-redo", "record-redo/delete-1k"],
   ["redo/1k", "record-redo/delete-1k"],
-  ["redo/10k", "record-redo/delete-1k"],
-  ["record-redo/delete-10k", "record-redo/delete-1k"],
   ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k-20fields", "record-paste/flat-10k-20fields-copy-paste"],

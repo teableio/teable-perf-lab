@@ -39,13 +39,15 @@ On failure, throw a diagnostic result that still carries completed phase
 durations, table/field ids, sample records, partial metrics, and the error — so a
 developer can see whether setup, trigger, polling, full scan, or cleanup failed.
 
-Wrap important phases with `withPerfTraceStep()` so trace artifacts align with
-case phases.
+Wrap important axios phases with `withPerfTraceStep()` so trace artifacts align
+with case phases. For raw `fetch` / SSE calls, use the repository's perf SSE
+helper so perf trace headers are sent and response `traceparent` refs are
+captured.
 
 ## Stateful Stream Requests
 
 For any case whose measured request depends on server-side state from earlier
-requests (clear / delete / undo / redo streams):
+requests (clear streams, delete, undo, redo):
 
 - First decide whether the measured request depends on state created by setup.
 - If a request chain depends on the same operation history, every related request
@@ -57,8 +59,8 @@ requests (clear / delete / undo / redo streams):
   completion event.
 - If the final event has a business status field, assert success before the next
   phase.
-- For selection / range streams, verify `viewId`, `ranges`, `type`, and
-  `projection[]` match the seeded view.
+- For selection / range requests, verify `viewId`, `ranges`, optional `type`,
+  and optional `projection[]` match the seeded view.
 - Wrong affected-row count? Check seed count, range boundaries, view
   sort/filter/group state, and projected field ids first.
 - A dependent request can't find prior state? Check table id, authenticated
@@ -86,7 +88,32 @@ grid-UI cell-range payload:
 
 `projection` is the visible field id list in view order. `ranges[1][0]` is
 `projection.length - 1`; `ranges[1][1]` is `rowCount - 1`. Do **not** add
-`type:"rows"` for cell-clear — that shape is for row operations (delete,
-duplicate). The endpoint returns `text/event-stream`; do not print the raw SSE
-body in local probes (the final event can be huge for 10k rows). Record compact
-metrics from the parsed `done` event and verify with a paged record scan.
+`type:"rows"` for cell-clear. The endpoint returns `text/event-stream`; record
+compact metrics from the parsed `done` event and verify with a paged record
+scan.
+
+## Selection Delete Specifics
+
+The grid delete path used by `record-delete`, `record-undo`, and `record-redo`
+is synchronous:
+
+```http
+DELETE /api/table/{tableId}/selection/delete
+```
+
+For the 1k full-table delete cases, use the UI-shaped cell range:
+
+```json
+{
+  "viewId": "viw...",
+  "ranges": [
+    [0, 0],
+    [0, 999]
+  ]
+}
+```
+
+Keep the same `X-Window-Id` across delete, undo, redo, and cleanup restore
+requests that belong to the same operation chain. Capture routing headers such
+as `x-teable-v2`, `x-teable-v2-feature`, and `x-teable-v2-reason` from the
+delete response.

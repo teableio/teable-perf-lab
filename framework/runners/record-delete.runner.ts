@@ -13,7 +13,7 @@ import {
   buildRecordReplayResult,
   buildRecordWindowId,
   cleanupRecordUndoRedoFixture,
-  deleteAllRows,
+  deleteAllRowsViaSelectionDelete,
   prepareRecordUndoRedoFixture,
   withRecordWindowId,
   type Measurement,
@@ -56,7 +56,7 @@ export const runRecordDeleteCase = async (
           config.threshold.metric,
           () =>
             measureAsync(config.threshold.metric, () =>
-              deleteAllRows(fixture, context),
+              deleteAllRowsViaSelectionDelete(fixture),
             ),
         );
       });
@@ -95,6 +95,7 @@ export const runRecordDeleteCase = async (
     await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
       config,
       context,
+      perfCase,
       windowId,
     });
   }

@@ -29,8 +29,9 @@ the primary timer starts.
 - The table mirrors the staging Tibo test shape: 20 mixed fields covering text,
   long text, single select, multiple select, number, date, checkbox, and rating.
 - Inserts 1,000 deterministic records in one 1,000-record batch.
-- Uses a plain grid view with no sort, filter, or group so row range
-  `[[0,999]]` maps to the full inserted dataset.
+- Uses a plain grid view with no sort, filter, or group so cell range
+  `[[0,0],[0,999]]` maps to the first visible column across the full inserted
+  dataset.
 - Verifies the source table is ready by full-scanning 1,000 records and
   checking sample rows `0`, `499`, and `999`.
 - When seed cache is enabled, the hash-derived source table is reused across
@@ -40,10 +41,10 @@ the primary timer starts.
 ## Execute Phase
 
 1. Run setup delete before the primary timer:
-   - call `GET /api/table/{tableId}/selection/delete-stream`
-   - use `ranges=[[0,999]]`, `type=rows`, the 20-field `projection[]`, the
-     first grid `viewId`, and a per-run `x-window-id`
-   - wait for the stream `done` event
+   - call `DELETE /api/table/{tableId}/selection/delete`
+   - use `ranges=[[0,0],[0,999]]`, the first grid `viewId`, and a per-run
+     `x-window-id`
+   - wait for the JSON response to return 1,000 deleted ids
    - verify the table has no visible records
 2. Run setup undo before the primary timer:
    - call `POST /api/table/{tableId}/undo-redo/undo-stream`

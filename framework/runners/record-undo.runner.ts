@@ -14,7 +14,7 @@ import {
   buildRecordReplayPhaseName,
   buildRecordWindowId,
   cleanupRecordUndoRedoFixture,
-  deleteAllRows,
+  deleteAllRowsViaSelectionDelete,
   prepareRecordUndoRedoFixture,
   undoLastOperation,
   waitForRowsRestored,
@@ -30,22 +30,6 @@ export const runRecordUndoCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as RecordUndoCaseConfig;
-  if (context.engine === "v1") {
-    return {
-      result: "skipped",
-      metrics: {},
-      thresholds: [],
-      details: {
-        operation: "undo",
-        skipped: true,
-        reason:
-          "V1 delete-stream undo returns fulfilled but does not restore the 10k selection-delete fixture in this e2e path. The case measures the V2 large undo replay path.",
-        engine: context.engine,
-        rowCount: config.rowCount,
-      },
-    };
-  }
-
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
@@ -75,7 +59,7 @@ export const runRecordUndoCase = async (
           ...setupMeasurements,
           deleteSetupMeasurement: await measureAsync(
             buildRecordReplayPhaseName("deleteSetup", config.rowCount),
-            () => deleteAllRows(fixture, context),
+            () => deleteAllRowsViaSelectionDelete(fixture),
           ),
         };
         setupMeasurements = {
@@ -92,7 +76,12 @@ export const runRecordUndoCase = async (
           config.threshold.metric,
           () =>
             measureAsync(config.threshold.metric, () =>
-              undoLastOperation(fixture, context),
+              undoLastOperation(
+                fixture,
+                context,
+                perfCase,
+                config.threshold.metric,
+              ),
             ),
         );
       });
@@ -133,6 +122,7 @@ export const runRecordUndoCase = async (
     await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
       config,
       context,
+      perfCase,
       windowId,
     });
   }
