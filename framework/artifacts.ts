@@ -8,7 +8,7 @@ export interface PerfArtifactPayload {
   runId: string;
   engine: string;
   appUrl: string;
-  result: "pass" | "fail";
+  result: "pass" | "fail" | "skipped";
   startedAt: string;
   finishedAt: string;
   durationMs: number;

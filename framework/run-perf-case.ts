@@ -108,14 +108,16 @@ export const runPerfCase = async (
       result.metrics,
       result.thresholds,
     );
-    const passed = thresholdResults.every((threshold) => threshold.passed);
+    const skipped = result.result === "skipped";
+    const passed =
+      skipped || thresholdResults.every((threshold) => threshold.passed);
     const payload: PerfArtifactPayload = {
       caseId: perfCase.id,
       title: perfCase.title,
       runId: context.runId,
       engine: context.engine,
       appUrl: context.appUrl,
-      result: passed ? "pass" : "fail",
+      result: skipped ? "skipped" : passed ? "pass" : "fail",
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       durationMs: roundMetric(performance.now() - started),
@@ -131,7 +133,7 @@ export const runPerfCase = async (
     const failedThreshold = thresholdResults.find(
       (threshold) => !threshold.passed,
     );
-    if (failedThreshold) {
+    if (!skipped && failedThreshold) {
       throw new Error(
         `${failedThreshold.metric}=${failedThreshold.actual} ${failedThreshold.unit} exceeded ${failedThreshold.max} ${failedThreshold.unit}`,
       );

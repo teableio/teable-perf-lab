@@ -48,6 +48,9 @@ Measure the product large-clear path for clearing every visible cell across
 - The table must still contain 10,000 records.
 - Every projected field must be empty in a full paged scan.
 - Samples from rows 1, 5,000, and 10,000 are saved in the result artifact.
+- V1 is reported as `skipped`: its legacy clear-stream path resolves the 10k
+  range through a search-index API capped at 1,000 records, so running it would
+  not measure the same large-clear behavior as V2.
 
 ## Notes
 
