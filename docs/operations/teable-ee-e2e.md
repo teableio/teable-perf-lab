@@ -47,30 +47,10 @@ The workflow runs `perf-lab.e2e-spec.ts` once. That spec reads
 runner in `framework/runners/`. Each case still writes an independent JSON
 artifact and summary tagged with `engine`.
 
-Current runners:
-
-- `http-endpoint`: warm up an authenticated endpoint and collect sample
-  durations.
-- `formula-table`: create a temporary table, seed deterministic records, create
-  a formula field, verify computed values, then clean up.
-- `conditional-lookup`: create two temporary tables, seed deterministic records,
-  create a conditional lookup field, verify sample values, then clean up.
-
-Current cases:
-
-- `smoke/auth-user`: measures authenticated `GET /api/auth/user/me`.
-- `formula/10k-calc`: creates 10k deterministic rows and measures
-  `formulaReadyMs`, which includes formula field creation plus sample reads that
-  prove computed values are available.
-- `formula/10k-5-concurrent`: creates 10k deterministic rows once and measures
-  five formula fields created concurrently on one table.
-- `lookup/conditional-10k`: creates two 10k deterministic tables with permuted
-  unique keys and measures conditional lookup readiness.
-
-To add a case, add a `*.case.ts` config under `cases/` and register it in
-`registry.ts`.
-Only add a new runner when the setup or measurement behavior is genuinely new.
-The workflow should not need a case-specific branch.
+The runner catalog is in [.agent/runners.md](../../.agent/runners.md). The list
+of registered cases is in the `README.md` "Available Cases" section. To add or
+change a case, follow the playbook in [.agent/README.md](../../.agent/README.md);
+the workflow does not need a case-specific branch.
 
 ## Auth and seed
 
@@ -102,12 +82,10 @@ case/engine result files.
 
 ## Trace collection
 
-The workflow exports traces to the shared Jaeger service documented in
-`docs/operations/trace-viewer.md`:
-
-- `OTEL_EXPORTER_OTLP_ENDPOINT=http://136.119.178.56:4318/v1/traces`
-- `TRACE_LINK_BASE_URL=http://136.119.178.56:16686`
-- `OTEL_EXPORT_RATIO=1.0`
+The workflow exports traces to the shared Jaeger service. Its endpoints and the
+`OTEL_*` / `TRACE_LINK_BASE_URL` values are defined once in
+[trace-viewer.md](trace-viewer.md) and set in the workflow env; do not restate
+the endpoint URLs here.
 
 `perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
 `initApp()` creates the Nest test app. The perf framework then captures

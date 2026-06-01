@@ -2,8 +2,10 @@
 
 This repository is the control plane for Teable performance regression cases.
 
-Read `README.md` first. The source of truth for adding or changing cases is the
-`Adding A Case` section in `README.md`; do not duplicate that workflow here.
+Read `README.md` first for the project overview. Before adding or changing a
+case, read the agent playbook in `.agent/` and draft the case spec first; that
+folder is the source of truth for the authoring workflow. Do not duplicate it
+here. Its entry point is `.agent/README.md`.
 
 ## Working Rules
 
@@ -42,16 +44,8 @@ GitHub Actions also syncs case metadata to Teable after pushes to `main`.
 
 ## CI Entry Points
 
-Run one case through GitHub Actions:
-
-```bash
-gh workflow run "Teable EE e2e perf" \
-  --repo teableio/teable-perf-lab \
-  --ref main \
-  -f teable_ee_ref=<teable-ee-branch-or-sha> \
-  -f case_filter=<group>/<case-name> \
-  -f engine_filter=v1,v2
-```
-
-The Teable case registry stores the same reproduce command and a link to each
-case description markdown.
+To run a case through GitHub Actions, see the trigger command and all workflow
+inputs in [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md).
+That file is the single source of truth for running the workflow. The Teable
+case registry stores the same reproduce command and a link to each case
+description markdown.
