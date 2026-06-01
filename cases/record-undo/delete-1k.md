@@ -32,8 +32,8 @@ not part of the primary metric.
 - Uses a plain grid view with no sort, filter, or group so cell range
   `[[0,0],[0,999]]` maps to the first visible column across the full inserted
   dataset.
-- Verifies the source table is ready by full-scanning 1,000 records and
-  checking sample rows `0`, `499`, and `999`.
+- Verifies the source table is ready by full-scanning 1,000 records and checking
+  the expected row count.
 - When seed cache is enabled, the hash-derived source table is reused across
   engines and workflow runs. The measured undo naturally restores the table to
   seed-ready state; cleanup validates that state before preserving the table.

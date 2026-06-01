@@ -29,11 +29,13 @@ This case isolates delete performance. It does not measure undo or redo replay.
 - Uses a plain grid view with no sort, filter, or group so cell range
   `[[0,0],[0,999]]` maps to the first visible column across the full inserted
   dataset.
-- Verifies the source table is ready by full-scanning 1,000 records and
-  checking sample rows `0`, `499`, and `999`.
+- Verifies the source table is ready by full-scanning 1,000 records and checking
+  the expected row count.
 - When seed cache is enabled, the hash-derived source table is reused across
-  engines and workflow runs. After execute deletes the rows, cleanup replays the
-  matching undo operation to return the cached table to seed-ready state.
+  workflow runs. In GitHub Actions each engine restores its own seed database
+  copy, so execute may delete local rows without repairing the shared seed dump.
+  Local single-database runs can still replay the matching undo operation during
+  cleanup to return the table to seed-ready state.
 
 ## Execute Phase
 
@@ -46,8 +48,9 @@ This case isolates delete performance. It does not measure undo or redo replay.
 4. Record routing headers such as `x-teable-v2`, `x-teable-v2-feature`, and
    `x-teable-v2-reason` in the run artifact.
 5. Verify the table has no visible records.
-6. Cleanup restores the cached seed table when reusable, otherwise permanently
-   deletes the temporary table.
+6. Cleanup restores the cached seed table when a single database is being reused
+   across engines, otherwise the isolated execute database is discarded after
+   the job.
 
 ## Primary Metric
 

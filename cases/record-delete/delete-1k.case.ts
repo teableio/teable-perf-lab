@@ -11,6 +11,7 @@ export default definePerfCase({
     rowCount: 1_000,
     tableNamePrefix: "perf-record-delete-1k",
     verify: {
+      ...undoRedo10kBaseConfig.verify,
       sampleRows: [0, 499, 999],
       fullScanPageSize: 1_000,
     },

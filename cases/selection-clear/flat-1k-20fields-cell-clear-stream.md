@@ -31,8 +31,10 @@ request still crosses the product stream threshold.
 - Seed hash inputs should include the case id, runner kind, field layout, row
   count, batch size, generator config, fixture version, and runner seed code.
 - When seed cache is enabled, the hash-derived source table is reused across
-  engines and workflow runs. After execute clears the cells, cleanup writes the
-  deterministic values back and validates the table before preserving it.
+  workflow runs. In GitHub Actions each engine restores its own seed database
+  copy, so execute may clear local cells without repairing the shared seed dump.
+  Local single-database runs can still write deterministic values back during
+  cleanup to return the table to seed-ready state.
 
 ## Execute Phase
 
@@ -41,8 +43,9 @@ request still crosses the product stream threshold.
    `ranges: [[0, 0], [19, 999]]`, `projection`, and `viewId`.
 3. Stop the primary timer after the clear stream emits its final `done` event.
 4. Full scan all 1,000 records and verify the selected fields are empty.
-5. Cleanup restores the cached seed table when reusable, otherwise permanently
-   deletes the temporary table.
+5. Cleanup restores the cached seed table when a single database is being reused
+   across engines, otherwise the isolated execute database is discarded after
+   the job.
 
 ## Primary Metric
 
