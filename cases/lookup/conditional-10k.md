@@ -32,9 +32,9 @@ matches a different source row through a unique key.
   source/host field layout, `recordCount`, `batchSize`, permutation config,
   fixture version, and seed implementation code.
 
-The current runner cold-builds both seed tables and deletes them after the run.
-When seed artifact caching is enabled, this phase should be restored by
-`seedHash` and only rebuilt on a cache miss or failed `seedReady` validation.
+With seed caching enabled, both tables are named from the same `seedHash` and
+reused across engines and workflow runs. The runner rebuilds them only on a
+cache miss or failed seed validation.
 
 ## Execute Phase
 
@@ -43,8 +43,8 @@ When seed artifact caching is enabled, this phase should be restored by
 3. Create conditional lookup field `Matched A Value` on B.
 4. The lookup filters A rows where `A Key` equals B's `Lookup A Key`.
 5. Full scan all 10k B rows and verify every lookup result.
-6. Clean up execute-only changes. Until seed caching exists, the current runner
-   deletes both temporary tables as part of cleanup.
+6. Clean up execute-only changes. On cached seeds, delete only the conditional
+   lookup field on B and preserve both seed tables for the next run.
 
 ## Primary Metric
 

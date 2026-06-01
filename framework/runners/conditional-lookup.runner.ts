@@ -3,12 +3,20 @@ import {
   createField,
   createRecords,
   createTable,
+  deleteField,
+  getFields,
   getRecord,
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
+import {
+  buildSeedCacheInfo,
+  buildSeedTableName,
+  findSeedTable,
+  type SeedCacheInfo,
+} from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   ConditionalLookupCaseConfig,
@@ -46,15 +54,41 @@ type Measurement<T> = {
   result: T;
 };
 
+type SourceFields = {
+  keyFieldId: string;
+  valueFieldId: string;
+};
+
 type HostFields = {
   keyFieldId: string;
   lookupKeyFieldId: string;
+};
+
+type ConditionalLookupSeedFixture = {
+  sourceTableId: string;
+  sourceTableName: string;
+  hostTableId: string;
+  hostTableName: string;
+  sourceFields: SourceFields;
+  hostFields: HostFields;
+  sampleRecords: SeededSampleRecord[];
+  sourceBatchDurations: number[];
+  hostBatchDurations: number[];
+  createTablesMeasurement: Measurement<unknown>;
+  seedSourceMeasurement: Measurement<unknown>;
+  seedHostMeasurement: Measurement<unknown>;
+  seedCacheInfo: SeedCacheInfo;
+  seedCacheHit: boolean;
+  reusable: boolean;
 };
 
 const SOURCE_KEY_FIELD_NAME = "A Key";
 const SOURCE_VALUE_FIELD_NAME = "A Value";
 const HOST_KEY_FIELD_NAME = "B Key";
 const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup A Key";
+
+const sourceFieldNames = [SOURCE_KEY_FIELD_NAME, SOURCE_VALUE_FIELD_NAME];
+const hostSeedFieldNames = [HOST_KEY_FIELD_NAME, HOST_LOOKUP_KEY_FIELD_NAME];
 
 const getGreatestCommonDivisor = (left: number, right: number): number => {
   let a = Math.abs(left);
@@ -153,6 +187,21 @@ const buildHostRecords = (config: ConditionalLookupCaseConfig) =>
     };
   });
 
+const getConditionalLookupSeedConfig = (
+  config: ConditionalLookupCaseConfig,
+) => ({
+  baseId: config.baseId,
+  sourceTableNamePrefix: config.sourceTableNamePrefix,
+  hostTableNamePrefix: config.hostTableNamePrefix,
+  recordCount: config.recordCount,
+  batchSize: config.batchSize,
+  generator: config.generator,
+  sourceFields: sourceFieldNames,
+  hostFields: hostSeedFieldNames,
+  verifySampleRows: config.verify.sampleRows,
+  fixtureVersion: "conditional-lookup-v1",
+});
+
 const getRequiredSampleRecords = (
   config: ConditionalLookupCaseConfig,
   seededSampleRecordByOffset: Map<number, SeededSampleRecord>,
@@ -166,6 +215,122 @@ const getRequiredSampleRecords = (
     }
     return sampleRecord;
   });
+
+const resolveNamedFieldIds = (
+  fields: Array<{ id: string; name: string }>,
+  requiredNames: string[],
+  tableId: string,
+) => {
+  const fieldByName = new Map(fields.map((field) => [field.name, field.id]));
+  const missingFields = requiredNames.filter(
+    (fieldName) => !fieldByName.has(fieldName),
+  );
+
+  if (missingFields.length > 0) {
+    throw new Error(
+      `Missing seed fields on table ${tableId}: ${missingFields.join(
+        ", ",
+      )}; available fields: ${fields.map((field) => field.name).join(", ")}`,
+    );
+  }
+
+  return fieldByName;
+};
+
+const resolveSourceFields = (
+  tableId: string,
+  fields: Array<{ id: string; name: string }>,
+): SourceFields => {
+  const fieldByName = resolveNamedFieldIds(fields, sourceFieldNames, tableId);
+  return {
+    keyFieldId: fieldByName.get(SOURCE_KEY_FIELD_NAME)!,
+    valueFieldId: fieldByName.get(SOURCE_VALUE_FIELD_NAME)!,
+  };
+};
+
+const resolveHostFields = (
+  tableId: string,
+  fields: Array<{ id: string; name: string }>,
+): HostFields => {
+  const fieldByName = resolveNamedFieldIds(fields, hostSeedFieldNames, tableId);
+  return {
+    keyFieldId: fieldByName.get(HOST_KEY_FIELD_NAME)!,
+    lookupKeyFieldId: fieldByName.get(HOST_LOOKUP_KEY_FIELD_NAME)!,
+  };
+};
+
+const cleanupHostLookupFields = async (
+  hostTableId: string,
+  fields: Array<{ id: string; name: string }>,
+) => {
+  const seedFieldNameSet = new Set(hostSeedFieldNames);
+  const lookupFields = fields.filter(
+    (field) => !seedFieldNameSet.has(field.name),
+  );
+  for (const field of lookupFields) {
+    await deleteField(hostTableId, field.id);
+  }
+};
+
+const createEmptyMeasurement = <T>(
+  name: string,
+  result: T,
+): Measurement<T> => ({
+  name,
+  durationMs: 0,
+  result,
+});
+
+const getCachedHostSampleRecords = async (
+  tableId: string,
+  hostFields: HostFields,
+  config: ConditionalLookupCaseConfig,
+): Promise<SeededSampleRecord[]> => {
+  const sampleRecords = [];
+  for (const rowOffset of config.verify.sampleRows) {
+    const expectedRowNumber = rowOffset + 1;
+    const result = await getRecords(tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [hostFields.keyFieldId, hostFields.lookupKeyFieldId],
+      skip: rowOffset,
+      take: 1,
+    });
+    const record = result.records[0];
+    if (!record) {
+      throw new Error(
+        `Missing cached host seed sample at row offset ${rowOffset}; recordCount=${config.recordCount}`,
+      );
+    }
+
+    const rowNumber = parseRowNumber(
+      record.fields[hostFields.keyFieldId],
+      config.generator.hostKeyPrefix,
+    );
+    if (rowNumber !== expectedRowNumber) {
+      throw new Error(
+        `Cached host sample row mismatch: expected row ${expectedRowNumber}, got ${rowNumber}`,
+      );
+    }
+
+    const sourceRowNumber = getSourceRowNumberForHostRow(rowNumber, config);
+    const expectedLookupKey = getSourceKey(sourceRowNumber, config);
+    const actualLookupKey = record.fields[hostFields.lookupKeyFieldId];
+    if (actualLookupKey !== expectedLookupKey) {
+      throw new Error(
+        `Cached host lookup key mismatch at row ${rowNumber}: expected ${expectedLookupKey}, actual ${String(
+          actualLookupKey,
+        )}`,
+      );
+    }
+
+    sampleRecords.push({
+      rowOffset,
+      rowNumber,
+      recordId: record.id,
+    });
+  }
+  return sampleRecords;
+};
 
 const assertLookupSamples = async (
   tableId: string,
@@ -376,6 +541,467 @@ const waitForLookupFullScan = async (
   );
 };
 
+const assertConditionalLookupSeedReady = async (
+  sourceTableId: string,
+  hostTableId: string,
+  sourceFields: SourceFields,
+  hostFields: HostFields,
+  config: ConditionalLookupCaseConfig,
+  sampleRecords: SeededSampleRecord[],
+) => {
+  const verifiedSamples = [];
+
+  for (const sampleRecord of sampleRecords) {
+    const hostRecord = await getRecord(hostTableId, sampleRecord.recordId);
+    const sourceRowNumber = getSourceRowNumberForHostRow(
+      sampleRecord.rowNumber,
+      config,
+    );
+    const expectedHostKey = getHostKey(sampleRecord.rowNumber, config);
+    const expectedSourceKey = getSourceKey(sourceRowNumber, config);
+    const actualHostKey = hostRecord.fields[hostFields.keyFieldId];
+    const actualLookupKey = hostRecord.fields[hostFields.lookupKeyFieldId];
+
+    if (actualHostKey !== expectedHostKey) {
+      throw new Error(
+        `Host seed key mismatch at row ${sampleRecord.rowNumber}: expected ${expectedHostKey}, actual ${String(
+          actualHostKey,
+        )}`,
+      );
+    }
+
+    if (actualLookupKey !== expectedSourceKey) {
+      throw new Error(
+        `Host seed lookup key mismatch at row ${sampleRecord.rowNumber}: expected ${expectedSourceKey}, actual ${String(
+          actualLookupKey,
+        )}`,
+      );
+    }
+
+    const sourceResult = await getRecords(sourceTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [sourceFields.keyFieldId, sourceFields.valueFieldId],
+      skip: sourceRowNumber - 1,
+      take: 1,
+    });
+    const sourceRecord = sourceResult.records[0];
+    if (!sourceRecord) {
+      throw new Error(
+        `Missing source seed record at row ${sourceRowNumber}; recordCount=${config.recordCount}`,
+      );
+    }
+
+    const actualSourceKey = sourceRecord.fields[sourceFields.keyFieldId];
+    const actualSourceValue = sourceRecord.fields[sourceFields.valueFieldId];
+    const expectedSourceValue = getExpectedValue(sourceRowNumber, config);
+
+    if (actualSourceKey !== expectedSourceKey) {
+      throw new Error(
+        `Source seed key mismatch at row ${sourceRowNumber}: expected ${expectedSourceKey}, actual ${String(
+          actualSourceKey,
+        )}`,
+      );
+    }
+
+    if (actualSourceValue !== expectedSourceValue) {
+      throw new Error(
+        `Source seed value mismatch at row ${sourceRowNumber}: expected ${expectedSourceValue}, actual ${String(
+          actualSourceValue,
+        )}`,
+      );
+    }
+
+    verifiedSamples.push({
+      hostRowOffset: sampleRecord.rowOffset,
+      hostRowNumber: sampleRecord.rowNumber,
+      hostRecordId: sampleRecord.recordId,
+      sourceRowNumber,
+      sourceRecordId: sourceRecord.id,
+      actual: {
+        hostKey: actualHostKey,
+        lookupKey: actualLookupKey,
+        sourceKey: actualSourceKey,
+        sourceValue: actualSourceValue,
+      },
+      expected: {
+        hostKey: expectedHostKey,
+        lookupKey: expectedSourceKey,
+        sourceKey: expectedSourceKey,
+        sourceValue: expectedSourceValue,
+      },
+    });
+  }
+
+  const [
+    lastHostPage,
+    beyondLastHostPage,
+    lastSourcePage,
+    beyondLastSourcePage,
+  ] = await Promise.all([
+    getRecords(hostTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [hostFields.keyFieldId, hostFields.lookupKeyFieldId],
+      skip: config.recordCount - 1,
+      take: 1,
+    }),
+    getRecords(hostTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [hostFields.keyFieldId],
+      skip: config.recordCount,
+      take: 1,
+    }),
+    getRecords(sourceTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [sourceFields.keyFieldId, sourceFields.valueFieldId],
+      skip: config.recordCount - 1,
+      take: 1,
+    }),
+    getRecords(sourceTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [sourceFields.keyFieldId],
+      skip: config.recordCount,
+      take: 1,
+    }),
+  ]);
+
+  const lastHostRecord = lastHostPage.records[0];
+  const lastSourceRecord = lastSourcePage.records[0];
+
+  if (!lastHostRecord || !lastSourceRecord) {
+    throw new Error(
+      `Missing final seed row; host=${Boolean(lastHostRecord)}, source=${Boolean(
+        lastSourceRecord,
+      )}, recordCount=${config.recordCount}`,
+    );
+  }
+
+  const lastHostRowNumber = parseRowNumber(
+    lastHostRecord.fields[hostFields.keyFieldId],
+    config.generator.hostKeyPrefix,
+  );
+  const lastSourceRowNumber = parseRowNumber(
+    lastSourceRecord.fields[sourceFields.keyFieldId],
+    config.generator.sourceKeyPrefix,
+  );
+
+  if (
+    lastHostRowNumber !== config.recordCount ||
+    lastSourceRowNumber !== config.recordCount
+  ) {
+    throw new Error(
+      `Final seed row mismatch: expected ${config.recordCount}, host=${lastHostRowNumber}, source=${lastSourceRowNumber}`,
+    );
+  }
+
+  if (
+    beyondLastHostPage.records.length !== 0 ||
+    beyondLastSourcePage.records.length !== 0
+  ) {
+    throw new Error(
+      `Seed has extra rows after expected recordCount=${config.recordCount}; hostExtra=${beyondLastHostPage.records.length}, sourceExtra=${beyondLastSourcePage.records.length}`,
+    );
+  }
+
+  return {
+    verifiedSamples,
+  };
+};
+
+const seedSourceTable = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  sourceTableId: string,
+  config: ConditionalLookupCaseConfig,
+) => {
+  const sourceBatches = chunk(buildSourceRecords(config), config.batchSize);
+  const sourceBatchDurations: number[] = [];
+
+  const seedSourceMeasurement = await measureAsync(
+    "seedSourceRecords",
+    async () => {
+      for (const [batchIndex, batch] of sourceBatches.entries()) {
+        const batchMeasurement = await measureAsync(
+          `seedSourceBatch:${batchIndex + 1}`,
+          () =>
+            withPerfTraceStep(
+              context,
+              perfCase,
+              `seedSourceBatch:${batchIndex + 1}`,
+              () =>
+                createRecords(sourceTableId, {
+                  fieldKeyType: FieldKeyType.Name,
+                  records: batch.map(({ fields }) => ({ fields })),
+                }),
+            ),
+        );
+        sourceBatchDurations.push(batchMeasurement.durationMs);
+        expect(batchMeasurement.result.records).toHaveLength(batch.length);
+      }
+    },
+  );
+
+  return { seedSourceMeasurement, sourceBatchDurations };
+};
+
+const seedHostTable = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  hostTableId: string,
+  config: ConditionalLookupCaseConfig,
+) => {
+  const hostBatches = chunk(buildHostRecords(config), config.batchSize);
+  const hostBatchDurations: number[] = [];
+  const wantedSampleOffsets = new Set(config.verify.sampleRows);
+  const seededSampleRecordByOffset = new Map<number, SeededSampleRecord>();
+
+  const seedHostMeasurement = await measureAsync(
+    "seedHostRecords",
+    async () => {
+      for (const [batchIndex, batch] of hostBatches.entries()) {
+        const batchMeasurement = await measureAsync(
+          `seedHostBatch:${batchIndex + 1}`,
+          () =>
+            withPerfTraceStep(
+              context,
+              perfCase,
+              `seedHostBatch:${batchIndex + 1}`,
+              () =>
+                createRecords(hostTableId, {
+                  fieldKeyType: FieldKeyType.Name,
+                  records: batch.map(({ fields }) => ({ fields })),
+                }),
+            ),
+        );
+        hostBatchDurations.push(batchMeasurement.durationMs);
+        expect(batchMeasurement.result.records).toHaveLength(batch.length);
+        batchMeasurement.result.records.forEach((record, index) => {
+          const input = batch[index];
+          if (input && wantedSampleOffsets.has(input.rowOffset)) {
+            seededSampleRecordByOffset.set(input.rowOffset, {
+              rowOffset: input.rowOffset,
+              rowNumber: input.rowNumber,
+              recordId: record.id,
+            });
+          }
+        });
+      }
+    },
+  );
+
+  return {
+    seedHostMeasurement,
+    hostBatchDurations,
+    sampleRecords: getRequiredSampleRecords(config, seededSampleRecordByOffset),
+  };
+};
+
+const createConditionalLookupSeedFixture = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  sourceTableName: string,
+  hostTableName: string,
+  config: ConditionalLookupCaseConfig,
+  seedCacheInfo: SeedCacheInfo,
+): Promise<ConditionalLookupSeedFixture> => {
+  const createdTableIds: string[] = [];
+
+  try {
+    const createTablesMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      seedCacheInfo.enabled ? "seedBuild:createTables" : "createTables",
+      () =>
+        measureAsync(
+          seedCacheInfo.enabled ? "seedBuild" : "createTables",
+          async () => {
+            const sourceTable = await createTable(baseId, {
+              name: sourceTableName,
+              fields: [
+                { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+                {
+                  name: SOURCE_VALUE_FIELD_NAME,
+                  type: FieldType.SingleLineText,
+                },
+              ],
+              records: [],
+            });
+            createdTableIds.push(sourceTable.id);
+            const hostTable = await createTable(baseId, {
+              name: hostTableName,
+              fields: [
+                { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+                {
+                  name: HOST_LOOKUP_KEY_FIELD_NAME,
+                  type: FieldType.SingleLineText,
+                },
+              ],
+              records: [],
+            });
+            createdTableIds.push(hostTable.id);
+            return { sourceTable, hostTable };
+          },
+        ),
+    );
+    const sourceTableId = createTablesMeasurement.result.sourceTable.id;
+    const hostTableId = createTablesMeasurement.result.hostTable.id;
+    const sourceFields = resolveSourceFields(
+      sourceTableId,
+      createTablesMeasurement.result.sourceTable.fields,
+    );
+    const hostFields = resolveHostFields(
+      hostTableId,
+      createTablesMeasurement.result.hostTable.fields,
+    );
+    const { seedSourceMeasurement, sourceBatchDurations } =
+      await seedSourceTable(perfCase, context, sourceTableId, config);
+    const { seedHostMeasurement, hostBatchDurations, sampleRecords } =
+      await seedHostTable(perfCase, context, hostTableId, config);
+
+    return {
+      sourceTableId,
+      sourceTableName,
+      hostTableId,
+      hostTableName,
+      sourceFields,
+      hostFields,
+      sampleRecords,
+      sourceBatchDurations,
+      hostBatchDurations,
+      createTablesMeasurement,
+      seedSourceMeasurement,
+      seedHostMeasurement,
+      seedCacheInfo,
+      seedCacheHit: false,
+      reusable: seedCacheInfo.enabled,
+    };
+  } catch (error) {
+    for (const tableId of createdTableIds.reverse()) {
+      try {
+        await permanentDeleteTable(baseId, tableId);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup incomplete conditional lookup seed ${tableId}`,
+          cleanupError,
+        );
+      }
+    }
+    throw error;
+  }
+};
+
+const restoreConditionalLookupSeedFixture = async (
+  baseId: string,
+  sourceTableName: string,
+  hostTableName: string,
+  config: ConditionalLookupCaseConfig,
+  seedCacheInfo: SeedCacheInfo,
+): Promise<ConditionalLookupSeedFixture | undefined> => {
+  if (!seedCacheInfo.enabled) {
+    return;
+  }
+
+  const [sourceTable, hostTable] = await Promise.all([
+    findSeedTable(baseId, sourceTableName),
+    findSeedTable(baseId, hostTableName),
+  ]);
+
+  if (!sourceTable || !hostTable) {
+    for (const table of [hostTable, sourceTable]) {
+      if (table) {
+        await permanentDeleteTable(baseId, table.id);
+      }
+    }
+    return;
+  }
+
+  try {
+    const [sourceTableFields, hostTableFields] = await Promise.all([
+      getFields(sourceTable.id),
+      getFields(hostTable.id),
+    ]);
+    await cleanupHostLookupFields(hostTable.id, hostTableFields);
+    const cleanedHostTableFields = await getFields(hostTable.id);
+    const sourceFields = resolveSourceFields(sourceTable.id, sourceTableFields);
+    const hostFields = resolveHostFields(hostTable.id, cleanedHostTableFields);
+    const sampleRecords = await getCachedHostSampleRecords(
+      hostTable.id,
+      hostFields,
+      config,
+    );
+    await assertConditionalLookupSeedReady(
+      sourceTable.id,
+      hostTable.id,
+      sourceFields,
+      hostFields,
+      config,
+      sampleRecords,
+    );
+
+    return {
+      sourceTableId: sourceTable.id,
+      sourceTableName: sourceTable.name,
+      hostTableId: hostTable.id,
+      hostTableName: hostTable.name,
+      sourceFields,
+      hostFields,
+      sampleRecords,
+      sourceBatchDurations: [0],
+      hostBatchDurations: [0],
+      createTablesMeasurement: createEmptyMeasurement("seedRestore", {
+        sourceTableId: sourceTable.id,
+        hostTableId: hostTable.id,
+      }),
+      seedSourceMeasurement: createEmptyMeasurement(
+        "seedSourceBuildSkipped",
+        undefined,
+      ),
+      seedHostMeasurement: createEmptyMeasurement(
+        "seedHostBuildSkipped",
+        undefined,
+      ),
+      seedCacheInfo,
+      seedCacheHit: true,
+      reusable: true,
+    };
+  } catch (error) {
+    console.warn(
+      `Invalid cached conditional lookup seed ${seedCacheInfo.seedHashShort}; rebuilding`,
+      error,
+    );
+    for (const tableId of [hostTable.id, sourceTable.id]) {
+      await permanentDeleteTable(baseId, tableId);
+    }
+    return;
+  }
+};
+
+const buildConditionalLookupSeedFixture = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  sourceTableName: string,
+  hostTableName: string,
+  config: ConditionalLookupCaseConfig,
+  seedCacheInfo: SeedCacheInfo,
+) =>
+  (await restoreConditionalLookupSeedFixture(
+    baseId,
+    sourceTableName,
+    hostTableName,
+    config,
+    seedCacheInfo,
+  )) ??
+  createConditionalLookupSeedFixture(
+    perfCase,
+    context,
+    baseId,
+    sourceTableName,
+    hostTableName,
+    config,
+    seedCacheInfo,
+  );
+
 const buildConditionalLookupCaseResult = ({
   config,
   sourceTableId,
@@ -388,9 +1014,13 @@ const buildConditionalLookupCaseResult = ({
   createTablesMeasurement,
   seedSourceMeasurement,
   seedHostMeasurement,
+  seedReadyMeasurement,
   createLookupFieldMeasurement,
   fullLookupScanReadyMeasurement,
   lookupField,
+  seedCacheInfo,
+  seedCacheHit,
+  reusableSeed,
   sourceFields,
   hostFields,
   error,
@@ -406,22 +1036,45 @@ const buildConditionalLookupCaseResult = ({
   createTablesMeasurement: Measurement<unknown>;
   seedSourceMeasurement: Measurement<unknown>;
   seedHostMeasurement: Measurement<unknown>;
+  seedReadyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
+  >;
   createLookupFieldMeasurement?: Measurement<{ id: string }>;
   fullLookupScanReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof waitForLookupFullScan>>
   >;
   lookupField?: { id: string };
-  sourceFields: {
-    keyFieldId: string;
-    valueFieldId: string;
-  };
+  seedCacheInfo?: SeedCacheInfo;
+  seedCacheHit?: boolean;
+  reusableSeed?: boolean;
+  sourceFields: SourceFields;
   hostFields: HostFields;
   error?: unknown;
 }): PerfRunResult => ({
   metrics: {
+    ...(seedCacheInfo
+      ? {
+          seedCacheHit: seedCacheHit ? 1 : 0,
+          seedCacheEnabled: seedCacheInfo.enabled ? 1 : 0,
+          ...(seedCacheHit
+            ? { seedRestoreMs: createTablesMeasurement.durationMs }
+            : seedCacheInfo.enabled
+              ? {
+                  seedBuildMs: roundMetric(
+                    createTablesMeasurement.durationMs +
+                      seedSourceMeasurement.durationMs +
+                      seedHostMeasurement.durationMs,
+                  ),
+                }
+              : {}),
+        }
+      : {}),
     createTablesMs: createTablesMeasurement.durationMs,
     seedSourceRecordsMs: seedSourceMeasurement.durationMs,
     seedHostRecordsMs: seedHostMeasurement.durationMs,
+    ...(seedReadyMeasurement
+      ? { seedReadyMs: seedReadyMeasurement.durationMs }
+      : {}),
     ...(createLookupFieldMeasurement
       ? {
           createLookupFieldMs: createLookupFieldMeasurement.durationMs,
@@ -462,6 +1115,14 @@ const buildConditionalLookupCaseResult = ({
       name: seedHostMeasurement.name,
       durationMs: seedHostMeasurement.durationMs,
     },
+    ...(seedReadyMeasurement
+      ? [
+          {
+            name: seedReadyMeasurement.name,
+            durationMs: seedReadyMeasurement.durationMs,
+          },
+        ]
+      : []),
     ...(createLookupFieldMeasurement
       ? [
           {
@@ -480,6 +1141,19 @@ const buildConditionalLookupCaseResult = ({
       : []),
   ],
   details: {
+    seed: seedCacheInfo
+      ? {
+          enabled: seedCacheInfo.enabled,
+          seedHash: seedCacheInfo.seedHash,
+          seedHashShort: seedCacheInfo.seedHashShort,
+          seedNamePrefix: seedCacheInfo.seedNamePrefix,
+          sourceTableName,
+          hostTableName,
+          schemaSignature: seedCacheInfo.schemaSignature,
+          cacheHit: Boolean(seedCacheHit),
+          reusable: Boolean(reusableSeed),
+        }
+      : undefined,
     sourceTableId,
     sourceTableName,
     hostTableId,
@@ -489,6 +1163,7 @@ const buildConditionalLookupCaseResult = ({
     sourceFields,
     hostFields,
     sampleRecords,
+    verifiedSeedSamples: seedReadyMeasurement?.result.verifiedSamples,
     lookup: {
       fieldId: lookupField?.id,
       name: config.lookup.name,
@@ -519,127 +1194,80 @@ export const runConditionalLookupCase = async (
   const config = perfCase.config as ConditionalLookupCaseConfig;
   const baseId = globalThis.testConfig.baseId;
   const timestamp = Date.now();
-  const sourceTableName = `${config.sourceTableNamePrefix}-${timestamp}`;
-  const hostTableName = `${config.hostTableNamePrefix}-${timestamp}`;
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase,
+    runner: "conditional-lookup",
+    fixtureVersion: "conditional-lookup-v1",
+    seedConfig: getConditionalLookupSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+  const sourceTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "source")
+    : `${config.sourceTableNamePrefix}-${timestamp}`;
+  const hostTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "host")
+    : `${config.hostTableNamePrefix}-${timestamp}`;
   let sourceTableId = "";
   let hostTableId = "";
+  let reusableSeed = false;
+  let createdLookupFieldId = "";
 
   try {
     assertPermutationConfig(config);
 
-    const createTablesMeasurement = await withPerfTraceStep(
-      context,
+    const seedFixture = await buildConditionalLookupSeedFixture(
       perfCase,
-      "createTables",
-      () =>
-        measureAsync("createTables", async () => {
-          const sourceTable = await createTable(baseId, {
-            name: sourceTableName,
-            fields: [
-              { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-              { name: SOURCE_VALUE_FIELD_NAME, type: FieldType.SingleLineText },
-            ],
-            records: [],
-          });
-          const hostTable = await createTable(baseId, {
-            name: hostTableName,
-            fields: [
-              { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-              {
-                name: HOST_LOOKUP_KEY_FIELD_NAME,
-                type: FieldType.SingleLineText,
-              },
-            ],
-            records: [],
-          });
-          return { sourceTable, hostTable };
-        }),
-    );
-    sourceTableId = createTablesMeasurement.result.sourceTable.id;
-    hostTableId = createTablesMeasurement.result.hostTable.id;
-
-    const sourceFields = {
-      keyFieldId: createTablesMeasurement.result.sourceTable.fields[0].id,
-      valueFieldId: createTablesMeasurement.result.sourceTable.fields[1].id,
-    };
-    const hostFields = {
-      keyFieldId: createTablesMeasurement.result.hostTable.fields[0].id,
-      lookupKeyFieldId: createTablesMeasurement.result.hostTable.fields[1].id,
-    };
-    const sourceRecords = buildSourceRecords(config);
-    const hostRecords = buildHostRecords(config);
-    const sourceBatches = chunk(sourceRecords, config.batchSize);
-    const hostBatches = chunk(hostRecords, config.batchSize);
-    const sourceBatchDurations: number[] = [];
-    const hostBatchDurations: number[] = [];
-    const wantedSampleOffsets = new Set(config.verify.sampleRows);
-    const seededSampleRecordByOffset = new Map<number, SeededSampleRecord>();
-
-    const seedSourceMeasurement = await measureAsync(
-      "seedSourceRecords",
-      async () => {
-        for (const [batchIndex, batch] of sourceBatches.entries()) {
-          const batchMeasurement = await measureAsync(
-            `seedSourceBatch:${batchIndex + 1}`,
-            () =>
-              withPerfTraceStep(
-                context,
-                perfCase,
-                `seedSourceBatch:${batchIndex + 1}`,
-                () =>
-                  createRecords(sourceTableId, {
-                    fieldKeyType: FieldKeyType.Name,
-                    records: batch.map(({ fields }) => ({ fields })),
-                  }),
-              ),
-          );
-          sourceBatchDurations.push(batchMeasurement.durationMs);
-          expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        }
-      },
-    );
-
-    const seedHostMeasurement = await measureAsync(
-      "seedHostRecords",
-      async () => {
-        for (const [batchIndex, batch] of hostBatches.entries()) {
-          const batchMeasurement = await measureAsync(
-            `seedHostBatch:${batchIndex + 1}`,
-            () =>
-              withPerfTraceStep(
-                context,
-                perfCase,
-                `seedHostBatch:${batchIndex + 1}`,
-                () =>
-                  createRecords(hostTableId, {
-                    fieldKeyType: FieldKeyType.Name,
-                    records: batch.map(({ fields }) => ({ fields })),
-                  }),
-              ),
-          );
-          hostBatchDurations.push(batchMeasurement.durationMs);
-          expect(batchMeasurement.result.records).toHaveLength(batch.length);
-          batchMeasurement.result.records.forEach((record, index) => {
-            const input = batch[index];
-            if (input && wantedSampleOffsets.has(input.rowOffset)) {
-              seededSampleRecordByOffset.set(input.rowOffset, {
-                rowOffset: input.rowOffset,
-                rowNumber: input.rowNumber,
-                recordId: record.id,
-              });
-            }
-          });
-        }
-      },
-    );
-
-    const sampleRecords = getRequiredSampleRecords(
+      context,
+      baseId,
+      sourceTableName,
+      hostTableName,
       config,
-      seededSampleRecordByOffset,
+      seedCacheInfo,
     );
+    sourceTableId = seedFixture.sourceTableId;
+    hostTableId = seedFixture.hostTableId;
+    reusableSeed = seedFixture.reusable;
+    const {
+      sourceTableName: actualSourceTableName,
+      hostTableName: actualHostTableName,
+      sourceFields,
+      hostFields,
+      sampleRecords,
+      sourceBatchDurations,
+      hostBatchDurations,
+      createTablesMeasurement,
+      seedSourceMeasurement,
+      seedHostMeasurement,
+      seedCacheHit,
+    } = seedFixture;
     let createdLookupField: { id: string } | undefined;
+    let seedReadyMeasurement:
+      | Measurement<
+          Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
+        >
+      | undefined;
 
     try {
+      seedReadyMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        "seedReady",
+        () =>
+          measureAsync("seedReady", () =>
+            assertConditionalLookupSeedReady(
+              sourceTableId,
+              hostTableId,
+              sourceFields,
+              hostFields,
+              config,
+              sampleRecords,
+            ),
+          ),
+      );
+
       const createLookupFieldMeasurement = await withPerfTraceStep(
         context,
         perfCase,
@@ -673,6 +1301,7 @@ export const runConditionalLookupCase = async (
           ),
       );
       createdLookupField = createLookupFieldMeasurement.result;
+      createdLookupFieldId = createdLookupField.id;
 
       const fullLookupScanReadyMeasurement = await withPerfTraceStep(
         context,
@@ -692,18 +1321,22 @@ export const runConditionalLookupCase = async (
       return buildConditionalLookupCaseResult({
         config,
         sourceTableId,
-        sourceTableName,
+        sourceTableName: actualSourceTableName,
         hostTableId,
-        hostTableName,
+        hostTableName: actualHostTableName,
         sourceBatchDurations,
         hostBatchDurations,
         sampleRecords,
         createTablesMeasurement,
         seedSourceMeasurement,
         seedHostMeasurement,
+        seedReadyMeasurement,
         createLookupFieldMeasurement,
         fullLookupScanReadyMeasurement,
         lookupField: createdLookupField,
+        seedCacheInfo,
+        seedCacheHit,
+        reusableSeed,
         sourceFields,
         hostFields,
       });
@@ -711,16 +1344,20 @@ export const runConditionalLookupCase = async (
       const diagnosticResult = buildConditionalLookupCaseResult({
         config,
         sourceTableId,
-        sourceTableName,
+        sourceTableName: actualSourceTableName,
         hostTableId,
-        hostTableName,
+        hostTableName: actualHostTableName,
         sourceBatchDurations,
         hostBatchDurations,
         sampleRecords,
         createTablesMeasurement,
         seedSourceMeasurement,
         seedHostMeasurement,
+        seedReadyMeasurement,
         lookupField: createdLookupField,
+        seedCacheInfo,
+        seedCacheHit,
+        reusableSeed,
         sourceFields,
         hostFields,
         error,
@@ -732,12 +1369,25 @@ export const runConditionalLookupCase = async (
       );
     }
   } finally {
-    for (const tableId of [hostTableId, sourceTableId]) {
-      if (tableId) {
+    if (reusableSeed) {
+      if (createdLookupFieldId) {
         try {
-          await permanentDeleteTable(baseId, tableId);
+          await deleteField(hostTableId, createdLookupFieldId);
         } catch (error) {
-          console.warn(`Failed to cleanup perf table ${tableId}`, error);
+          console.warn(
+            `Failed to cleanup perf lookup field ${createdLookupFieldId}`,
+            error,
+          );
+        }
+      }
+    } else {
+      for (const tableId of [hostTableId, sourceTableId]) {
+        if (tableId) {
+          try {
+            await permanentDeleteTable(baseId, tableId);
+          } catch (error) {
+            console.warn(`Failed to cleanup perf table ${tableId}`, error);
+          }
         }
       }
     }

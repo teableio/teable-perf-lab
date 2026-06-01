@@ -25,9 +25,9 @@ verify that all computed values become fully readable.
   source field layout, `recordCount`, `batchSize`, numeric-sequence generator
   config, fixture version, and seed implementation code.
 
-The current runner cold-builds this seed table and deletes it after the run.
-When seed artifact caching is enabled, this phase should be restored by
-`seedHash` and only rebuilt on a cache miss or failed `seedReady` validation.
+With seed caching enabled, this table is named from `seedHash` and reused across
+engines and workflow runs. The runner rebuilds it only on a cache miss or failed
+`sourceReady` validation.
 
 ## Execute Phase
 
@@ -41,8 +41,8 @@ When seed artifact caching is enabled, this phase should be restored by
    - `Total 5`: `({A} * 3) + ({B} * 5) + ({C} * 7)`
 4. Poll until sample rows are correct for all formulas.
 5. Full scan all 10k records and verify every formula result for every row.
-6. Clean up execute-only changes. Until seed caching exists, the current runner
-   deletes the temporary table as part of cleanup.
+6. Clean up execute-only changes. On cached seeds, delete only the five formula
+   fields and preserve the source table for the next run.
 
 ## Primary Metric
 

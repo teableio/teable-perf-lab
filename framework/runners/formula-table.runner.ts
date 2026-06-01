@@ -3,6 +3,7 @@ import {
   createField,
   createRecords,
   createTable,
+  deleteField,
   getFields,
   getRecord,
   getRecords,
@@ -10,6 +11,11 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
+import {
+  buildSeedCacheInfo,
+  findSeedTable,
+  type SeedCacheInfo,
+} from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FormulaFieldCaseConfig,
@@ -72,6 +78,20 @@ type FormulaRunResult = {
   };
   durationMs: number;
   verifiedSamples: Awaited<ReturnType<typeof waitForFormulaSamples>>;
+};
+
+type FormulaSeedFixture = {
+  tableId: string;
+  tableName: string;
+  sourceFields: SourceFields;
+  sampleRecords: SeededSampleRecord[];
+  batches: unknown[][];
+  batchDurations: number[];
+  createTableMeasurement: Measurement<unknown>;
+  seedMeasurement: Measurement<unknown>;
+  seedCacheInfo: SeedCacheInfo;
+  seedCacheHit: boolean;
+  reusable: boolean;
 };
 
 const sourceFieldNames = ["Title", "A", "B", "C"] as const;
@@ -190,6 +210,17 @@ const buildCompiledFormulas = (
     compiledExpression: compileFormulaExpression(formula.expression, fields),
   }));
 
+const getFormulaSeedConfig = (config: FormulaTableCaseConfig) => ({
+  baseId: config.baseId,
+  tableNamePrefix: config.tableNamePrefix,
+  recordCount: config.recordCount,
+  batchSize: config.batchSize,
+  fields: config.fields,
+  generator: config.generator,
+  verifySampleRows: config.verify.sampleRows,
+  fixtureVersion: "formula-table-v1",
+});
+
 const getRequiredSampleRecords = (
   config: FormulaTableCaseConfig,
   seededSampleRecordByOffset: Map<number, SeededSampleRecord>,
@@ -203,6 +234,57 @@ const getRequiredSampleRecords = (
     }
     return sampleRecord;
   });
+
+const getCachedSampleRecords = async (
+  tableId: string,
+  sourceFields: SourceFields,
+  config: FormulaTableCaseConfig,
+): Promise<SeededSampleRecord[]> => {
+  const sampleRecords = [];
+  for (const rowOffset of config.verify.sampleRows) {
+    const expectedRowNumber = rowOffset + 1;
+    const result = await getRecords(tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      projection: [sourceFields.Title.id],
+      skip: rowOffset,
+      take: 1,
+    });
+    const record = result.records[0];
+    if (!record) {
+      throw new Error(
+        `Missing cached seed sample at row offset ${rowOffset}; recordCount=${config.recordCount}`,
+      );
+    }
+    const rowNumber = parseTitleRowNumber(
+      record.fields[sourceFields.Title.id],
+      config.generator.titlePrefix,
+    );
+    if (rowNumber !== expectedRowNumber) {
+      throw new Error(
+        `Cached seed sample row mismatch: expected row ${expectedRowNumber}, got ${rowNumber}`,
+      );
+    }
+    sampleRecords.push({
+      rowOffset,
+      rowNumber,
+      recordId: record.id,
+    });
+  }
+  return sampleRecords;
+};
+
+const cleanupCachedFormulaFields = async (
+  tableId: string,
+  fields: NamedField[],
+) => {
+  const sourceFieldNameSet = new Set<string>(sourceFieldNames);
+  const extraFields = fields.filter(
+    (field) => !sourceFieldNameSet.has(field.name),
+  );
+  for (const field of extraFields) {
+    await deleteField(tableId, field.id);
+  }
+};
 
 const assertSourceSamples = async (
   tableId: string,
@@ -255,6 +337,41 @@ const assertSourceSamples = async (
         C: expected.C,
       },
     });
+  }
+
+  const lastPage = await getRecords(tableId, {
+    fieldKeyType: FieldKeyType.Id,
+    projection: [sourceFields.Title.id],
+    skip: config.recordCount - 1,
+    take: 1,
+  });
+  const lastRecord = lastPage.records[0];
+  if (!lastRecord) {
+    throw new Error(
+      `Missing final source seed row at offset ${config.recordCount - 1}`,
+    );
+  }
+
+  const lastRowNumber = parseTitleRowNumber(
+    lastRecord.fields[sourceFields.Title.id],
+    config.generator.titlePrefix,
+  );
+  if (lastRowNumber !== config.recordCount) {
+    throw new Error(
+      `Final source seed row mismatch: expected row ${config.recordCount}, got ${lastRowNumber}`,
+    );
+  }
+
+  const beyondLastPage = await getRecords(tableId, {
+    fieldKeyType: FieldKeyType.Id,
+    projection: [sourceFields.Title.id],
+    skip: config.recordCount,
+    take: 1,
+  });
+  if (beyondLastPage.records.length !== 0) {
+    throw new Error(
+      `Source seed has extra rows after expected recordCount=${config.recordCount}`,
+    );
   }
 
   return verifiedSamples;
@@ -519,6 +636,9 @@ const buildFormulaCaseResult = ({
   formulas,
   formulasReadyMeasurement,
   fullFormulaScanReadyMeasurement,
+  seedCacheInfo,
+  seedCacheHit,
+  reusableSeed,
   error,
 }: {
   config: FormulaTableCaseConfig;
@@ -540,6 +660,9 @@ const buildFormulaCaseResult = ({
   fullFormulaScanReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof waitForFormulaFullScan>>
   >;
+  seedCacheInfo?: SeedCacheInfo;
+  seedCacheHit?: boolean;
+  reusableSeed?: boolean;
   error?: unknown;
 }): PerfRunResult => {
   const formulaResults = formulasReadyMeasurement?.result;
@@ -551,10 +674,29 @@ const buildFormulaCaseResult = ({
         )
       : undefined;
   const metrics = {
+    ...(seedCacheInfo
+      ? {
+          seedCacheHit: seedCacheHit ? 1 : 0,
+          seedCacheEnabled: seedCacheInfo.enabled ? 1 : 0,
+          ...(seedCacheHit
+            ? { seedRestoreMs: createTableMeasurement.durationMs }
+            : seedCacheInfo.enabled
+              ? {
+                  seedBuildMs: roundMetric(
+                    createTableMeasurement.durationMs +
+                      seedMeasurement.durationMs,
+                  ),
+                }
+              : {}),
+        }
+      : {}),
     createTableMs: createTableMeasurement.durationMs,
     seedRecordsMs: seedMeasurement.durationMs,
     ...(sourceReadyMeasurement
-      ? { sourceReadyMs: sourceReadyMeasurement.durationMs }
+      ? {
+          sourceReadyMs: sourceReadyMeasurement.durationMs,
+          seedReadyMs: sourceReadyMeasurement.durationMs,
+        }
       : {}),
     ...(formulaResults?.length === 1
       ? { formulaReadyMs: formulasReadyMeasurement.durationMs }
@@ -611,6 +753,18 @@ const buildFormulaCaseResult = ({
       : [],
     phases,
     details: {
+      seed: seedCacheInfo
+        ? {
+            enabled: seedCacheInfo.enabled,
+            seedHash: seedCacheInfo.seedHash,
+            seedHashShort: seedCacheInfo.seedHashShort,
+            seedNamePrefix: seedCacheInfo.seedNamePrefix,
+            seedTableName: seedCacheInfo.seedTableName,
+            schemaSignature: seedCacheInfo.schemaSignature,
+            cacheHit: Boolean(seedCacheHit),
+            reusable: Boolean(reusableSeed),
+          }
+        : undefined,
       tableId,
       tableName,
       recordCount: config.recordCount,
@@ -669,32 +823,89 @@ const buildFormulaCaseResult = ({
   };
 };
 
-export const runFormulaTableCase = async (
+const createEmptyMeasurement = <T>(
+  name: string,
+  result: T,
+): Measurement<T> => ({
+  name,
+  durationMs: 0,
+  result,
+});
+
+const buildFormulaSeedFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FormulaTableCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let tableId = "";
+  baseId: string,
+  tableName: string,
+  config: FormulaTableCaseConfig,
+  seedCacheInfo: SeedCacheInfo,
+): Promise<FormulaSeedFixture> => {
+  const cachedTable =
+    seedCacheInfo.enabled &&
+    (await findSeedTable(baseId, seedCacheInfo.seedTableName));
+
+  if (cachedTable) {
+    try {
+      const tableFields = await getFields(cachedTable.id);
+      await cleanupCachedFormulaFields(cachedTable.id, tableFields);
+      const cleanedTableFields = await getFields(cachedTable.id);
+      const sourceFields = resolveSourceFields(cleanedTableFields);
+      const sampleRecords = await getCachedSampleRecords(
+        cachedTable.id,
+        sourceFields,
+        config,
+      );
+      await assertSourceSamples(
+        cachedTable.id,
+        sourceFields,
+        config,
+        sampleRecords,
+      );
+      return {
+        tableId: cachedTable.id,
+        tableName: cachedTable.name,
+        sourceFields,
+        sampleRecords,
+        batches: [],
+        batchDurations: [0],
+        createTableMeasurement: createEmptyMeasurement("seedRestore", {
+          id: cachedTable.id,
+        }),
+        seedMeasurement: createEmptyMeasurement("seedBuildSkipped", undefined),
+        seedCacheInfo,
+        seedCacheHit: true,
+        reusable: true,
+      };
+    } catch (error) {
+      console.warn(
+        `Invalid cached formula seed ${seedCacheInfo.seedTableName}; rebuilding`,
+        error,
+      );
+      await permanentDeleteTable(baseId, cachedTable.id);
+    }
+  }
+
+  const actualTableName = seedCacheInfo.enabled
+    ? seedCacheInfo.seedTableName
+    : tableName;
+  let createdTableId = "";
 
   try {
     const createTableMeasurement = await withPerfTraceStep(
       context,
       perfCase,
-      "createTable",
+      seedCacheInfo.enabled ? "seedBuild:createTable" : "createTable",
       () =>
-        measureAsync("createTable", () =>
+        measureAsync(seedCacheInfo.enabled ? "seedBuild" : "createTable", () =>
           createTable(baseId, {
-            name: tableName,
+            name: actualTableName,
             fields: config.fields,
             records: [],
           }),
         ),
     );
-    tableId = createTableMeasurement.result.id;
-
-    const tableFields = await getFields(tableId);
+    createdTableId = createTableMeasurement.result.id;
+    const tableFields = await getFields(createdTableId);
     const sourceFields = resolveSourceFields(tableFields);
     const records = buildNumericSequenceRecords(config);
     const batches = chunk(records, config.batchSize);
@@ -712,7 +923,7 @@ export const runFormulaTableCase = async (
               perfCase,
               `seedBatch:${batchIndex + 1}`,
               () =>
-                createRecords(tableId, {
+                createRecords(createdTableId, {
                   fieldKeyType: FieldKeyType.Name,
                   records: batch.map((item) => item.record),
                 }),
@@ -733,10 +944,80 @@ export const runFormulaTableCase = async (
       }
     });
 
-    const sampleRecords = getRequiredSampleRecords(
+    return {
+      tableId: createdTableId,
+      tableName: actualTableName,
+      sourceFields,
+      sampleRecords: getRequiredSampleRecords(
+        config,
+        seededSampleRecordByOffset,
+      ),
+      batches,
+      batchDurations,
+      createTableMeasurement,
+      seedMeasurement,
+      seedCacheInfo,
+      seedCacheHit: false,
+      reusable: seedCacheInfo.enabled,
+    };
+  } catch (error) {
+    if (createdTableId) {
+      try {
+        await permanentDeleteTable(baseId, createdTableId);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup incomplete formula seed ${createdTableId}`,
+          cleanupError,
+        );
+      }
+    }
+    throw error;
+  }
+};
+
+export const runFormulaTableCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as FormulaTableCaseConfig;
+  const baseId = globalThis.testConfig.baseId;
+  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase,
+    runner: "formula-table",
+    fixtureVersion: "formula-table-v1",
+    seedConfig: getFormulaSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+  let tableId = "";
+  let reusableSeed = false;
+  const createdFormulaFieldIds: string[] = [];
+
+  try {
+    const seedFixture = await buildFormulaSeedFixture(
+      perfCase,
+      context,
+      baseId,
+      tableName,
       config,
-      seededSampleRecordByOffset,
+      seedCacheInfo,
     );
+    tableId = seedFixture.tableId;
+    reusableSeed = seedFixture.reusable;
+    const {
+      tableName: seedTableName,
+      sourceFields,
+      sampleRecords,
+      batches,
+      batchDurations,
+      createTableMeasurement,
+      seedMeasurement,
+      seedCacheHit,
+    } = seedFixture;
+    const tableFields = await getFields(tableId);
     const formulas = buildCompiledFormulas(config, tableFields);
     let sourceReadyMeasurement: Awaited<
       ReturnType<
@@ -758,12 +1039,15 @@ export const runFormulaTableCase = async (
       const diagnosticResult = buildFormulaCaseResult({
         config,
         tableId,
-        tableName,
+        tableName: seedTableName,
         batches,
         batchDurations,
         sampleRecords,
         createTableMeasurement,
         seedMeasurement,
+        seedCacheInfo,
+        seedCacheHit,
+        reusableSeed,
         sourceFields,
         formulas,
         error,
@@ -805,6 +1089,7 @@ export const runFormulaTableCase = async (
                     ...formula,
                     id: formulaField.id,
                   };
+                  createdFormulaFieldIds.push(formulaField.id);
                   createdFormulaFields.set(formula.name, createdFormula);
                   const verifiedSamples = await waitForFormulaSamples(
                     tableId,
@@ -852,13 +1137,16 @@ export const runFormulaTableCase = async (
       const diagnosticResult = buildFormulaCaseResult({
         config,
         tableId,
-        tableName,
+        tableName: seedTableName,
         batches,
         batchDurations,
         sampleRecords,
         createTableMeasurement,
         seedMeasurement,
         sourceReadyMeasurement,
+        seedCacheInfo,
+        seedCacheHit,
+        reusableSeed,
         sourceFields,
         formulas: formulasWithCreatedIds,
         formulasReadyMeasurement,
@@ -874,13 +1162,16 @@ export const runFormulaTableCase = async (
     const result = buildFormulaCaseResult({
       config,
       tableId,
-      tableName,
+      tableName: seedTableName,
       batches,
       batchDurations,
       sampleRecords,
       createTableMeasurement,
       seedMeasurement,
       sourceReadyMeasurement,
+      seedCacheInfo,
+      seedCacheHit,
+      reusableSeed,
       sourceFields,
       formulas: formulasReadyMeasurement.result.map(({ formula }) => formula),
       formulasReadyMeasurement,
@@ -901,7 +1192,18 @@ export const runFormulaTableCase = async (
       ],
     };
   } finally {
-    if (tableId) {
+    if (reusableSeed) {
+      for (const fieldId of createdFormulaFieldIds.reverse()) {
+        try {
+          await deleteField(tableId, fieldId);
+        } catch (error) {
+          console.warn(
+            `Failed to cleanup perf formula field ${fieldId}`,
+            error,
+          );
+        }
+      }
+    } else if (tableId) {
       try {
         await permanentDeleteTable(baseId, tableId);
       } catch (error) {
