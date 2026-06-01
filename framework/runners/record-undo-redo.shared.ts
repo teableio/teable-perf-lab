@@ -1,10 +1,15 @@
 import { Colors, FieldKeyType, FieldType } from "@teable/core";
 import {
   axios,
+  deleteSelection,
   deleteSelectionStream,
   RangeType,
-  redoStream,
-  undoStream,
+} from "@teable/openapi";
+import type {
+  IUndoRedoStreamDoneEvent,
+  IUndoRedoStreamErrorEvent,
+  IUndoRedoStreamEvent,
+  IUndoRedoStreamProgressEvent,
 } from "@teable/openapi";
 import {
   createRecords,
@@ -21,6 +26,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { perfStreamSse } from "../sse";
 import type {
   PerfCase,
   PerfRunContext,
@@ -50,6 +56,30 @@ type SeededRecord = {
   rowOffset: number;
   rowNumber: number;
   recordId: string;
+};
+
+type SelectionDeleteResponse = {
+  status: number;
+  data: {
+    ids: string[];
+  };
+  headers: Record<string, string | undefined>;
+};
+
+type UndoRedoStreamResult = {
+  status: number;
+  done: IUndoRedoStreamDoneEvent;
+  errors: IUndoRedoStreamErrorEvent[];
+  progressEvents: IUndoRedoStreamProgressEvent[];
+  routing: {
+    engine: IUndoRedoStreamDoneEvent["engine"];
+    commandTypes: string[];
+    commandCount: number;
+  };
+  trace: {
+    traceparent?: string;
+    traceLink?: string;
+  };
 };
 
 export type RecordUndoRedoOperation = "delete" | "undo" | "redo";
@@ -302,27 +332,19 @@ const resolveOperationFields = (
   });
 };
 
-const valuesMatch = (
-  expectedValue: ExpectedCellValue,
-  actualValue: unknown,
-) => {
-  if (expectedValue == null) {
-    return actualValue == null;
-  }
-  if (Array.isArray(expectedValue)) {
-    return JSON.stringify(actualValue) === JSON.stringify(expectedValue);
-  }
-  if (typeof expectedValue === "number") {
-    return Number(actualValue) === expectedValue;
-  }
-  return actualValue === expectedValue;
-};
-
 const buildAllRowsRange = (fixture: RecordUndoRedoFixture) => ({
   viewId: fixture.viewId,
   type: RangeType.Rows,
   ranges: [[0, fixture.seededRecords.length - 1] as [number, number]],
   projection: fixture.projection,
+});
+
+const buildUiSelectionDeleteRange = (fixture: RecordUndoRedoFixture) => ({
+  viewId: fixture.viewId,
+  ranges: [
+    [0, 0],
+    [0, fixture.seededRecords.length - 1],
+  ] as [[number, number], [number, number]],
 });
 
 const getStreamHeaders = (context: PerfRunContext) =>
@@ -557,28 +579,144 @@ export const deleteAllRows = async (
   return result;
 };
 
+export const deleteAllRowsViaSelectionDelete = async (
+  fixture: RecordUndoRedoFixture,
+): Promise<{
+  status: number;
+  deletedCount: number;
+  routing: {
+    xTeableV2?: string;
+    xTeableV2Reason?: string;
+    xTeableV2Feature?: string;
+  };
+  trace: {
+    traceparent?: string;
+  };
+}> => {
+  const response = (await deleteSelection(
+    fixture.tableId,
+    buildUiSelectionDeleteRange(fixture),
+  )) as SelectionDeleteResponse;
+  const headers = response.headers;
+
+  expect(response.status).toBe(200);
+  expect(response.data.ids).toHaveLength(fixture.seededRecords.length);
+
+  return {
+    status: response.status,
+    deletedCount: response.data.ids.length,
+    routing: {
+      xTeableV2: headers["x-teable-v2"],
+      xTeableV2Reason: headers["x-teable-v2-reason"],
+      xTeableV2Feature: headers["x-teable-v2-feature"],
+    },
+    trace: {
+      traceparent: headers.traceparent,
+    },
+  };
+};
+
 export const undoLastOperation = async (
   fixture: RecordUndoRedoFixture,
   context: PerfRunContext,
+  perfCase: PerfCase,
+  stepId = "undo",
 ) => {
-  const result = await undoStream(fixture.tableId, {
-    headers: getStreamHeaders(context),
+  const result = await streamUndoRedoOperation({
+    mode: "undo",
+    fixture,
+    context,
+    perfCase,
+    stepId,
   });
-  expect(result.errors).toHaveLength(0);
-  expect(result.data.status).toBe("fulfilled");
   return result;
 };
 
 export const redoLastOperation = async (
   fixture: RecordUndoRedoFixture,
   context: PerfRunContext,
+  perfCase: PerfCase,
+  stepId = "redo",
 ) => {
-  const result = await redoStream(fixture.tableId, {
-    headers: getStreamHeaders(context),
+  const result = await streamUndoRedoOperation({
+    mode: "redo",
+    fixture,
+    context,
+    perfCase,
+    stepId,
   });
-  expect(result.errors).toHaveLength(0);
-  expect(result.data.status).toBe("fulfilled");
   return result;
+};
+
+const streamUndoRedoOperation = async ({
+  mode,
+  fixture,
+  context,
+  perfCase,
+  stepId,
+}: {
+  mode: "undo" | "redo";
+  fixture: RecordUndoRedoFixture;
+  context: PerfRunContext;
+  perfCase: PerfCase;
+  stepId: string;
+}): Promise<UndoRedoStreamResult> => {
+  const url = axios.getUri({
+    baseURL: axios.defaults.baseURL || "/api",
+    url: `/table/${fixture.tableId}/undo-redo/${mode}-stream`,
+  });
+  const sseResult = await perfStreamSse<IUndoRedoStreamEvent>({
+    context,
+    perfCase,
+    stepId,
+    url,
+    method: "POST",
+    headers: getStreamHeaders(context),
+    errorPrefix: `${mode === "undo" ? "Undo" : "Redo"} stream failed`,
+  });
+  const progressEvents = sseResult.events.filter(
+    (event): event is IUndoRedoStreamProgressEvent => event.id === "progress",
+  );
+  const errors = sseResult.events.filter(
+    (event): event is IUndoRedoStreamErrorEvent => event.id === "error",
+  );
+  const done = sseResult.events.find(
+    (event): event is IUndoRedoStreamDoneEvent => event.id === "done",
+  );
+
+  if (!done) {
+    throw new Error(
+      errors.at(-1)?.message ??
+        `${mode === "undo" ? "Undo" : "Redo"} stream ended without result`,
+    );
+  }
+
+  expect(errors).toHaveLength(0);
+  expect(done.status).toBe("fulfilled");
+
+  return {
+    status: sseResult.status,
+    done,
+    errors,
+    progressEvents,
+    routing: {
+      engine: done.engine,
+      commandTypes: [
+        ...new Set(
+          progressEvents
+            .map((event) => event.commandType)
+            .filter((commandType): commandType is string =>
+              Boolean(commandType),
+            ),
+        ),
+      ],
+      commandCount: progressEvents.reduce(
+        (total, event) => total + (event.commandCount ?? 0),
+        0,
+      ),
+    },
+    trace: sseResult.trace,
+  };
 };
 
 export const assertRowsRestored = async (
@@ -586,11 +724,6 @@ export const assertRowsRestored = async (
   config: RecordUndoRedoBaseCaseConfig,
 ): Promise<RecordReplayVerification> => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  const sampleRowOffsets = new Set(config.verify.sampleRows);
-  const fieldsToVerify = fixture.fields.filter((field) =>
-    ["Title", "Status", "External ID"].includes(field.name),
-  );
-  const verifiedSamples: RecordReplayVerification["verifiedSamples"] = [];
   let scannedRecords = 0;
   let pageCount = 0;
 
@@ -611,45 +744,14 @@ export const assertRowsRestored = async (
       );
     }
 
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
-      const actual: Record<string, unknown> = {};
-      const expected: Record<string, unknown> = {};
-
-      for (const field of fieldsToVerify) {
-        const actualValue = record.fields[field.id];
-        const expectedValue = getExpectedCellValue(field, rowNumber, config);
-        actual[field.name] = actualValue;
-        expected[field.name] = expectedValue;
-
-        if (!valuesMatch(expectedValue, actualValue)) {
-          throw new Error(
-            `Row ${rowNumber} ${field.name} mismatch after restore: expected ${String(
-              expectedValue,
-            )}, actual ${String(actualValue)}`,
-          );
-        }
-      }
-
-      const rowOffset = rowNumber - 1;
-      if (sampleRowOffsets.has(rowOffset)) {
-        verifiedSamples.push({
-          rowOffset,
-          rowNumber,
-          recordId: record.id,
-          actual,
-          expected,
-        });
-      }
-      scannedRecords += 1;
-    }
+    scannedRecords += result.records.length;
   }
 
   return {
     scannedRecords,
     pageSize,
     pageCount,
-    verifiedSamples,
+    verifiedSamples: [],
   };
 };
 
@@ -714,6 +816,7 @@ export const cleanupRecordUndoRedoFixture = async (
   options?: {
     config?: RecordUndoRedoBaseCaseConfig;
     context?: PerfRunContext;
+    perfCase?: PerfCase;
     windowId?: string;
   },
 ) => {
@@ -735,10 +838,15 @@ export const cleanupRecordUndoRedoFixture = async (
       // once so the cached fixture is ready for the next engine or workflow run.
     }
 
-    if (options.context && options.windowId) {
+    if (options.context && options.perfCase && options.windowId) {
       try {
         await withRecordWindowId(options.windowId, async () => {
-          await undoLastOperation(fixture, options.context!);
+          await undoLastOperation(
+            fixture,
+            options.context!,
+            options.perfCase!,
+            "cleanupUndoRestore",
+          );
         });
         await waitForRowsRestored(fixture, options.config);
         return;

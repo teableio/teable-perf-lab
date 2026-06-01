@@ -39,14 +39,9 @@ Manual inputs:
 - `samples`: measured samples for endpoint-style cases.
 - `primary_threshold_ms`: optional override for the case's primary threshold.
   Leave it empty to use the case config default.
-- `run_unsupported_v1_cases`: diagnostic-only switch. Leave it `false` for
-  normal runs; set it to `true` to force execution of V1 cases that otherwise
-  report `skipped` because of a suspected backend gap, so a backend fix can be
-  verified without editing case code.
-
-Because `teableio/teable-ee` is private, configure a read-only deploy key on
-that repository and store the private key in this repository as
-`TEABLE_EE_CHECKOUT_SSH_KEY`.
+  Because `teableio/teable-ee` is private, configure a read-only deploy key on
+  that repository and store the private key in this repository as
+  `TEABLE_EE_CHECKOUT_SSH_KEY`.
 
 ## Case model
 
@@ -99,11 +94,9 @@ their seed tables during execution without affecting the other engine or the
 next workflow run. Paste cases intentionally do not skip the 10k paste workload
 because that import is the measured execute step.
 When a case reports `skipped`, the workflow still succeeds and writes artifacts;
-this is used for engine-specific capability gaps.
-
-To check whether a V1 backend gap has been fixed in `teable-ee`, rerun the case
-with `run_unsupported_v1_cases=true`. The runner will execute the real V1 path
-and fail normally if the backend still cannot satisfy the case semantics.
+this is reserved for engine-specific capability gaps. Prefer reshaping a case to
+the same V1/V2 user action, such as the 1k record mutation cases, before adding
+a skip.
 
 ## Artifacts
 

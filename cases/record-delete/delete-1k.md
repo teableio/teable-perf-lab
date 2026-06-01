@@ -4,7 +4,6 @@ tags:
   - undo-redo
   - delete
   - selection
-  - stream
   - 1k
   - 20fields
   - mixed-fields
@@ -16,8 +15,8 @@ enabled: true
 
 ## Goal
 
-Measure the grid row-selection delete stream for deleting 1,000 mixed-type
-records from a 20-field table.
+Measure the grid selection delete path for deleting 1,000 mixed-type records
+from a 20-field table.
 
 This case isolates delete performance. It does not measure undo or redo replay.
 
@@ -27,10 +26,11 @@ This case isolates delete performance. It does not measure undo or redo replay.
 - The table mirrors the staging Tibo test shape: 20 mixed fields covering text,
   long text, single select, multiple select, number, date, checkbox, and rating.
 - Inserts 1,000 deterministic records in one 1,000-record batch.
-- Uses a plain grid view with no sort, filter, or group so row range
-  `[[0,999]]` maps to the full inserted dataset.
+- Uses a plain grid view with no sort, filter, or group so cell range
+  `[[0,0],[0,999]]` maps to the first visible column across the full inserted
+  dataset.
 - Verifies the source table is ready by full-scanning 1,000 records and checking
-  sample rows `0`, `499`, and `999`.
+  the expected row count.
 - When seed cache is enabled, the hash-derived source table is reused across
   workflow runs. In GitHub Actions each engine restores its own seed database
   copy, so execute may delete local rows without repairing the shared seed dump.
@@ -40,14 +40,13 @@ This case isolates delete performance. It does not measure undo or redo replay.
 ## Execute Phase
 
 1. Start the primary timer only after the 1k source table is ready.
-2. Call `GET /api/table/{tableId}/selection/delete-stream` with:
-   - `ranges=[[0,999]]`
-   - `type=rows`
-   - the 20-field `projection[]`
+2. Call `DELETE /api/table/{tableId}/selection/delete` with:
+   - `ranges=[[0,0],[0,999]]`
    - the first grid `viewId`
    - a stable per-run `x-window-id`
-3. Read the `text/event-stream` response until the `done` event.
-4. Stop the primary timer after the stream reports all 1,000 rows deleted.
+3. Stop the primary timer after the JSON response returns 1,000 deleted ids.
+4. Record routing headers such as `x-teable-v2`, `x-teable-v2-feature`, and
+   `x-teable-v2-reason` in the run artifact.
 5. Verify the table has no visible records.
 6. Cleanup restores the cached seed table when a single database is being reused
    across engines, otherwise the isolated execute database is discarded after
@@ -55,8 +54,7 @@ This case isolates delete performance. It does not measure undo or redo replay.
 
 ## Primary Metric
 
-- `delete1kMs`: elapsed time from opening `delete-stream` until the stream
-  emits `done`.
+- `delete1kMs`: elapsed time for the synchronous selection delete request.
 
 ## Notes
 

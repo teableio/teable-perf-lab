@@ -1,43 +1,99 @@
-# Worked Example
+# Standard Case Examples
 
-A real case to copy from: `record-delete/delete-1k`. It reuses a runner and a
-shared base config — the common path. **Read the real files; they are the source
-of truth, not this page:**
+Do not treat one case as the universal template. Pick the closest standard case
+for the behavior you are changing, then read both its `.case.ts` and `.md`.
 
-- `cases/record-delete/delete-1k.case.ts`
-- `cases/record-delete/delete-1k.md`
+## Naming Pattern
 
-The `.case.ts` is short because it spreads a shared base config and only
-overrides the table name and threshold (shape shown here for orientation only):
+Case ids should read like:
 
-```ts
-export default definePerfCase({
-  id: "record-delete/delete-1k",
-  runner: "record-delete",
-  config: {
-    ...undoRedo10kBaseConfig, // shared 20-field mixed seed shape
-    rowCount: 1_000,
-    tableNamePrefix: "perf-record-delete-1k",
-    verify: {
-      ...undoRedo10kBaseConfig.verify,
-      sampleRows: [0, 499, 999],
-    },
-    threshold: { metric: "delete1kMs", maxMs: 90_000 },
-  },
-});
+```text
+<area>/<workload-shape>-<scale>-<schema-or-field-count>-<operation>
 ```
 
-When a runner already exposes a shared base config (like
-`undoRedo10kBaseConfig`), reuse it instead of re-declaring fields/generator.
+Omit parts that do not add meaning. Keep names literal: if the executable case
+is 1k, name it `1k`; do not keep a `10k` alias or title for compatibility.
 
-## What To Notice In That Case
+Common examples:
 
-Open `delete-1k.md` and see how it applies the rules from this playbook:
+- `formula/10k-calc`: area + scale + operation.
+- `lookup/conditional-10k`: area + operation + scale.
+- `selection-clear/flat-1k-20fields-cell-clear-stream`: data shape + scale +
+  field count + operation/path.
+- `record-delete/delete-1k`: operation + scale.
+- `record-undo/delete-1k`: measured replay action + setup operation + scale.
+- `record-redo/delete-1k`: measured replay action + setup operation + scale.
+- `record-paste/mixed-10k-20fields-complex-copy-paste`: data shape + scale +
+  field count + operation.
 
-- The `Execute Phase` starts the primary timer **after** seed is ready, so the
-  metric excludes setup ([checklist.md](checklist.md)).
-- It is a stream case: it reads the event stream to the `done` event and verifies
-  final state through record reads, not just HTTP 200.
-- `record-undo` and `record-redo` reuse the same base config and run delete (and
-  undo) as _setup_, then measure the next stream — extending the family through a
-  shared runner/config rather than a new runner ([runners.md](runners.md)).
+The file names must match the case id:
+
+```text
+cases/<area>/<case-name>.case.ts
+cases/<area>/<case-name>.md
+```
+
+For example, `record-undo/delete-1k` lives at:
+
+```text
+cases/record-undo/delete-1k.case.ts
+cases/record-undo/delete-1k.md
+```
+
+## Computed Fields
+
+Use these when the measured operation creates computed fields and waits for
+values to become ready:
+
+- Single formula field:
+  - `cases/formula/10k-calc.case.ts`
+  - `cases/formula/10k-calc.md`
+- Multiple formula fields on the same seed table:
+  - `cases/formula/10k-5-concurrent.case.ts`
+  - `cases/formula/10k-5-concurrent.md`
+- Conditional lookup across two seeded tables:
+  - `cases/lookup/conditional-10k.case.ts`
+  - `cases/lookup/conditional-10k.md`
+
+Notice how these cases keep deterministic source rows in seed, create the
+computed field in execute, and verify readiness by scanning records.
+
+## Selection Mutations
+
+Use these when the measured operation is a grid selection action:
+
+- Clear cells through the clear stream:
+  - `cases/selection-clear/flat-1k-20fields-cell-clear-stream.case.ts`
+  - `cases/selection-clear/flat-1k-20fields-cell-clear-stream.md`
+- Delete selected rows through the synchronous grid delete API:
+  - `cases/record-delete/delete-1k.case.ts`
+  - `cases/record-delete/delete-1k.md`
+- Undo a selection delete:
+  - `cases/record-undo/delete-1k.case.ts`
+  - `cases/record-undo/delete-1k.md`
+- Redo a selection delete:
+  - `cases/record-redo/delete-1k.case.ts`
+  - `cases/record-redo/delete-1k.md`
+
+Notice that delete, undo, and redo use the same synchronous setup delete path:
+`DELETE /api/table/{tableId}/selection/delete`, the same UI-shaped range, and
+the same `X-Window-Id` across the operation chain. Undo and redo stream only the
+replay step.
+
+## Paste
+
+Use these when the measured operation imports records through paste:
+
+- Flat 4-field paste:
+  - `cases/record-paste/flat-10k-4fields-copy-paste.case.ts`
+  - `cases/record-paste/flat-10k-4fields-copy-paste.md`
+- Flat 20-field paste:
+  - `cases/record-paste/flat-10k-20fields-copy-paste.case.ts`
+  - `cases/record-paste/flat-10k-20fields-copy-paste.md`
+- Mixed 20-field paste:
+  - `cases/record-paste/mixed-10k-20fields-complex-copy-paste.case.ts`
+  - `cases/record-paste/mixed-10k-20fields-complex-copy-paste.md`
+
+Notice that paste keeps inserted rows in execute because insertion is the
+measured workload. Do not cache already-pasted records unless the case is
+explicitly changed into a read/verify benchmark.
