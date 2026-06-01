@@ -181,6 +181,22 @@ const getExpectedCellValue = (
   }
 };
 
+const valuesMatch = (
+  expectedValue: ExpectedCellValue,
+  actualValue: unknown,
+) => {
+  if (expectedValue == null) {
+    return actualValue == null;
+  }
+  if (Array.isArray(expectedValue)) {
+    return JSON.stringify(actualValue) === JSON.stringify(expectedValue);
+  }
+  if (typeof expectedValue === "number") {
+    return Number(actualValue) === expectedValue;
+  }
+  return actualValue === expectedValue;
+};
+
 const buildRecordFields = (
   config: SelectionClearCaseConfig,
   rowNumber: number,
@@ -521,7 +537,7 @@ const assertCellsRestored = async (
         actual[field.name] = actualValue;
         expected[field.name] = expectedValue;
 
-        if (JSON.stringify(actualValue) !== JSON.stringify(expectedValue)) {
+        if (!valuesMatch(expectedValue, actualValue)) {
           throw new Error(
             `Row ${rowNumber} ${field.name} mismatch in selection clear seed: expected ${String(
               expectedValue,
