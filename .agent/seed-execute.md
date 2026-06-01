@@ -69,7 +69,9 @@ benchmark.
 
 Some cases can be engine-specific. If an engine cannot run the same operation
 shape, return a `skipped` result with a clear reason instead of silently changing
-the workload.
+the workload. Before adding a skip, first check whether the case should be
+reshaped to a smaller but equivalent V1/V2 comparison, such as using a 1k range
+when the V1 path has a 1,000-record cap.
 
 ## Seed Hash Contract
 

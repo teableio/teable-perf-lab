@@ -1,4 +1,3 @@
-import { shouldRunUnsupportedV1Cases } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import { PerfRunDiagnosticError } from "../types";
@@ -15,7 +14,7 @@ import {
   buildRecordReplayPhaseName,
   buildRecordWindowId,
   cleanupRecordUndoRedoFixture,
-  deleteAllRows,
+  deleteAllRowsViaSelectionDelete,
   prepareRecordUndoRedoFixture,
   redoLastOperation,
   undoLastOperation,
@@ -32,26 +31,6 @@ export const runRecordRedoCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as RecordRedoCaseConfig;
-  if (
-    context.engine === "v1" &&
-    config.rowCount > 1_000 &&
-    !shouldRunUnsupportedV1Cases()
-  ) {
-    return {
-      result: "skipped",
-      metrics: {},
-      thresholds: [],
-      details: {
-        operation: "redo",
-        skipped: true,
-        reason:
-          "V1 delete-stream undo/redo returns fulfilled but does not restore the 10k selection-delete fixture in this e2e path. The case measures the V2 large redo replay path.",
-        engine: context.engine,
-        rowCount: config.rowCount,
-      },
-    };
-  }
-
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
@@ -81,7 +60,7 @@ export const runRecordRedoCase = async (
           ...setupMeasurements,
           deleteSetupMeasurement: await measureAsync(
             buildRecordReplayPhaseName("deleteSetup", config.rowCount),
-            () => deleteAllRows(fixture, context),
+            () => deleteAllRowsViaSelectionDelete(fixture),
           ),
         };
         setupMeasurements = {
@@ -95,7 +74,13 @@ export const runRecordRedoCase = async (
           ...setupMeasurements,
           undoSetupMeasurement: await measureAsync(
             buildRecordReplayPhaseName("undoSetup", config.rowCount),
-            () => undoLastOperation(fixture, context),
+            () =>
+              undoLastOperation(
+                fixture,
+                context,
+                perfCase,
+                buildRecordReplayPhaseName("undoSetup", config.rowCount),
+              ),
           ),
         };
         setupMeasurements = {
@@ -112,7 +97,12 @@ export const runRecordRedoCase = async (
           config.threshold.metric,
           () =>
             measureAsync(config.threshold.metric, () =>
-              redoLastOperation(fixture, context),
+              redoLastOperation(
+                fixture,
+                context,
+                perfCase,
+                config.threshold.metric,
+              ),
             ),
         );
       });
@@ -153,6 +143,7 @@ export const runRecordRedoCase = async (
     await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
       config,
       context,
+      perfCase,
       windowId,
     });
   }

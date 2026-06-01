@@ -11,7 +11,9 @@ needs them:
 - [case-spec.md](case-spec.md) — the spec you draft and confirm before coding.
 - [checklist.md](checklist.md) — hard rules to honor while writing code.
 - [seed-execute.md](seed-execute.md) — seed vs execute boundary and caching.
-- [examples.md](examples.md) — a worked case to copy from.
+- [examples.md](examples.md) — standard case index by behavior.
+- [new-runner-contract.md](new-runner-contract.md) — required wiring and
+  artifact/trace/seed contracts when a new runner is unavoidable.
 
 ## The Flow
 
@@ -54,7 +56,8 @@ reuse existing runner -> extend a runner -> new runner
 ```
 
 Prefer reuse. Extend only when no current runner can express the case. Create a
-new runner only when extending would distort an existing runner's behavior.
+new runner only when extending would distort an existing runner's behavior. If a
+new runner is unavoidable, follow [new-runner-contract.md](new-runner-contract.md).
 
 ### 5. Write
 
@@ -73,14 +76,16 @@ cases/<group>/<case-name>.md         # description (frontmatter + sections)
 - Keep data deterministic and row counts fixed so V1/V2 and reruns compare.
 
 `.md` rules: start with frontmatter (`owner`, `tags`, `enabled`), then the
-sections `Goal`, `Seed Phase`, `Execute Phase`, `Primary Metric`, `Notes`. Copy
-the shape from [examples.md](examples.md).
+sections `Goal`, `Seed Phase`, `Execute Phase`, `Primary Metric`, `Notes`. Use
+[examples.md](examples.md) to find the closest existing case, then copy the
+shape from that case's markdown.
 
 ### 6. Register
 
 In `registry.ts`: add the import and include the case in the `cases` array.
-Optionally add short aliases in `caseAliases` for manual triggering. An
-unregistered `.case.ts` fails the case check.
+Optionally add short aliases in `caseAliases` for manual triggering, but keep
+aliases current and literal. Do not map old workload names such as `*/10k` to a
+new `*/1k` case. An unregistered `.case.ts` fails the case check.
 
 ### 7. Check
 

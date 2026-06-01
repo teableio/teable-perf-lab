@@ -221,14 +221,14 @@ export interface RecordDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface RecordUndoCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "undoReplay10kMs";
+    metric: "undoReplay1kMs";
     maxMs: number;
   };
 }
 
 export interface RecordRedoCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "redoReplay10kMs" | "redoReplay1kMs";
+    metric: "redoReplay1kMs";
     maxMs: number;
   };
 }

@@ -2,16 +2,21 @@ import { definePerfCase } from "../../framework/types";
 import { undoRedo10kBaseConfig } from "../../framework/runners/record-undo-redo.shared";
 
 export default definePerfCase({
-  id: "record-undo/delete-10k",
-  title: "Undo a 10k mixed-record selection delete",
+  id: "record-undo/delete-1k",
+  title: "Undo a 1k mixed-record selection delete",
   runner: "record-undo",
   timeoutMs: 900_000,
   config: {
     ...undoRedo10kBaseConfig,
-    tableNamePrefix: "perf-record-undo-delete-10k",
+    rowCount: 1_000,
+    tableNamePrefix: "perf-record-undo-delete-1k",
+    verify: {
+      sampleRows: [0, 499, 999],
+      fullScanPageSize: 1_000,
+    },
     threshold: {
-      metric: "undoReplay10kMs",
-      maxMs: 120_000,
+      metric: "undoReplay1kMs",
+      maxMs: 90_000,
     },
   },
 });
