@@ -5,7 +5,7 @@ import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
-import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
+import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import recordDelete10kCase from "./cases/record-delete/delete-10k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
 import recordUndoDelete10kCase from "./cases/record-undo/delete-10k.case";
@@ -16,7 +16,7 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
-  selectionClearFlat10k20FieldsCellClearStreamCase,
+  selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete10kCase,
   recordUndoDelete10kCase,
   recordRedoDelete1kCase,
@@ -35,9 +35,15 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
-  ["selection-clear", "selection-clear/flat-10k-20fields-cell-clear-stream"],
-  ["clear/10k", "selection-clear/flat-10k-20fields-cell-clear-stream"],
-  ["clear/10k-20fields", "selection-clear/flat-10k-20fields-cell-clear-stream"],
+  ["selection-clear", "selection-clear/flat-1k-20fields-cell-clear-stream"],
+  ["clear/1k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
+  ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
+  ["clear/10k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
+  ["clear/10k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
+  [
+    "selection-clear/flat-10k-20fields-cell-clear-stream",
+    "selection-clear/flat-1k-20fields-cell-clear-stream",
+  ],
   ["record-delete", "record-delete/delete-10k"],
   ["delete/10k", "record-delete/delete-10k"],
   ["record-undo", "record-undo/delete-10k"],

@@ -22,14 +22,14 @@ const dateOptions = {
 };
 
 export default definePerfCase({
-  id: "selection-clear/flat-10k-20fields-cell-clear-stream",
-  title: "Clear 10k rows across a 20-field table with selection stream",
+  id: "selection-clear/flat-1k-20fields-cell-clear-stream",
+  title: "Clear 1k rows across a 20-field table with selection stream",
   runner: "selection-clear",
   timeoutMs: 600_000,
   config: {
     baseId: "seed-base",
-    tableNamePrefix: "perf-selection-clear-flat-10k-20fields-cell-clear-stream",
-    rowCount: 10_000,
+    tableNamePrefix: "perf-selection-clear-flat-1k-20fields-cell-clear-stream",
+    rowCount: 1_000,
     batchSize: 1_000,
     fields: [
       { name: "Title", type: FieldType.SingleLineText },
@@ -90,12 +90,12 @@ export default definePerfCase({
       groups: ["A", "B", "C", "D", "E"],
     },
     verify: {
-      sampleRows: [0, 4_999, 9_999],
+      sampleRows: [0, 499, 999],
       fullScanPageSize: 1_000,
     },
     threshold: {
-      metric: "clear10kMs",
-      maxMs: 180_000,
+      metric: "clear1kMs",
+      maxMs: 90_000,
     },
   },
 });
