@@ -104,6 +104,17 @@ const setHeaderValue = (headers: unknown, name: string, value: string) => {
   headerBag[name] = value;
 };
 
+export const buildPerfTraceHeaders = (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  stepId: string,
+) => ({
+  [PERF_HEADER_RUN_ID]: context.runId,
+  [PERF_HEADER_CASE_ID]: perfCase.id,
+  [PERF_HEADER_ENGINE]: context.engine,
+  [PERF_HEADER_STEP_ID]: stepId,
+});
+
 const parseTraceparent = (traceparent?: string) => {
   const match = traceparent?.match(
     /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i,
@@ -117,6 +128,57 @@ const parseTraceparent = (traceparent?: string) => {
     spanId: match[2],
     sampled: (Number.parseInt(match[3], 16) & 1) === 1,
   };
+};
+
+const pushTraceRef = (ref: PerfTraceRef) => {
+  const maxRefs = getPositiveIntegerEnv("PERF_LAB_TRACE_MAX_REFS", 500);
+  if (traceRefs.length < maxRefs) {
+    traceRefs.push(ref);
+  }
+};
+
+export const recordPerfTraceRefFromHeaders = ({
+  context,
+  perfCase,
+  stepId,
+  headers,
+  method,
+  url,
+  status,
+}: {
+  context: PerfRunContext;
+  perfCase: PerfCase;
+  stepId: string;
+  headers: unknown;
+  method?: string;
+  url?: string;
+  status?: number;
+}) => {
+  if (!isTraceCollectionEnabled()) {
+    return undefined;
+  }
+
+  const traceparent = getHeaderValue(headers, "traceparent");
+  const parsedTraceparent = parseTraceparent(traceparent);
+  if (!traceparent || !parsedTraceparent) {
+    return undefined;
+  }
+
+  const ref: PerfTraceRef = {
+    runId: context.runId,
+    caseId: perfCase.id,
+    engine: context.engine,
+    stepId,
+    ...parsedTraceparent,
+    traceparent,
+    traceLink: parseTraceLink(getHeaderValue(headers, "link")),
+    method: method?.toUpperCase(),
+    url,
+    status,
+    capturedAt: new Date().toISOString(),
+  };
+  pushTraceRef(ref);
+  return ref;
 };
 
 const parseTraceLink = (linkHeader?: string) => {
@@ -271,19 +333,16 @@ export const installPerfTraceCollector = () => {
       return response;
     }
 
-    const maxRefs = getPositiveIntegerEnv("PERF_LAB_TRACE_MAX_REFS", 500);
-    if (traceRefs.length < maxRefs) {
-      traceRefs.push({
-        ...step,
-        ...parsedTraceparent,
-        traceparent,
-        traceLink: parseTraceLink(getHeaderValue(response.headers, "link")),
-        method: response.config.method?.toUpperCase(),
-        url: resolveRequestUrl(response.config),
-        status: response.status,
-        capturedAt: new Date().toISOString(),
-      });
-    }
+    pushTraceRef({
+      ...step,
+      ...parsedTraceparent,
+      traceparent,
+      traceLink: parseTraceLink(getHeaderValue(response.headers, "link")),
+      method: response.config.method?.toUpperCase(),
+      url: resolveRequestUrl(response.config),
+      status: response.status,
+      capturedAt: new Date().toISOString(),
+    });
 
     return response;
   });

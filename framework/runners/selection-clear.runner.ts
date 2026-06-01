@@ -1,5 +1,11 @@
 import { FieldKeyType, FieldType } from "@teable/core";
-import { clearSelectionStream, updateRecords } from "@teable/openapi";
+import { axios, updateRecords, X_CANARY_HEADER } from "@teable/openapi";
+import type {
+  IClearSelectionStreamDoneEvent,
+  IClearSelectionStreamErrorEvent,
+  IClearSelectionStreamEvent,
+  IClearSelectionStreamProgressEvent,
+} from "@teable/openapi";
 import {
   createRecords,
   createTable,
@@ -15,6 +21,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -230,8 +237,10 @@ const resolveClearFields = (
   });
 };
 
-const getStreamHeaders = (context: PerfRunContext) =>
-  context.cookie ? { Cookie: context.cookie } : undefined;
+const getStreamHeaders = (context: PerfRunContext) => ({
+  ...(context.cookie ? { Cookie: context.cookie } : {}),
+  [X_CANARY_HEADER]: context.engine === "v2" ? "true" : "false",
+});
 
 const seedRecords = async (
   fixture: Omit<ClearFixture, "seededRecords" | "seedBatchDurations">,
@@ -407,30 +416,67 @@ const buildAllCellsRange = (fixture: ClearFixture) => ({
 
 const clearAllCells = async (
   fixture: ClearFixture,
+  perfCase: PerfCase,
   context: PerfRunContext,
 ) => {
-  let progressEventCount = 0;
-  const result = await clearSelectionStream(
-    fixture.tableId,
-    buildAllCellsRange(fixture),
-    {
-      headers: getStreamHeaders(context),
-      onProgress: () => {
-        progressEventCount += 1;
-      },
+  const url = axios.getUri({
+    baseURL: axios.defaults.baseURL || "/api",
+    url: `/table/${fixture.tableId}/selection/clear-stream`,
+  });
+  const sseResult = await perfStreamSse<IClearSelectionStreamEvent>({
+    context,
+    perfCase,
+    stepId: "clear",
+    url,
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...getStreamHeaders(context),
     },
+    body: JSON.stringify(buildAllCellsRange(fixture)),
+    errorPrefix: "Clear selection stream failed",
+  });
+  const progressEvents = sseResult.events.filter(
+    (event): event is IClearSelectionStreamProgressEvent =>
+      event.id === "progress",
+  );
+  const errors = sseResult.events.filter(
+    (event): event is IClearSelectionStreamErrorEvent => event.id === "error",
+  );
+  const done = sseResult.events.find(
+    (event): event is IClearSelectionStreamDoneEvent => event.id === "done",
   );
 
-  expect(result.errors).toHaveLength(0);
-  expect(result.done.totalCount).toBe(fixture.seededRecords.length);
-  expect(result.done.processedCount).toBe(fixture.seededRecords.length);
-  expect(result.done.clearedCount).toBe(fixture.seededRecords.length);
+  if (!done) {
+    throw new Error(
+      errors.at(-1)?.message ?? "Clear selection stream ended without result",
+    );
+  }
+
+  expect(errors).toHaveLength(0);
+  expect(done.totalCount).toBe(fixture.seededRecords.length);
+  expect(done.processedCount).toBe(fixture.seededRecords.length);
+  expect(done.clearedCount).toBe(fixture.seededRecords.length);
+
+  const expectedXTeableV2 = context.engine === "v2" ? "true" : "false";
+  const actualXTeableV2 = sseResult.headers["x-teable-v2"];
 
   return {
-    totalCount: result.done.totalCount,
-    processedCount: result.done.processedCount,
-    clearedCount: result.done.clearedCount,
-    progressEventCount,
+    totalCount: done.totalCount,
+    processedCount: done.processedCount,
+    clearedCount: done.clearedCount,
+    progressEventCount: progressEvents.length,
+    status: sseResult.status,
+    routing: {
+      requestedEngine: context.engine,
+      canaryHeader: context.engine === "v2" ? "true" : "false",
+      expectedXTeableV2,
+      actualXTeableV2,
+      routeMatched: actualXTeableV2 === expectedXTeableV2,
+      xTeableV2Reason: sseResult.headers["x-teable-v2-reason"],
+      xTeableV2Feature: sseResult.headers["x-teable-v2-feature"],
+    },
+    trace: sseResult.trace,
   };
 };
 
@@ -792,7 +838,10 @@ export const runSelectionClearCase = async (
         context,
         perfCase,
         "clear",
-        () => measureAsync("clear", () => clearAllCells(fixture, context)),
+        () =>
+          measureAsync("clear", () =>
+            clearAllCells(fixture, perfCase, context),
+          ),
       );
 
       verifyMeasurement = await measureAsync("verify", () =>
