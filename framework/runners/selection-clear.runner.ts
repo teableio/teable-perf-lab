@@ -752,6 +752,22 @@ export const runSelectionClearCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as SelectionClearCaseConfig;
+  if (context.engine === "v1") {
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        operation: "clear-stream",
+        skipped: true,
+        reason:
+          "V1 selection clear stream resolves the selected 10k range through the legacy search-index path, which is capped at 1000 records. The case measures the V2 large clear stream path.",
+        engine: context.engine,
+        rowCount: config.rowCount,
+      },
+    };
+  }
+
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   let prepareMeasurement: Measurement<ClearFixture> | undefined;

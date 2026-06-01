@@ -86,6 +86,9 @@ lookup fields in cleanup. Record delete/undo/redo restore reusable fixtures to a
 seed-ready state after the measured operation; selection clear writes the
 deterministic cell values back during cleanup. Paste cases intentionally do not
 skip the 10k paste workload because that import is the measured execute step.
+When a case reports `skipped`, the workflow still succeeds and writes artifacts;
+this is used for engine-specific capability gaps such as the V1 legacy
+selection-clear range limit.
 
 ## Artifacts
 

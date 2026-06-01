@@ -17,6 +17,7 @@ import {
   prepareRecordUndoRedoFixture,
   redoLastOperation,
   undoLastOperation,
+  waitForRowsRestored,
   withRecordWindowId,
   type Measurement,
   type RecordReplaySetupMeasurements,
@@ -77,7 +78,7 @@ export const runRecordRedoCase = async (
           ...setupMeasurements,
           undoSetupVerifyMeasurement: await measureAsync(
             "undoSetupVerify",
-            () => assertRowsRestored(fixture, config),
+            () => waitForRowsRestored(fixture, config),
           ),
         };
 

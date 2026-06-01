@@ -65,6 +65,11 @@ because the 10k paste import is the measured workload. Caching pasted records
 would turn the case into a different read/verify benchmark instead of an import
 benchmark.
 
+Some cases can be engine-specific. If an engine cannot run the same operation
+shape, return a `skipped` result with a clear reason instead of silently changing
+the workload. For example, V1 selection clear is skipped for the 10k stream case
+because the legacy range resolution path is capped at 1,000 records.
+
 ## Seed Hash Contract
 
 The seed hash is the cache key for the seed artifact.

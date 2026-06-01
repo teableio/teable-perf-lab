@@ -328,6 +328,8 @@ const buildAllRowsRange = (fixture: RecordUndoRedoFixture) => ({
 const getStreamHeaders = (context: PerfRunContext) =>
   context.cookie ? { Cookie: context.cookie } : undefined;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const buildRecordWindowId = (
   context: PerfRunContext,
   perfCase: PerfCase,
@@ -640,6 +642,36 @@ export const assertRowsRestored = async (
   };
 };
 
+export const waitForRowsRestored = async (
+  fixture: RecordUndoRedoFixture,
+  config: RecordUndoRedoBaseCaseConfig,
+  options: {
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  } = {},
+): Promise<RecordReplayVerification> => {
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 250;
+  const started = Date.now();
+  let lastError: unknown;
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      return await assertRowsRestored(fixture, config);
+    } catch (error) {
+      lastError = error;
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(
+    `Timed out waiting for ${config.rowCount} restored records in table ${fixture.tableId}`,
+  );
+};
+
 export const assertDeleted = async (
   fixture: RecordUndoRedoFixture,
 ): Promise<RecordReplayVerification> => {
@@ -693,7 +725,7 @@ export const cleanupRecordUndoRedoFixture = async (
         await withRecordWindowId(options.windowId, async () => {
           await undoLastOperation(fixture, options.context!);
         });
-        await assertRowsRestored(fixture, options.config);
+        await waitForRowsRestored(fixture, options.config);
         return;
       } catch (error) {
         console.warn(

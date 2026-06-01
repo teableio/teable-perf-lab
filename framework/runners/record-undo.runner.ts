@@ -16,6 +16,7 @@ import {
   deleteAllRows,
   prepareRecordUndoRedoFixture,
   undoLastOperation,
+  waitForRowsRestored,
   withRecordWindowId,
   type Measurement,
   type RecordReplaySetupMeasurements,
@@ -79,7 +80,7 @@ export const runRecordUndoCase = async (
       });
 
       verifyMeasurement = await measureAsync("verifyRestored", () =>
-        assertRowsRestored(fixture, config),
+        waitForRowsRestored(fixture, config),
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(

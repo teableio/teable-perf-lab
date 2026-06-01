@@ -48,6 +48,7 @@ export interface PerfPhase {
 }
 
 export interface PerfRunResult {
+  result?: "pass" | "skipped";
   metrics: Record<string, number>;
   thresholds: MetricThreshold[];
   phases?: PerfPhase[];
