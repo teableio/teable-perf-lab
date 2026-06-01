@@ -75,12 +75,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       engines: ${{ steps.engines.outputs.engines }}
+      case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
 
     steps:
       - name: Resolve engine matrix
         id: engines
         env:
           ENGINE_FILTER: ${{ inputs.engine_filter }}
+          CASE_FILTER: ${{ inputs.case_filter }}
         run: |
           set -euo pipefail
 
@@ -111,8 +113,33 @@ jobs:
             process.exit(1);
           }
 
+          const rawCaseFilter = process.env.CASE_FILTER ?? "";
+          const caseFilters =
+            rawCaseFilter.trim().toLowerCase() === "all"
+              ? ["all"]
+              : [
+                  ...new Set(
+                    rawCaseFilter
+                      .split(",")
+                      .map((caseId) => caseId.trim())
+                      .filter(Boolean)
+                      .sort(),
+                  ),
+                ];
+          if (caseFilters.length === 0) {
+            console.error("case_filter must include at least one case id or all.");
+            process.exit(1);
+          }
+          const caseFilterKey = caseFilters
+            .join("__")
+            .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 160);
+
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `engines=${JSON.stringify(engines)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `case_filter_key=${caseFilterKey}\n`);
           console.log(`Resolved engines: ${engines.join(", ")}`);
+          console.log(`Resolved case filter cache key: ${caseFilterKey}`);
           NODE
 
   seed:
@@ -145,16 +172,32 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+            perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+
+      - name: Publish seed database cache hit summary
+        if: steps.seed-db-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+
+          test -s "$PERF_LAB_SEED_DB_DUMP"
+          {
+            echo "## Perf seed DB cache"
+            echo
+            echo "Exact perf seed DB cache hit. Seed app setup and seed validation were skipped."
+            echo
+            ls -lh "$PERF_LAB_SEED_DB_DUMP"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9.13.0
 
       - name: Setup Node.js
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22.18.0
@@ -162,10 +205,12 @@ jobs:
           cache-dependency-path: teable-ee/pnpm-lock.yaml
 
       - name: Install teable-ee dependencies
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma clients
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -174,6 +219,7 @@ jobs:
           pnpm -F @teable/db-data-prisma prisma-generate-ci
 
       - name: Install perf cases
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
 
@@ -188,6 +234,7 @@ jobs:
           cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
 
       - name: Start e2e services
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -221,6 +268,7 @@ jobs:
           done
 
       - name: Prepare e2e database
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -256,6 +304,7 @@ jobs:
           pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
       - name: Build perf seed DB
+        if: steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -277,7 +326,7 @@ jobs:
             --silent=false
 
       - name: Dump perf seed database
-        if: success()
+        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -291,22 +340,14 @@ jobs:
           ls -lh "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Save perf seed database cache
-        if: success()
+        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Upload perf seed database
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-lab-seed-cache
-          if-no-files-found: error
+          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed artifacts
-        if: always()
+        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: teable-ee-e2e-perf-seed-${{ github.run_id }}-${{ github.run_attempt }}
@@ -328,7 +369,7 @@ jobs:
           fi
 
       - name: Cleanup teable-ee e2e services
-        if: always()
+        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
         working-directory: teable-ee
         run: |
           set +e
@@ -377,11 +418,13 @@ jobs:
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
-      - name: Download perf seed database
-        uses: actions/download-artifact@v4
+      - name: Restore perf seed database cache
+        id: seed-db-cache
+        uses: actions/cache/restore@v4
         with:
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-seed-cache
+          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          fail-on-cache-miss: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
