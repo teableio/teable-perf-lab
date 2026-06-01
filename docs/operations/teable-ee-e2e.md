@@ -35,6 +35,9 @@ Manual inputs:
 - `samples`: measured samples for endpoint-style cases.
 - `primary_threshold_ms`: optional override for the case's primary threshold.
   Leave it empty to use the case config default.
+- `run_unsupported_v1_cases`: diagnostic-only switch. Leave it `false` for
+  normal runs; set it to `true` to force execution of V1 cases that otherwise
+  report `skipped`, so a backend fix can be verified without editing case code.
 
 Because `teableio/teable-ee` is private, configure a read-only deploy key on
 that repository and store the private key in this repository as
@@ -90,6 +93,10 @@ When a case reports `skipped`, the workflow still succeeds and writes artifacts;
 this is used for engine-specific capability gaps such as the V1 legacy
 selection-clear range limit and the V1 delete-stream undo/redo replay path for
 the 10,000-row fixture.
+
+To check whether one of those V1 paths has been fixed in `teable-ee`, rerun the
+case with `run_unsupported_v1_cases=true`. The runner will execute the real V1
+path and fail normally if the backend still cannot satisfy the case semantics.
 
 ## Artifacts
 

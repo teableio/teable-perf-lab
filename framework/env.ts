@@ -10,3 +10,11 @@ export const getPositiveIntegerEnv = (name: string) => {
 
 export const getPrimaryThresholdMs = (fallback: number) =>
   getPositiveNumberEnv("PERF_LAB_PRIMARY_THRESHOLD_MS") ?? fallback;
+
+export const getBooleanEnv = (name: string) =>
+  ["1", "true", "yes", "on"].includes(
+    (process.env[name] ?? "").trim().toLowerCase(),
+  );
+
+export const shouldRunUnsupportedV1Cases = () =>
+  getBooleanEnv("PERF_LAB_RUN_UNSUPPORTED_V1_CASES");

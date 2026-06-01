@@ -8,7 +8,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, shouldRunUnsupportedV1Cases } from "../env";
 import { measureAsync } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -768,7 +768,7 @@ export const runSelectionClearCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as SelectionClearCaseConfig;
-  if (context.engine === "v1") {
+  if (context.engine === "v1" && !shouldRunUnsupportedV1Cases()) {
     return {
       result: "skipped",
       metrics: {},

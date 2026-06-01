@@ -1,3 +1,4 @@
+import { shouldRunUnsupportedV1Cases } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import { PerfRunDiagnosticError } from "../types";
@@ -30,7 +31,7 @@ export const runRecordRedoCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as RecordRedoCaseConfig;
-  if (context.engine === "v1") {
+  if (context.engine === "v1" && !shouldRunUnsupportedV1Cases()) {
     return {
       result: "skipped",
       metrics: {},
