@@ -214,7 +214,7 @@ export interface RecordUndoRedoBaseCaseConfig {
 
 export interface RecordDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "delete10kMs";
+    metric: "delete1kMs";
     maxMs: number;
   };
 }

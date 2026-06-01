@@ -29,7 +29,7 @@ reuse existing runner -> extend a runner -> new runner
 | `conditional-lookup` | source + host tables, add conditional lookup, verify values            | lookup / cross-table computed fields  |
 | `record-paste`       | empty table, paste deterministic clipboard content via paste API       | paste / bulk insert through selection |
 | `selection-clear`    | seeded table, call selection clear stream, verify cells empty          | clearing a large cell range           |
-| `record-delete`      | mixed 10k table, delete all rows via delete-stream                     | row delete throughput                 |
+| `record-delete`      | mixed table, delete all rows via delete-stream                         | row delete throughput                 |
 | `record-undo`        | delete as setup, then measure undo-stream                              | undo replay                           |
 | `record-redo`        | delete + undo as setup, then measure redo-stream                       | redo replay                           |
 
@@ -41,8 +41,8 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **formula-table**: `baseId:"seed-base"`, `tableNamePrefix`, `recordCount`, `batchSize`, `fields[]`, `generator{type:"numeric-sequence",titlePrefix}`, `formula` or `formulas[]`, `verify{sampleRows,...}`, `threshold{metric:"formula(s)(Full)ReadyMs",maxMs}`.
 - **conditional-lookup**: source/host prefixes, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `verify`, `threshold{metric:"conditionalLookupReadyMs"}`. The `permutation` has a coprime constraint — see Deterministic Data in [checklist.md](checklist.md).
 - **record-paste**: `tableNamePrefix`, `rowCount`, optional `maxPasteCells`, `fields[]`, `generator{type:"flat-copy-paste"|"mixed-copy-paste",titlePrefix,...}`, `verify`, `threshold{metric:"paste10kMs"}`.
-- **selection-clear**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"flat-table-operation",titlePrefix,payloadPrefix}`, `verify`, `threshold{metric:"clear10kMs"}`.
-- **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ only in the threshold metric: `delete10kMs` / `undoReplay10kMs` / `redoReplay10kMs`. The shared 10k base config is exported as `undoRedo10kBaseConfig` in `framework/runners/record-undo-redo.shared.ts` — spread it and override `tableNamePrefix` + `threshold`.
+- **selection-clear**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"flat-table-operation",titlePrefix,payloadPrefix}`, `verify`, `threshold{metric:"clear1kMs"}`.
+- **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ by operation and threshold metric, for example `delete1kMs`, `undoReplay10kMs`, or `redoReplay1kMs`. The shared 10k base config is exported as `undoRedo10kBaseConfig` in `framework/runners/record-undo-redo.shared.ts` — spread it and override `rowCount`, `tableNamePrefix`, `verify.sampleRows`, and `threshold` when a case uses a smaller workload.
 
 ## Stream-Based Runners
 

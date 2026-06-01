@@ -1,20 +1,24 @@
 # Running perf cases through teable-ee e2e
 
-The first executable path for this repository is intentionally thin:
+The executable path for this repository is intentionally aligned with the
+existing `teable-ee` e2e harness:
 
 1. GitHub Actions checks out `teable-perf-lab`.
 2. GitHub Actions checks out `teableio/teable-ee` at a selected ref.
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
-4. The selected cases run through `@teable/backend-ee` and
-   `vitest-e2e-community.config.ts` in a single serial job.
+4. A seed job prepares a reusable Postgres dump for the selected cases.
+5. V1 and V2 execute jobs restore that same dump into separate Postgres
+   containers and run in parallel through `@teable/backend-ee`.
 
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
 
-The workflow starts Postgres/Redis, restores a cached perf seed database dump
-when one is available, otherwise runs migrations plus the normal e2e seed, then
-runs every selected case for every selected engine inside one Vitest process:
+The workflow starts Postgres/Redis in each job. The seed job restores a cached
+perf seed database dump when one is available, otherwise runs migrations plus
+the normal e2e seed, then runs `PERF_LAB_MODE=seed` with `FORCE_V2_ALL=false` to
+make all selected case-specific source tables ready. The execute jobs restore
+the seed job's DB dump artifact and run the selected cases with:
 
 - `v1`: sets `FORCE_V2_ALL=false`.
 - `v2`: sets `FORCE_V2_ALL=true`.
@@ -46,11 +50,15 @@ that repository and store the private key in this repository as
 
 ## Case model
 
-The workflow runs `perf-lab.e2e-spec.ts` once. That spec reads
-`PERF_LAB_CASE_FILTER` and `PERF_LAB_ENGINE_LIST`, resolves cases in
-`registry.ts`, starts one Nest app per engine, and dispatches each case to a
-runner in `framework/runners/`. Each case still writes an independent JSON
-artifact and summary tagged with `engine`.
+The seed job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=seed`. That mode
+resolves cases in `registry.ts`, starts one legacy-compatible Nest app, and
+dispatches only each runner's seed preparation path. It does not create the
+measured formula, lookup, delete, undo, redo, or clear operation.
+
+Each execute job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=execute` and a
+single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
+dispatches each case to a runner in `framework/runners/`. Each case writes an
+independent JSON artifact and summary tagged with `engine`.
 
 The runner catalog is in [.agent/runners.md](../../.agent/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -77,19 +85,19 @@ GitHub Actions cache and load it with `pg_restore`. If that fails or no dump is
 available, it creates a clean e2e database from migrations and the standard
 `prisma-db-seed -- --e2e` path.
 
-After a successful perf run, the job saves a new `pg_dump -Fc` snapshot. That
-snapshot can contain reusable seed tables from previous cache-aware cases.
-Runner-level `seedHash` names decide whether a table is valid for a specific
-case; stale tables in the dump are ignored unless the hash matches and
-`seedReady` validation passes.
+After a successful seed job, the workflow saves a new `pg_dump -Fc` snapshot and
+uploads the same dump as a run artifact for the execute jobs. That snapshot can
+contain reusable seed tables from previous cache-aware cases. Runner-level
+`seedHash` names decide whether a table is valid for a specific case; stale
+tables in the dump are ignored unless the hash matches and `seedReady`
+validation passes.
 
 Formula, conditional lookup, record delete, record undo, record redo, and
-selection clear cases currently use this cache. Formula and lookup cases keep
-source fixture tables between runs and delete only execute-time formula or
-lookup fields in cleanup. Record delete/undo/redo restore reusable fixtures to a
-seed-ready state after the measured operation; selection clear writes the
-deterministic cell values back during cleanup. Paste cases intentionally do not
-skip the 10k paste workload because that import is the measured execute step.
+selection clear cases currently use this cache. Because each execute job
+restores the seed dump into an isolated database, destructive cases can mutate
+their seed tables during execution without affecting the other engine or the
+next workflow run. Paste cases intentionally do not skip the 10k paste workload
+because that import is the measured execute step.
 When a case reports `skipped`, the workflow still succeeds and writes artifacts;
 this is used for engine-specific capability gaps.
 
@@ -99,7 +107,14 @@ and fail normally if the backend still cannot satisfy the case semantics.
 
 ## Artifacts
 
-The serial job writes artifacts into `perf-lab-artifacts/`:
+The seed job uploads `teable-ee-e2e-perf-seed-<run>-<attempt>` and
+`teable-ee-e2e-perf-seed-db-<run>-<attempt>`. The execute jobs upload one
+artifact per engine:
+
+- `teable-ee-e2e-perf-v1-<run>-<attempt>`
+- `teable-ee-e2e-perf-v2-<run>-<attempt>`
+
+Each execute artifact contains:
 
 - `<case-id>-<engine>.json`: raw samples/details, aggregate metrics,
   thresholds, and phases, including trace collection manifest details.
@@ -109,9 +124,8 @@ The serial job writes artifacts into `perf-lab-artifacts/`:
 - `traces/<case-id>-<engine>/<step>-<trace-id>.json`: raw Jaeger trace snapshots
   for selected requests.
 
-The uploaded artifact name is
-`teable-ee-e2e-perf-serial-<run>-<attempt>`, and it contains all selected
-case/engine result files.
+The report job downloads the execute artifacts, merges their JSON payloads, and
+upserts the result rows to Teable.
 
 ## Trace collection
 
@@ -132,7 +146,8 @@ even when they share the same HTTP endpoint.
 To verify observability after a run:
 
 1. Open the job summary and check the `Trace Artifact` table.
-2. Download the serial artifact and inspect `traces/**/manifest.json`.
+2. Download the V1 or V2 execute artifact and inspect
+   `traces/**/manifest.json`.
 3. Confirm `savedTraceCount` is greater than zero and the saved JSON files have
    Jaeger `data` entries.
 
