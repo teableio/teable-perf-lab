@@ -44,10 +44,25 @@ cleanup execute-only changes
 
 ## Current State
 
-Today's 10k runners create a temporary table, seed deterministic rows, and
-permanently delete the table in `finally`. That is acceptable at 10k. It is the
-wrong shape for import-heavy cases (e.g. 100k rows), where the build phase should
-be cacheable: first run pays, later runs restore.
+The GitHub workflow enables seed caching with
+`PERF_LAB_SEED_CACHE_ENABLED=true`. It restores a Postgres custom-format dump
+before the e2e app starts, then saves a fresh dump after a successful perf run.
+The dump is the transport container; each runner still decides whether a
+specific fixture is reusable by looking for seed tables named with that case's
+`seedHash`.
+
+The formula and conditional lookup runners are cache-aware today:
+
+- cold run: compute `seedHash`, create deterministic seed table(s), validate
+  source records, execute the measured operation, then remove only execute-time
+  computed fields.
+- warm run: restore the database dump, find the seed table(s) by hash-derived
+  name, remove any leftover execute-time computed fields, run `sourceReady`, and
+  execute the measured operation again.
+
+Other runners still cold-build temporary fixtures and delete them in `finally`.
+That is acceptable for small or mutation-heavy cases, but import-heavy cases
+should follow the same seed/execute split before they grow to 100k rows.
 
 ## Seed Hash Contract
 
@@ -62,8 +77,10 @@ Exclude from the hash: thresholds, sample count, owner, tags, description;
 execute-only code (the measured field/paste/request); trace/reporting code.
 
 If a runner cannot yet separate seed from execute code, hash the whole runner
-file — conservative but correct. Later refactors should split seed builders from
-execute logic so the hash can be precise.
+file — conservative but correct. The shared helper also hashes the matching
+`cases/<case-id>.case.ts` file when it can find it, so config-only changes
+invalidate the seed. Later refactors should split seed builders from execute
+logic so the hash can be more precise.
 
 Seed artifacts must carry enough metadata to prove safe reuse:
 
@@ -114,10 +131,22 @@ engine v2 -> initApp once -> run selected cases serially
 So DB services, Redis, seed user, auth, and app startup are amortized across
 cases — not part of any case's primary metric.
 
-When the workflow used parallel matrix jobs, it also dumped the e2e seed once
-(`pg_dump -Fc`) and restored it per matrix job. That was removed for the serial
-job. If matrix parallelism returns, restore that snapshot pattern before adding
-more per-case setup work.
+The workflow now uses the same `pg_dump -Fc` / `pg_restore` pattern for seed
+reuse across workflow runs:
+
+1. `actions/cache/restore` restores `perf-lab-seed-cache/e2e_test_teable.dump`.
+2. `Prepare e2e database` restores that dump when present; if restore fails, it
+   rebuilds from migrations and the normal e2e seed.
+3. Case runners look for hash-derived seed table names. A cache hit skips the
+   row import phase; a miss creates new seed tables.
+4. After a successful run, `pg_dump -Fc e2e_test_teable` saves the database,
+   including reusable seed fixtures, back into `actions/cache/save`.
+
+The workflow cache key includes the target `teable-ee` ref, database schema
+hash, perf case/framework source hash, and run id. The broad restore key allows a
+previous successful dump with the same database schema to be reused; stale
+per-case tables are harmless because the runner-level `seedHash` decides whether
+they match the current case.
 
 For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
 `seedBuildMs`, `seedReadyMs`. A cache miss is a valid run, but the report should

@@ -31,7 +31,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
   group: teable-ee-e2e-perf-${{ github.ref }}-${{ inputs.case_filter }}
@@ -59,6 +59,9 @@ env:
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
   TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+  PERF_LAB_SEED_CACHE_ENABLED: "true"
+  PERF_LAB_SEED_CACHE_DIR: ${{ github.workspace }}/perf-lab-seed-cache
+  PERF_LAB_SEED_DB_DUMP: ${{ github.workspace }}/perf-lab-seed-cache/e2e_test_teable.dump
 
 jobs:
   teable-ee-e2e-perf:
@@ -84,6 +87,15 @@ jobs:
           ref: ${{ inputs.teable_ee_ref }}
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Restore perf seed database cache
+        id: seed-db-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: perf-lab-seed-cache
+          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -156,12 +168,38 @@ jobs:
             sleep 1
           done
 
-      - name: Migrate and seed e2e database
+      - name: Prepare e2e database
         working-directory: teable-ee
         run: |
           set -euo pipefail
 
-          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable || true
+          if [ -s "$PERF_LAB_SEED_DB_DUMP" ]; then
+            echo "Restoring cached perf seed DB from ${PERF_LAB_SEED_DB_DUMP}"
+            set +e
+            (
+              set -e
+              docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+              docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
+              docker exec -i "$TEST_PG_CONTAINER_NAME" pg_restore \
+                -U teable \
+                -d e2e_test_teable \
+                --clean \
+                --if-exists \
+                < "$PERF_LAB_SEED_DB_DUMP"
+            )
+            restore_status=$?
+            set -e
+
+            if [ "$restore_status" -eq 0 ]; then
+              echo "Cached perf seed DB restored successfully."
+              exit 0
+            fi
+
+            echo "::warning::Cached perf seed DB restore failed; rebuilding from migrations."
+          fi
+
+          docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
           make postgres.mode
           pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
@@ -177,11 +215,33 @@ jobs:
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-serial"
+          export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false
+
+      - name: Dump perf seed database cache
+        if: success()
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$PERF_LAB_SEED_CACHE_DIR"
+          docker exec "$TEST_PG_CONTAINER_NAME" pg_dump \
+            -U teable \
+            -Fc \
+            e2e_test_teable \
+            > "$PERF_LAB_SEED_DB_DUMP"
+          ls -lh "$PERF_LAB_SEED_DB_DUMP"
+
+      - name: Save perf seed database cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: perf-lab-seed-cache
+          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload perf artifacts
         if: always()

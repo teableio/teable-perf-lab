@@ -24,7 +24,7 @@ empty 20-field table through `PATCH /api/table/{tableId}/selection/paste`.
 This complements the flat 20-field text benchmark by keeping the same row and
 cell count while increasing field type complexity.
 
-## Prepare
+## Seed Phase
 
 - Creates one temporary empty table in the e2e seed base.
 - The table has 20 fields:
@@ -43,9 +43,13 @@ cell count while increasing field type complexity.
 - Declares `maxPasteCells: 200_000` so the e2e app starts with a paste-cell
   limit that permits this wide payload.
 
-## Operation
+This case intentionally keeps the table empty before measurement because the
+measured operation is the paste import itself. The generated TSV is deterministic
+but not currently persisted as a reusable seed artifact.
 
-1. Run `prepare` before measurement:
+## Execute Phase
+
+1. Run the seed phase before measurement:
    - create the empty temporary table
    - resolve the table fields and first grid view
    - build the 10k x 20-field TSV clipboard content in memory

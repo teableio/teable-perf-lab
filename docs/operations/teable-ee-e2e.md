@@ -12,8 +12,9 @@ The first executable path for this repository is intentionally thin:
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
 
-The workflow starts Postgres/Redis, runs the e2e seed once, then runs every
-selected case for every selected engine inside one Vitest process:
+The workflow starts Postgres/Redis, restores a cached perf seed database dump
+when one is available, otherwise runs migrations plus the normal e2e seed, then
+runs every selected case for every selected engine inside one Vitest process:
 
 - `v1`: sets `FORCE_V2_ALL=false`.
 - `v2`: sets `FORCE_V2_ALL=true`.
@@ -63,6 +64,24 @@ It relies on the existing e2e seed user from `teable-ee`:
 The case does not register users or create a separate auth setup path. It calls
 `initApp()`, which starts the Nest app, signs in the seeded user, and installs
 the session cookie on the shared OpenAPI axios instance.
+
+## Seed Cache
+
+The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. Before the Nest app is
+started, it tries to restore `perf-lab-seed-cache/e2e_test_teable.dump` from
+GitHub Actions cache and load it with `pg_restore`. If that fails or no dump is
+available, it creates a clean e2e database from migrations and the standard
+`prisma-db-seed -- --e2e` path.
+
+After a successful perf run, the job saves a new `pg_dump -Fc` snapshot. That
+snapshot can contain reusable seed tables from previous cache-aware cases.
+Runner-level `seedHash` names decide whether a table is valid for a specific
+case; stale tables in the dump are ignored unless the hash matches and
+`seedReady` validation passes.
+
+Formula and conditional lookup cases currently use this cache. They keep source
+fixture tables between runs and delete only execute-time formula or lookup
+fields in cleanup.
 
 ## Artifacts
 

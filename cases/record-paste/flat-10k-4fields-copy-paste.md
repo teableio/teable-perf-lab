@@ -52,8 +52,8 @@ cold-builds the seed table and deletes it after the run.
 7. Verify the paste response range is `[[0, 0], [3, 9999]]`.
 8. Full scan all 10k records and verify deterministic row values, including
    first, middle, and last sample rows.
-9. Clean up the pasted records or execute table state. Until seed caching
-   exists, the current runner deletes the temporary table as part of cleanup.
+9. Clean up the pasted records or execute table state. The current runner
+   deletes the temporary table as part of cleanup.
 
 ## Primary Metric
 

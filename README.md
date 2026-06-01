@@ -30,6 +30,39 @@ there whether you are a person or an agent adding a case. The broader design is
 in [docs/plan.md](docs/plan.md); operational details are in
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md).
 
+### Seed And Execute Split
+
+For import-heavy cases, keep the data construction stage separate from the
+measured operation:
+
+- **Seed**: create deterministic source tables, fields, records, links, and
+  lookup keys. This stage may be cached.
+- **Seed ready**: validate table existence, field layout, record count, and
+  sample values even on a cache hit.
+- **Execute**: perform the measured operation against the ready seed, such as
+  creating a formula field or conditional lookup. This stage must run fresh
+  every time.
+- **Cleanup**: remove only execute-time changes when the seed is reusable. Do
+  not delete cached source tables.
+
+The GitHub workflow restores and saves a Postgres dump as the cross-run seed
+cache container. Runner code still owns correctness: it computes `seedHash` from
+the case config, same-name `cases/**/*.case.ts` file, seed runner code, fixture
+version, and database schema signature. If the hash-derived seed table exists
+and passes `seedReady`, the row import phase is skipped. If validation fails, the
+runner deletes the stale fixture and rebuilds it.
+
+Current cache-aware runners:
+
+- `formula-table`
+- `conditional-lookup`
+
+When adding a new cacheable runner, document the seed and execute phases in the
+case markdown, include the seed-relevant config in `seedConfig`, hash the seed
+builder code through `buildSeedCacheInfo`, and report `seedHash`,
+`seedCacheHit`, and seed timings in the artifact. See
+[.agent/seed-execute.md](.agent/seed-execute.md) for the full contract.
+
 ## Available Cases
 
 - `smoke/auth-user`: authenticated `GET /api/auth/user/me` smoke timing.
