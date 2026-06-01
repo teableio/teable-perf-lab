@@ -30,6 +30,22 @@ export const runRecordRedoCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as RecordRedoCaseConfig;
+  if (context.engine === "v1") {
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        operation: "redo",
+        skipped: true,
+        reason:
+          "V1 delete-stream undo/redo returns fulfilled but does not restore the 10k selection-delete fixture in this e2e path. The case measures the V2 large redo replay path.",
+        engine: context.engine,
+        rowCount: config.rowCount,
+      },
+    };
+  }
+
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
