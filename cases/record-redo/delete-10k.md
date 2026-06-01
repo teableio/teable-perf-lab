@@ -70,3 +70,7 @@ the primary timer starts.
 
 The setup durations are recorded as `deleteSetup10kMs` and `undoSetup10kMs` for
 diagnostics, but only `redoReplay10kMs` is thresholded.
+
+V1 is reported as `skipped`: its legacy delete-stream undo/redo path can return
+`fulfilled` without restoring this 10,000-row selection-delete fixture in the
+e2e harness. The measurable large redo replay path for this case is V2.

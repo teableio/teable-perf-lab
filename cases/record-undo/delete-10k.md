@@ -65,3 +65,7 @@ not part of the primary metric.
 
 The setup delete duration is recorded as `deleteSetup10kMs` for diagnostics, but
 it is not thresholded.
+
+V1 is reported as `skipped`: its legacy delete-stream undo path can return
+`fulfilled` without restoring this 10,000-row selection-delete fixture in the
+e2e harness. The measurable large undo replay path for this case is V2.
