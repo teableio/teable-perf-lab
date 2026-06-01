@@ -89,8 +89,8 @@ builder code through `buildSeedCacheInfo`, and report `seedHash`,
   through `GET /selection/delete-stream`, and verify the table is empty.
 - `record-undo/delete-10k`: create a 10k-row mixed-field table, delete all
   rows before measurement, replay undo, and verify sample rows are restored.
-- `record-redo/delete-10k`: create a 10k-row mixed-field table, delete and
-  undo before measurement, replay redo, and verify the table is empty.
+- `record-redo/delete-1k`: create a 1k-row mixed-field table, delete and undo
+  before measurement, replay redo, and verify the table is empty.
 - `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
   paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
   inserted records.

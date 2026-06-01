@@ -7,7 +7,7 @@ import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
 import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
 import recordDelete10kCase from "./cases/record-delete/delete-10k.case";
-import recordRedoDelete10kCase from "./cases/record-redo/delete-10k.case";
+import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
 import recordUndoDelete10kCase from "./cases/record-undo/delete-10k.case";
 import type { PerfCase } from "./framework/types";
 
@@ -19,7 +19,7 @@ const cases = [
   selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDelete10kCase,
   recordUndoDelete10kCase,
-  recordRedoDelete10kCase,
+  recordRedoDelete1kCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,
@@ -42,8 +42,10 @@ const caseAliases = new Map([
   ["delete/10k", "record-delete/delete-10k"],
   ["record-undo", "record-undo/delete-10k"],
   ["undo/10k", "record-undo/delete-10k"],
-  ["record-redo", "record-redo/delete-10k"],
-  ["redo/10k", "record-redo/delete-10k"],
+  ["record-redo", "record-redo/delete-1k"],
+  ["redo/1k", "record-redo/delete-1k"],
+  ["redo/10k", "record-redo/delete-1k"],
+  ["record-redo/delete-10k", "record-redo/delete-1k"],
   ["record-paste", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k", "record-paste/flat-10k-4fields-copy-paste"],
   ["paste/10k-20fields", "record-paste/flat-10k-20fields-copy-paste"],

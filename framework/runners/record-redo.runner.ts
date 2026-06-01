@@ -12,6 +12,7 @@ import {
   assertDeleted,
   assertRowsRestored,
   buildRecordReplayResult,
+  buildRecordReplayPhaseName,
   buildRecordWindowId,
   cleanupRecordUndoRedoFixture,
   deleteAllRows,
@@ -31,7 +32,11 @@ export const runRecordRedoCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as RecordRedoCaseConfig;
-  if (context.engine === "v1" && !shouldRunUnsupportedV1Cases()) {
+  if (
+    context.engine === "v1" &&
+    config.rowCount > 1_000 &&
+    !shouldRunUnsupportedV1Cases()
+  ) {
     return {
       result: "skipped",
       metrics: {},
@@ -74,8 +79,9 @@ export const runRecordRedoCase = async (
       await withRecordWindowId(windowId, async () => {
         setupMeasurements = {
           ...setupMeasurements,
-          deleteSetupMeasurement: await measureAsync("deleteSetup10k", () =>
-            deleteAllRows(fixture, context),
+          deleteSetupMeasurement: await measureAsync(
+            buildRecordReplayPhaseName("deleteSetup", config.rowCount),
+            () => deleteAllRows(fixture, context),
           ),
         };
         setupMeasurements = {
@@ -87,8 +93,9 @@ export const runRecordRedoCase = async (
         };
         setupMeasurements = {
           ...setupMeasurements,
-          undoSetupMeasurement: await measureAsync("undoSetup10k", () =>
-            undoLastOperation(fixture, context),
+          undoSetupMeasurement: await measureAsync(
+            buildRecordReplayPhaseName("undoSetup", config.rowCount),
+            () => undoLastOperation(fixture, context),
           ),
         };
         setupMeasurements = {

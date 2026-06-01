@@ -2,9 +2,10 @@
 owner: backend-v2
 tags:
   - selection-clear
+  - stream
   - table-operation
   - 10k
-  - v1-v2
+  - v2-only
   - large-data
 enabled: true
 ---
@@ -16,6 +17,10 @@ enabled: true
 Measure the product large-clear path for clearing every visible cell across
 10,000 rows and 20 mixed fields through
 `PATCH /api/table/{tableId}/selection/clear-stream`.
+
+This is intentionally a V2-only stream case. V1 does not expose a comparable
+stream implementation for this workload, so it should not be used as a V1/V2
+comparison case.
 
 ## Seed Phase
 
@@ -48,9 +53,9 @@ Measure the product large-clear path for clearing every visible cell across
 - The table must still contain 10,000 records.
 - Every projected field must be empty in a full paged scan.
 - Samples from rows 1, 5,000, and 10,000 are saved in the result artifact.
-- V1 is reported as `skipped`: its legacy clear-stream path resolves the 10k
-  range through a search-index API capped at 1,000 records, so running it would
-  not measure the same large-clear behavior as V2.
+- V1 is reported as `skipped`: V1 does not have the same stream path, so running
+  it here would measure a different implementation rather than an engine-to-engine
+  comparison.
 
 ## Notes
 
@@ -58,3 +63,7 @@ The product switches clear to the stream endpoint when the affected row count is
 greater than 200. This 10k case intentionally measures that large-clear path. It
 measures clearing content, not deleting records, so verification expects the row
 count to remain 10,000.
+
+For V1/V2 clear comparison, add a separate non-stream or smaller clear case with
+the same user operation available in both engines instead of reusing this stream
+case.
