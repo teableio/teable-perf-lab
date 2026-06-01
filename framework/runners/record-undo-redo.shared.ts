@@ -16,10 +16,16 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync } from "../metrics";
+import {
+  buildSeedCacheInfo,
+  findSeedTable,
+  type SeedCacheInfo,
+} from "../seed-cache";
 import type {
   PerfCase,
   PerfRunContext,
   PerfRunResult,
+  PerfRunnerKind,
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
 
@@ -56,6 +62,9 @@ export type RecordUndoRedoFixture = {
   projection: string[];
   seededRecords: SeededRecord[];
   seedBatchDurations: number[];
+  seedCacheInfo?: SeedCacheInfo;
+  seedCacheHit?: boolean;
+  reusableSeed?: boolean;
 };
 
 export type RecordReplayVerification = {
@@ -70,6 +79,12 @@ export type RecordReplaySetupMeasurements = {
   deleteSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
   undoSetupMeasurement?: Measurement<unknown>;
   undoSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
+};
+
+type RecordUndoRedoSeedOptions = {
+  perfCase: PerfCase;
+  runner: PerfRunnerKind;
+  seedCodeFiles?: URL[];
 };
 
 type ExpectedCellValue = string | number | boolean | string[] | null;
@@ -178,6 +193,13 @@ const chunk = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
+
+const buildSyntheticSeededRecords = (rowCount: number): SeededRecord[] =>
+  Array.from({ length: rowCount }, (_, index) => ({
+    rowOffset: index,
+    rowNumber: index + 1,
+    recordId: "",
+  }));
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
@@ -380,38 +402,127 @@ const seedRecords = async (
   return { seededRecords, batchDurations };
 };
 
-export const prepareRecordUndoRedoFixture = async (
-  baseId: string,
+const getRecordUndoRedoSeedConfig = (config: RecordUndoRedoBaseCaseConfig) => ({
+  baseId: config.baseId,
+  rowCount: config.rowCount,
+  batchSize: config.batchSize,
+  fields: config.fields,
+  generator: config.generator,
+  verifySampleRows: config.verify.sampleRows,
+  fixtureVersion: "record-undo-redo-v1",
+});
+
+const buildBaseFixture = async (
+  tableId: string,
   tableName: string,
   config: RecordUndoRedoBaseCaseConfig,
-): Promise<RecordUndoRedoFixture> => {
-  const table = await createTable(baseId, {
-    name: tableName,
-    fields: config.fields,
-    records: [],
-  });
-  const tableFields = await getFields(table.id);
-  const views = await getViews(table.id);
+): Promise<
+  Omit<RecordUndoRedoFixture, "seededRecords" | "seedBatchDurations">
+> => {
+  const tableFields = await getFields(tableId);
+  const views = await getViews(tableId);
   const viewId = views[0]?.id;
 
   if (!viewId) {
-    throw new Error(`No grid view found for undo-redo table ${table.id}`);
+    throw new Error(`No grid view found for undo-redo table ${tableId}`);
   }
 
   const fields = resolveOperationFields(tableFields, config);
-  const baseFixture = {
-    tableId: table.id,
+  return {
+    tableId,
     tableName,
     viewId,
     fields,
     projection: fields.map((field) => field.id),
   };
-  const seeded = await seedRecords(baseFixture, config);
-  return {
-    ...baseFixture,
-    seededRecords: seeded.seededRecords,
-    seedBatchDurations: seeded.batchDurations,
-  };
+};
+
+export const prepareRecordUndoRedoFixture = async (
+  baseId: string,
+  tableName: string,
+  config: RecordUndoRedoBaseCaseConfig,
+  seedOptions?: RecordUndoRedoSeedOptions,
+): Promise<RecordUndoRedoFixture> => {
+  const seedCacheInfo = seedOptions
+    ? await buildSeedCacheInfo({
+        perfCase: seedOptions.perfCase,
+        runner: seedOptions.runner,
+        fixtureVersion: "record-undo-redo-v1",
+        seedConfig: getRecordUndoRedoSeedConfig(config),
+        seedCodeFiles: [
+          new URL(import.meta.url),
+          new URL("../seed-cache.ts", import.meta.url),
+          ...(seedOptions.seedCodeFiles ?? []),
+        ],
+      })
+    : undefined;
+
+  const cachedTable =
+    seedCacheInfo?.enabled &&
+    (await findSeedTable(baseId, seedCacheInfo.seedTableName));
+
+  if (cachedTable && seedCacheInfo) {
+    try {
+      const cachedFixture: RecordUndoRedoFixture = {
+        ...(await buildBaseFixture(cachedTable.id, cachedTable.name, config)),
+        seededRecords: buildSyntheticSeededRecords(config.rowCount),
+        seedBatchDurations: [0],
+        seedCacheInfo,
+        seedCacheHit: true,
+        reusableSeed: true,
+      };
+      await assertRowsRestored(cachedFixture, config);
+      return cachedFixture;
+    } catch (error) {
+      console.warn(
+        `Invalid cached record seed ${seedCacheInfo.seedTableName}; rebuilding`,
+        error,
+      );
+      await permanentDeleteTable(baseId, cachedTable.id);
+    }
+  }
+
+  const actualTableName = seedCacheInfo?.enabled
+    ? seedCacheInfo.seedTableName
+    : tableName;
+  let createdTableId = "";
+
+  try {
+    const table = await createTable(baseId, {
+      name: actualTableName,
+      fields: config.fields,
+      records: [],
+    });
+    createdTableId = table.id;
+
+    const baseFixture = await buildBaseFixture(
+      table.id,
+      actualTableName,
+      config,
+    );
+    const seeded = await seedRecords(baseFixture, config);
+
+    return {
+      ...baseFixture,
+      seededRecords: seeded.seededRecords,
+      seedBatchDurations: seeded.batchDurations,
+      seedCacheInfo,
+      seedCacheHit: false,
+      reusableSeed: seedCacheInfo?.enabled ?? false,
+    };
+  } catch (error) {
+    if (createdTableId) {
+      try {
+        await permanentDeleteTable(baseId, createdTableId);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup incomplete record seed ${createdTableId}`,
+          cleanupError,
+        );
+      }
+    }
+    throw error;
+  }
 };
 
 export const deleteAllRows = async (
@@ -557,18 +668,46 @@ export const assertDeleted = async (
 export const cleanupRecordUndoRedoFixture = async (
   baseId: string,
   prepareMeasurement?: Measurement<RecordUndoRedoFixture>,
+  options?: {
+    config?: RecordUndoRedoBaseCaseConfig;
+    context?: PerfRunContext;
+    windowId?: string;
+  },
 ) => {
-  if (!prepareMeasurement?.result.tableId) {
+  const fixture = prepareMeasurement?.result;
+  if (!fixture?.tableId) {
     return;
   }
 
+  if (fixture.reusableSeed && options?.config) {
+    try {
+      await assertRowsRestored(fixture, options.config);
+      return;
+    } catch {
+      // The measured operation may have deleted rows; try the real undo path
+      // once so the cached fixture is ready for the next engine or workflow run.
+    }
+
+    if (options.context && options.windowId) {
+      try {
+        await withRecordWindowId(options.windowId, async () => {
+          await undoLastOperation(fixture, options.context!);
+        });
+        await assertRowsRestored(fixture, options.config);
+        return;
+      } catch (error) {
+        console.warn(
+          `Failed to restore cached record seed ${fixture.tableId}; deleting it`,
+          error,
+        );
+      }
+    }
+  }
+
   try {
-    await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
+    await permanentDeleteTable(baseId, fixture.tableId);
   } catch (error) {
-    console.warn(
-      `Failed to cleanup perf table ${prepareMeasurement.result.tableId}`,
-      error,
-    );
+    console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
   }
 };
 
@@ -599,6 +738,17 @@ export const buildRecordReplayResult = ({
 }): PerfRunResult => ({
   metrics: {
     ...(prepareMeasurement ? { prepareMs: prepareMeasurement.durationMs } : {}),
+    ...(fixture?.seedCacheInfo
+      ? {
+          seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+          seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+          ...(fixture.seedCacheHit
+            ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
+            : fixture.seedCacheInfo.enabled
+              ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
+              : {}),
+        }
+      : {}),
     ...(seedReadyMeasurement
       ? { seedReadyMs: seedReadyMeasurement.durationMs }
       : {}),
@@ -723,6 +873,17 @@ export const buildRecordReplayResult = ({
             ? Math.max(...fixture.seedBatchDurations)
             : undefined,
           ready: seedReadyMeasurement?.result,
+          cache: fixture.seedCacheInfo
+            ? {
+                enabled: fixture.seedCacheInfo.enabled,
+                cacheHit: Boolean(fixture.seedCacheHit),
+                reusable: Boolean(fixture.reusableSeed),
+                seedHash: fixture.seedCacheInfo.seedHash,
+                seedHashShort: fixture.seedCacheInfo.seedHashShort,
+                seedTableName: fixture.seedCacheInfo.seedTableName,
+                schemaSignature: fixture.seedCacheInfo.schemaSignature,
+              }
+            : undefined,
         }
       : undefined,
     replaySetup: setupMeasurements

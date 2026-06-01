@@ -34,7 +34,11 @@ export const runRecordDeleteCase = async (
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config),
+      prepareRecordUndoRedoFixture(baseId, tableName, config, {
+        perfCase,
+        runner: "record-delete",
+        seedCodeFiles: [new URL(import.meta.url)],
+      }),
     );
     const fixture = prepareMeasurement.result;
     let operationMeasurement: Measurement<unknown> | undefined;
@@ -88,6 +92,10 @@ export const runRecordDeleteCase = async (
       verifyMeasurement,
     });
   } finally {
-    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement);
+    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
+      config,
+      context,
+      windowId,
+    });
   }
 };

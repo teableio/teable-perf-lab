@@ -34,6 +34,9 @@ the primary timer starts.
   `[[0,9999]]` maps to the full inserted dataset.
 - Verifies the source table is ready by full-scanning 10,000 records and
   checking sample rows `0`, `4999`, and `9999`.
+- When seed cache is enabled, the hash-derived source table is reused across
+  engines and workflow runs. After execute redoes the delete, cleanup replays
+  the matching undo operation to return the cached table to seed-ready state.
 
 ## Execute Phase
 
@@ -55,7 +58,8 @@ the primary timer starts.
    `status: fulfilled`.
 6. Stop the primary timer.
 7. Verify the table has no visible records.
-8. Permanently delete the temporary table.
+8. Cleanup restores the cached seed table when reusable, otherwise permanently
+   deletes the temporary table.
 
 ## Primary Metric
 

@@ -36,7 +36,11 @@ export const runRecordUndoCase = async (
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config),
+      prepareRecordUndoRedoFixture(baseId, tableName, config, {
+        perfCase,
+        runner: "record-undo",
+        seedCodeFiles: [new URL(import.meta.url)],
+      }),
     );
     const fixture = prepareMeasurement.result;
     let setupMeasurements: RecordReplaySetupMeasurements = {};
@@ -107,6 +111,10 @@ export const runRecordUndoCase = async (
       verifyMeasurement,
     });
   } finally {
-    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement);
+    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
+      config,
+      context,
+      windowId,
+    });
   }
 };

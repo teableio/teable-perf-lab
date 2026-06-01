@@ -79,9 +79,13 @@ Runner-level `seedHash` names decide whether a table is valid for a specific
 case; stale tables in the dump are ignored unless the hash matches and
 `seedReady` validation passes.
 
-Formula and conditional lookup cases currently use this cache. They keep source
-fixture tables between runs and delete only execute-time formula or lookup
-fields in cleanup.
+Formula, conditional lookup, record delete, record undo, record redo, and
+selection clear cases currently use this cache. Formula and lookup cases keep
+source fixture tables between runs and delete only execute-time formula or
+lookup fields in cleanup. Record delete/undo/redo restore reusable fixtures to a
+seed-ready state after the measured operation; selection clear writes the
+deterministic cell values back during cleanup. Paste cases intentionally do not
+skip the 10k paste workload because that import is the measured execute step.
 
 ## Artifacts
 
