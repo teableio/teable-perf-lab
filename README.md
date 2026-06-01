@@ -56,6 +56,15 @@ Current cache-aware runners:
 
 - `formula-table`
 - `conditional-lookup`
+- `record-delete`
+- `record-undo`
+- `record-redo`
+- `selection-clear`
+
+Paste cases intentionally keep the 10k inserted rows in the execute stage
+because the paste import is the measured operation. Their reusable seed is only
+an empty table shape, so caching it would not remove the expensive measured
+workload.
 
 When adding a new cacheable runner, document the seed and execute phases in the
 case markdown, include the seed-relevant config in `seedConfig`, hash the seed

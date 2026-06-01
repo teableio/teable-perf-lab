@@ -34,6 +34,9 @@ not part of the primary metric.
   `[[0,9999]]` maps to the full inserted dataset.
 - Verifies the source table is ready by full-scanning 10,000 records and
   checking sample rows `0`, `4999`, and `9999`.
+- When seed cache is enabled, the hash-derived source table is reused across
+  engines and workflow runs. The measured undo naturally restores the table to
+  seed-ready state; cleanup validates that state before preserving the table.
 
 ## Execute Phase
 
@@ -50,7 +53,8 @@ not part of the primary metric.
    `status: fulfilled`.
 5. Stop the primary timer.
 6. Full-scan the restored table and verify 10,000 records plus sample values.
-7. Permanently delete the temporary table.
+7. Cleanup preserves the cached seed table when it is back in seed-ready state,
+   otherwise permanently deletes the temporary table.
 
 ## Primary Metric
 

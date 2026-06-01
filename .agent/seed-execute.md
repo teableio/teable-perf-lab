@@ -51,18 +51,19 @@ The dump is the transport container; each runner still decides whether a
 specific fixture is reusable by looking for seed tables named with that case's
 `seedHash`.
 
-The formula and conditional lookup runners are cache-aware today:
+The formula, conditional lookup, record delete, record undo, record redo, and
+selection clear runners are cache-aware today:
 
 - cold run: compute `seedHash`, create deterministic seed table(s), validate
-  source records, execute the measured operation, then remove only execute-time
-  computed fields.
+  source records, execute the measured operation, then preserve or restore the
+  seed table to a seed-ready state.
 - warm run: restore the database dump, find the seed table(s) by hash-derived
-  name, remove any leftover execute-time computed fields, run `sourceReady`, and
-  execute the measured operation again.
+  name, run `seedReady`/`sourceReady`, and execute the measured operation again.
 
-Other runners still cold-build temporary fixtures and delete them in `finally`.
-That is acceptable for small or mutation-heavy cases, but import-heavy cases
-should follow the same seed/execute split before they grow to 100k rows.
+Paste runners still cold-build the execute table and delete it in `finally`
+because the 10k paste import is the measured workload. Caching pasted records
+would turn the case into a different read/verify benchmark instead of an import
+benchmark.
 
 ## Seed Hash Contract
 

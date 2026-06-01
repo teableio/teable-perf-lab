@@ -32,6 +32,9 @@ This case isolates delete performance. It does not measure undo or redo replay.
   `[[0,9999]]` maps to the full inserted dataset.
 - Verifies the source table is ready by full-scanning 10,000 records and
   checking sample rows `0`, `4999`, and `9999`.
+- When seed cache is enabled, the hash-derived source table is reused across
+  engines and workflow runs. After execute deletes the rows, cleanup replays the
+  matching undo operation to return the cached table to seed-ready state.
 
 ## Execute Phase
 
@@ -45,7 +48,8 @@ This case isolates delete performance. It does not measure undo or redo replay.
 3. Read the `text/event-stream` response until the `done` event.
 4. Stop the primary timer after the stream reports all 10,000 rows deleted.
 5. Verify the table has no visible records.
-6. Permanently delete the temporary table.
+6. Cleanup restores the cached seed table when reusable, otherwise permanently
+   deletes the temporary table.
 
 ## Primary Metric
 

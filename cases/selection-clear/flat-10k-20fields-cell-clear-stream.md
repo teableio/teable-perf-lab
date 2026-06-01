@@ -24,6 +24,9 @@ Measure the product large-clear path for clearing every visible cell across
 - Resolves the first grid view id and visible field ids.
 - Seed hash inputs should include the case id, runner kind, field layout, row
   count, batch size, generator config, fixture version, and runner seed code.
+- When seed cache is enabled, the hash-derived source table is reused across
+  engines and workflow runs. After execute clears the cells, cleanup writes the
+  deterministic values back and validates the table before preserving it.
 
 ## Execute Phase
 
@@ -32,7 +35,8 @@ Measure the product large-clear path for clearing every visible cell across
    `ranges: [[0, 0], [19, 9999]]`, `projection`, and `viewId`.
 3. Stop the primary timer after the clear stream emits its final `done` event.
 4. Full scan all 10,000 records and verify the selected fields are empty.
-5. Permanently delete the temporary table.
+5. Cleanup restores the cached seed table when reusable, otherwise permanently
+   deletes the temporary table.
 
 ## Primary Metric
 
