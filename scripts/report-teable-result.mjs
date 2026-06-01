@@ -1,5 +1,5 @@
 import { access, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
@@ -84,23 +84,32 @@ const readJsonFileIfExists = async (path) =>
   (await fileExists(path)) ? readJsonFile(path) : undefined;
 
 const readArtifactPayloads = async ({ artifactDir, fallbackCaseId }) => {
-  const entries = await readdir(artifactDir, { withFileTypes: true });
-  const payloadFiles = entries
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.endsWith(".json") &&
-        entry.name !== "manifest.json",
-    )
-    .map((entry) => entry.name)
-    .sort();
+  const payloadFiles = [];
+  const walk = async (directory) => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(path);
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith(".json") && entry.name !== "manifest.json") {
+        payloadFiles.push(path);
+      }
+    }
+  };
+  await walk(artifactDir);
+  payloadFiles.sort();
 
   const payloads = [];
-  for (const fileName of payloadFiles) {
-    const payloadPath = join(artifactDir, fileName);
+  for (const payloadPath of payloadFiles) {
     const payload = await readJsonFile(payloadPath);
     if (payload?.caseId && payload?.engine) {
-      payloads.push({ payload, payloadPath, fileName });
+      payloads.push({
+        payload,
+        payloadPath,
+        fileName: relative(artifactDir, payloadPath),
+      });
     }
   }
 
@@ -380,7 +389,6 @@ const compactFields = (fields) =>
   );
 
 const buildReportFields = async ({
-  artifactDir,
   caseId,
   payload,
   traceManifest,
@@ -400,6 +408,14 @@ const buildReportFields = async ({
   const resolvedArtifactName =
     artifactName ||
     env("PERF_LAB_ARTIFACT_NAME") ||
+    (engine === "v1" || engine === "v2"
+      ? [
+          "teable-ee-e2e-perf",
+          engine,
+          runId || payload.runId,
+          env("GITHUB_RUN_ATTEMPT") || "0",
+        ].join("-")
+      : undefined) ||
     [
       "teable-ee-e2e-perf",
       env("PERF_LAB_ARTIFACT_CASE", sanitizeCaseId(caseId)),
@@ -483,21 +499,29 @@ const main = async () => {
 
   await ensureFields({ endpoint, token, tableId });
 
-  for (const { payload } of payloads) {
+  const reportPayloads = payloads.filter(
+    ({ payload }) => payload.engine !== "seed",
+  );
+
+  if (reportPayloads.length === 0) {
+    console.warn(`No execute perf payloads found in ${artifactDir}; skipping report.`);
+    return;
+  }
+
+  for (const { payload, payloadPath } of reportPayloads) {
     const caseId = payload.caseId;
     const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
     const summaryMarkdown =
       (await readTextFileIfExists(
-        join(artifactDir, summaryMarkdownName(caseId, engine)),
+        join(dirname(payloadPath), summaryMarkdownName(caseId, engine)),
       )) || (await readTextFileIfExists(join(artifactDir, "summary.md")));
     const traceManifestPath =
       payload.details?.observability?.traces?.manifestPath;
     const traceManifest = traceManifestPath
-      ? await readJsonFileIfExists(join(artifactDir, traceManifestPath))
+      ? await readJsonFileIfExists(join(dirname(payloadPath), traceManifestPath))
       : undefined;
 
     const { runKey, fields } = await buildReportFields({
-      artifactDir,
       caseId,
       payload,
       traceManifest,

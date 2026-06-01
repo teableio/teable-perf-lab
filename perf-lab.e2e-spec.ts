@@ -4,6 +4,7 @@ import "../../src/tracing";
 import { initApp } from "../utils/init-app";
 import { listPerfCases } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
+import { seedPerfCase } from "./framework/run-perf-seed";
 import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
 import {
   installPerfTraceCollector,
@@ -34,6 +35,8 @@ const logPhase = (
 };
 
 type Engine = "v1" | "v2";
+type Mode = "execute" | "seed";
+const SEED_BOOTSTRAP_ENGINE: Engine = "v1";
 
 const parseEngineList = (engineList = "v1,v2"): Engine[] => {
   const engines = engineList
@@ -60,6 +63,9 @@ const parseEngineList = (engineList = "v1,v2"): Engine[] => {
 };
 
 const getForceV2All = (engine: Engine) => (engine === "v2" ? "true" : "false");
+
+const getMode = (): Mode =>
+  process.env.PERF_LAB_MODE === "seed" ? "seed" : "execute";
 
 const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
   const requiredMaxPasteCells = Math.max(
@@ -132,6 +138,25 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   }
 };
 
+const withRunEngineEnv = async <T>(
+  engine: Engine | "seed",
+  fn: () => Promise<T>,
+) =>
+  withEngineEnv(
+    engine === "seed" ? SEED_BOOTSTRAP_ENGINE : engine,
+    async () => {
+      if (engine === "seed") {
+        process.env.PERF_LAB_ENGINE = "seed";
+        process.env.OTEL_SERVICE_NAME =
+          process.env.PERF_LAB_OTEL_SERVICE_PREFIX != null
+            ? `${process.env.PERF_LAB_OTEL_SERVICE_PREFIX}-seed`
+            : "teable-perf-serial-seed";
+      }
+
+      return fn();
+    },
+  );
+
 describe("perf-lab serial case runner (e2e)", () => {
   const perfCases = listPerfCases(
     process.env.PERF_LAB_CASE_FILTER ??
@@ -140,8 +165,10 @@ describe("perf-lab serial case runner (e2e)", () => {
   );
   applyCaseRuntimeEnv(perfCases);
   const engines = parseEngineList(process.env.PERF_LAB_ENGINE_LIST);
+  const mode = getMode();
 
   logPhase("module-loaded", {
+    mode,
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
     engines: engines.join(","),
     maxPasteCells: process.env.MAX_PASTE_CELLS,
@@ -151,7 +178,10 @@ describe("perf-lab serial case runner (e2e)", () => {
     installPerfTraceCollector();
   });
 
-  for (const engine of engines) {
+  const runEngines: Array<Engine | "seed"> =
+    mode === "seed" ? ["seed"] : engines;
+
+  for (const engine of runEngines) {
     describe(`engine ${engine}`, () => {
       let app: INestApplication;
       let appUrl: string;
@@ -159,7 +189,7 @@ describe("perf-lab serial case runner (e2e)", () => {
 
       beforeAll(async () => {
         logPhase("engine:beforeAll:start", { engine });
-        await withEngineEnv(engine, async () => {
+        await withRunEngineEnv(engine, async () => {
           resetAxiosInterceptors();
           const initStarted = performance.now();
           const appCtx = await initApp();
@@ -188,10 +218,14 @@ describe("perf-lab serial case runner (e2e)", () => {
           `runs ${perfCase.id} (${engine})`,
           { timeout: perfCase.timeoutMs },
           async () => {
-            await withEngineEnv(engine, async () => {
+            await withRunEngineEnv(engine, async () => {
               logPhase("case:start", { caseId: perfCase.id, engine });
               const caseStarted = performance.now();
-              await runPerfCase(perfCase, { app, appUrl, cookie });
+              if (mode === "seed") {
+                await seedPerfCase(perfCase, { app, appUrl, cookie });
+              } else {
+                await runPerfCase(perfCase, { app, appUrl, cookie });
+              }
               logPhase("case:done", {
                 caseId: perfCase.id,
                 engine,

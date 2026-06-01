@@ -19,7 +19,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -825,6 +825,10 @@ export const cleanupRecordUndoRedoFixture = async (
     return;
   }
 
+  if (fixture.reusableSeed && isExecuteDbIsolated()) {
+    return;
+  }
+
   if (fixture.reusableSeed && options?.config) {
     try {
       await assertRowsRestored(fixture, options.config);
@@ -860,6 +864,50 @@ export const cleanupRecordUndoRedoFixture = async (
   } catch (error) {
     console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
   }
+};
+
+export const seedRecordUndoRedoCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  runner: Extract<
+    PerfRunnerKind,
+    "record-delete" | "record-undo" | "record-redo"
+  >,
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as RecordUndoRedoBaseCaseConfig & {
+    threshold: { metric: string; maxMs: number };
+  };
+  const seedCodeFileByRunner = {
+    "record-delete": new URL("./record-delete.runner.ts", import.meta.url),
+    "record-undo": new URL("./record-undo.runner.ts", import.meta.url),
+    "record-redo": new URL("./record-redo.runner.ts", import.meta.url),
+  } satisfies Record<typeof runner, URL>;
+  const baseId = globalThis.testConfig.baseId;
+  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
+  const prepareMeasurement = await measureAsync("prepare", () =>
+    prepareRecordUndoRedoFixture(baseId, tableName, config, {
+      perfCase,
+      runner,
+      seedCodeFiles: [seedCodeFileByRunner[runner]],
+    }),
+  );
+  const seedReadyMeasurement = await measureAsync("seedReady", () =>
+    assertRowsRestored(prepareMeasurement.result, config),
+  );
+
+  return buildRecordReplayResult({
+    config,
+    operation:
+      runner === "record-delete"
+        ? "delete"
+        : runner === "record-undo"
+          ? "undo"
+          : "redo",
+    windowId: `seed-${context.runId}-${perfCase.id}`,
+    fixture: prepareMeasurement.result,
+    prepareMeasurement,
+    seedReadyMeasurement,
+  });
 };
 
 export const buildRecordReplayResult = ({

@@ -3,9 +3,10 @@
 Performance regression lab for Teable v2.
 
 The current MVP runs perf cases through the existing `teable-ee` e2e harness,
-reusing its Postgres/Redis, seed, and Nest app startup. V1 and V2 are measured
-separately but share that setup. The execution mechanics (how the workflow
-checks out `teable-ee`, injects the framework, and runs cases serially) live in
+reusing its auth bootstrap, e2e seed user, and Nest app startup path. GitHub
+Actions first prepares a reusable seed database dump, then restores that dump
+into isolated V1/V2 execute jobs. The execution mechanics (how the workflow
+checks out `teable-ee`, injects the framework, and runs cases) live in
 [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md).
 
 This repository is intended to become the control plane for Teable performance
@@ -46,11 +47,20 @@ measured operation:
   not delete cached source tables.
 
 The GitHub workflow restores and saves a Postgres dump as the cross-run seed
-cache container. Runner code still owns correctness: it computes `seedHash` from
-the case config, same-name `cases/**/*.case.ts` file, seed runner code, fixture
-version, and database schema signature. If the hash-derived seed table exists
-and passes `seedReady`, the row import phase is skipped. If validation fails, the
-runner deletes the stale fixture and rebuilds it.
+cache container. The workflow first runs a seed job in a legacy-compatible
+bootstrap mode that makes all selected cache-aware source fixtures ready, dumps
+the database, and then fans out V1 and V2 execute jobs in parallel. Each execute
+job restores the same seed dump into its own Postgres container and only then
+sets the target engine, so the measured operation is what differs between V1 and
+V2. Destructive cases can mutate their local database without relying on cleanup
+to preserve another engine's seed. Local or single-database runs may still
+restore reusable seed tables during cleanup.
+
+Runner code still owns correctness: it computes `seedHash` from the case config,
+same-name `cases/**/*.case.ts` file, seed runner code, fixture version, and
+database schema signature. If the hash-derived seed table exists and passes
+`seedReady`, the row import phase is skipped. If validation fails, the runner
+deletes the stale fixture and rebuilds it.
 
 Current cache-aware runners:
 
@@ -88,7 +98,7 @@ builder code through `buildSeedCacheInfo`, and report `seedHash`,
 - `record-delete/delete-1k`: create a 1k-row mixed-field table, delete all rows
   through `DELETE /selection/delete`, and verify the table is empty.
 - `record-undo/delete-1k`: create a 1k-row mixed-field table, delete all rows
-  before measurement, replay undo, and verify sample rows are restored.
+  before measurement, replay undo, and verify the row count is restored.
 - `record-redo/delete-1k`: create a 1k-row mixed-field table, delete and undo
   before measurement, replay redo, and verify the table is empty.
 - `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
