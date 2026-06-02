@@ -85,6 +85,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               uniqueTraceCount?: number;
               savedTraceCount?: number;
               failedTraceCount?: number;
+              skippedTraceCount?: number;
               manifestPath?: string;
               artifactDir?: string;
               refs?: Array<{ traceLink?: string; traceId?: string }>;
@@ -104,6 +105,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
+      `| skipped trace fetches | ${traces.skippedTraceCount ?? 0} |`,
     );
     if (traces.manifestPath) {
       lines.push(`| manifest | \`${traces.manifestPath}\` |`);
