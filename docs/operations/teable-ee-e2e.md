@@ -151,7 +151,11 @@ the endpoint URLs here.
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
 requests that use the perf SSE helper. It then polls Jaeger at
 `/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
-directory. Stream artifacts should also include the response routing headers,
+directory. Before polling, the runner waits
+`PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path have
+a short settle window. Refs with an unsampled `traceparent` are kept in the
+manifest but skipped for Jaeger fetch because those traces are not expected to
+be stored. Stream artifacts should also include the response routing headers,
 such as `x-teable-v2`, so V1 legacy streams and V2 streams can be distinguished
 even when they share the same HTTP endpoint.
 
