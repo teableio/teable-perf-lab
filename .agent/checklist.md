@@ -28,12 +28,18 @@ wrong or non-comparable metrics.
 
 ## Verification
 
-Two levels, both required for a meaningful pass:
+Default to two levels:
 
 - **Sample**: quick polling on a few known rows to confirm correct values start
   appearing.
 - **Full scan**: paged read of every row through the real read path
   (`getRecords`, usually 1000 at a time) to prove the operation fully landed.
+
+Match verification to the promised final state. Computed-field cases must prove
+values. Selection clear must prove cells are empty while rows remain. Delete
+cases must prove the table is empty. Restore/undo cases may use a paged row-count
+scan when the case only promises row restoration; add sample value checks when
+the case promises value restoration.
 
 On failure, throw a diagnostic result that still carries completed phase
 durations, table/field ids, sample records, partial metrics, and the error — so a

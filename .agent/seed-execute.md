@@ -13,16 +13,32 @@ Three layers must not be mixed:
 - **Measured operation (execute)**: the operation the case actually times, plus
   its readiness verification.
 
-The first two may be reused/restored while their cache key is valid. The measured
-operation must stay fresh every run.
+Environment bootstrap is amortized by CI. Case seed fixtures may be
+reused/restored while their cache gates pass. The measured operation must stay
+fresh every run.
+
+## Two Cache Layers
+
+There are two different cache decisions. Do not collapse them:
+
+- **Workflow DB dump cache**: GitHub Actions restores/saves
+  `perf-lab-seed-cache/e2e_test_teable.dump`. This is a whole Postgres database
+  snapshot used as a transport container. Its key is runner OS, normalized case
+  filter, database schema hash, and perf-lab case/framework source hash. It does
+  not include the target `teable-ee` commit ref.
+- **Runner `seedHash`**: after the dump is restored, each runner looks for its
+  own hash-derived seed table(s), then runs `seedReady`/`sourceReady`. This is
+  the per-case correctness gate. A restored dump may contain stale tables; they
+  are ignored unless the runner hash and readiness checks pass.
 
 ## Runner Architecture
 
 ```text
 resolve case
-compute seed hash from case seed config + seed code
-restore seed artifact by hash
-if missing: run seed stage, validate fixture, save seed artifact
+restore workflow DB dump by exact key or restore-key
+compute runner seedHash from case seed config + seed code
+find hash-derived seed table(s) inside the restored database
+if missing or not ready: run seed stage, validate fixture, include it in the dump
 run execute stage against restored fixture
 collect metrics, traces, verification evidence
 cleanup execute-only changes
@@ -30,30 +46,60 @@ cleanup execute-only changes
 
 ## Phases
 
-1. `seedHash`: cache key from seed config + seed code.
-2. `seedRestore` / `seedBuild`: restore cached fixture, else create tables and
-   insert deterministic data in batches.
-3. `seedReady` / `sourceReady`: verify record count, field layout, sample values,
-   and any indexes/links the case needs.
-4. trigger the measured operation (create field / paste / stream request).
-5. full-scan readiness: page through records until every value matches the
-   locally expected value.
-6. cleanup: remove per-run measured fields / derived temp tables. Preserve
+1. workflow cache restore: restore the database dump, or start from migrations
+   and the normal e2e seed.
+2. `seedHash`: per-runner table identity from seed config + seed code.
+3. `seedRestore` / `seedBuild`: find a matching fixture in the dump, else create
+   tables and insert deterministic data in batches.
+4. `seedReady` / `sourceReady`: verify record count, field layout, and the
+   sample values / indexes / links the case needs.
+5. trigger the measured operation (create field / paste / stream request).
+6. full-scan readiness: page through records until the final-state contract is
+   proven, such as computed values matching, cells empty, table empty, or row
+   count restored.
+7. cleanup: remove per-run measured fields / derived temp tables. Preserve
    reusable source fixtures unless the key is invalid or the case intentionally
    measures cold import.
 
 ## Current State
 
 The GitHub workflow enables seed caching with
-`PERF_LAB_SEED_CACHE_ENABLED=true`. A dedicated seed job restores a Postgres
-custom-format dump before the e2e app starts, runs only the selected runners'
-seed paths in a legacy-compatible bootstrap mode, validates every selected
-fixture, and uploads a fresh dump for the execute jobs. The dump is the
-transport container; each runner still decides whether a specific fixture is
-reusable by looking for seed tables named with that case's `seedHash`.
+`PERF_LAB_SEED_CACHE_ENABLED=true`. The dump is the transport container; each
+runner still decides whether a specific fixture is reusable by looking for seed
+tables named with that case's `seedHash`.
 
-The formula, conditional lookup, record delete, record undo, record redo, and
-selection clear runners are cache-aware today:
+The seed DB cache key is:
+
+```text
+perf-seed-db-<runner-os>-<case-filter-key>-<teable-prisma-schema-hash>-<perf-lab-source-hash>
+```
+
+`teable-prisma-schema-hash` is `hashFiles()` over these checked-out `teable-ee`
+paths:
+
+```text
+teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma
+teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**
+teable-ee/community/packages/db-data-prisma/prisma/schema.prisma
+teable-ee/community/packages/db-data-prisma/prisma/migrations/**
+```
+
+`perf-lab-source-hash` is `hashFiles()` over:
+
+```text
+perf-lab/cases/**/*.case.ts
+perf-lab/framework/**/*.ts
+perf-lab/perf-lab.e2e-spec.ts
+perf-lab/registry.ts
+```
+
+The key deliberately excludes `inputs.teable_ee_ref`. Ordinary backend code
+changes in `teable-ee` reuse the same seed DB cache when the Prisma schema and
+perf-lab source hashes are unchanged. Prisma schema/migration changes change the
+key and force a new dump.
+
+The formula, conditional lookup, CSV import, record delete, record undo, record
+redo, and selection clear runners are cache-aware today:
 
 - seed miss: compute `seedHash`, create deterministic seed table(s), validate
   source records, and include those tables in the seed database dump.
@@ -62,10 +108,12 @@ selection clear runners are cache-aware today:
 - execute run: restore the seed dump into an isolated engine database, run
   `seedReady`/`sourceReady`, and then execute the measured operation.
 
-Paste runners still cold-build the execute table and delete it in `finally`
-because the 10k paste import is the measured workload. Caching pasted records
-would turn the case into a different read/verify benchmark instead of an import
-benchmark.
+CSV import caches the empty target table shape and best-effort import
+attachment metadata; execute still performs a fresh import and deletes the
+mutated table afterward. Paste runners still cold-build the execute table and
+delete it in `finally` because the 10k paste import is the measured workload.
+Caching pasted records would turn the case into a different read/verify
+benchmark instead of an import benchmark.
 
 Some cases can be engine-specific. If an engine cannot run the same operation
 shape, return a `skipped` result with a clear reason instead of silently changing
@@ -73,9 +121,10 @@ the workload. Before adding a skip, first check whether the case should be
 reshaped to a smaller but equivalent V1/V2 comparison, such as using a 1k range
 when the V1 path has a 1,000-record cap.
 
-## Seed Hash Contract
+## Runner Seed Hash Contract
 
-The seed hash is the cache key for the seed artifact.
+`seedHash` is not the GitHub Actions cache key. It is the runner's identity for
+reusable fixture tables inside a restored database dump.
 
 Include in the hash: case id and runner kind; the seed-relevant config (row
 count, fields, generator, relationships, batch size, fixture version); case file
@@ -91,7 +140,7 @@ file — conservative but correct. The shared helper also hashes the matching
 invalidate the seed. Later refactors should split seed builders from execute
 logic so the hash can be more precise.
 
-Seed artifacts must carry enough metadata to prove safe reuse:
+Seed fixture metadata must carry enough information to prove safe reuse:
 
 ```text
 caseId, runner, seedHash, fixtureVersion, recordCount,
@@ -99,19 +148,19 @@ tableIds / baseId or snapshot location, field ids and layout,
 sample record ids or deterministic lookup rules, createdAt, schemaSignature
 ```
 
-On a cache hit, still run a fast `seedReady` validation (table existence, field
-layout, record count, a few sample values) before `execute`. If it fails,
-discard the artifact and rebuild.
+On a cache hit, still run a fast `seedReady` validation before `execute`: table
+existence, field layout, record count, and whatever sample values or relationship
+checks the case needs. If it fails, discard the fixture and rebuild.
 
-### Cache Key Shape
+### Runner Seed Hash Shape
 
 ```text
 <case-id>:<runner>:<fixture-version>:<record-count>:<field-layout>:<generator-version>:<seed-code-hash>:<schema-signature>
 ```
 
 `schema-signature` is tied to the database shape the fixture depends on, not to
-every source commit. If a looser restore key picks up an older compatible
-fixture, the case must validate the restored table before measuring.
+every source commit. If a restore-key path picks up an older dump with the same
+schema hash, the runner must validate the restored table before measuring.
 
 ## Execute Stage
 
@@ -139,29 +188,25 @@ The execute jobs run in parallel when `engine_filter=v1,v2`. Each execute job
 has its own Postgres/Redis containers, so destructive cases can delete or clear
 their restored seed tables without corrupting the other engine's copy.
 
-The workflow now uses the same `pg_dump -Fc` / `pg_restore` pattern for seed
-reuse across workflow runs:
+The workflow uses `actions/cache`, `pg_dump -Fc`, and `pg_restore` in three
+paths:
 
-1. `actions/cache/restore` restores `perf-lab-seed-cache/e2e_test_teable.dump`.
-2. `Prepare e2e database` restores that dump when present; if restore fails, it
-   rebuilds from migrations and the normal e2e seed.
-3. The seed job runs `PERF_LAB_MODE=seed`. The seed app sets
-   `FORCE_V2_ALL=false` because the seed only creates source fixtures; V1/V2
-   differences are introduced later by the execute jobs. Case runners look for
-   hash-derived seed table names. A cache hit skips the row import phase; a miss
-   creates new seed tables.
-4. After a successful seed job, `pg_dump -Fc e2e_test_teable` saves the
-   database, including reusable seed fixtures, into both `actions/cache/save`
-   and a run artifact.
-5. Each execute job downloads that exact run artifact, restores it, sets
-   `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs the measured operations.
-
-The workflow cache key includes the runner OS, normalized case filter, database
-schema hash, and perf case/framework source hash. It deliberately does not
-include the target `teable-ee` commit ref, so ordinary backend code changes can
-reuse an existing seed dump when the seed contract is still compatible. Stale
-per-case tables are harmless because the runner-level `seedHash` decides whether
-they match the current case.
+1. Exact seed DB cache hit: `steps.seed-db-cache.outputs.cache-hit == 'true'`.
+   The seed job only asserts that `e2e_test_teable.dump` exists and writes a
+   summary. It skips dependency install, service startup, `PERF_LAB_MODE=seed`,
+   and seed validation.
+2. Cache miss or restore-key hit: the seed job installs dependencies, starts
+   Postgres/Redis, and runs `Prepare e2e database`. If a restored dump file is
+   present, it tries `pg_restore`; on restore failure, it rebuilds from
+   migrations and `prisma-db-seed -- --e2e`. It then runs
+   `PERF_LAB_MODE=seed`, where cache-aware runners validate existing
+   hash-derived seed tables or build missing/stale fixtures. A successful seed
+   job saves a new exact-key `pg_dump -Fc`.
+3. Execute jobs require the exact seed DB cache key
+   (`fail-on-cache-miss: true`). Each engine restores the dump into its own
+   database, sets `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs
+   `PERF_LAB_MODE=execute`. Cache-aware runners run `seedReady`/`sourceReady`
+   before measuring execute.
 
 `PERF_LAB_EXECUTE_DB_ISOLATED=true` tells destructive runners that their current
 database is disposable after the engine job finishes. In that mode cleanup can

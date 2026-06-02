@@ -120,20 +120,26 @@ Existing examples:
 
 ## Verification Contract
 
-Do not pass a case only because the request returned HTTP 200.
+Do not pass a case only because the request returned HTTP 200. Verify the final
+state through the real read path.
 
-Use both:
+Default to:
 
 - sample verification for known rows or known values
-- a paged full scan through the real read path, usually `getRecords` with
-  `take: 1000`
+- a paged full scan, usually `getRecords` with `take: 1000`
+
+Use the final-state contract to choose the exact checks. Computed-field cases
+must prove values. Delete cases must prove no visible records remain.
+Restore/undo cases may use a paged row-count scan when the case only promises
+row restoration; add sample value checks when the case promises value
+restoration.
 
 Existing examples:
 
 - Formula and lookup cases verify sampled rows first, then full-scan computed
   values.
 - Record mutation cases verify deleted/restored table state after each measured
-  transition.
+  transition; current restore cases validate restored row count.
 - Selection clear verifies cells are empty while rows remain present.
 
 ## Threshold Contract
