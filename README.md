@@ -94,6 +94,7 @@ Current cache-aware runners:
 
 - `formula-table`
 - `conditional-lookup`
+- `csv-import`
 - `record-delete`
 - `record-undo`
 - `record-redo`
@@ -114,6 +115,10 @@ workload.
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
+- `csv-import/mixed-10k-20fields-inplace-import`: create an empty 20-field
+  mixed-type table, import 10k deterministic CSV rows through
+  `PATCH /api/import/{baseId}/{tableId}`, and verify the typed inserted
+  records.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: create a 1k-row
   mixed-field table, clear all visible cells through
   `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.

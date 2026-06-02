@@ -25,6 +25,8 @@ Common examples:
 - `record-redo/delete-1k`: measured replay action + setup operation + scale.
 - `record-paste/mixed-10k-20fields-complex-copy-paste`: data shape + scale +
   field count + operation.
+- `csv-import/mixed-10k-20fields-inplace-import`: data shape + scale + field
+  count + import mode.
 
 The file names must match the case id:
 
@@ -97,3 +99,14 @@ Use these when the measured operation imports records through paste:
 Notice that paste keeps inserted rows in execute because insertion is the
 measured workload. Do not cache already-pasted records unless the case is
 explicitly changed into a read/verify benchmark.
+
+## CSV Import
+
+Use this when the measured operation imports CSV rows into an existing table:
+
+- Mixed 20-field CSV import:
+  - `cases/csv-import/mixed-10k-20fields-inplace-import.case.ts`
+  - `cases/csv-import/mixed-10k-20fields-inplace-import.md`
+
+Notice that CSV upload and analyze are setup diagnostics, while the primary
+metric starts at the import request and ends after records read verification.

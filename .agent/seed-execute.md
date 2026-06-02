@@ -98,8 +98,8 @@ changes in `teable-ee` reuse the same seed DB cache when the Prisma schema and
 perf-lab source hashes are unchanged. Prisma schema/migration changes change the
 key and force a new dump.
 
-The formula, conditional lookup, record delete, record undo, record redo, and
-selection clear runners are cache-aware today:
+The formula, conditional lookup, CSV import, record delete, record undo, record
+redo, and selection clear runners are cache-aware today:
 
 - seed miss: compute `seedHash`, create deterministic seed table(s), validate
   source records, and include those tables in the seed database dump.
@@ -108,10 +108,12 @@ selection clear runners are cache-aware today:
 - execute run: restore the seed dump into an isolated engine database, run
   `seedReady`/`sourceReady`, and then execute the measured operation.
 
-Paste runners still cold-build the execute table and delete it in `finally`
-because the 10k paste import is the measured workload. Caching pasted records
-would turn the case into a different read/verify benchmark instead of an import
-benchmark.
+CSV import caches the empty target table shape and best-effort import
+attachment metadata; execute still performs a fresh import and deletes the
+mutated table afterward. Paste runners still cold-build the execute table and
+delete it in `finally` because the 10k paste import is the measured workload.
+Caching pasted records would turn the case into a different read/verify
+benchmark instead of an import benchmark.
 
 Some cases can be engine-specific. If an engine cannot run the same operation
 shape, return a `skipped` result with a clear reason instead of silently changing
