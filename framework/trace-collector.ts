@@ -34,6 +34,7 @@ export interface PerfTraceArtifactSummary {
   uniqueTraceCount: number;
   savedTraceCount: number;
   failedTraceCount: number;
+  skippedTraceCount: number;
   artifactDir?: string;
   manifestPath?: string;
   jaegerApiBaseUrl?: string;
@@ -42,15 +43,36 @@ export interface PerfTraceArtifactSummary {
     traceId: string;
     stepId: string;
     path: string;
-    status: "saved" | "missing" | "error";
+    status: "saved" | "missing" | "error" | "skipped";
     error?: string;
+    attempts?: number;
+    durationMs?: number;
+    sampled?: boolean;
   }>;
 }
 
 type JaegerTraceFetchResult =
-  | { status: "saved"; traceId: string; data: unknown }
-  | { status: "missing"; traceId: string; error: string }
-  | { status: "error"; traceId: string; error: string };
+  | {
+      status: "saved";
+      traceId: string;
+      data: unknown;
+      attempts: number;
+      durationMs: number;
+    }
+  | {
+      status: "missing";
+      traceId: string;
+      error: string;
+      attempts: number;
+      durationMs: number;
+    }
+  | {
+      status: "error";
+      traceId: string;
+      error: string;
+      attempts: number;
+      durationMs: number;
+    };
 
 const PERF_HEADER_RUN_ID = "x-teable-perf-run-id";
 const PERF_HEADER_CASE_ID = "x-teable-perf-case-id";
@@ -68,6 +90,8 @@ const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
 };
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isTraceCollectionEnabled = () =>
   process.env.PERF_LAB_TRACE_ENABLED !== "false";
@@ -244,7 +268,9 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
     "PERF_LAB_TRACE_MAX_SNAPSHOTS",
     25,
   );
-  const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine);
+  const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine).filter(
+    (ref) => ref.sampled,
+  );
   const priorityRefs = uniqueRefs.filter(isPriorityTraceRef);
   const selected = [...priorityRefs];
   const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
@@ -276,8 +302,10 @@ const fetchJaegerTrace = async (
   );
   const startedAt = Date.now();
   let lastError = "";
+  let attempts = 0;
 
   while (Date.now() - startedAt <= timeoutMs) {
+    attempts += 1;
     try {
       const res = await fetch(`${jaegerApiBaseUrl}/api/traces/${traceId}`);
       if (res.ok) {
@@ -285,7 +313,13 @@ const fetchJaegerTrace = async (
           data?: unknown[];
         };
         if (Array.isArray(data.data) && data.data.length > 0) {
-          return { status: "saved", traceId, data };
+          return {
+            status: "saved",
+            traceId,
+            data,
+            attempts,
+            durationMs: Date.now() - startedAt,
+          };
         }
         lastError = "Jaeger returned an empty trace response";
       } else {
@@ -295,13 +329,15 @@ const fetchJaegerTrace = async (
       lastError = error instanceof Error ? error.message : String(error);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    await delay(pollIntervalMs);
   }
 
   return {
     status: lastError ? "error" : "missing",
     traceId,
     error: lastError || `Trace ${traceId} was not available in Jaeger`,
+    attempts,
+    durationMs: Date.now() - startedAt,
   };
 };
 
@@ -403,6 +439,7 @@ export const writeTraceArtifacts = async ({
     uniqueTraceCount: runRefs.length,
     savedTraceCount: 0,
     failedTraceCount: 0,
+    skippedTraceCount: 0,
     jaegerApiBaseUrl,
     refs: runRefs,
     savedTraces: [],
@@ -419,6 +456,27 @@ export const writeTraceArtifacts = async ({
   const traceDir = join(artifactDir, traceRelativeDir);
   await mkdir(traceDir, { recursive: true });
 
+  for (const ref of runRefs.filter((ref) => !ref.sampled)) {
+    summary.skippedTraceCount += 1;
+    summary.savedTraces.push({
+      traceId: ref.traceId,
+      stepId: ref.stepId,
+      path: "",
+      status: "skipped",
+      error:
+        "Traceparent is not sampled, so Jaeger is not expected to store it",
+      sampled: ref.sampled,
+    });
+  }
+
+  const settleMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_FETCH_SETTLE_MS",
+    2_000,
+  );
+  if (selectedRefs.length > 0) {
+    await delay(settleMs);
+  }
+
   const fetchResults = await Promise.all(
     selectedRefs.map(async (ref) => {
       if (!jaegerApiBaseUrl) {
@@ -429,6 +487,8 @@ export const writeTraceArtifacts = async ({
             traceId: ref.traceId,
             error:
               "PERF_LAB_JAEGER_API_BASE_URL or TRACE_LINK_BASE_URL is not set",
+            attempts: 0,
+            durationMs: 0,
           },
         };
       }
@@ -453,6 +513,9 @@ export const writeTraceArtifacts = async ({
         stepId: ref.stepId,
         path: relativePath,
         status: "saved",
+        attempts: result.attempts,
+        durationMs: result.durationMs,
+        sampled: ref.sampled,
       });
       continue;
     }
@@ -464,6 +527,9 @@ export const writeTraceArtifacts = async ({
       path: relativePath,
       status: result.status,
       error: result.error,
+      attempts: result.attempts,
+      durationMs: result.durationMs,
+      sampled: ref.sampled,
     });
   }
 
