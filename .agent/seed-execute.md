@@ -156,9 +156,10 @@ reuse across workflow runs:
 5. Each execute job downloads that exact run artifact, restores it, sets
    `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs the measured operations.
 
-The workflow cache key includes the target `teable-ee` ref, database schema
-hash, perf case/framework source hash, and run id. The broad restore key allows a
-previous successful dump with the same database schema to be reused; stale
+The workflow cache key includes the runner OS, normalized case filter, database
+schema hash, and perf case/framework source hash. It deliberately does not
+include the target `teable-ee` commit ref, so ordinary backend code changes can
+reuse an existing seed dump when the seed contract is still compatible. Stale
 per-case tables are harmless because the runner-level `seedHash` decides whether
 they match the current case.
 

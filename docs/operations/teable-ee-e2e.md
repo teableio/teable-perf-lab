@@ -87,6 +87,12 @@ contain reusable seed tables from previous cache-aware cases. Runner-level
 tables in the dump are ignored unless the hash matches and `seedReady`
 validation passes.
 
+The cross-run seed dump cache key is based on runner OS, normalized case filter,
+database schema hash, and perf-lab case/framework source hash. It does not
+include the target `teable-ee` commit SHA. A normal backend commit can therefore
+reuse the same seed dump, while Prisma schema/migration changes or seed code
+changes still force a rebuild.
+
 Formula, conditional lookup, record delete, record undo, record redo, and
 selection clear cases currently use this cache. Because each execute job
 restores the seed dump into an isolated database, destructive cases can mutate
