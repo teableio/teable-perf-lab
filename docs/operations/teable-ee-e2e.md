@@ -74,24 +74,35 @@ the session cookie on the shared OpenAPI axios instance.
 
 ## Seed Cache
 
-The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. Before the Nest app is
-started, it tries to restore `perf-lab-seed-cache/e2e_test_teable.dump` from
-GitHub Actions cache and load it with `pg_restore`. If that fails or no dump is
-available, it creates a clean e2e database from migrations and the standard
-`prisma-db-seed -- --e2e` path.
+The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. The seed DB cache key
+is based on runner OS, normalized case filter, Teable Prisma schema/migration
+hash, and perf-lab case/framework source hash. It does not include the target
+`teable-ee` commit SHA. Ordinary backend code changes can therefore reuse the
+same seed dump; Prisma schema/migration changes or seed code changes force a new
+dump.
 
-After a successful seed job, the workflow saves a new `pg_dump -Fc` snapshot and
-uploads the same dump as a run artifact for the execute jobs. That snapshot can
-contain reusable seed tables from previous cache-aware cases. Runner-level
-`seedHash` names decide whether a table is valid for a specific case; stale
-tables in the dump are ignored unless the hash matches and `seedReady`
-validation passes.
+The schema hash is computed from:
 
-The cross-run seed dump cache key is based on runner OS, normalized case filter,
-database schema hash, and perf-lab case/framework source hash. It does not
-include the target `teable-ee` commit SHA. A normal backend commit can therefore
-reuse the same seed dump, while Prisma schema/migration changes or seed code
-changes still force a rebuild.
+```text
+teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma
+teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**
+teable-ee/community/packages/db-data-prisma/prisma/schema.prisma
+teable-ee/community/packages/db-data-prisma/prisma/migrations/**
+```
+
+On an exact cache hit, the seed job only checks that
+`perf-lab-seed-cache/e2e_test_teable.dump` exists. It skips dependency install,
+service startup, seed mode, and seed validation. On a cache miss or restore-key
+hit, the seed job starts services, restores any available dump with `pg_restore`
+when possible, otherwise rebuilds from migrations and `prisma-db-seed -- --e2e`,
+then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
+hash-derived seed tables or build missing/stale fixtures. A successful seed job
+saves a new exact-key `pg_dump -Fc` snapshot.
+
+Execute jobs require the exact cache key, restore the dump into isolated V1/V2
+databases, and then run the measured cases. Runner-level `seedHash` names decide
+whether a table is valid for a specific case; stale tables in the dump are
+ignored unless the hash matches and `seedReady` validation passes.
 
 Formula, conditional lookup, record delete, record undo, record redo, and
 selection clear cases currently use this cache. Because each execute job
