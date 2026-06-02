@@ -1,66 +1,94 @@
 # teable-perf-lab
 
-Performance regression lab for Teable v2.
+Agent-facing context for Teable performance regression cases. Treat this file as
+the project map, not a product overview.
 
-The current MVP runs perf cases through the existing `teable-ee` e2e harness,
-reusing its auth bootstrap, e2e seed user, and Nest app startup path. GitHub
-Actions first prepares a reusable seed database dump, then restores that dump
-into isolated V1/V2 execute jobs. The execution mechanics (how the workflow
-checks out `teable-ee`, injects the framework, and runs cases) live in
-[docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md).
+This repo defines reproducible perf cases and runs them through the existing
+`teable-ee` e2e harness. GitHub Actions checks out `teable-ee`, injects this
+repo, prepares a reusable seed database dump, and restores that dump into
+isolated V1/V2 execute jobs. The measured operation runs after seed data is
+ready.
 
-This repository is intended to become the control plane for Teable performance
-regression validation:
+## Read Order
 
-- define reproducible performance cases as typed case configs
-- run API-level end-to-end workloads through the `teable-ee` e2e entrypoint
-- persist run history, metrics, artifacts, and trace snapshots
-- publish manual and scheduled regression reports
+- Adding or changing a case: read [.agent/README.md](.agent/README.md) next and
+  draft the case spec before coding.
+- Changing seed/cache behavior: read
+  [.agent/seed-execute.md](.agent/seed-execute.md).
+- Adding a runner: read [.agent/runners.md](.agent/runners.md), then
+  [.agent/new-runner-contract.md](.agent/new-runner-contract.md) only if reuse or
+  extension cannot express the case.
+- Running the GitHub workflow: read
+  [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
+  owns trigger commands and workflow inputs.
 
-The executable entrypoint is `perf-lab.e2e-spec.ts`. Case definitions live under
-`cases/**/*.case.ts`, and each case must have a same-name `cases/**/*.md`
-description beside it. Shared runners and artifacts live in `framework/`. Cases
-are registered in `registry.ts`.
+## File Map
 
-## Adding A Case
+- `perf-lab.e2e-spec.ts`: executable e2e entrypoint copied into `teable-ee`.
+- `registry.ts`: registered runnable cases and manual aliases.
+- `cases/**/*.case.ts`: typed case configs.
+- `cases/**/*.md`: same-name case descriptions used by registry sync.
+- `framework/runners/*.runner.ts`: runner implementations.
+- `framework/types.ts`: runner kinds, case config interfaces, result types.
+- `framework/seed-cache.ts`: runner-level seed hash helpers.
+- `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
+  report, and Teable registry sync.
+- `.agent/*.md`: agent workflow and implementation rules.
 
-The case authoring workflow lives in the agent playbook at
-[.agent/README.md](.agent/README.md). It walks through intake, drafting a case
-spec, choosing a runner, writing the files, registering, and validating. Start
-there whether you are a person or an agent adding a case. The broader design is
-in [docs/plan.md](docs/plan.md); operational details are in
-[docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md).
+## Hard Rules
 
-### Seed And Execute Split
+- Keep changes inside this repo unless the user explicitly asks otherwise.
+- Do not edit `../teable-ee` for perf-lab case implementation.
+- Every runnable case needs `cases/<group>/<name>.case.ts`, same-name `.md`, and
+  a `registry.ts` entry.
+- Shared execution behavior belongs in `framework/`.
+- Keep fixture data deterministic so V1, V2, and repeated runs compare.
+- Run `pnpm check` before finishing code or documentation changes.
 
-For import-heavy cases, keep the data construction stage separate from the
-measured operation:
+## Current Execution Model
+
+Every non-trivial case has two stages:
 
 - **Seed**: create deterministic source tables, fields, records, links, and
-  lookup keys. This stage may be cached.
-- **Seed ready**: validate table existence, field layout, record count, and
-  sample values even on a cache hit.
-- **Execute**: perform the measured operation against the ready seed, such as
-  creating a formula field or conditional lookup. This stage must run fresh
-  every time.
-- **Cleanup**: remove only execute-time changes when the seed is reusable. Do
-  not delete cached source tables.
+  lookup keys. This stage may be reused.
+- **Execute**: run the measured operation against a ready seed. This stage must
+  be fresh every run.
 
-The GitHub workflow restores and saves a Postgres dump as the cross-run seed
-cache container. The workflow first runs a seed job in a legacy-compatible
-bootstrap mode that makes all selected cache-aware source fixtures ready, dumps
-the database, and then fans out V1 and V2 execute jobs in parallel. Each execute
-job restores the same seed dump into its own Postgres container and only then
-sets the target engine, so the measured operation is what differs between V1 and
-V2. Destructive cases can mutate their local database without relying on cleanup
-to preserve another engine's seed. Local or single-database runs may still
-restore reusable seed tables during cleanup.
+CI uses two cache layers:
 
-Runner code still owns correctness: it computes `seedHash` from the case config,
-same-name `cases/**/*.case.ts` file, seed runner code, fixture version, and
-database schema signature. If the hash-derived seed table exists and passes
-`seedReady`, the row import phase is skipped. If validation fails, the runner
-deletes the stale fixture and rebuilds it.
+- **Workflow seed DB cache**: GitHub Actions restores/saves
+  `perf-lab-seed-cache/e2e_test_teable.dump`. Its key is runner OS, normalized
+  case filter, database schema hash, and perf-lab case/framework source hash.
+  It deliberately does not include the target `teable-ee` commit ref.
+- **Runner `seedHash`**: each runner decides whether tables inside the restored
+  dump match its current case config and seed code. If the hash-derived table
+  exists and `seedReady` passes, row import is skipped. If validation fails, the
+  runner deletes the stale fixture and rebuilds it.
+
+The schema hash is computed from the same four `teable-ee` path groups used in
+the workflow:
+
+```text
+teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma
+teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**
+teable-ee/community/packages/db-data-prisma/prisma/schema.prisma
+teable-ee/community/packages/db-data-prisma/prisma/migrations/**
+```
+
+Non-schema `teable-ee` code changes do not change the workflow seed DB cache
+key; Prisma schema or migration changes do.
+
+Actual workflow behavior:
+
+- Exact seed DB cache hit: the seed job only checks that the dump file exists.
+  It skips dependency install, app startup, seed mode, and seed validation.
+- Cache miss or restore-key hit: the seed job starts Teable, restores any
+  available dump if possible, runs `PERF_LAB_MODE=seed`, lets cache-aware runners
+  validate/build their fixtures, then saves a new exact-key dump.
+- Execute jobs restore the exact-key dump into separate V1/V2 Postgres
+  containers, set the target engine, and run measured operations. Cache-aware
+  runners run `seedReady`/`sourceReady` again before execute. Destructive cases
+  may mutate their isolated execute database.
 
 Current cache-aware runners:
 
@@ -75,12 +103,6 @@ Paste cases intentionally keep the 10k inserted rows in the execute stage
 because the paste import is the measured operation. Their reusable seed is only
 an empty table shape, so caching it would not remove the expensive measured
 workload.
-
-When adding a new cacheable runner, document the seed and execute phases in the
-case markdown, include the seed-relevant config in `seedConfig`, hash the seed
-builder code through `buildSeedCacheInfo`, and report `seedHash`,
-`seedCacheHit`, and seed timings in the artifact. See
-[.agent/seed-execute.md](.agent/seed-execute.md) for the full contract.
 
 ## Available Cases
 
