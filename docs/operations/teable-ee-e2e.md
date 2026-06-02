@@ -104,12 +104,14 @@ databases, and then run the measured cases. Runner-level `seedHash` names decide
 whether a table is valid for a specific case; stale tables in the dump are
 ignored unless the hash matches and `seedReady` validation passes.
 
-Formula, conditional lookup, record delete, record undo, record redo, and
-selection clear cases currently use this cache. Because each execute job
-restores the seed dump into an isolated database, destructive cases can mutate
-their seed tables during execution without affecting the other engine or the
-next workflow run. Paste cases intentionally do not skip the 10k paste workload
-because that import is the measured execute step.
+Formula, conditional lookup, CSV import, record delete, record undo, record
+redo, and selection clear cases currently use this cache. CSV import caches the
+empty target table shape and best-effort import attachment metadata; the import
+itself still runs fresh in execute. Because each execute job restores the seed
+dump into an isolated database, destructive cases can mutate their seed tables
+during execution without affecting the other engine or the next workflow run.
+Paste cases intentionally do not skip the 10k paste workload because that import
+is the measured execute step.
 When a case reports `skipped`, the workflow still succeeds and writes artifacts;
 this is reserved for engine-specific capability gaps. Prefer reshaping a case to
 the same V1/V2 user action, such as the 1k record mutation cases, before adding

@@ -5,6 +5,7 @@ export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
   | "conditional-lookup"
+  | "csv-import"
   | "record-paste"
   | "record-delete"
   | "record-undo"
@@ -20,6 +21,7 @@ export interface PerfCase {
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
+    | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordDeleteCaseConfig
     | RecordUndoCaseConfig
@@ -168,6 +170,27 @@ export interface RecordPasteCaseConfig {
   };
   threshold: {
     metric: "paste10kMs";
+    maxMs: number;
+  };
+}
+
+export interface CsvImportCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "mixed-csv-import";
+    titlePrefix: string;
+    payloadPrefix: string;
+    valuePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+  };
+  threshold: {
+    metric: "csvInplaceImportReadyMs";
     maxMs: number;
   };
 }
