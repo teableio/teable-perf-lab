@@ -167,9 +167,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+            perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
 
       - name: Publish seed database cache hit summary
         if: steps.seed-db-cache.outputs.cache-hit == 'true'
@@ -338,7 +338,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed artifacts
         if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
@@ -417,7 +417,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ inputs.teable_ee_ref }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           fail-on-cache-miss: true
 
       - name: Setup pnpm
