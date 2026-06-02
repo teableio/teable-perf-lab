@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
+import { runCsvImportCase } from "./runners/csv-import.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
@@ -29,6 +30,8 @@ const runCaseByKind = async (
       return runFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return runConditionalLookupCase(perfCase, context);
+    case "csv-import":
+      return runCsvImportCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
     case "record-delete":

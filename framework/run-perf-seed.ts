@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
+import { seedCsvImportCase } from "./runners/csv-import.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
@@ -17,6 +18,8 @@ const seedCaseByKind = async (
       return seedFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return seedConditionalLookupCase(perfCase, context);
+    case "csv-import":
+      return seedCsvImportCase(perfCase, context);
     case "record-delete":
     case "record-undo":
     case "record-redo":

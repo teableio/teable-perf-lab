@@ -15,8 +15,9 @@ as an assumption.
   cleanup. Start the primary timer only after seed is ready.
 - **Primary Metric**: the single metric compared against the threshold, and the
   proposed `maxMs`.
-- **Verification**: sample rows to poll + the full-scan read that proves
-  correctness.
+- **Verification**: the read checks that prove the promised final state. Default
+  to sample rows plus full scan; use count scan when the case only promises row
+  count / empty-table state.
 - **Open Assumptions**: every value you guessed (row count, field shape, metric
   bound, endpoint detail). Flag the ones that would change the implementation.
 ```
@@ -32,8 +33,9 @@ as an assumption.
 - **Primary Metric**: must measure the operation + readiness, not seed/setup
   cost, unless the case explicitly measures setup. Setup durations are recorded
   as diagnostic metrics, never folded into the primary one.
-- **Verification**: two levels — quick poll on a few known rows, then a paged
-  full scan through the real read path. Correctness is required, not optional.
+- **Verification**: prove the final state through the real read path. Use quick
+  sample checks plus a paged full scan for value-producing cases. Count scan is
+  enough only when the spec promises row count or empty-table state.
 - **Assumptions**: anything the user did not state and you chose. Surface the
   ones that matter (a row count that flips the product onto a different code
   path; whether the metric may include a setup step) so they can correct you.
@@ -41,4 +43,5 @@ as an assumption.
 ## After Confirmation
 
 Proceed to write `cases/<group>/<case-name>.case.ts` + `.md`, register in
-`registry.ts`, then `pnpm check`. See the flow in [README.md](README.md).
+`registry.ts`, then `pnpm check`. See the flow in
+[.agent/README.md](README.md).
