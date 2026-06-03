@@ -170,6 +170,9 @@ const valuesMatch = (
   if (Array.isArray(expectedValue)) {
     return JSON.stringify(actualValue) === JSON.stringify(expectedValue);
   }
+  if (typeof expectedValue === "boolean" && actualValue == null) {
+    return expectedValue === false;
+  }
   if (typeof expectedValue === "number") {
     return Number(actualValue) === expectedValue;
   }
