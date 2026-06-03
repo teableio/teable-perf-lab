@@ -174,14 +174,20 @@ const getExpectedCellValue = (
 };
 
 const normalizeValue = (value: unknown) => {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
-    return value.slice(0, 10);
+    return value.includes("T")
+      ? new Date(value).toISOString().slice(0, 10)
+      : value.slice(0, 10);
   }
   return value;
 };
 
 const valuesMatch = (expected: unknown, actual: unknown) =>
-  JSON.stringify(normalizeValue(actual)) === JSON.stringify(expected);
+  JSON.stringify(normalizeValue(actual)) ===
+  JSON.stringify(normalizeValue(expected));
 
 const buildRecordFields = (
   config: RecordReorderCaseConfig,
