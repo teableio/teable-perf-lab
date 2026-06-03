@@ -1,10 +1,11 @@
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
+  axios,
   createRecords,
   deleteRecords,
   updateTableDescription,
+  urlBuilder,
 } from "@teable/openapi";
-import { sqlQueryBase } from "@teable/openapi-ee";
 import {
   createTable,
   getFields,
@@ -32,6 +33,14 @@ type Measurement<T> = {
   durationMs: number;
   result: T;
 };
+
+const SQL_QUERY_BASE = "/base/{baseId}/sql-query";
+
+const sqlQueryBase = async (
+  baseId: string,
+  sqlQueryRo: { sql: string },
+): Promise<{ data: { rows: Array<Record<string, unknown>> } }> =>
+  axios.post(urlBuilder(SQL_QUERY_BASE, { baseId }), sqlQueryRo);
 
 type NamedField = {
   id: string;
