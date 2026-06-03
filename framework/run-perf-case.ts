@@ -6,9 +6,12 @@ import { runCsvImportCase } from "./runners/csv-import.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
+import { runRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
 import { runRecordRedoCase } from "./runners/record-redo.runner";
+import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
+import { runRecordUpdateCase } from "./runners/record-update.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
@@ -34,6 +37,12 @@ const runCaseByKind = async (
       return runCsvImportCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
+    case "record-create":
+      return runRecordCreateCase(perfCase, context);
+    case "record-update":
+      return runRecordUpdateCase(perfCase, context);
+    case "record-reorder":
+      return runRecordReorderCase(perfCase, context);
     case "record-delete":
       return runRecordDeleteCase(perfCase, context);
     case "record-undo":

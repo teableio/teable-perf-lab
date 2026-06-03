@@ -3,9 +3,12 @@ import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
+import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
+import recordReorder10kMoveLast1kToFrontCase from "./cases/record-reorder/10k-move-last-1k-to-front.case";
+import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mixed-1k-20fields-bulk-update.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
@@ -20,6 +23,9 @@ const cases = [
   csvImportMixed10k20FieldsInplaceImportCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
+  recordCreateMixed1k20FieldsBulkCreateCase,
+  recordUpdateMixed1k20FieldsBulkUpdateCase,
+  recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
   recordRedoDelete1kCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
@@ -45,6 +51,15 @@ const caseAliases = new Map([
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["record-delete", "record-delete/delete-1k"],
   ["delete/1k", "record-delete/delete-1k"],
+  ["record-create", "record-create/mixed-1k-20fields-bulk-create"],
+  ["create/1k", "record-create/mixed-1k-20fields-bulk-create"],
+  ["create/1k-mixed-20fields", "record-create/mixed-1k-20fields-bulk-create"],
+  ["record-update", "record-update/mixed-1k-20fields-bulk-update"],
+  ["update/1k", "record-update/mixed-1k-20fields-bulk-update"],
+  ["update/1k-mixed-20fields", "record-update/mixed-1k-20fields-bulk-update"],
+  ["record-reorder", "record-reorder/10k-move-last-1k-to-front"],
+  ["reorder/10k-last-1k", "record-reorder/10k-move-last-1k-to-front"],
+  ["reorder/last-1k-front", "record-reorder/10k-move-last-1k-to-front"],
   ["record-undo", "record-undo/delete-1k"],
   ["undo/1k", "record-undo/delete-1k"],
   ["record-redo", "record-redo/delete-1k"],

@@ -29,6 +29,9 @@ reuse existing runner -> extend a runner -> new runner
 | `conditional-lookup` | source + host tables, add conditional lookup, verify values            | lookup / cross-table computed fields  |
 | `csv-import`         | empty table, upload CSV, import into existing table, verify records    | CSV import into an existing table     |
 | `record-paste`       | empty table, paste deterministic clipboard content via paste API       | paste / bulk insert through selection |
+| `record-create`      | empty mixed table, create typed records through OpenAPI                | direct bulk record create             |
+| `record-update`      | seeded mixed table, update typed records through OpenAPI               | direct bulk record update             |
+| `record-reorder`     | seeded mixed table, move a visible record block through OpenAPI        | manual row order mutation             |
 | `selection-clear`    | seeded table, call selection clear stream, verify cells empty          | clearing a large cell range           |
 | `record-delete`      | mixed 1k table, delete all rows via selection delete                   | row delete throughput                 |
 | `record-undo`        | delete as setup, then measure undo-stream                              | undo replay                           |
@@ -43,6 +46,9 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **conditional-lookup**: source/host prefixes, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `verify`, `threshold{metric:"conditionalLookupReadyMs"}`. The `permutation` has a coprime constraint — see Deterministic Data in [checklist.md](checklist.md).
 - **csv-import**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-csv-import",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"csvInplaceImportReadyMs"}`.
 - **record-paste**: `tableNamePrefix`, `rowCount`, optional `maxPasteCells`, `fields[]`, `generator{type:"flat-copy-paste"|"mixed-copy-paste",titlePrefix,...}`, `verify`, `threshold{metric:"paste10kMs"}`.
+- **record-create**: `tableNamePrefix`, `rowCount`, `fields[]`, `generator{type:"mixed-record-create",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"bulkCreate1kMs"}`. The reusable seed is the empty mixed table plus cached typed create payload; execute creates records fresh.
+- **record-update**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-record-update",seedPrefix,updatePrefix}`, `verify`, `threshold{metric:"bulkUpdate1kMs"}`. The reusable seed stores deterministic records and cached record ids; non-isolated cleanup restores seed values.
+- **record-reorder**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `reorder{blockStartOffset,blockSize,anchorOffset,position}`, `verify`, `threshold{metric:"moveLast1kToFrontMs"}`. The reusable seed stores initial order metadata; non-isolated cleanup restores the original order.
 - **selection-clear**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"flat-table-operation",titlePrefix,payloadPrefix}`, `verify`, `threshold{metric:"clear1kMs"}`.
 - **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ only in the threshold metric: `delete1kMs` / `undoReplay1kMs` / `redoReplay1kMs`. The shared mixed-record base config is exported as `undoRedo10kBaseConfig` in `framework/runners/record-undo-redo.shared.ts` — spread it and override `rowCount`, `tableNamePrefix`, `verify`, and `threshold` for the 1k cases.
 

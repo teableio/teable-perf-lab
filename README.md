@@ -95,6 +95,9 @@ Current cache-aware runners:
 - `formula-table`
 - `conditional-lookup`
 - `csv-import`
+- `record-create`
+- `record-update`
+- `record-reorder`
 - `record-delete`
 - `record-undo`
 - `record-redo`
@@ -119,6 +122,15 @@ workload.
   mixed-type table, import 10k deterministic CSV rows through
   `PATCH /api/import/{baseId}/{tableId}`, and verify the typed inserted
   records.
+- `record-create/mixed-1k-20fields-bulk-create`: create 1k typed records in an
+  empty 20-field mixed table through `POST /api/table/{tableId}/record`, then
+  verify row count.
+- `record-update/mixed-1k-20fields-bulk-update`: update 1k existing records
+  across 20 mixed fields through `PATCH /api/table/{tableId}/record`, then
+  verify sampled typed records.
+- `record-reorder/10k-move-last-1k-to-front`: move the original last 1k records
+  to the front of a 10k-row mixed table through the record reorder API, then
+  verify sampled view positions.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: create a 1k-row
   mixed-field table, clear all visible cells through
   `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
