@@ -274,7 +274,7 @@ const seedRecords = async (
         createRecords(fixture.tableId, {
           fieldKeyType: FieldKeyType.Name,
           typecast: true,
-          records: batch.map((fields) => ({ fields })),
+          records: batch,
         }),
     );
     expect(batchMeasurement.result.records).toHaveLength(batch.length);
