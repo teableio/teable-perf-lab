@@ -6,11 +6,11 @@ import {
   inplaceImportTableFromFile,
   notify,
   SUPPORTEDTYPE,
-  sqlQueryBase,
   UploadType,
   uploadFile,
   updateTableDescription,
 } from "@teable/openapi";
+import { sqlQueryBase } from "@teable/openapi-ee";
 import {
   createTable,
   getFields,

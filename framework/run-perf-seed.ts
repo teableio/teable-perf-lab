@@ -4,7 +4,10 @@ import { roundMetric } from "./metrics";
 import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { seedCsvImportCase } from "./runners/csv-import.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
+import { seedRecordCreateCase } from "./runners/record-create.runner";
+import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
+import { seedRecordUpdateCase } from "./runners/record-update.runner";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
@@ -24,8 +27,14 @@ const seedCaseByKind = async (
     case "record-undo":
     case "record-redo":
       return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
+    case "record-update":
+      return seedRecordUpdateCase(perfCase, context);
+    case "record-reorder":
+      return seedRecordReorderCase(perfCase, context);
     case "selection-clear":
       return seedSelectionClearCase(perfCase, context);
+    case "record-create":
+      return seedRecordCreateCase(perfCase, context);
     case "http-endpoint":
     case "record-paste":
       return {

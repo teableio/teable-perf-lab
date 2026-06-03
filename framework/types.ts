@@ -7,6 +7,9 @@ export type PerfRunnerKind =
   | "conditional-lookup"
   | "csv-import"
   | "record-paste"
+  | "record-create"
+  | "record-update"
+  | "record-reorder"
   | "record-delete"
   | "record-undo"
   | "record-redo"
@@ -23,6 +26,9 @@ export interface PerfCase {
     | ConditionalLookupCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
+    | RecordCreateCaseConfig
+    | RecordUpdateCaseConfig
+    | RecordReorderCaseConfig
     | RecordDeleteCaseConfig
     | RecordUndoCaseConfig
     | RecordRedoCaseConfig
@@ -195,6 +201,48 @@ export interface CsvImportCaseConfig {
   };
 }
 
+export interface RecordCreateCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "mixed-record-create";
+    titlePrefix: string;
+    payloadPrefix: string;
+    valuePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "bulkCreate1kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordUpdateCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "mixed-record-update";
+    seedPrefix: string;
+    updatePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "bulkUpdate1kMs";
+    maxMs: number;
+  };
+}
+
 export interface SelectionClearCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
@@ -252,6 +300,19 @@ export interface RecordUndoCaseConfig extends RecordUndoRedoBaseCaseConfig {
 export interface RecordRedoCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
     metric: "redoReplay1kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordReorderCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  reorder: {
+    blockStartOffset: number;
+    blockSize: number;
+    anchorOffset: number;
+    position: "before" | "after";
+  };
+  threshold: {
+    metric: "moveLast1kToFrontMs";
     maxMs: number;
   };
 }
