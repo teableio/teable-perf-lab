@@ -173,21 +173,51 @@ const getExpectedCellValue = (
   }
 };
 
-const normalizeValue = (value: unknown) => {
+const getFieldTimeZone = (field: RecordReorderCaseConfig["fields"][number]) => {
+  const options = field.options as
+    | { formatting?: { timeZone?: string } }
+    | undefined;
+  return options?.formatting?.timeZone ?? "UTC";
+};
+
+const formatDateInTimeZone = (value: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get(
+    "day",
+  )}`;
+};
+
+const normalizeValue = (
+  field: RecordReorderCaseConfig["fields"][number],
+  value: unknown,
+) => {
+  if (field.type !== FieldType.Date) {
+    return value;
+  }
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
+    return formatDateInTimeZone(value, getFieldTimeZone(field));
   }
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
     return value.includes("T")
-      ? new Date(value).toISOString().slice(0, 10)
+      ? formatDateInTimeZone(new Date(value), getFieldTimeZone(field))
       : value.slice(0, 10);
   }
   return value;
 };
 
-const valuesMatch = (expected: unknown, actual: unknown) =>
-  JSON.stringify(normalizeValue(actual)) ===
-  JSON.stringify(normalizeValue(expected));
+const valuesMatch = (
+  field: RecordReorderCaseConfig["fields"][number],
+  expected: unknown,
+  actual: unknown,
+) =>
+  JSON.stringify(normalizeValue(field, actual)) ===
+  JSON.stringify(normalizeValue(field, expected));
 
 const buildRecordFields = (
   config: RecordReorderCaseConfig,
@@ -795,7 +825,7 @@ const verifySampleFields = async (
       actual[field.name] = actualValue;
       expected[field.name] = expectedValue;
 
-      if (!valuesMatch(expectedValue, actualValue)) {
+      if (!valuesMatch(field, expectedValue, actualValue)) {
         throw new Error(
           `Row ${rowNumber} ${field.name} changed during reorder: expected ${String(
             expectedValue,
