@@ -1,10 +1,8 @@
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
-  axios,
   createRecords,
   deleteRecords,
   updateTableDescription,
-  urlBuilder,
 } from "@teable/openapi";
 import {
   createTable,
@@ -20,6 +18,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -33,14 +32,6 @@ type Measurement<T> = {
   durationMs: number;
   result: T;
 };
-
-const SQL_QUERY_BASE = "/base/{baseId}/sql-query";
-
-const sqlQueryBase = async (
-  baseId: string,
-  sqlQueryRo: { sql: string },
-): Promise<{ data: { rows: Array<Record<string, unknown>> } }> =>
-  axios.post(urlBuilder(SQL_QUERY_BASE, { baseId }), sqlQueryRo);
 
 type NamedField = {
   id: string;
@@ -277,13 +268,13 @@ const assertSqlRowCount = async (
   dbTableName: string,
   expectedRowCount: number,
 ) => {
-  const countResult = await sqlQueryBase(baseId, {
-    sql: `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
+  const rows = await queryPerfDb<{ count: string }>(
+    `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
       baseId,
       dbTableName,
     )}`,
-  });
-  const rowCount = Number(countResult.data.rows[0]?.count);
+  );
+  const rowCount = Number(rows[0]?.count);
   if (rowCount !== expectedRowCount) {
     throw new Error(
       `Expected ${expectedRowCount} created records by SQL count, got ${rowCount}`,

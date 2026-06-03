@@ -2,13 +2,11 @@ import { Buffer } from "node:buffer";
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
   analyzeFile,
-  axios,
   getSignature,
   inplaceImportTableFromFile,
   notify,
   SUPPORTEDTYPE,
   UploadType,
-  urlBuilder,
   uploadFile,
   updateTableDescription,
 } from "@teable/openapi";
@@ -27,6 +25,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   CsvImportCaseConfig,
@@ -76,13 +75,6 @@ const CSV_FILE_NAME = "csv-import-mixed-case-10k-20fields.csv";
 const CSV_IMPORT_FIXTURE_VERSION = "csv-import-v1";
 
 const CSV_IMPORT_METADATA_PREFIX = "perf-lab:csv-import:";
-const SQL_QUERY_BASE = "/base/{baseId}/sql-query";
-
-const sqlQueryBase = async (
-  baseId: string,
-  sqlQueryRo: { sql: string },
-): Promise<{ data: { rows: Array<Record<string, unknown>> } }> =>
-  axios.post(urlBuilder(SQL_QUERY_BASE, { baseId }), sqlQueryRo);
 
 type CachedImportAttachment = {
   fixtureVersion: string;
@@ -350,13 +342,13 @@ const assertCsvImportTargetEmpty = async (
   baseId: string,
   fixture: Pick<CsvFixture, "dbTableName">,
 ) => {
-  const countResult = await sqlQueryBase(baseId, {
-    sql: `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
+  const rows = await queryPerfDb<{ count: string }>(
+    `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
       baseId,
       fixture.dbTableName,
     )}`,
-  });
-  const actualRowCount = Number(countResult.data.rows[0]?.count);
+  );
+  const actualRowCount = Number(rows[0]?.count);
   if (actualRowCount !== 0) {
     throw new Error(`Expected empty CSV import target, got ${actualRowCount}`);
   }
@@ -372,13 +364,13 @@ const assertImportedRows = async (
   config: CsvImportCaseConfig,
 ) => {
   const projection = fields.map((field) => field.id);
-  const countResult = await sqlQueryBase(baseId, {
-    sql: `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
+  const rows = await queryPerfDb<{ count: string }>(
+    `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
       baseId,
       dbTableName,
     )}`,
-  });
-  const actualRowCount = Number(countResult.data.rows[0]?.count);
+  );
+  const actualRowCount = Number(rows[0]?.count);
 
   if (actualRowCount !== config.rowCount) {
     throw new Error(
