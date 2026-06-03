@@ -76,7 +76,7 @@ type RecordCreatePrimaryResult = {
   verifiedRows: Awaited<ReturnType<typeof assertCreatedRowCount>>;
 };
 
-const RECORD_CREATE_FIXTURE_VERSION = "record-create-v1";
+const RECORD_CREATE_FIXTURE_VERSION = "record-create-v2";
 const RECORD_CREATE_METADATA_PREFIX = "perf-lab-record-create:";
 
 type CachedCreatePayload = {
@@ -140,30 +140,6 @@ const getMultiSelectChoices = (
   const first = choices[(rowNumber - 1) % choices.length].name;
   const second = choices[rowNumber % choices.length].name;
   return first === second ? [first] : [first, second];
-};
-
-const getSelectChoiceId = (field: CreateField, rowNumber: number) => {
-  const choice =
-    selectChoices(field)[(rowNumber - 1) % selectChoices(field).length];
-  if (!choice?.id) {
-    throw new Error(`Select field ${field.name} choice is missing an id`);
-  }
-  return choice.id;
-};
-
-const getMultiSelectChoiceIds = (field: CreateField, rowNumber: number) => {
-  const choices = selectChoices(field);
-  if (choices.length === 0) {
-    throw new Error(`Multiple select field ${field.name} has no choices`);
-  }
-  const first = choices[(rowNumber - 1) % choices.length];
-  const second = choices[rowNumber % choices.length];
-  if (!first?.id || !second?.id) {
-    throw new Error(
-      `Multiple select field ${field.name} choice is missing an id`,
-    );
-  }
-  return first.id === second.id ? [first.id] : [first.id, second.id];
 };
 
 const getExpectedValue = (
@@ -231,26 +207,12 @@ const buildCreateRecordsPayload = (
     return {
       fields: Object.fromEntries(
         fields.map((field) => [
-          field.id,
-          getPayloadValue(field, rowNumber, config),
+          field.name,
+          getExpectedValue(field, rowNumber, config),
         ]),
       ),
     };
   });
-
-const getPayloadValue = (
-  field: CreateField,
-  rowNumber: number,
-  config: RecordCreateCaseConfig,
-): ExpectedCellValue => {
-  if (field.type === FieldType.SingleSelect) {
-    return getSelectChoiceId(field, rowNumber);
-  }
-  if (field.type === FieldType.MultipleSelect) {
-    return getMultiSelectChoiceIds(field, rowNumber);
-  }
-  return getExpectedValue(field, rowNumber, config);
-};
 
 const quoteSqlIdentifier = (identifier: string) =>
   `"${identifier.replace(/"/g, '""')}"`;
@@ -534,7 +496,7 @@ const createAndVerifyRecords = async (
 ): Promise<RecordCreatePrimaryResult> => {
   const createMeasurement = await measureAsync("createRequest", async () => {
     const response = await createRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
+      fieldKeyType: FieldKeyType.Name,
       typecast: false,
       records: fixture.records,
     });
@@ -679,7 +641,7 @@ const buildRecordCreateCaseResult = ({
             status: primaryResult.createStatus,
             requestMs: primaryResult.createRequestMs,
             createdRecords: primaryResult.createdRecordIds.length,
-            fieldKeyType: "id",
+            fieldKeyType: "name",
             typecast: false,
             responseHeaders: primaryResult.responseHeaders,
           }

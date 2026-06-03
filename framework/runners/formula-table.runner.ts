@@ -94,6 +94,11 @@ type FormulaSeedFixture = {
   reusable: boolean;
 };
 
+type CompiledFormula = FormulaFieldCaseConfig & {
+  compiledExpression: string;
+  id?: string;
+};
+
 const sourceFieldNames = ["Title", "A", "B", "C"] as const;
 
 const resolveSourceFields = (fields: NamedField[]): SourceFields => {
@@ -832,6 +837,71 @@ const createEmptyMeasurement = <T>(
   result,
 });
 
+const createFormulaFieldsAndWaitForSamples = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  tableId: string,
+  formulas: CompiledFormula[],
+  sampleRecords: SeededSampleRecord[],
+  config: FormulaTableCaseConfig,
+  onCreated: (formula: CompiledFormula & { id: string }) => void,
+) => {
+  const createdFormulas: Array<CompiledFormula & { id: string }> = [];
+
+  for (const formula of formulas) {
+    const formulaField = await withPerfTraceStep(
+      context,
+      perfCase,
+      `createFormulaField:${formula.name}`,
+      () =>
+        measureAsync(formula.name, () =>
+          createField(tableId, {
+            type: FieldType.Formula,
+            name: formula.name,
+            options: {
+              expression: formula.compiledExpression,
+            },
+          }),
+        ),
+    );
+    const createdFormula = {
+      ...formula,
+      id: formulaField.result.id,
+    };
+    createdFormulas.push(createdFormula);
+    onCreated(createdFormula);
+  }
+
+  return Promise.all(
+    createdFormulas.map(async (formula) => {
+      const measurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        `waitFormulaSamples:${formula.name}`,
+        () =>
+          measureAsync(formula.name, async () => ({
+            formula,
+            verifiedSamples: await waitForFormulaSamples(
+              tableId,
+              formula,
+              sampleRecords,
+              config,
+              {
+                timeoutMs: config.verify.timeoutMs,
+                pollIntervalMs: config.verify.pollIntervalMs,
+              },
+            ),
+          })),
+      );
+
+      return {
+        ...measurement.result,
+        durationMs: measurement.durationMs,
+      };
+    }),
+  );
+};
+
 const buildFormulaSeedFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
@@ -1131,49 +1201,17 @@ export const runFormulaTableCase = async (
 
     try {
       formulasReadyMeasurement = await measureAsync("formulasReady", () =>
-        Promise.all(
-          formulas.map(async (formula) => {
-            const measurement = await withPerfTraceStep(
-              context,
-              perfCase,
-              `createFormulaField:${formula.name}`,
-              () =>
-                measureAsync(formula.name, async () => {
-                  const formulaField = await createField(tableId, {
-                    type: FieldType.Formula,
-                    name: formula.name,
-                    options: {
-                      expression: formula.compiledExpression,
-                    },
-                  });
-                  const createdFormula = {
-                    ...formula,
-                    id: formulaField.id,
-                  };
-                  createdFormulaFieldIds.push(formulaField.id);
-                  createdFormulaFields.set(formula.name, createdFormula);
-                  const verifiedSamples = await waitForFormulaSamples(
-                    tableId,
-                    createdFormula,
-                    sampleRecords,
-                    config,
-                    {
-                      timeoutMs: config.verify.timeoutMs,
-                      pollIntervalMs: config.verify.pollIntervalMs,
-                    },
-                  );
-                  return {
-                    formula: createdFormula,
-                    verifiedSamples,
-                  };
-                }),
-            );
-
-            return {
-              ...measurement.result,
-              durationMs: measurement.durationMs,
-            };
-          }),
+        createFormulaFieldsAndWaitForSamples(
+          context,
+          perfCase,
+          tableId,
+          formulas,
+          sampleRecords,
+          config,
+          (createdFormula) => {
+            createdFormulaFieldIds.push(createdFormula.id);
+            createdFormulaFields.set(createdFormula.name, createdFormula);
+          },
         ),
       );
       fullFormulaScanReadyMeasurement = await withPerfTraceStep(
