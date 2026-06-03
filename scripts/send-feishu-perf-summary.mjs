@@ -229,14 +229,15 @@ const buildCaseRows = (payloads) => {
             ? payload.thresholds.some((threshold) => threshold.passed === false)
             : payload.result === "fail",
         );
-      const v2Slower =
-        hasBaseline && v2Value > v1Value * 1.2 && v2Value - v1Value > 100;
-      const status = thresholdFailed || v2Slower ? "attention" : hasBaseline ? "ok" : "neutral";
+      const v2NotFaster = hasBaseline && v2Value >= v1Value;
+      const status = thresholdFailed || v2NotFaster ? "attention" : hasBaseline ? "ok" : "neutral";
       let comparison = "无 V1 基线";
       if (hasBaseline) {
         comparison =
-          ratio >= 1
+          ratio > 1
             ? `快 ${ratio.toFixed(1)}x`
+            : ratio === 1
+              ? "相同速度"
             : `慢 ${(1 / ratio).toFixed(1)}x`;
       }
 
