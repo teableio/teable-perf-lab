@@ -197,6 +197,9 @@ const normalizeValue = (
   field: RecordReorderCaseConfig["fields"][number],
   value: unknown,
 ) => {
+  if (field.type === FieldType.Checkbox && value == null) {
+    return false;
+  }
   if (field.type !== FieldType.Date) {
     return value;
   }
