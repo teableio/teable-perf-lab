@@ -1,5 +1,5 @@
 import { FieldKeyType, FieldType } from "@teable/core";
-import { updateRecords, updateTableDescription } from "@teable/openapi";
+import { updateRecordOrders, updateTableDescription } from "@teable/openapi";
 import {
   createRecords,
   createTable,
@@ -93,7 +93,6 @@ type ReorderOperationResult = {
 const RECORD_REORDER_FIXTURE_VERSION = "record-reorder-v2";
 const RECORD_REORDER_METADATA_PREFIX = "perf-lab-record-reorder:";
 const DEFAULT_PAGE_SIZE = 1_000;
-const EMPTY_FIELDS: Record<string, never> = {};
 const RECORD_REORDER_RUNNER = "record-reorder" as PerfRunnerKind;
 
 type CachedReorderOrder = {
@@ -823,28 +822,19 @@ const moveRecords = async ({
   config: RecordReorderCaseConfig;
 }) => {
   const requestMeasurement = await measureAsync("reorderRequest", async () => {
-    const response = await updateRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      typecast: true,
-      records: recordIds.map((id) => ({
-        id,
-        fields: EMPTY_FIELDS,
-      })),
-      order: {
-        viewId: fixture.viewId,
-        anchorId,
-        position: config.reorder.position,
-      },
+    const response = await updateRecordOrders(fixture.tableId, fixture.viewId, {
+      anchorId,
+      position: config.reorder.position,
+      recordIds,
     });
     expect(response.status).toBe(200);
-    expect(response.data).toHaveLength(recordIds.length);
     return response;
   });
 
   return {
     status: requestMeasurement.result.status,
     requestMs: requestMeasurement.durationMs,
-    updatedRecordCount: requestMeasurement.result.data.length,
+    updatedRecordCount: recordIds.length,
     responseHeaders: pickResponseHeaders(requestMeasurement.result.headers),
   };
 };
