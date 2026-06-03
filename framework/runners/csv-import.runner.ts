@@ -2,15 +2,16 @@ import { Buffer } from "node:buffer";
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
   analyzeFile,
+  axios,
   getSignature,
   inplaceImportTableFromFile,
   notify,
   SUPPORTEDTYPE,
   UploadType,
+  urlBuilder,
   uploadFile,
   updateTableDescription,
 } from "@teable/openapi";
-import { sqlQueryBase } from "@teable/openapi-ee";
 import {
   createTable,
   getFields,
@@ -75,6 +76,13 @@ const CSV_FILE_NAME = "csv-import-mixed-case-10k-20fields.csv";
 const CSV_IMPORT_FIXTURE_VERSION = "csv-import-v1";
 
 const CSV_IMPORT_METADATA_PREFIX = "perf-lab:csv-import:";
+const SQL_QUERY_BASE = "/base/{baseId}/sql-query";
+
+const sqlQueryBase = async (
+  baseId: string,
+  sqlQueryRo: { sql: string },
+): Promise<{ data: { rows: Array<Record<string, unknown>> } }> =>
+  axios.post(urlBuilder(SQL_QUERY_BASE, { baseId }), sqlQueryRo);
 
 type CachedImportAttachment = {
   fixtureVersion: string;
