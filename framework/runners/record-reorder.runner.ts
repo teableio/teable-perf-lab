@@ -879,18 +879,26 @@ const moveRecords = async ({
 };
 
 const executeReorder = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
   fixture: ReorderFixture,
   config: RecordReorderCaseConfig,
 ): Promise<ReorderOperationResult> => {
   if (!fixture.cachedOrder) {
     throw new Error("Missing cached reorder order metadata");
   }
-  const operation = await moveRecords({
-    fixture,
-    config,
-    recordIds: fixture.cachedOrder.movedRecordIds,
-    anchorId: fixture.cachedOrder.anchorRecordId,
-  });
+  const operation = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      moveRecords({
+        fixture,
+        config,
+        recordIds: fixture.cachedOrder!.movedRecordIds,
+        anchorId: fixture.cachedOrder!.anchorRecordId,
+      }),
+  );
   const verification = await assertReordered(fixture, config);
 
   return {
@@ -1088,14 +1096,8 @@ export const runRecordReorderCase = async (
 
     try {
       await withRecordWindowId(windowId, async () => {
-        reorderMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          config.threshold.metric,
-          () =>
-            measureAsync(config.threshold.metric, () =>
-              executeReorder(fixture, config),
-            ),
+        reorderMeasurement = await measureAsync(config.threshold.metric, () =>
+          executeReorder(context, perfCase, fixture, config),
         );
       });
     } catch (error) {
