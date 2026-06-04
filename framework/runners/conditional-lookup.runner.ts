@@ -1221,21 +1221,15 @@ export const seedConditionalLookupCase = async (
     config,
     seedCacheInfo,
   );
-  const seedReadyMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
-    "seedReady",
-    () =>
-      measureAsync("seedReady", () =>
-        assertConditionalLookupSeedReady(
-          seedFixture.sourceTableId,
-          seedFixture.hostTableId,
-          seedFixture.sourceFields,
-          seedFixture.hostFields,
-          config,
-          seedFixture.sampleRecords,
-        ),
-      ),
+  const seedReadyMeasurement = await measureAsync("seedReady", () =>
+    assertConditionalLookupSeedReady(
+      seedFixture.sourceTableId,
+      seedFixture.hostTableId,
+      seedFixture.sourceFields,
+      seedFixture.hostFields,
+      config,
+      seedFixture.sampleRecords,
+    ),
   );
 
   return buildConditionalLookupCaseResult({
@@ -1323,21 +1317,15 @@ export const runConditionalLookupCase = async (
       | undefined;
 
     try {
-      seedReadyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "seedReady",
-        () =>
-          measureAsync("seedReady", () =>
-            assertConditionalLookupSeedReady(
-              sourceTableId,
-              hostTableId,
-              sourceFields,
-              hostFields,
-              config,
-              sampleRecords,
-            ),
-          ),
+      seedReadyMeasurement = await measureAsync("seedReady", () =>
+        assertConditionalLookupSeedReady(
+          sourceTableId,
+          hostTableId,
+          sourceFields,
+          hostFields,
+          config,
+          sampleRecords,
+        ),
       );
 
       const createLookupFieldMeasurement = await withPerfTraceStep(
@@ -1375,18 +1363,14 @@ export const runConditionalLookupCase = async (
       createdLookupField = createLookupFieldMeasurement.result;
       createdLookupFieldId = createdLookupField.id;
 
-      const fullLookupScanReadyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      const fullLookupScanReadyMeasurement = await measureAsync(
         "fullLookupScanReady",
         () =>
-          measureAsync("fullLookupScanReady", () =>
-            waitForLookupFullScan(
-              hostTableId,
-              createLookupFieldMeasurement.result.id,
-              config,
-              hostFields,
-            ),
+          waitForLookupFullScan(
+            hostTableId,
+            createLookupFieldMeasurement.result.id,
+            config,
+            hostFields,
           ),
       );
 
