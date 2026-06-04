@@ -5,6 +5,7 @@ export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
   | "conditional-lookup"
+  | "lookup-search-index"
   | "csv-import"
   | "record-paste"
   | "record-create"
@@ -24,6 +25,7 @@ export interface PerfCase {
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
+    | LookupSearchIndexCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordCreateCaseConfig
@@ -153,6 +155,45 @@ export interface ConditionalLookupCaseConfig {
   };
   threshold: {
     metric: "conditionalLookupReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface LookupSearchKeywordConfig {
+  name: string;
+  value: string;
+  expectedHitCount?: number;
+  expectedMinHitCount?: number;
+  expectedFieldGroup: "lookup-text" | "lookup-key" | "user";
+}
+
+export interface LookupSearchIndexCaseConfig {
+  baseId: "seed-base";
+  sourceTableNamePrefix: string;
+  hostTableNamePrefix: string;
+  tableIndexMode: "off" | "on";
+  recordCount: number;
+  batchSize: number;
+  userCount: number;
+  samples: number;
+  generator: {
+    type: "lookup-search-index-20-fields";
+    sourceKeyPrefix: string;
+    hostKeyPrefix: string;
+    sourceTextPrefix: string;
+    permutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  keywords: LookupSearchKeywordConfig[];
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "lookupSearchIndexP95Ms";
     maxMs: number;
   };
 }

@@ -2,6 +2,8 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import lookupSearchIndexOff10k20SearchFieldsCase from "./cases/lookup/search-index-off-10k-20search-fields.case";
+import lookupSearchIndexOn10k20SearchFieldsCase from "./cases/lookup/search-index-on-10k-20search-fields.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
@@ -20,6 +22,8 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  lookupSearchIndexOff10k20SearchFieldsCase,
+  lookupSearchIndexOn10k20SearchFieldsCase,
   csvImportMixed10k20FieldsInplaceImportCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
@@ -43,6 +47,10 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["lookup/search-index", "lookup/search-index-on-10k-20search-fields"],
+  ["lookup/search-index/off", "lookup/search-index-off-10k-20search-fields"],
+  ["lookup/search-index/on", "lookup/search-index-on-10k-20search-fields"],
+  ["search-index/lookup", "lookup/search-index-on-10k-20search-fields"],
   ["csv-import", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k-20fields", "csv-import/mixed-10k-20fields-inplace-import"],
