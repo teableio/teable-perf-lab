@@ -22,20 +22,21 @@ reuse existing runner -> extend a runner -> new runner
 
 ## Catalog
 
-| Runner               | Measures                                                               | Use when                              |
-| -------------------- | ---------------------------------------------------------------------- | ------------------------------------- |
-| `http-endpoint`      | repeated requests to one authenticated endpoint, p95                   | simple GET latency, smoke timing      |
-| `formula-table`      | create table + numeric rows, add formula field(s), wait until computed | formula / computed-field readiness    |
-| `conditional-lookup` | source + host tables, add conditional lookup, verify values            | lookup / cross-table computed fields  |
-| `csv-import`         | empty table, upload CSV, import into existing table, verify records    | CSV import into an existing table     |
-| `record-paste`       | empty table, paste deterministic clipboard content via paste API       | paste / bulk insert through selection |
-| `record-create`      | empty mixed table, create typed records through OpenAPI                | direct bulk record create             |
-| `record-update`      | seeded mixed table, update typed records through OpenAPI               | direct bulk record update             |
-| `record-reorder`     | seeded mixed table, move a visible record block through OpenAPI        | manual row order mutation             |
-| `selection-clear`    | seeded table, call selection clear stream, verify cells empty          | clearing a large cell range           |
-| `record-delete`      | mixed 1k table, delete all rows via selection delete                   | row delete throughput                 |
-| `record-undo`        | delete as setup, then measure undo-stream                              | undo replay                           |
-| `record-redo`        | delete + undo as setup, then measure redo-stream                       | redo replay                           |
+| Runner                | Measures                                                                                | Use when                              |
+| --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------- |
+| `http-endpoint`       | repeated requests to one authenticated endpoint, p95                                    | simple GET latency, smoke timing      |
+| `formula-table`       | create table + numeric rows, add formula field(s), wait until computed                  | formula / computed-field readiness    |
+| `conditional-lookup`  | source + host tables, add conditional lookup, verify values                             | lookup / cross-table computed fields  |
+| `lookup-search-index` | source + host lookup tables, search index on/off, repeated global search-index requests | lookup global search with table index |
+| `csv-import`          | empty table, upload CSV, import into existing table, verify records                     | CSV import into an existing table     |
+| `record-paste`        | empty table, paste deterministic clipboard content via paste API                        | paste / bulk insert through selection |
+| `record-create`       | empty mixed table, create typed records through OpenAPI                                 | direct bulk record create             |
+| `record-update`       | seeded mixed table, update typed records through OpenAPI                                | direct bulk record update             |
+| `record-reorder`      | seeded mixed table, move a visible record block through OpenAPI                         | manual row order mutation             |
+| `selection-clear`     | seeded table, call selection clear stream, verify cells empty                           | clearing a large cell range           |
+| `record-delete`       | mixed 1k table, delete all rows via selection delete                                    | row delete throughput                 |
+| `record-undo`         | delete as setup, then measure undo-stream                                               | undo replay                           |
+| `record-redo`         | delete + undo as setup, then measure redo-stream                                        | redo replay                           |
 
 ## Config Shapes
 
@@ -44,6 +45,7 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **http-endpoint**: `method:"GET"`, `path`, `samples`, `threshold{metric:"p95Ms",maxMs}`, optional `validateSeedUser`.
 - **formula-table**: `baseId:"seed-base"`, `tableNamePrefix`, `recordCount`, `batchSize`, `fields[]`, `generator{type:"numeric-sequence",titlePrefix}`, `formula` or `formulas[]`, `verify{sampleRows,...}`, `threshold{metric:"formula(s)(Full)ReadyMs",maxMs}`.
 - **conditional-lookup**: source/host prefixes, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `verify`, `threshold{metric:"conditionalLookupReadyMs"}`. The `permutation` has a coprime constraint — see Deterministic Data in [checklist.md](checklist.md).
+- **lookup-search-index**: source/host prefixes, `tableIndexMode:"off"|"on"`, `recordCount`, `batchSize`, `userCount`, `samples`, `generator{type:"lookup-search-index-20-fields",...,permutation{multiplier,offset}}`, `keywords[]`, `verify`, `threshold{metric:"lookupSearchIndexP95Ms"}`. Seed creates lookup fields and turns table search index on only for the ON host; execute measures repeated `aggregation/search-index` requests for the selected mode only.
 - **csv-import**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-csv-import",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"csvInplaceImportReadyMs"}`.
 - **record-paste**: `tableNamePrefix`, `rowCount`, optional `maxPasteCells`, `fields[]`, `generator{type:"flat-copy-paste"|"mixed-copy-paste",titlePrefix,...}`, `verify`, `threshold{metric:"paste10kMs"}`.
 - **record-create**: `tableNamePrefix`, `rowCount`, `fields[]`, `generator{type:"mixed-record-create",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"bulkCreate1kMs"}`. The reusable seed is the empty mixed table plus cached typed create payload; execute creates records fresh.
