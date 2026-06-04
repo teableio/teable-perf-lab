@@ -5,6 +5,7 @@ import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
@@ -33,6 +34,8 @@ const runCaseByKind = async (
       return runFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return runConditionalLookupCase(perfCase, context);
+    case "lookup-search-index":
+      return runLookupSearchIndexCase(perfCase, context);
     case "csv-import":
       return runCsvImportCase(perfCase, context);
     case "record-paste":
