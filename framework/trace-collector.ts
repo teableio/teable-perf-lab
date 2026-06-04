@@ -32,9 +32,14 @@ export interface PerfTraceArtifactSummary {
   enabled: boolean;
   traceRefCount: number;
   uniqueTraceCount: number;
+  selectedTraceCount: number;
   savedTraceCount: number;
   failedTraceCount: number;
   skippedTraceCount: number;
+  maxSnapshotCount: number;
+  fetchConcurrency: number;
+  flushDurationMs?: number;
+  flushError?: string;
   artifactDir?: string;
   manifestPath?: string;
   jaegerApiBaseUrl?: string;
@@ -85,6 +90,7 @@ const traceRefs: PerfTraceRef[] = [];
 let installed = false;
 let requestInterceptorId: number | undefined;
 let responseInterceptorId: number | undefined;
+let flushBeforeTraceFetch: (() => Promise<void> | void) | undefined;
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -95,6 +101,12 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isTraceCollectionEnabled = () =>
   process.env.PERF_LAB_TRACE_ENABLED !== "false";
+
+export const setPerfTraceFlush = (
+  flush: (() => Promise<void> | void) | undefined,
+) => {
+  flushBeforeTraceFetch = flush;
+};
 
 const getHeaderValue = (headers: unknown, headerName: string) => {
   if (!headers || typeof headers !== "object") {
@@ -266,7 +278,7 @@ const isPriorityTraceRef = (ref: PerfTraceRef) =>
 const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   const maxSnapshots = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_MAX_SNAPSHOTS",
-    25,
+    100,
   );
   const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine).filter(
     (ref) => ref.sampled,
@@ -288,13 +300,36 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   return selected.slice(0, maxSnapshots);
 };
 
+const runWithConcurrency = async <T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+) => {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await fn(items[currentIndex]);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+  return results;
+};
+
 const fetchJaegerTrace = async (
   jaegerApiBaseUrl: string,
   traceId: string,
 ): Promise<JaegerTraceFetchResult> => {
   const timeoutMs = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FETCH_TIMEOUT_MS",
-    20_000,
+    60_000,
   );
   const pollIntervalMs = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS",
@@ -428,18 +463,30 @@ export const writeTraceArtifacts = async ({
 }): Promise<PerfTraceArtifactSummary> => {
   const enabled = isTraceCollectionEnabled();
   const jaegerApiBaseUrl = getJaegerApiBaseUrl();
+  const maxSnapshotCount = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_MAX_SNAPSHOTS",
+    100,
+  );
+  const fetchConcurrency = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_FETCH_CONCURRENCY",
+    8,
+  );
   const selectedRefs =
     enabled && jaegerApiBaseUrl ? selectTraceRefsToSave(perfCase, engine) : [];
   const runRefs = uniqueTraceRefsForRun(perfCase, engine);
+  const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
   const summary: PerfTraceArtifactSummary = {
     enabled,
     traceRefCount: traceRefs.filter(
       (ref) => ref.caseId === perfCase.id && ref.engine === engine,
     ).length,
     uniqueTraceCount: runRefs.length,
+    selectedTraceCount: selectedRefs.length,
     savedTraceCount: 0,
     failedTraceCount: 0,
     skippedTraceCount: 0,
+    maxSnapshotCount,
+    fetchConcurrency,
     jaegerApiBaseUrl,
     refs: runRefs,
     savedTraces: [],
@@ -469,16 +516,46 @@ export const writeTraceArtifacts = async ({
     });
   }
 
+  if (jaegerApiBaseUrl) {
+    for (const ref of runRefs.filter(
+      (ref) => ref.sampled && !selectedTraceIds.has(ref.traceId),
+    )) {
+      summary.skippedTraceCount += 1;
+      summary.savedTraces.push({
+        traceId: ref.traceId,
+        stepId: ref.stepId,
+        path: "",
+        status: "skipped",
+        error: `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`,
+        sampled: ref.sampled,
+      });
+    }
+  }
+
+  if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
+    const flushStartedAt = Date.now();
+    try {
+      await flushBeforeTraceFetch();
+      summary.flushDurationMs = Date.now() - flushStartedAt;
+    } catch (error) {
+      summary.flushDurationMs = Date.now() - flushStartedAt;
+      summary.flushError =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
+
   const settleMs = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FETCH_SETTLE_MS",
-    2_000,
+    5_000,
   );
   if (selectedRefs.length > 0) {
     await delay(settleMs);
   }
 
-  const fetchResults = await Promise.all(
-    selectedRefs.map(async (ref) => {
+  const fetchResults = await runWithConcurrency(
+    selectedRefs,
+    fetchConcurrency,
+    async (ref) => {
       if (!jaegerApiBaseUrl) {
         return {
           ref,
@@ -497,7 +574,7 @@ export const writeTraceArtifacts = async ({
         ref,
         result: await fetchJaegerTrace(jaegerApiBaseUrl, ref.traceId),
       };
-    }),
+    },
   );
 
   for (const { ref, result } of fetchResults) {

@@ -12,6 +12,8 @@ needs them:
 - [checklist.md](checklist.md) — hard rules to honor while writing code.
 - [seed-execute.md](seed-execute.md) — seed vs execute boundary and caching.
 - [examples.md](examples.md) — standard case index by behavior.
+- [case-trace-fix-agent.md](case-trace-fix-agent.md) — diagnose and fix cases
+  flagged as `Trace 缺失` by the performance monitor.
 - [new-runner-contract.md](new-runner-contract.md) — required wiring and
   artifact/trace/seed contracts when a new runner is unavoidable.
 
