@@ -83,9 +83,14 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               enabled?: boolean;
               traceRefCount?: number;
               uniqueTraceCount?: number;
+              selectedTraceCount?: number;
               savedTraceCount?: number;
               failedTraceCount?: number;
               skippedTraceCount?: number;
+              maxSnapshotCount?: number;
+              fetchConcurrency?: number;
+              flushDurationMs?: number;
+              flushError?: string;
               manifestPath?: string;
               artifactDir?: string;
               refs?: Array<{ traceLink?: string; traceId?: string }>;
@@ -103,10 +108,19 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| enabled | ${String(traces.enabled)} |`,
       `| captured refs | ${traces.traceRefCount ?? 0} |`,
       `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
+      `| selected for fetch | ${traces.selectedTraceCount ?? 0} |`,
+      `| max JSON snapshots | ${traces.maxSnapshotCount ?? 0} |`,
+      `| fetch concurrency | ${traces.fetchConcurrency ?? 0} |`,
+      `| OTEL flush duration | ${
+        traces.flushDurationMs == null ? "n/a" : `${traces.flushDurationMs} ms`
+      } |`,
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
       `| skipped trace fetches | ${traces.skippedTraceCount ?? 0} |`,
     );
+    if (traces.flushError) {
+      lines.push(`| OTEL flush error | \`${traces.flushError}\` |`);
+    }
     if (traces.manifestPath) {
       lines.push(`| manifest | \`${traces.manifestPath}\` |`);
     }

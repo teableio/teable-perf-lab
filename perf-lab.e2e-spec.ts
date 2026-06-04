@@ -1,6 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { performance } from "node:perf_hooks";
-import "../../src/tracing";
+import otelSDK from "../../src/tracing";
 import { initApp } from "../utils/init-app";
 import { listPerfCases } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
@@ -8,6 +8,7 @@ import { seedPerfCase } from "./framework/run-perf-seed";
 import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
 import {
   installPerfTraceCollector,
+  setPerfTraceFlush,
   uninstallPerfTraceCollector,
 } from "./framework/trace-collector";
 import { axios } from "@teable/openapi";
@@ -103,6 +104,25 @@ const resetAxiosInterceptors = () => {
   installPerfTraceCollector();
 };
 
+const getOtelForceFlush = () => {
+  const sdk = otelSDK as unknown as {
+    forceFlush?: () => Promise<void>;
+    _tracerProvider?: { forceFlush?: () => Promise<void> };
+    tracerProvider?: { forceFlush?: () => Promise<void> };
+  };
+  const provider = sdk._tracerProvider ?? sdk.tracerProvider;
+
+  if (typeof sdk.forceFlush === "function") {
+    return () => sdk.forceFlush?.call(sdk);
+  }
+
+  if (typeof provider?.forceFlush === "function") {
+    return () => provider.forceFlush?.call(provider);
+  }
+
+  return undefined;
+};
+
 const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   const previousForceV2All = process.env.FORCE_V2_ALL;
   const previousEngine = process.env.PERF_LAB_ENGINE;
@@ -175,6 +195,7 @@ describe("perf-lab serial case runner (e2e)", () => {
   });
 
   beforeAll(() => {
+    setPerfTraceFlush(getOtelForceFlush());
     installPerfTraceCollector();
   });
 
