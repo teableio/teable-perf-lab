@@ -874,25 +874,19 @@ const createFormulaFieldsAndWaitForSamples = async (
 
   return Promise.all(
     createdFormulas.map(async (formula) => {
-      const measurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        `waitFormulaSamples:${formula.name}`,
-        () =>
-          measureAsync(formula.name, async () => ({
-            formula,
-            verifiedSamples: await waitForFormulaSamples(
-              tableId,
-              formula,
-              sampleRecords,
-              config,
-              {
-                timeoutMs: config.verify.timeoutMs,
-                pollIntervalMs: config.verify.pollIntervalMs,
-              },
-            ),
-          })),
-      );
+      const measurement = await measureAsync(formula.name, async () => ({
+        formula,
+        verifiedSamples: await waitForFormulaSamples(
+          tableId,
+          formula,
+          sampleRecords,
+          config,
+          {
+            timeoutMs: config.verify.timeoutMs,
+            pollIntervalMs: config.verify.pollIntervalMs,
+          },
+        ),
+      }));
 
       return {
         ...measurement.result,
@@ -1070,19 +1064,13 @@ export const seedFormulaTableCase = async (
     config,
     seedCacheInfo,
   );
-  const sourceReadyMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
-    "seedReady",
-    () =>
-      measureAsync("seedReady", () =>
-        waitForSourceSamples(
-          seedFixture.tableId,
-          seedFixture.sourceFields,
-          config,
-          seedFixture.sampleRecords,
-        ),
-      ),
+  const sourceReadyMeasurement = await measureAsync("seedReady", () =>
+    waitForSourceSamples(
+      seedFixture.tableId,
+      seedFixture.sourceFields,
+      config,
+      seedFixture.sampleRecords,
+    ),
   );
 
   return buildFormulaCaseResult({
@@ -1157,14 +1145,8 @@ export const runFormulaTableCase = async (
     >;
 
     try {
-      sourceReadyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "sourceReady",
-        () =>
-          measureAsync("sourceReady", () =>
-            waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
-          ),
+      sourceReadyMeasurement = await measureAsync("sourceReady", () =>
+        waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
       );
     } catch (error) {
       const diagnosticResult = buildFormulaCaseResult({
@@ -1214,18 +1196,14 @@ export const runFormulaTableCase = async (
           },
         ),
       );
-      fullFormulaScanReadyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      fullFormulaScanReadyMeasurement = await measureAsync(
         "fullFormulaScanReady",
         () =>
-          measureAsync("fullFormulaScanReady", () =>
-            waitForFormulaFullScan(
-              tableId,
-              formulasReadyMeasurement.result.map(({ formula }) => formula),
-              config,
-              sourceFields,
-            ),
+          waitForFormulaFullScan(
+            tableId,
+            formulasReadyMeasurement.result.map(({ formula }) => formula),
+            config,
+            sourceFields,
           ),
       );
     } catch (error) {
