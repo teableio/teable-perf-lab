@@ -62,7 +62,7 @@ type LookupSearchIndexFixture = {
 
 const SOURCE_KEY = "Source Key";
 const HOST_KEY = "Host Key";
-const SHARED_SEED_CASE_ID = "lookup/search-index-10k-20search-fields-seed";
+const SHARED_SEED_CASE_ID = "search/search-index-10k-20search-fields-seed";
 
 const sourceTextName = (index: number) => `Source Text ${index}`;
 const sourceUserName = (index: number) => `Source User ${index}`;
