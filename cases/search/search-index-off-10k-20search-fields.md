@@ -19,7 +19,7 @@ whose `TableIndex.search` is disabled.
 The seed fixture is shared with the ON case and contains source, OFF host, and
 ON host tables so both cases can use the same deterministic DB seed cache.
 
-## Seed
+## Seed Phase
 
 See `docs/lookup-search-index-table-spec.md` for the full table layout. The
 measured OFF host has 20 searchable fields:
@@ -30,7 +30,7 @@ measured OFF host has 20 searchable fields:
 Date fields are part of the 20-field layout, but they are intentionally not used
 as search keywords because global search does not match date values.
 
-## Execute
+## Execute Phase
 
 For each keyword, call only the OFF host table:
 
@@ -50,7 +50,9 @@ Default samples: 30 per keyword.
 
 - `lookupSearchIndexP95Ms`: p95 latency across all OFF host samples.
 
-## Keywords
+## Notes
+
+Keywords:
 
 - `A1-Value-9522`: one-hit lookup-result search, expected field group
   `lookup-text`.
