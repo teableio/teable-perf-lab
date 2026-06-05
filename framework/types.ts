@@ -164,7 +164,15 @@ export interface LookupSearchKeywordConfig {
   value: string;
   expectedHitCount?: number;
   expectedMinHitCount?: number;
-  expectedFieldGroup: "lookup-text" | "lookup-key" | "user";
+  expectedFieldGroup:
+    | "lookup-key"
+    | "own-text"
+    | "lookup-text"
+    | "own-select"
+    | "lookup-select"
+    | "own-multiple-select"
+    | "lookup-multiple-select"
+    | "user";
 }
 
 export interface LookupSearchIndexCaseConfig {
