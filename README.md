@@ -118,10 +118,10 @@ workload.
 - `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
   add a conditional lookup on the host table, and verify each sampled row
   returns a different source value.
-- `lookup/search-index-off-10k-20search-fields`: create source and host 10k-row
+- `search/search-index-off-10k-20search-fields`: create source and host 10k-row
   lookup-search tables, then measure global `aggregation/search-index` requests
   on the host whose `TableIndex.search` is disabled.
-- `lookup/search-index-on-10k-20search-fields`: reuse the same deterministic
+- `search/search-index-on-10k-20search-fields`: reuse the same deterministic
   lookup-search fixture, then measure global `aggregation/search-index`
   requests on the host whose `TableIndex.search` is enabled.
 - `csv-import/mixed-10k-20fields-inplace-import`: create an empty 20-field
