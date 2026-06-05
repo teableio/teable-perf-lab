@@ -102,6 +102,7 @@ Current cache-aware runners:
 - `record-undo`
 - `record-redo`
 - `selection-clear`
+- `lookup-search-index`
 
 Paste cases intentionally keep the 10k inserted rows in the execute stage
 because the paste import is the measured operation. Their reusable seed is only
