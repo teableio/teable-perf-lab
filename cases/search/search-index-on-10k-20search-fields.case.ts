@@ -1,15 +1,15 @@
 import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
-  id: "lookup/search-index-off-10k-20search-fields",
-  title: "10k lookup global search without table search index",
+  id: "search/search-index-on-10k-20search-fields",
+  title: "10k lookup global search with table search index",
   runner: "lookup-search-index",
   timeoutMs: 600_000,
   config: {
     baseId: "seed-base",
     sourceTableNamePrefix: "perf-lookup-search-index-source-10k",
     hostTableNamePrefix: "perf-lookup-search-index-host-10k",
-    tableIndexMode: "off",
+    tableIndexMode: "on",
     recordCount: 10_000,
     batchSize: 1_000,
     userCount: 10,

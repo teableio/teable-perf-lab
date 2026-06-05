@@ -3,33 +3,36 @@ owner: backend-v2
 tags:
   - lookup
   - search-index
-  - table-index-off
+  - table-index-on
   - 10k
   - v1-v2
 enabled: true
 ---
 
-# lookup/search-index-off-10k-20search-fields
+# search/search-index-on-10k-20search-fields
 
 ## Goal
 
 Measure global `aggregation/search-index` latency on the 10k-row host table
-whose `TableIndex.search` is disabled.
+whose `TableIndex.search` is enabled.
 
-The seed fixture is shared with the ON case and contains source, OFF host, and
+The seed fixture is shared with the OFF case and contains source, OFF host, and
 ON host tables so both cases can use the same deterministic DB seed cache.
 
 ## Seed
 
 See `docs/lookup-search-index-table-spec.md` for the full table layout. The
-measured OFF host has 20 searchable fields:
+measured ON host has 20 searchable fields:
 
 - native host key/text/number/user fields.
 - lookup-derived key/text/user fields.
 
+The runner turns `TableIndex.search` on for the ON host after lookup values are
+ready, and validates that the index remains active when restoring from cache.
+
 ## Execute
 
-For each keyword, call only the OFF host table:
+For each keyword, call only the ON host table:
 
 ```text
 GET /api/table/{tableId}/aggregation/search-index
@@ -45,7 +48,7 @@ Default samples: 30 per keyword.
 
 ## Primary Metric
 
-- `lookupSearchIndexP95Ms`: p95 latency across all OFF host samples.
+- `lookupSearchIndexP95Ms`: p95 latency across all ON host samples.
 
 ## Keywords
 

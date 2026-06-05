@@ -37,12 +37,12 @@ with equivalent table shapes. The perf-lab implementation splits
 
 Runnable cases:
 
-- Case id: `lookup/search-index-off-10k-20search-fields`
-- Case id: `lookup/search-index-on-10k-20search-fields`
+- Case id: `search/search-index-off-10k-20search-fields`
+- Case id: `search/search-index-on-10k-20search-fields`
 - Runner: `lookup-search-index`
 - Descriptions:
-  - `cases/lookup/search-index-off-10k-20search-fields.md`
-  - `cases/lookup/search-index-on-10k-20search-fields.md`
+  - `cases/search/search-index-off-10k-20search-fields.md`
+  - `cases/search/search-index-on-10k-20search-fields.md`
 
 The two cases share the same deterministic seed fixture. The runner still
 creates both OFF and ON host tables so seed caching can restore equivalent data,
