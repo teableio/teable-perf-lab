@@ -94,6 +94,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               manifestPath?: string;
               artifactDir?: string;
               refs?: Array<{ traceLink?: string; traceId?: string }>;
+              savedTraces?: Array<{ traceId?: string; status?: string }>;
             };
           };
         }
@@ -127,7 +128,16 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     if (traces.artifactDir) {
       lines.push(`| trace dir | \`${traces.artifactDir}\` |`);
     }
-    const primaryTrace = traces.refs?.find(
+    const savedTraceIds = new Set(
+      traces.savedTraces
+        ?.filter((trace) => trace.status === "saved" && trace.traceId)
+        .map((trace) => trace.traceId),
+    );
+    const availableRefs =
+      savedTraceIds.size > 0
+        ? traces.refs?.filter((ref) => savedTraceIds.has(ref.traceId))
+        : traces.refs;
+    const primaryTrace = availableRefs?.find(
       (ref) => ref.traceLink ?? ref.traceId,
     );
     if (primaryTrace?.traceLink) {
