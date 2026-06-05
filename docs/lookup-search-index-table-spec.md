@@ -57,22 +57,32 @@ but each case measures only the selected `tableIndexMode`.
   - ON host: `TableIndex.search` enabled after lookup fields are ready
 - Source fields:
   - `Source Key`: `A-Key-<n>`
-  - `Source Text 1..5`: `A<k>-Value-<n>`
+  - `Source Text 1`: `A1-Value-<n>`
+  - `Source Number 1`
+  - `Source Date 1`
+  - `Source Status`
+  - `Source Tags`
   - `Source User 1..2`
 - Host fields:
   - `Host Key`: `B-Key-<n>`
-  - `Lookup Key 1..5`: permuted source keys
+  - `Lookup Key 1..2`: permuted source keys
   - `Own Text 1..3`
   - `Own Number 1..2`
+  - `Own Date 1`
+  - `Own Status`
+  - `Own Tags`
   - `Own User 1..2`
-  - `Lookup Text 1..5`
+  - `Lookup Text 1`
+  - `Lookup Number 1`
+  - `Lookup Status`
+  - `Lookup Tags`
+  - `Lookup Date 1`
   - `Lookup User 1..2`
 - Permutation:
   - `sourceRow = (((hostRow - 1) * 73 + 19) % 10000) + 1`
 
 Each lookup key column uses the same base permutation plus a deterministic
-per-key offset. `Lookup Text 1..5` and `Lookup User 1..2` are conditional
-lookups from the source table.
+per-key offset. Lookup fields are conditional lookups from the source table.
 
 The runner creates 10 case-owned users/collaborators in seed:
 `usrPerfLookupSearch_0` through `usrPerfLookupSearch_9`. They are cached with
@@ -83,48 +93,54 @@ the seed database dump and are not added to the global `teable-ee` e2e seed.
 The mixed host tables intentionally include both native fields and conditional
 lookup fields so global search must scan a wider row shape:
 
-| Field Group    | Count | Notes                                      |
-| -------------- | ----: | ------------------------------------------ |
-| Primary text   |     1 | `Host Key`                                 |
-| Lookup keys    |     5 | `Lookup Key 1..5`, values like `A-Key-n`   |
-| Own text       |     3 | Native text fields on host table           |
-| Own number     |     2 | Native number fields on host table         |
-| Own user       |     2 | Native user fields on host table           |
-| Lookup text    |     5 | Conditional lookup from source text fields |
-| Lookup user    |     2 | Conditional lookup from source users       |
-| Total per host |    20 | Search candidate field count               |
+| Field Group            | Count | Notes                                                |
+| ---------------------- | ----: | ---------------------------------------------------- |
+| Primary text           |     1 | `Host Key`                                           |
+| Lookup keys            |     2 | `Lookup Key 1..2`, values like `A-Key-n`             |
+| Own text               |     3 | Native text fields on host table                     |
+| Own number             |     2 | Native number fields on host table                   |
+| Own date               |     1 | Native date field; included in layout, not a keyword |
+| Own select             |     1 | Native single-select field on host table             |
+| Own multiple-select    |     1 | Native multiple-select field on host table           |
+| Own user               |     2 | Native user fields on host table                     |
+| Lookup text            |     1 | Conditional lookup from source text                  |
+| Lookup number          |     1 | Conditional lookup from source number                |
+| Lookup date            |     1 | Conditional lookup from source date; not a keyword   |
+| Lookup select          |     1 | Conditional lookup from source single-select         |
+| Lookup multiple-select |     1 | Conditional lookup from source multiple-select       |
+| Lookup user            |     2 | Conditional lookup from source users                 |
+| Total per host         |    20 | Field count kept at the global-search default cap    |
 
 Do not rely on `MAX_SEARCH_FIELD_COUNT` changes for this case. The fixture is
 itself 20 searchable fields, so it follows the default first-20 global-search
-path when that cap is active. Date fields are intentionally excluded because
-global search filters out `DateTime` fields.
+path when that cap is active. Date fields are intentionally present to keep the
+field layout realistic, but date values are not selected as keywords because
+global search does not match `DateTime` values.
 
 ## Manual Smoke Tables
 
-| Env | Base                  | Role     | Table                 | View                  | User Lookup Fields                                  | Index State |
-| --- | --------------------- | -------- | --------------------- | --------------------- | --------------------------------------------------- | ----------- |
-| V1  | `bseQNQNg2VVKMftRqYN` | Source   | `tblMLcuTvlW5axAVyzt` | -                     | -                                                   | n/a         |
-| V1  | `bseQNQNg2VVKMftRqYN` | Host OFF | `tblnpKur8tCBV2EBJNN` | `viwai0ROTHPz59EFJLq` | `fldOBAs8WVYRDarF3Hu`, `fldsMzhxNrr5YhyvPSM`        | off         |
-| V1  | `bseQNQNg2VVKMftRqYN` | Host ON  | `tblYel5OuL5HVam2ITR` | `viwPKXky34fQr8VnIlm` | `fldhP6l6p1UklM1vyE2`, `fldFNoPKd7HcZHxNc7s`        | on          |
-| V2  | `bsetXelcuVNtfKf09Mt` | Source   | `tbljFw35GOW6hAlWdIj` | -                     | -                                                   | n/a         |
-| V2  | `bsetXelcuVNtfKf09Mt` | Host OFF | `tblgzBGjl6yi7Nh7mMj` | `viwiSp4dz1nLYpBOGat` | fresh: `fldjrYaznntJZ0bZjmj`, `fldFYgycS0BzonJD5fx` | off         |
-| V2  | `bsetXelcuVNtfKf09Mt` | Host ON  | `tblP662l9lw4IMl3WJS` | `viwvngpQ0RZxCh3VqEM` | fresh: `fld4CHjrvkuaGblFJlh`, `flddMhP8G8CPAtMUdrV` | on          |
+| Env | Base                  | Role     | Table                 | Index State |
+| --- | --------------------- | -------- | --------------------- | ----------- |
+| V1  | `bseQNQNg2VVKMftRqYN` | Source   | `tblmv9dZiJcQYUAEiiN` | n/a         |
+| V1  | `bseQNQNg2VVKMftRqYN` | Host OFF | `tblKRjGAy2ZgpDOOjwV` | off         |
+| V1  | `bseQNQNg2VVKMftRqYN` | Host ON  | `tblUtPBfDhhZHDyJD8A` | on          |
 
 ## Keyword Selection
 
 Use more than one keyword shape. They exercise different hit counts and field
 groups.
 
-| Keyword         | Expected Hits | Matched Field Shape                | Use Case                       |
-| --------------- | ------------: | ---------------------------------- | ------------------------------ |
-| `A1-Value-9522` |             1 | `Lookup Text 1` conditional lookup | Sparse lookup-result search    |
-| `A-Key-9999`    |             5 | `Lookup Key 1..5` native text      | Sparse host-key search         |
-| `A-Key-9876`    |             5 | `Lookup Key 1..5` native text      | Alternate sparse host-key term |
-| `A-Key-10000`   |             5 | `Lookup Key 1..5` native text      | Alternate sparse host-key term |
-| `A-Key-4520`    |             5 | `Lookup Key 1..5` native text      | Alternate sparse host-key term |
-| `A-Key-45`      |         >=100 | `Lookup Key 1..5` native text      | High-hit term, capped by take  |
-| user keyword    |   sanity-only | Own user + lookup user fields      | User-field search sanity check |
-| `A-Key-452 `    |             0 | No exact value with trailing space | Negative sanity check          |
+| Keyword                | Expected Hits | Matched Field Shape                  | Use Case                      |
+| ---------------------- | ------------: | ------------------------------------ | ----------------------------- |
+| `A1-Value-9522`        |             1 | `Lookup Text 1` conditional lookup   | Sparse lookup-result search   |
+| `A-Key-9999`           |             2 | `Lookup Key 1..2` native text        | Sparse host-key search        |
+| `HostText1-Value-9522` |             1 | `Own Text 1` native text             | Sparse native text search     |
+| `Todo`                 |         >=100 | `Own Status` native single-select    | Capped native select search   |
+| `Alpha`                |         >=100 | `Lookup Status` lookup single-select | Capped lookup select search   |
+| `North`                |         >=100 | `Own Tags` native multiple-select    | Capped native multi search    |
+| `Red`                  |         >=100 | `Lookup Tags` lookup multiple-select | Capped lookup multi search    |
+| `perf_lookup_user_0`   |         >=100 | Own user + lookup user fields        | Capped user-field search      |
+| `A-Key-45`             |         >=100 | `Lookup Key 1..2` native text        | High-hit term, capped by take |
 
 `A-Key-45` is high-hit because search is substring-like for these text values:
 it also matches values such as `A-Key-450` through `A-Key-4599`. Because the
@@ -135,14 +151,18 @@ more than one field.
 For lookup performance smoke, prefer:
 
 - `A1-Value-9522` for a one-hit conditional lookup result.
-- `A-Key-9999` for a five-hit low-cardinality host text search.
+- `A-Key-9999` for a two-hit low-cardinality host text search.
+- `HostText1-Value-9522` for a one-hit native host text search.
+- `Todo`, `Alpha`, `North`, `Red`, and `perf_lookup_user_0` for capped field
+  group coverage.
 - `A-Key-45` only when testing high-hit pagination/capped-result behavior.
 
 ## Manual Smoke Timings
 
-These historical numbers came from manually created local tables and include
-local `teable call-api` CLI overhead. Use them as smoke signals, not final
-benchmark numbers for the implemented runner.
+These historical numbers came from an earlier manually created local table
+shape and include local `teable call-api` CLI overhead. Use them as old smoke
+signals only, not final benchmark numbers for the implemented runner or the
+current 20-field fixture.
 
 ### `A1-Value-9522`
 
@@ -158,8 +178,8 @@ each host table.
 
 ### `A-Key-9999`
 
-Ten-hit native host text search. Hits are in lookup-key fields; this is not a
-lookup-result match.
+Historical ten-hit native host text search from the earlier fixture. Hits are in
+lookup-key fields; this is not a lookup-result match.
 
 | Env | Index State | Hit Count | Samples ms                        | P50 ms | P95 ms | Max ms |
 | --- | ----------- | --------- | --------------------------------- | ------ | ------ | ------ |
