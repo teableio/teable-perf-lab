@@ -201,7 +201,20 @@ const resolvePrimaryTraceUrl = ({ payload, traceManifest }) => {
     return "";
   }
 
-  const ref = refs.find(isPriorityTraceRef) ?? refs[0];
+  const savedTraceIds = new Set(
+    (Array.isArray(traceManifest?.savedTraces)
+      ? traceManifest.savedTraces
+      : payload.details?.observability?.traces?.savedTraces ?? []
+    )
+      .filter((trace) => trace?.status === "saved" && trace?.traceId)
+      .map((trace) => trace.traceId),
+  );
+  const availableRefs =
+    savedTraceIds.size > 0
+      ? refs.filter((ref) => savedTraceIds.has(ref?.traceId))
+      : refs;
+  const ref =
+    availableRefs.find(isPriorityTraceRef) ?? availableRefs[0] ?? refs[0];
   return stringOrUndefined(ref.traceLink) || buildTraceUrl(ref.traceId);
 };
 
