@@ -32,10 +32,46 @@ export default definePerfCase({
         expectedFieldGroup: "lookup-text",
       },
       {
-        name: "lookup-key-five-hit",
+        name: "lookup-key-two-hit",
         value: "A-Key-9999",
-        expectedHitCount: 5,
+        expectedHitCount: 2,
         expectedFieldGroup: "lookup-key",
+      },
+      {
+        name: "own-text-one-hit",
+        value: "HostText1-Value-9522",
+        expectedHitCount: 1,
+        expectedFieldGroup: "own-text",
+      },
+      {
+        name: "own-select-capped-hit",
+        value: "Todo",
+        expectedMinHitCount: 100,
+        expectedFieldGroup: "own-select",
+      },
+      {
+        name: "lookup-select-capped-hit",
+        value: "Alpha",
+        expectedMinHitCount: 100,
+        expectedFieldGroup: "lookup-select",
+      },
+      {
+        name: "own-multi-select-capped-hit",
+        value: "North",
+        expectedMinHitCount: 100,
+        expectedFieldGroup: "own-multiple-select",
+      },
+      {
+        name: "lookup-multi-select-capped-hit",
+        value: "Red",
+        expectedMinHitCount: 100,
+        expectedFieldGroup: "lookup-multiple-select",
+      },
+      {
+        name: "user-capped-hit",
+        value: "perf_lookup_user_0",
+        expectedMinHitCount: 100,
+        expectedFieldGroup: "user",
       },
       {
         name: "lookup-key-capped-hit",

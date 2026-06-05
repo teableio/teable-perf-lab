@@ -65,32 +65,64 @@ const HOST_KEY = "Host Key";
 const SHARED_SEED_CASE_ID = "search/search-index-10k-20search-fields-seed";
 
 const sourceTextName = (index: number) => `Source Text ${index}`;
+const sourceNumberName = (index: number) => `Source Number ${index}`;
+const sourceDateName = (index: number) => `Source Date ${index}`;
+const sourceStatusName = () => `Source Status`;
+const sourceTagsName = () => `Source Tags`;
 const sourceUserName = (index: number) => `Source User ${index}`;
 const lookupKeyName = (index: number) => `Lookup Key ${index}`;
 const ownTextName = (index: number) => `Own Text ${index}`;
 const ownNumberName = (index: number) => `Own Number ${index}`;
+const ownDateName = (index: number) => `Own Date ${index}`;
+const ownStatusName = () => `Own Status`;
+const ownTagsName = () => `Own Tags`;
 const ownUserName = (index: number) => `Own User ${index}`;
 const lookupTextName = (index: number) => `Lookup Text ${index}`;
+const lookupNumberName = (index: number) => `Lookup Number ${index}`;
+const lookupDateName = (index: number) => `Lookup Date ${index}`;
+const lookupStatusName = () => `Lookup Status`;
+const lookupTagsName = () => `Lookup Tags`;
 const lookupUserName = (index: number) => `Lookup User ${index}`;
+
+const sourceStatusChoices = ["Alpha", "Beta", "Gamma", "Delta"];
+const sourceTagChoices = ["Red", "Blue", "Green", "Yellow"];
+const ownStatusChoices = ["Todo", "Doing", "Done", "Blocked"];
+const ownTagChoices = ["North", "South", "East", "West"];
+
+const selectOptions = (choices: string[]) => ({
+  choices: choices.map((name) => ({ name })),
+});
 
 const sourceFieldNames = [
   SOURCE_KEY,
-  ...Array.from({ length: 5 }, (_, index) => sourceTextName(index + 1)),
+  sourceTextName(1),
+  sourceNumberName(1),
+  sourceDateName(1),
+  sourceStatusName(),
+  sourceTagsName(),
   sourceUserName(1),
   sourceUserName(2),
 ];
 
 const hostBaseFieldNames = [
   HOST_KEY,
-  ...Array.from({ length: 5 }, (_, index) => lookupKeyName(index + 1)),
+  lookupKeyName(1),
+  lookupKeyName(2),
   ...Array.from({ length: 3 }, (_, index) => ownTextName(index + 1)),
   ...Array.from({ length: 2 }, (_, index) => ownNumberName(index + 1)),
+  ownDateName(1),
+  ownStatusName(),
+  ownTagsName(),
   ownUserName(1),
   ownUserName(2),
 ];
 
 const hostLookupFieldNames = [
-  ...Array.from({ length: 5 }, (_, index) => lookupTextName(index + 1)),
+  lookupTextName(1),
+  lookupNumberName(1),
+  lookupStatusName(),
+  lookupTagsName(),
+  lookupDateName(1),
   lookupUserName(1),
   lookupUserName(2),
 ];
@@ -164,6 +196,27 @@ const sourceTextValue = (
   rowNumber: number,
   config: LookupSearchIndexCaseConfig,
 ) => `${config.generator.sourceTextPrefix}${textIndex}-Value-${rowNumber}`;
+
+const isoDateValue = (month: number, rowNumber: number) =>
+  `2026-${String(month).padStart(2, "0")}-${String(
+    ((rowNumber - 1) % 28) + 1,
+  ).padStart(2, "0")}`;
+
+const sourceStatusValue = (rowNumber: number) =>
+  sourceStatusChoices[(rowNumber - 1) % sourceStatusChoices.length];
+
+const sourceTagsValue = (rowNumber: number) => [
+  sourceTagChoices[(rowNumber - 1) % sourceTagChoices.length],
+  sourceTagChoices[rowNumber % sourceTagChoices.length],
+];
+
+const ownStatusValue = (rowNumber: number) =>
+  ownStatusChoices[(rowNumber - 1) % ownStatusChoices.length];
+
+const ownTagsValue = (rowNumber: number) => [
+  ownTagChoices[(rowNumber - 1) % ownTagChoices.length],
+  ownTagChoices[(rowNumber + 1) % ownTagChoices.length],
+];
 
 const userCell = (userId: string, index: number) => ({
   id: userId,
@@ -287,14 +340,12 @@ const buildSourceRecords = (
     const rowNumber = index + 1;
     const fields: Record<string, unknown> = {
       [SOURCE_KEY]: sourceKey(rowNumber, config),
+      [sourceTextName(1)]: sourceTextValue(1, rowNumber, config),
+      [sourceNumberName(1)]: rowNumber,
+      [sourceDateName(1)]: isoDateValue(6, rowNumber),
+      [sourceStatusName()]: sourceStatusValue(rowNumber),
+      [sourceTagsName()]: sourceTagsValue(rowNumber),
     };
-    for (let textIndex = 1; textIndex <= 5; textIndex++) {
-      fields[sourceTextName(textIndex)] = sourceTextValue(
-        textIndex,
-        rowNumber,
-        config,
-      );
-    }
     fields[sourceUserName(1)] = userCell(
       userIds[(rowNumber - 1) % userIds.length],
       (rowNumber - 1) % userIds.length,
@@ -315,7 +366,7 @@ const buildHostRecords = (
     const fields: Record<string, unknown> = {
       [HOST_KEY]: hostKey(rowNumber, config),
     };
-    for (let keyIndex = 1; keyIndex <= 5; keyIndex++) {
+    for (let keyIndex = 1; keyIndex <= 2; keyIndex++) {
       fields[lookupKeyName(keyIndex)] = sourceKey(
         sourceRowForHostRow(rowNumber, keyIndex, config),
         config,
@@ -328,6 +379,9 @@ const buildHostRecords = (
     for (let numberIndex = 1; numberIndex <= 2; numberIndex++) {
       fields[ownNumberName(numberIndex)] = rowNumber * numberIndex;
     }
+    fields[ownDateName(1)] = isoDateValue(7, rowNumber);
+    fields[ownStatusName()] = ownStatusValue(rowNumber);
+    fields[ownTagsName()] = ownTagsValue(rowNumber);
     fields[ownUserName(1)] = userCell(
       userIds[(rowNumber - 1) % userIds.length],
       (rowNumber - 1) % userIds.length,
@@ -377,57 +431,67 @@ const createLookupFields = async (
   hostFieldIds: FieldIds,
 ) => {
   const createdFields = [];
-  for (let index = 1; index <= 5; index++) {
-    createdFields.push(
-      await createField(hostTableId, {
-        name: lookupTextName(index),
-        type: FieldType.SingleLineText,
-        isLookup: true,
-        isConditionalLookup: true,
-        lookupOptions: {
-          foreignTableId: sourceTableId,
-          lookupFieldId: sourceFieldIds[sourceTextName(index)],
-          filter: {
-            conjunction: "and",
-            filterSet: [
-              {
-                fieldId: sourceFieldIds[SOURCE_KEY],
-                operator: "is",
-                value: {
-                  type: "field",
-                  fieldId: hostFieldIds[lookupKeyName(index)],
-                },
-              },
-            ],
-          },
-          limit: 1,
+  const lookupFilter = {
+    conjunction: "and",
+    filterSet: [
+      {
+        fieldId: sourceFieldIds[SOURCE_KEY],
+        operator: "is",
+        value: {
+          type: "field",
+          fieldId: hostFieldIds[lookupKeyName(1)],
         },
-      }),
-    );
-  }
-  for (let index = 1; index <= 2; index++) {
+      },
+    ],
+  };
+  const lookupFields = [
+    {
+      name: lookupTextName(1),
+      type: FieldType.SingleLineText,
+      lookupFieldId: sourceFieldIds[sourceTextName(1)],
+    },
+    {
+      name: lookupNumberName(1),
+      type: FieldType.Number,
+      lookupFieldId: sourceFieldIds[sourceNumberName(1)],
+    },
+    {
+      name: lookupStatusName(),
+      type: FieldType.SingleSelect,
+      lookupFieldId: sourceFieldIds[sourceStatusName()],
+    },
+    {
+      name: lookupTagsName(),
+      type: FieldType.MultipleSelect,
+      lookupFieldId: sourceFieldIds[sourceTagsName()],
+    },
+    {
+      name: lookupDateName(1),
+      type: FieldType.Date,
+      lookupFieldId: sourceFieldIds[sourceDateName(1)],
+    },
+    {
+      name: lookupUserName(1),
+      type: FieldType.User,
+      lookupFieldId: sourceFieldIds[sourceUserName(1)],
+    },
+    {
+      name: lookupUserName(2),
+      type: FieldType.User,
+      lookupFieldId: sourceFieldIds[sourceUserName(2)],
+    },
+  ];
+  for (const field of lookupFields) {
     createdFields.push(
       await createField(hostTableId, {
-        name: lookupUserName(index),
-        type: FieldType.User,
+        name: field.name,
+        type: field.type,
         isLookup: true,
         isConditionalLookup: true,
         lookupOptions: {
           foreignTableId: sourceTableId,
-          lookupFieldId: sourceFieldIds[sourceUserName(index)],
-          filter: {
-            conjunction: "and",
-            filterSet: [
-              {
-                fieldId: sourceFieldIds[SOURCE_KEY],
-                operator: "is",
-                value: {
-                  type: "field",
-                  fieldId: hostFieldIds[lookupKeyName(index)],
-                },
-              },
-            ],
-          },
+          lookupFieldId: field.lookupFieldId,
+          filter: lookupFilter,
           limit: 1,
         },
       }),
@@ -548,10 +612,19 @@ const createFixture = async (
           name: names.source,
           fields: [
             { name: SOURCE_KEY, type: FieldType.SingleLineText },
-            ...Array.from({ length: 5 }, (_, index) => ({
-              name: sourceTextName(index + 1),
-              type: FieldType.SingleLineText,
-            })),
+            { name: sourceTextName(1), type: FieldType.SingleLineText },
+            { name: sourceNumberName(1), type: FieldType.Number },
+            { name: sourceDateName(1), type: FieldType.Date },
+            {
+              name: sourceStatusName(),
+              type: FieldType.SingleSelect,
+              options: selectOptions(sourceStatusChoices),
+            },
+            {
+              name: sourceTagsName(),
+              type: FieldType.MultipleSelect,
+              options: selectOptions(sourceTagChoices),
+            },
             { name: sourceUserName(1), type: FieldType.User },
             { name: sourceUserName(2), type: FieldType.User },
           ],
@@ -560,10 +633,8 @@ const createFixture = async (
         createdTableIds.push(sourceTable.id);
         const hostFields = [
           { name: HOST_KEY, type: FieldType.SingleLineText },
-          ...Array.from({ length: 5 }, (_, index) => ({
-            name: lookupKeyName(index + 1),
-            type: FieldType.SingleLineText,
-          })),
+          { name: lookupKeyName(1), type: FieldType.SingleLineText },
+          { name: lookupKeyName(2), type: FieldType.SingleLineText },
           ...Array.from({ length: 3 }, (_, index) => ({
             name: ownTextName(index + 1),
             type: FieldType.SingleLineText,
@@ -572,6 +643,17 @@ const createFixture = async (
             name: ownNumberName(index + 1),
             type: FieldType.Number,
           })),
+          { name: ownDateName(1), type: FieldType.Date },
+          {
+            name: ownStatusName(),
+            type: FieldType.SingleSelect,
+            options: selectOptions(ownStatusChoices),
+          },
+          {
+            name: ownTagsName(),
+            type: FieldType.MultipleSelect,
+            options: selectOptions(ownTagChoices),
+          },
           { name: ownUserName(1), type: FieldType.User },
           { name: ownUserName(2), type: FieldType.User },
         ];
@@ -911,23 +993,27 @@ const assertFieldGroup = (
   if (!fieldId) {
     throw new Error(`Missing first hit for keyword ${keyword.value}`);
   }
+  const expectedFieldIdsByGroup: Record<string, Array<string | undefined>> = {
+    "lookup-key": [fieldIds[lookupKeyName(1)], fieldIds[lookupKeyName(2)]],
+    "own-text": [
+      fieldIds[ownTextName(1)],
+      fieldIds[ownTextName(2)],
+      fieldIds[ownTextName(3)],
+    ],
+    "lookup-text": [fieldIds[lookupTextName(1)]],
+    "own-select": [fieldIds[ownStatusName()]],
+    "lookup-select": [fieldIds[lookupStatusName()]],
+    "own-multiple-select": [fieldIds[ownTagsName()]],
+    "lookup-multiple-select": [fieldIds[lookupTagsName()]],
+    user: [
+      fieldIds[ownUserName(1)],
+      fieldIds[ownUserName(2)],
+      fieldIds[lookupUserName(1)],
+      fieldIds[lookupUserName(2)],
+    ],
+  };
   const expectedFieldIds =
-    keyword.expectedFieldGroup === "lookup-text"
-      ? Array.from(
-          { length: 5 },
-          (_, index) => fieldIds[lookupTextName(index + 1)],
-        )
-      : keyword.expectedFieldGroup === "lookup-key"
-        ? Array.from(
-            { length: 5 },
-            (_, index) => fieldIds[lookupKeyName(index + 1)],
-          )
-        : [
-            fieldIds[ownUserName(1)],
-            fieldIds[ownUserName(2)],
-            fieldIds[lookupUserName(1)],
-            fieldIds[lookupUserName(2)],
-          ];
+    expectedFieldIdsByGroup[keyword.expectedFieldGroup] ?? [];
   if (!expectedFieldIds.includes(fieldId)) {
     throw new Error(
       `Unexpected first hit field for ${keyword.value}: ${fieldId}; expected group=${keyword.expectedFieldGroup}`,
