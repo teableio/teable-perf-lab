@@ -691,11 +691,10 @@ const prepareCsvCreateTableFixture = async (
   tableName: string,
   config: CsvImportCaseConfig,
 ): Promise<CsvFixture> => {
+  const baseId = globalThis.testConfig.baseId;
   const csvContent = buildCsvContent(config);
-  const attachment = await prepareCsvAttachment({
-    baseId: globalThis.testConfig.baseId,
-    csvContent,
-  });
+  const attachmentUrl = await uploadCsv(csvContent);
+  const analyzeColumns = await analyzeCsvAttachment(attachmentUrl);
 
   return {
     tableId: "",
@@ -708,10 +707,8 @@ const prepareCsvCreateTableFixture = async (
       name: field.name,
     })),
     csvContent,
-    attachmentUrl: attachment.attachmentUrl,
-    analyzeColumns: attachment.analyzeColumns,
-    attachmentCacheHit: attachment.attachmentCacheHit,
-    reusableSeed: false,
+    attachmentUrl,
+    analyzeColumns,
   };
 };
 
@@ -1149,22 +1146,13 @@ export const seedCsvImportCase = async (
   _context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as CsvImportCaseConfig;
-  if (getCsvImportTargetMode(config) === "create-table") {
-    return {
-      result: "skipped",
-      metrics: {},
-      thresholds: [],
-      details: {
-        skipped: true,
-        reason:
-          "CSV create-table import has no reusable target table seed; upload and analyze run in execute setup.",
-        runner: perfCase.runner,
-        targetMode: getCsvImportTargetMode(config),
-      },
-    };
+  const baseId = globalThis.testConfig.baseId;
+  const targetMode = getCsvImportTargetMode(config);
+
+  if (targetMode === "create-table") {
+    return { skipped: true, reason: "create-table has no reusable seed" };
   }
 
-  const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
     prepareCsvImportFixture(baseId, tableName, config, perfCase),
