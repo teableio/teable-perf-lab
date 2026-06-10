@@ -125,6 +125,9 @@ workload.
 - `search/search-index-on-10k-20search-fields`: reuse the same deterministic
   lookup-search fixture, then measure global `aggregation/search-index`
   requests on the host whose `TableIndex.search` is enabled.
+- `field-create/single-select-1k-options`: create an empty table, add one
+  single select field with 1,000 deterministic options, and verify the field
+  metadata.
 - `csv-import/mixed-1k-20fields-create-table-import`: upload a 1k-row 20-field
   mixed CSV, create a new table through `POST /api/import/{baseId}`, and verify
   the imported records and V2 `importCsv` routing.
