@@ -164,7 +164,9 @@ export interface ConditionalLookupCaseConfig {
   };
 }
 
-export interface LookupSearchKeywordConfig {
+// A type alias (not an interface) so it stays assignable to the seed cache's
+// JsonValue config hash input, which relies on implicit index signatures.
+export type LookupSearchKeywordConfig = {
   name: string;
   value: string;
   expectedHitCount?: number;
@@ -178,7 +180,7 @@ export interface LookupSearchKeywordConfig {
     | "own-multiple-select"
     | "lookup-multiple-select"
     | "user";
-}
+};
 
 export interface LookupSearchIndexCaseConfig {
   baseId: "seed-base";
@@ -225,6 +227,13 @@ export interface FieldCreateCaseConfig {
     maxMs: number;
   };
 }
+
+// Shared shape for helpers reused by both the conditional-lookup and
+// field-duplicate runners; everything except the runner-specific threshold.
+export type ConditionalLookupSharedConfig = Omit<
+  ConditionalLookupCaseConfig,
+  "threshold"
+>;
 
 export interface FieldDuplicateCaseConfig
   extends Omit<ConditionalLookupCaseConfig, "threshold"> {

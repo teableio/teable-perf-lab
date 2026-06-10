@@ -20,7 +20,10 @@ export const summarizeDurations = (durations: number[]) => {
   };
 };
 
-export const measureAsync = async <T>(
+// The `any` default keeps inference stable when the callback's return type
+// degrades to `any` (e.g. under the standalone type check's module stubs);
+// without it, TS infers `unknown` for T.
+export const measureAsync = async <T = any>(
   name: string,
   fn: () => Promise<T>,
 ): Promise<{ name: string; durationMs: number; result: T }> => {

@@ -20,6 +20,7 @@ import {
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   ConditionalLookupCaseConfig,
+  ConditionalLookupSharedConfig,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -101,7 +102,7 @@ const getGreatestCommonDivisor = (left: number, right: number): number => {
   return a;
 };
 
-const assertPermutationConfig = (config: ConditionalLookupCaseConfig) => {
+const assertPermutationConfig = (config: ConditionalLookupSharedConfig) => {
   const { multiplier, offset } = config.generator.permutation;
   if (
     !Number.isInteger(multiplier) ||
@@ -123,22 +124,24 @@ const assertPermutationConfig = (config: ConditionalLookupCaseConfig) => {
 
 const getSourceRowNumberForHostRow = (
   hostRowNumber: number,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => {
   const { multiplier, offset } = config.generator.permutation;
   const hostRowOffset = hostRowNumber - 1;
   return ((hostRowOffset * multiplier + offset) % config.recordCount) + 1;
 };
 
-const getSourceKey = (rowNumber: number, config: ConditionalLookupCaseConfig) =>
-  `${config.generator.sourceKeyPrefix}-${rowNumber}`;
+const getSourceKey = (
+  rowNumber: number,
+  config: ConditionalLookupSharedConfig,
+) => `${config.generator.sourceKeyPrefix}-${rowNumber}`;
 
-const getHostKey = (rowNumber: number, config: ConditionalLookupCaseConfig) =>
+const getHostKey = (rowNumber: number, config: ConditionalLookupSharedConfig) =>
   `${config.generator.hostKeyPrefix}-${rowNumber}`;
 
 const getExpectedValue = (
   sourceRowNumber: number,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => `${config.generator.sourceValuePrefix}-${sourceRowNumber}`;
 
 const parseRowNumber = (value: unknown, prefix: string) => {
@@ -157,7 +160,7 @@ const parseRowNumber = (value: unknown, prefix: string) => {
 };
 
 const buildSourceRecords = (
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ): SeedRecordInput[] =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
@@ -171,7 +174,7 @@ const buildSourceRecords = (
     };
   });
 
-const buildHostRecords = (config: ConditionalLookupCaseConfig) =>
+const buildHostRecords = (config: ConditionalLookupSharedConfig) =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
     return {
@@ -188,7 +191,7 @@ const buildHostRecords = (config: ConditionalLookupCaseConfig) =>
   });
 
 const getConditionalLookupSeedConfig = (
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => ({
   baseId: config.baseId,
   sourceTableNamePrefix: config.sourceTableNamePrefix,
@@ -203,7 +206,7 @@ const getConditionalLookupSeedConfig = (
 });
 
 const getRequiredSampleRecords = (
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   seededSampleRecordByOffset: Map<number, SeededSampleRecord>,
 ) =>
   config.verify.sampleRows.map((rowOffset) => {
@@ -264,7 +267,7 @@ export const createConditionalLookupField = (
   sourceTableId: string,
   sourceFields: ConditionalLookupSourceFields,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) =>
   createField(hostTableId, {
     name: config.lookup.name,
@@ -316,7 +319,7 @@ const createEmptyMeasurement = <T>(
 const getCachedHostSampleRecords = async (
   tableId: string,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ): Promise<SeededSampleRecord[]> => {
   const sampleRecords = [];
   for (const rowOffset of config.verify.sampleRows) {
@@ -367,7 +370,7 @@ const getCachedHostSampleRecords = async (
 const assertLookupSamples = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
   const verifiedSamples = [];
@@ -405,7 +408,7 @@ const assertLookupSamples = async (
 const waitForLookupSamples = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
   const startedAt = Date.now();
@@ -437,7 +440,7 @@ const waitForLookupSamples = async (
 const assertLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   hostFields: ConditionalLookupHostFields,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
@@ -544,7 +547,7 @@ const assertLookupFullScan = async (
 export const waitForConditionalLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   hostFields: ConditionalLookupHostFields,
 ) => {
   const startedAt = Date.now();
@@ -578,7 +581,7 @@ export const assertConditionalLookupSeedReady = async (
   hostTableId: string,
   sourceFields: ConditionalLookupSourceFields,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
   const verifiedSamples = [];
@@ -743,7 +746,7 @@ const seedSourceTable = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   sourceTableId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => {
   const sourceBatches = chunk(buildSourceRecords(config), config.batchSize);
   const sourceBatchDurations: number[] = [];
@@ -779,7 +782,7 @@ const seedHostTable = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   hostTableId: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => {
   const hostBatches = chunk(buildHostRecords(config), config.batchSize);
   const hostBatchDurations: number[] = [];
@@ -833,7 +836,7 @@ const createConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   seedCacheInfo: SeedCacheInfo,
 ): Promise<ConditionalLookupSeedFixture> => {
   const createdTableIds: string[] = [];
@@ -926,7 +929,7 @@ const restoreConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   seedCacheInfo: SeedCacheInfo,
   options: { cleanupHostLookupFields?: boolean } = {},
 ): Promise<ConditionalLookupSeedFixture | undefined> => {
@@ -1021,7 +1024,7 @@ export const buildConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
   seedCacheInfo: SeedCacheInfo,
   options?: { cleanupHostLookupFields?: boolean },
 ) =>
