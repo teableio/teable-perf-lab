@@ -6,6 +6,7 @@ export type PerfRunnerKind =
   | "formula-table"
   | "conditional-lookup"
   | "lookup-search-index"
+  | "field-create"
   | "csv-import"
   | "record-paste"
   | "record-create"
@@ -21,11 +22,13 @@ export interface PerfCase {
   title: string;
   runner: PerfRunnerKind;
   timeoutMs: number;
+  runtimeEnv?: Record<string, string | number | boolean>;
   config:
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
     | LookupSearchIndexCaseConfig
+    | FieldCreateCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordCreateCaseConfig
@@ -202,6 +205,21 @@ export interface LookupSearchIndexCaseConfig {
   };
   threshold: {
     metric: "lookupSearchIndexP95Ms";
+    maxMs: number;
+  };
+}
+
+export interface FieldCreateCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  baseFields: Array<IFieldRo & { id?: string; name: string }>;
+  field: IFieldRo & { id?: string; name: string };
+  verify: {
+    optionCount: number;
+    sampleOptionIndexes: number[];
+  };
+  threshold: {
+    metric: "singleSelectCreateOptionsMs";
     maxMs: number;
   };
 }
