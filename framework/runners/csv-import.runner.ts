@@ -652,7 +652,7 @@ const analyzeCsvAttachment = async (attachmentUrl: string) => {
   });
   return (
     analyzed.data.worksheets[IMPORT_SHEET_KEY]?.columns ??
-    Object.values(analyzed.data.worksheets)[0]?.columns ??
+    Object.values<any>(analyzed.data.worksheets)[0]?.columns ??
     []
   );
 };
