@@ -1266,7 +1266,16 @@ export const seedCsvImportCase = async (
   const targetMode = getCsvImportTargetMode(config);
 
   if (targetMode === "create-table") {
-    return { skipped: true, reason: "create-table has no reusable seed" };
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        skipped: true,
+        reason: "create-table has no reusable seed",
+        runner: perfCase.runner,
+      },
+    };
   }
 
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
