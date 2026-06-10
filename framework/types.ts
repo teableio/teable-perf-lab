@@ -278,7 +278,10 @@ export interface CsvImportCaseConfig {
     sampleRows: number[];
   };
   threshold: {
-    metric: "csvInplaceImportReadyMs" | "csvCreateTableImportReadyMs";
+    metric:
+      | "csvInplaceImportReadyMs"
+      | "csvCreateTableImportReadyMs"
+      | "csvCreateTableImportCompletedMs";
     maxMs: number;
   };
 }
