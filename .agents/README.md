@@ -16,6 +16,9 @@ needs them:
   flagged as `Trace 缺失` by the performance monitor.
 - [new-runner-contract.md](new-runner-contract.md) — required wiring and
   artifact/trace/seed contracts when a new runner is unavoidable.
+- [skills/localrun/SKILL.md](skills/localrun/SKILL.md) — local `teable-ee`
+  sandbox refresh, perf-lab injection, runtime smoke checks, GitHub Actions
+  acceptance, and trace artifact diagnosis.
 
 ## The Flow
 

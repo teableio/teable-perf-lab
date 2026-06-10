@@ -11,12 +11,12 @@ ready.
 
 ## Read Order
 
-- Adding or changing a case: read [.agent/README.md](.agent/README.md) next and
+- Adding or changing a case: read [.agents/README.md](.agents/README.md) next and
   draft the case spec before coding.
 - Changing seed/cache behavior: read
-  [.agent/seed-execute.md](.agent/seed-execute.md).
-- Adding a runner: read [.agent/runners.md](.agent/runners.md), then
-  [.agent/new-runner-contract.md](.agent/new-runner-contract.md) only if reuse or
+  [.agents/seed-execute.md](.agents/seed-execute.md).
+- Adding a runner: read [.agents/runners.md](.agents/runners.md), then
+  [.agents/new-runner-contract.md](.agents/new-runner-contract.md) only if reuse or
   extension cannot express the case.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
@@ -33,7 +33,7 @@ ready.
 - `framework/seed-cache.ts`: runner-level seed hash helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `.agent/*.md`: agent workflow and implementation rules.
+- `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules
 

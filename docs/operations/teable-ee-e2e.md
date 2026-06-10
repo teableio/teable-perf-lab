@@ -55,9 +55,9 @@ single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
 dispatches each case to a runner in `framework/runners/`. Each case writes an
 independent JSON artifact and summary tagged with `engine`.
 
-The runner catalog is in [.agent/runners.md](../../.agent/runners.md). The list
+The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
-change a case, follow the playbook in [.agent/README.md](../../.agent/README.md);
+change a case, follow the playbook in [.agents/README.md](../../.agents/README.md);
 the workflow does not need a case-specific branch.
 
 ## Auth and seed

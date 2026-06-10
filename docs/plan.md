@@ -3,7 +3,7 @@
 > **Design snapshot.** This is the original design vision and rationale, not a
 > description of the current code. Where it diverges from the repository (for
 > example the proposed layout in §5 or the case example in §6), the repository is
-> authoritative: see `README.md`, `.agent/`, and `framework/` for the real
+> authoritative: see `README.md`, `.agents/`, and `framework/` for the real
 > structure. Treat this file as intent and history, not current state.
 
 ## 1. Goal
