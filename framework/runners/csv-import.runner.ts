@@ -652,7 +652,7 @@ const analyzeCsvAttachment = async (attachmentUrl: string) => {
   });
   return (
     analyzed.data.worksheets[IMPORT_SHEET_KEY]?.columns ??
-    Object.values(analyzed.data.worksheets)[0]?.columns ??
+    Object.values<any>(analyzed.data.worksheets)[0]?.columns ??
     []
   );
 };
@@ -1266,7 +1266,16 @@ export const seedCsvImportCase = async (
   const targetMode = getCsvImportTargetMode(config);
 
   if (targetMode === "create-table") {
-    return { skipped: true, reason: "create-table has no reusable seed" };
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        skipped: true,
+        reason: "create-table has no reusable seed",
+        runner: perfCase.runner,
+      },
+    };
   }
 
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
