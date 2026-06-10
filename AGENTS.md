@@ -3,9 +3,9 @@
 This repository is the control plane for Teable performance regression cases.
 
 Read `README.md` first for the project overview. Before adding or changing a
-case, read the agent playbook in `.agent/` and draft the case spec first; that
+case, read the agent playbook in `.agents/` and draft the case spec first; that
 folder is the source of truth for the authoring workflow. Do not duplicate it
-here. Its entry point is `.agent/README.md`.
+here. Its entry point is `.agents/README.md`.
 
 ## Working Rules
 

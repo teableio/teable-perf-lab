@@ -4,6 +4,7 @@ import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
+import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
@@ -24,6 +25,7 @@ const cases = [
   conditionalLookup10kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
+  csvImportMixed1k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
@@ -57,6 +59,14 @@ const caseAliases = new Map([
   ["csv-import", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k-20fields", "csv-import/mixed-10k-20fields-inplace-import"],
+  [
+    "csv-import/create-table",
+    "csv-import/mixed-1k-20fields-create-table-import",
+  ],
+  [
+    "csv-import/1k-create-table",
+    "csv-import/mixed-1k-20fields-create-table-import",
+  ],
   ["selection-clear", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],

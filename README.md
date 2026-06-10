@@ -11,12 +11,12 @@ ready.
 
 ## Read Order
 
-- Adding or changing a case: read [.agent/README.md](.agent/README.md) next and
+- Adding or changing a case: read [.agents/README.md](.agents/README.md) next and
   draft the case spec before coding.
 - Changing seed/cache behavior: read
-  [.agent/seed-execute.md](.agent/seed-execute.md).
-- Adding a runner: read [.agent/runners.md](.agent/runners.md), then
-  [.agent/new-runner-contract.md](.agent/new-runner-contract.md) only if reuse or
+  [.agents/seed-execute.md](.agents/seed-execute.md).
+- Adding a runner: read [.agents/runners.md](.agents/runners.md), then
+  [.agents/new-runner-contract.md](.agents/new-runner-contract.md) only if reuse or
   extension cannot express the case.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
@@ -33,7 +33,7 @@ ready.
 - `framework/seed-cache.ts`: runner-level seed hash helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `.agent/*.md`: agent workflow and implementation rules.
+- `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules
 
@@ -125,6 +125,9 @@ workload.
 - `search/search-index-on-10k-20search-fields`: reuse the same deterministic
   lookup-search fixture, then measure global `aggregation/search-index`
   requests on the host whose `TableIndex.search` is enabled.
+- `csv-import/mixed-1k-20fields-create-table-import`: upload a 1k-row 20-field
+  mixed CSV, create a new table through `POST /api/import/{baseId}`, and verify
+  the imported records and V2 `importCsv` routing.
 - `csv-import/mixed-10k-20fields-inplace-import`: create an empty 20-field
   mixed-type table, import 10k deterministic CSV rows through
   `PATCH /api/import/{baseId}/{tableId}`, and verify the typed inserted

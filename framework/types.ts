@@ -231,6 +231,7 @@ export interface RecordPasteCaseConfig {
 
 export interface CsvImportCaseConfig {
   baseId: "seed-base";
+  targetMode?: "inplace" | "create-table";
   tableNamePrefix: string;
   rowCount: number;
   batchSize: number;
@@ -240,12 +241,13 @@ export interface CsvImportCaseConfig {
     titlePrefix: string;
     payloadPrefix: string;
     valuePrefix: string;
+    compact?: boolean;
   };
   verify: {
     sampleRows: number[];
   };
   threshold: {
-    metric: "csvInplaceImportReadyMs";
+    metric: "csvInplaceImportReadyMs" | "csvCreateTableImportReadyMs";
     maxMs: number;
   };
 }
