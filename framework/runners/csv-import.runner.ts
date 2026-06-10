@@ -4,6 +4,7 @@ import {
   analyzeFile,
   getSignature,
   inplaceImportTableFromFile,
+  importTableFromFile,
   notify,
   SUPPORTEDTYPE,
   UploadType,
@@ -18,7 +19,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -54,12 +55,13 @@ type CsvFixture = {
   fields: CsvField[];
   csvContent: string;
   attachmentUrl: string;
-  sourceColumnMap: Record<string, number>;
+  sourceColumnMap?: Record<string, number>;
   analyzeColumns: Array<{ name: string; type: string }>;
   attachmentCacheHit?: boolean;
   seedCacheInfo?: SeedCacheInfo;
   seedCacheHit?: boolean;
   reusableSeed?: boolean;
+  lastImport?: Omit<CsvImportPrimaryResult, "verifiedRows">;
 };
 
 type CsvImportPrimaryResult = {
@@ -67,6 +69,7 @@ type CsvImportPrimaryResult = {
   importStatus: number;
   responseHeaders: Record<string, string>;
   verifiedRows: Awaited<ReturnType<typeof assertImportedRows>>;
+  createdTableId?: string;
 };
 
 const IMPORT_SHEET_KEY = "Import Table";
@@ -145,6 +148,42 @@ const getExpectedValue = (
   rowNumber: number,
   config: CsvImportCaseConfig,
 ) => {
+  if (config.generator.compact) {
+    if (
+      ![
+        "Title",
+        "Status",
+        "Tags",
+        "Amount",
+        "Start Date",
+        "Active",
+        "Score",
+      ].includes(field.name)
+    ) {
+      return null;
+    }
+
+    switch (field.type) {
+      case FieldType.SingleSelect:
+        return getSelectChoice(field, rowNumber);
+      case FieldType.MultipleSelect:
+        return getMultiSelectChoices(field, rowNumber);
+      case FieldType.Number:
+        return rowNumber % 10;
+      case FieldType.Date:
+        return dateOnlyForRow(
+          rowNumber,
+          field.name.toLowerCase().includes("due") ? 7 : 0,
+        );
+      case FieldType.Checkbox:
+        return rowNumber % 2 === 1 ? true : null;
+      case FieldType.Rating:
+        return ((rowNumber - 1) % ratingMax(field)) + 1;
+      default:
+        return field.name === "Title" ? `R${rowNumber}` : "x";
+    }
+  }
+
   const padded = padRowNumber(rowNumber);
 
   switch (field.name) {
@@ -296,6 +335,7 @@ const resolveCsvFields = (
 
 const getCsvImportSeedConfig = (config: CsvImportCaseConfig) => ({
   baseId: config.baseId,
+  targetMode: config.targetMode ?? "inplace",
   rowCount: config.rowCount,
   batchSize: config.batchSize,
   fields: config.fields,
@@ -303,6 +343,9 @@ const getCsvImportSeedConfig = (config: CsvImportCaseConfig) => ({
   verifySampleRows: config.verify.sampleRows,
   fixtureVersion: CSV_IMPORT_FIXTURE_VERSION,
 });
+
+const getCsvImportTargetMode = (config: CsvImportCaseConfig) =>
+  config.targetMode ?? "inplace";
 
 const buildBaseCsvFixture = async (
   baseId: string,
@@ -538,7 +581,7 @@ const prepareCsvAttachment = async ({
   cachedAttachment,
 }: {
   baseId: string;
-  tableId: string;
+  tableId?: string;
   csvContent: string;
   cachedAttachment?: CachedImportAttachment;
 }) => {
@@ -563,11 +606,13 @@ const prepareCsvAttachment = async ({
 
   const attachmentUrl = await uploadCsv(csvContent);
   const analyzeColumns = await analyzeCsvAttachment(attachmentUrl);
-  await persistCachedImportAttachment(baseId, tableId, {
-    fixtureVersion: CSV_IMPORT_FIXTURE_VERSION,
-    attachmentUrl,
-    analyzeColumns,
-  });
+  if (tableId) {
+    await persistCachedImportAttachment(baseId, tableId, {
+      fixtureVersion: CSV_IMPORT_FIXTURE_VERSION,
+      attachmentUrl,
+      analyzeColumns,
+    });
+  }
 
   return {
     attachmentUrl,
@@ -587,6 +632,85 @@ const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
   traceparent: getResponseHeader(headers, "traceparent"),
 });
+
+const assertExpectedCsvRouting = (
+  context: PerfRunContext,
+  config: CsvImportCaseConfig,
+  responseHeaders: Record<string, string>,
+) => {
+  if (context.engine !== "v2") {
+    return;
+  }
+
+  const expectedFeature =
+    getCsvImportTargetMode(config) === "create-table"
+      ? "importCsv"
+      : "importRecords";
+
+  if (
+    responseHeaders["x-teable-v2"] === "false" ||
+    responseHeaders["x-teable-v2-reason"] === "no_feature" ||
+    responseHeaders["x-teable-v2-feature"] !== expectedFeature
+  ) {
+    throw new Error(
+      `CSV import did not use expected V2 route ${expectedFeature}; headers=${JSON.stringify(
+        responseHeaders,
+      )}`,
+    );
+  }
+};
+
+const buildCreateTableWorksheets = (
+  tableName: string,
+  config: CsvImportCaseConfig,
+  analyzeColumns: Array<{ name: string; type: string }>,
+) => {
+  const analyzedByName = new Map(
+    analyzeColumns.map((column, index) => [column.name, { ...column, index }]),
+  );
+  const columns = config.fields.map((field, index) => {
+    const analyzed = analyzedByName.get(field.name);
+    return {
+      name: field.name,
+      type: analyzed?.type ?? field.type,
+      sourceColumnIndex: analyzed?.index ?? index,
+    };
+  });
+
+  return {
+    [IMPORT_SHEET_KEY]: {
+      name: tableName,
+      columns,
+      useFirstRowAsHeader: true,
+      importData: true,
+    },
+  };
+};
+
+const prepareCsvCreateTableFixture = async (
+  tableName: string,
+  config: CsvImportCaseConfig,
+): Promise<CsvFixture> => {
+  const baseId = globalThis.testConfig.baseId;
+  const csvContent = buildCsvContent(config);
+  const attachmentUrl = await uploadCsv(csvContent);
+  const analyzeColumns = await analyzeCsvAttachment(attachmentUrl);
+
+  return {
+    tableId: "",
+    tableName,
+    dbTableName: "",
+    viewId: "",
+    fields: config.fields.map((field) => ({
+      ...field,
+      id: "",
+      name: field.name,
+    })),
+    csvContent,
+    attachmentUrl,
+    analyzeColumns,
+  };
+};
 
 const prepareCsvImportFixture = async (
   baseId: string,
@@ -695,7 +819,77 @@ const importAndVerifyCsv = async (
   baseId: string,
   fixture: CsvFixture,
   config: CsvImportCaseConfig,
+  context: PerfRunContext,
 ) => {
+  if (getCsvImportTargetMode(config) === "create-table") {
+    const importMeasurement = await measureAsync("importRequest", async () => {
+      const response = await importTableFromFile(baseId, {
+        attachmentUrl: fixture.attachmentUrl,
+        fileType: SUPPORTEDTYPE.CSV,
+        worksheets: buildCreateTableWorksheets(
+          fixture.tableName,
+          config,
+          fixture.analyzeColumns,
+        ),
+        notification: true,
+        tz: "UTC",
+      });
+      expect([200, 201]).toContain(response.status);
+      return response;
+    });
+
+    const responseHeaders = pickResponseHeaders(
+      importMeasurement.result.headers,
+    );
+    assertExpectedCsvRouting(context, config, responseHeaders);
+
+    const createdTable = importMeasurement.result.data[0];
+    if (!createdTable?.id) {
+      throw new Error("CSV create-table import did not return a table id");
+    }
+
+    const tableMeta = await getTable(baseId, createdTable.id);
+    const tableFields = await getFields(createdTable.id);
+    const views = await getViews(createdTable.id);
+    const viewId = views[0]?.id;
+    if (!viewId) {
+      throw new Error(
+        `No grid view found for CSV import table ${createdTable.id}`,
+      );
+    }
+    const fields = resolveCsvFields(tableFields, config);
+
+    fixture.tableId = createdTable.id;
+    fixture.dbTableName = tableMeta.dbTableName;
+    fixture.viewId = viewId;
+    fixture.fields = fields;
+    fixture.lastImport = {
+      importRequestMs: importMeasurement.durationMs,
+      importStatus: importMeasurement.result.status,
+      responseHeaders,
+      createdTableId: createdTable.id,
+    };
+
+    const verifyMeasurement = await measureAsync("verifyReady", () =>
+      assertImportedRowsReady(
+        baseId,
+        tableMeta.dbTableName,
+        createdTable.id,
+        viewId,
+        fields,
+        config,
+      ),
+    );
+
+    return {
+      importRequestMs: importMeasurement.durationMs,
+      importStatus: importMeasurement.result.status,
+      responseHeaders,
+      verifiedRows: verifyMeasurement.result,
+      createdTableId: createdTable.id,
+    };
+  }
+
   const importMeasurement = await measureAsync("importRequest", async () => {
     const response = await inplaceImportTableFromFile(baseId, fixture.tableId, {
       attachmentUrl: fixture.attachmentUrl,
@@ -711,6 +905,14 @@ const importAndVerifyCsv = async (
     return response;
   });
 
+  const responseHeaders = pickResponseHeaders(importMeasurement.result.headers);
+  assertExpectedCsvRouting(context, config, responseHeaders);
+  fixture.lastImport = {
+    importRequestMs: importMeasurement.durationMs,
+    importStatus: importMeasurement.result.status,
+    responseHeaders,
+  };
+
   const verifyMeasurement = await measureAsync("verifyReady", () =>
     assertImportedRowsReady(
       baseId,
@@ -725,7 +927,7 @@ const importAndVerifyCsv = async (
   return {
     importRequestMs: importMeasurement.durationMs,
     importStatus: importMeasurement.result.status,
-    responseHeaders: pickResponseHeaders(importMeasurement.result.headers),
+    responseHeaders,
     verifiedRows: verifyMeasurement.result,
   };
 };
@@ -747,6 +949,7 @@ const buildCsvImportCaseResult = ({
 }): PerfRunResult => {
   const fixture = prepareMeasurement?.result;
   const primaryResult = primaryMeasurement?.result;
+  const lastImport = primaryResult ?? fixture?.lastImport;
 
   return {
     metrics: {
@@ -766,7 +969,7 @@ const buildCsvImportCaseResult = ({
         : {}),
       ...(primaryMeasurement
         ? {
-            csvInplaceImportReadyMs: primaryMeasurement.durationMs,
+            [config.threshold.metric]: primaryMeasurement.durationMs,
             importRequestMs: primaryResult?.importRequestMs ?? 0,
           }
         : {}),
@@ -808,6 +1011,7 @@ const buildCsvImportCaseResult = ({
     ],
     details: {
       tableId: fixture?.tableId,
+      targetMode: getCsvImportTargetMode(config),
       tableName: fixture?.tableName,
       dbTableName: fixture?.dbTableName,
       viewId: fixture?.viewId,
@@ -840,11 +1044,13 @@ const buildCsvImportCaseResult = ({
             seedReady: seedReadyMeasurement?.result,
           }
         : undefined,
-      import: primaryResult
+      import: lastImport
         ? {
-            status: primaryResult.importStatus,
-            requestMs: primaryResult.importRequestMs,
-            responseHeaders: primaryResult.responseHeaders,
+            status: lastImport.importStatus,
+            requestMs: lastImport.importRequestMs,
+            responseHeaders: lastImport.responseHeaders,
+            createdTableId: lastImport.createdTableId,
+            verificationCompleted: Boolean(primaryResult),
           }
         : undefined,
       verification: primaryResult
@@ -877,10 +1083,13 @@ export const runCsvImportCase = async (
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   let prepareMeasurement: Measurement<CsvFixture> | undefined;
+  const targetMode = getCsvImportTargetMode(config);
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
-      prepareCsvImportFixture(baseId, tableName, config, perfCase),
+      targetMode === "create-table"
+        ? prepareCsvCreateTableFixture(tableName, config)
+        : prepareCsvImportFixture(baseId, tableName, config, perfCase),
     );
     let primaryMeasurement: Measurement<CsvImportPrimaryResult> | undefined;
 
@@ -891,7 +1100,12 @@ export const runCsvImportCase = async (
         config.threshold.metric,
         () =>
           measureAsync(config.threshold.metric, () =>
-            importAndVerifyCsv(baseId, prepareMeasurement.result, config),
+            importAndVerifyCsv(
+              baseId,
+              prepareMeasurement.result,
+              config,
+              context,
+            ),
           ),
       );
     } catch (error) {
@@ -933,6 +1147,12 @@ export const seedCsvImportCase = async (
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as CsvImportCaseConfig;
   const baseId = globalThis.testConfig.baseId;
+  const targetMode = getCsvImportTargetMode(config);
+
+  if (targetMode === "create-table") {
+    return { skipped: true, reason: "create-table has no reusable seed" };
+  }
+
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
     prepareCsvImportFixture(baseId, tableName, config, perfCase),

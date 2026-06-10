@@ -44,4 +44,4 @@ as an assumption.
 
 Proceed to write `cases/<group>/<case-name>.case.ts` + `.md`, register in
 `registry.ts`, then `pnpm check`. See the flow in
-[.agent/README.md](README.md).
+[.agents/README.md](README.md).
