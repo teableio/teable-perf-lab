@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { FieldKeyType, FieldType } from "@teable/core";
 import {
   analyzeFile,
+  getImportStatus,
   getSignature,
   inplaceImportTableFromFile,
   importTableFromFile,
@@ -66,6 +67,8 @@ type CsvFixture = {
 
 type CsvImportPrimaryResult = {
   importRequestMs: number;
+  importCompletedMs?: number;
+  importCompletion?: Awaited<ReturnType<typeof waitForCsvImportCompletion>>;
   importStatus: number;
   responseHeaders: Record<string, string>;
   verifiedRows: Awaited<ReturnType<typeof assertImportedRows>>;
@@ -347,6 +350,24 @@ const getCsvImportSeedConfig = (config: CsvImportCaseConfig) => ({
 const getCsvImportTargetMode = (config: CsvImportCaseConfig) =>
   config.targetMode ?? "inplace";
 
+const getCsvThresholdValue = (
+  config: CsvImportCaseConfig,
+  primaryMeasurement: Measurement<CsvImportPrimaryResult>,
+) =>
+  config.threshold.metric === "csvCreateTableImportCompletedMs"
+    ? (primaryMeasurement.result.importCompletedMs ??
+      primaryMeasurement.result.importRequestMs)
+    : primaryMeasurement.durationMs;
+
+const getCsvVerificationDuration = (
+  primaryMeasurement: Measurement<CsvImportPrimaryResult>,
+) =>
+  roundMetric(
+    primaryMeasurement.durationMs -
+      (primaryMeasurement.result.importCompletedMs ??
+        primaryMeasurement.result.importRequestMs),
+  );
+
 const buildBaseCsvFixture = async (
   baseId: string,
   tableId: string,
@@ -398,6 +419,19 @@ const assertCsvImportTargetEmpty = async (
   return { rowCount: actualRowCount };
 };
 
+const readImportedRowCount = async (
+  baseId: string,
+  fixture: Pick<CsvFixture, "dbTableName">,
+) => {
+  const rows = await queryPerfDb<{ count: string }>(
+    `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
+      baseId,
+      fixture.dbTableName,
+    )}`,
+  );
+  return Number(rows[0]?.count);
+};
+
 const assertImportedRows = async (
   baseId: string,
   dbTableName: string,
@@ -407,13 +441,7 @@ const assertImportedRows = async (
   config: CsvImportCaseConfig,
 ) => {
   const projection = fields.map((field) => field.id);
-  const rows = await queryPerfDb<{ count: string }>(
-    `SELECT CAST(COUNT(*) AS text) AS "count" FROM ${getSqlTableRef(
-      baseId,
-      dbTableName,
-    )}`,
-  );
-  const actualRowCount = Number(rows[0]?.count);
+  const actualRowCount = await readImportedRowCount(baseId, { dbTableName });
 
   if (actualRowCount !== config.rowCount) {
     throw new Error(
@@ -520,6 +548,61 @@ const assertImportedRowsReady = async (
     `CSV import readiness timed out after ${timeoutMs}ms: ${
       lastError instanceof Error ? lastError.message : String(lastError)
     }`,
+  );
+};
+
+const waitForCsvImportCompletion = async (
+  baseId: string,
+  tableId: string,
+  dbTableName: string,
+  config: CsvImportCaseConfig,
+  context: PerfRunContext,
+) => {
+  const startedAt = Date.now();
+  if (context.engine === "v2") {
+    return {
+      status: "completed" as const,
+      pollCount: 0,
+      durationMs: 0,
+      expectedRowCount: config.rowCount,
+      rowCountAtCompletion: await readImportedRowCount(baseId, { dbTableName }),
+    };
+  }
+
+  const timeoutMs = 120_000;
+  const pollIntervalMs = 1_000;
+  let pollCount = 0;
+  let latestStatus:
+    | Awaited<ReturnType<typeof getImportStatus>>["data"]
+    | undefined;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    pollCount += 1;
+    const response = await getImportStatus(tableId);
+    latestStatus = response.data;
+    if (latestStatus.status === "completed") {
+      return {
+        ...latestStatus,
+        pollCount,
+        durationMs: roundMetric(Date.now() - startedAt),
+        expectedRowCount: config.rowCount,
+        rowCountAtCompletion: await readImportedRowCount(baseId, {
+          dbTableName,
+        }),
+      };
+    }
+    if (latestStatus.status === "failed") {
+      throw new Error(
+        `CSV import failed: ${latestStatus.message ?? JSON.stringify(latestStatus)}`,
+      );
+    }
+    await sleep(pollIntervalMs);
+  }
+
+  throw new Error(
+    `CSV import completion timed out after ${timeoutMs}ms; latest=${JSON.stringify(
+      latestStatus,
+    )}`,
   );
 };
 
@@ -870,6 +953,16 @@ const importAndVerifyCsv = async (
       createdTableId: createdTable.id,
     };
 
+    const completionMeasurement = await measureAsync("importCompleted", () =>
+      waitForCsvImportCompletion(
+        baseId,
+        createdTable.id,
+        tableMeta.dbTableName,
+        config,
+        context,
+      ),
+    );
+
     const verifyMeasurement = await measureAsync("verifyReady", () =>
       assertImportedRowsReady(
         baseId,
@@ -883,6 +976,9 @@ const importAndVerifyCsv = async (
 
     return {
       importRequestMs: importMeasurement.durationMs,
+      importCompletedMs:
+        importMeasurement.durationMs + completionMeasurement.result.durationMs,
+      importCompletion: completionMeasurement.result,
       importStatus: importMeasurement.result.status,
       responseHeaders,
       verifiedRows: verifyMeasurement.result,
@@ -950,6 +1046,12 @@ const buildCsvImportCaseResult = ({
   const fixture = prepareMeasurement?.result;
   const primaryResult = primaryMeasurement?.result;
   const lastImport = primaryResult ?? fixture?.lastImport;
+  const thresholdValue = primaryMeasurement
+    ? getCsvThresholdValue(config, primaryMeasurement)
+    : undefined;
+  const verificationDuration = primaryMeasurement
+    ? getCsvVerificationDuration(primaryMeasurement)
+    : undefined;
 
   return {
     metrics: {
@@ -969,7 +1071,10 @@ const buildCsvImportCaseResult = ({
         : {}),
       ...(primaryMeasurement
         ? {
-            [config.threshold.metric]: primaryMeasurement.durationMs,
+            [config.threshold.metric]: thresholdValue ?? 0,
+            ...(config.threshold.metric !== "csvCreateTableImportReadyMs"
+              ? { csvCreateTableImportReadyMs: primaryMeasurement.durationMs }
+              : {}),
             importRequestMs: primaryResult?.importRequestMs ?? 0,
           }
         : {}),
@@ -996,8 +1101,20 @@ const buildCsvImportCaseResult = ({
         ? [
             {
               name: primaryMeasurement.name,
-              durationMs: primaryMeasurement.durationMs,
+              durationMs: thresholdValue ?? primaryMeasurement.durationMs,
             },
+            ...(config.threshold.metric === "csvCreateTableImportCompletedMs"
+              ? [
+                  {
+                    name: "verifyReady",
+                    durationMs: verificationDuration ?? 0,
+                  },
+                  {
+                    name: "csvCreateTableImportReadyMs",
+                    durationMs: primaryMeasurement.durationMs,
+                  },
+                ]
+              : []),
           ]
         : []),
       ...(seedReadyMeasurement
@@ -1050,6 +1167,7 @@ const buildCsvImportCaseResult = ({
             requestMs: lastImport.importRequestMs,
             responseHeaders: lastImport.responseHeaders,
             createdTableId: lastImport.createdTableId,
+            completion: primaryResult?.importCompletion,
             verificationCompleted: Boolean(primaryResult),
           }
         : undefined,
@@ -1058,9 +1176,7 @@ const buildCsvImportCaseResult = ({
             method: "sql-count-plus-samples",
             rowCount: primaryResult.verifiedRows.rowCount,
             sampleCount: primaryResult.verifiedRows.sampleCount,
-            durationMs: roundMetric(
-              primaryMeasurement.durationMs - primaryResult.importRequestMs,
-            ),
+            durationMs: verificationDuration,
           }
         : undefined,
       verifiedSamples: primaryResult?.verifiedRows.verifiedSamples,

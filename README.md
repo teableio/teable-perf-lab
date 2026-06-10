@@ -134,6 +134,9 @@ workload.
 - `csv-import/mixed-1k-20fields-create-table-import`: upload a 1k-row 20-field
   mixed CSV, create a new table through `POST /api/import/{baseId}`, and verify
   the imported records and V2 `importCsv` routing.
+- `csv-import/mixed-10k-20fields-create-table-import`: upload a 10k-row
+  20-field mixed CSV, create a new table through `POST /api/import/{baseId}`,
+  and verify the imported records and V2 `importCsv` routing.
 - `csv-import/mixed-10k-20fields-inplace-import`: create an empty 20-field
   mixed-type table, import 10k deterministic CSV rows through
   `PATCH /api/import/{baseId}/{tableId}`, and verify the typed inserted
