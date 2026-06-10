@@ -128,6 +128,9 @@ workload.
 - `field-create/single-select-1k-options`: create an empty table, add one
   single select field with 1,000 deterministic options, and verify the field
   metadata.
+- `field-duplicate/conditional-lookup-10k`: create the same 10k x 10k
+  conditional lookup fixture as `lookup/conditional-10k`, duplicate the lookup
+  field, and verify the duplicated lookup values.
 - `csv-import/mixed-1k-20fields-create-table-import`: upload a 1k-row 20-field
   mixed CSV, create a new table through `POST /api/import/{baseId}`, and verify
   the imported records and V2 `importCsv` routing.

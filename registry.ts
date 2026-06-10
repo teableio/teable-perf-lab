@@ -5,6 +5,7 @@ import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
+import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
@@ -27,6 +28,7 @@ const cases = [
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
+  fieldDuplicateConditionalLookup10kCase,
   csvImportMixed1k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
@@ -61,6 +63,9 @@ const caseAliases = new Map([
   ["field-create", "field-create/single-select-1k-options"],
   ["field-create/single-select", "field-create/single-select-1k-options"],
   ["select-options/1k", "field-create/single-select-1k-options"],
+  ["field-duplicate", "field-duplicate/conditional-lookup-10k"],
+  ["field-duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
+  ["duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
   ["csv-import", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k-20fields", "csv-import/mixed-10k-20fields-inplace-import"],
