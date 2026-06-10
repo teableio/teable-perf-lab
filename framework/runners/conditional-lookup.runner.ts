@@ -54,23 +54,23 @@ type Measurement<T> = {
   result: T;
 };
 
-type SourceFields = {
+export type ConditionalLookupSourceFields = {
   keyFieldId: string;
   valueFieldId: string;
 };
 
-type HostFields = {
+export type ConditionalLookupHostFields = {
   keyFieldId: string;
   lookupKeyFieldId: string;
 };
 
-type ConditionalLookupSeedFixture = {
+export type ConditionalLookupSeedFixture = {
   sourceTableId: string;
   sourceTableName: string;
   hostTableId: string;
   hostTableName: string;
-  sourceFields: SourceFields;
-  hostFields: HostFields;
+  sourceFields: ConditionalLookupSourceFields;
+  hostFields: ConditionalLookupHostFields;
   sampleRecords: SeededSampleRecord[];
   sourceBatchDurations: number[];
   hostBatchDurations: number[];
@@ -240,7 +240,7 @@ const resolveNamedFieldIds = (
 const resolveSourceFields = (
   tableId: string,
   fields: Array<{ id: string; name: string }>,
-): SourceFields => {
+): ConditionalLookupSourceFields => {
   const fieldByName = resolveNamedFieldIds(fields, sourceFieldNames, tableId);
   return {
     keyFieldId: fieldByName.get(SOURCE_KEY_FIELD_NAME)!,
@@ -251,13 +251,45 @@ const resolveSourceFields = (
 const resolveHostFields = (
   tableId: string,
   fields: Array<{ id: string; name: string }>,
-): HostFields => {
+): ConditionalLookupHostFields => {
   const fieldByName = resolveNamedFieldIds(fields, hostSeedFieldNames, tableId);
   return {
     keyFieldId: fieldByName.get(HOST_KEY_FIELD_NAME)!,
     lookupKeyFieldId: fieldByName.get(HOST_LOOKUP_KEY_FIELD_NAME)!,
   };
 };
+
+export const createConditionalLookupField = (
+  hostTableId: string,
+  sourceTableId: string,
+  sourceFields: ConditionalLookupSourceFields,
+  hostFields: ConditionalLookupHostFields,
+  config: ConditionalLookupCaseConfig,
+) =>
+  createField(hostTableId, {
+    name: config.lookup.name,
+    type: FieldType.SingleLineText,
+    isLookup: true,
+    isConditionalLookup: true,
+    lookupOptions: {
+      foreignTableId: sourceTableId,
+      lookupFieldId: sourceFields.valueFieldId,
+      filter: {
+        conjunction: "and",
+        filterSet: [
+          {
+            fieldId: sourceFields.keyFieldId,
+            operator: "is",
+            value: {
+              type: "field",
+              fieldId: hostFields.lookupKeyFieldId,
+            },
+          },
+        ],
+      },
+      limit: config.lookup.limit,
+    },
+  });
 
 const cleanupHostLookupFields = async (
   hostTableId: string,
@@ -283,7 +315,7 @@ const createEmptyMeasurement = <T>(
 
 const getCachedHostSampleRecords = async (
   tableId: string,
-  hostFields: HostFields,
+  hostFields: ConditionalLookupHostFields,
   config: ConditionalLookupCaseConfig,
 ): Promise<SeededSampleRecord[]> => {
   const sampleRecords = [];
@@ -406,7 +438,7 @@ const assertLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupCaseConfig,
-  hostFields: HostFields,
+  hostFields: ConditionalLookupHostFields,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
@@ -509,11 +541,11 @@ const assertLookupFullScan = async (
   };
 };
 
-const waitForLookupFullScan = async (
+export const waitForConditionalLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupCaseConfig,
-  hostFields: HostFields,
+  hostFields: ConditionalLookupHostFields,
 ) => {
   const startedAt = Date.now();
   const timeoutMs = config.verify.timeoutMs ?? 60_000;
@@ -541,11 +573,11 @@ const waitForLookupFullScan = async (
   );
 };
 
-const assertConditionalLookupSeedReady = async (
+export const assertConditionalLookupSeedReady = async (
   sourceTableId: string,
   hostTableId: string,
-  sourceFields: SourceFields,
-  hostFields: HostFields,
+  sourceFields: ConditionalLookupSourceFields,
+  hostFields: ConditionalLookupHostFields,
   config: ConditionalLookupCaseConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
@@ -896,6 +928,7 @@ const restoreConditionalLookupSeedFixture = async (
   hostTableName: string,
   config: ConditionalLookupCaseConfig,
   seedCacheInfo: SeedCacheInfo,
+  options: { cleanupHostLookupFields?: boolean } = {},
 ): Promise<ConditionalLookupSeedFixture | undefined> => {
   if (!seedCacheInfo.enabled) {
     return;
@@ -920,8 +953,14 @@ const restoreConditionalLookupSeedFixture = async (
       getFields(sourceTable.id),
       getFields(hostTable.id),
     ]);
-    await cleanupHostLookupFields(hostTable.id, hostTableFields);
-    const cleanedHostTableFields = await getFields(hostTable.id);
+    const shouldCleanupHostLookupFields =
+      options.cleanupHostLookupFields ?? true;
+    if (shouldCleanupHostLookupFields) {
+      await cleanupHostLookupFields(hostTable.id, hostTableFields);
+    }
+    const cleanedHostTableFields = shouldCleanupHostLookupFields
+      ? await getFields(hostTable.id)
+      : hostTableFields;
     const sourceFields = resolveSourceFields(sourceTable.id, sourceTableFields);
     const hostFields = resolveHostFields(hostTable.id, cleanedHostTableFields);
     const sampleRecords = await getCachedHostSampleRecords(
@@ -976,7 +1015,7 @@ const restoreConditionalLookupSeedFixture = async (
   }
 };
 
-const buildConditionalLookupSeedFixture = async (
+export const buildConditionalLookupSeedFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   baseId: string,
@@ -984,6 +1023,7 @@ const buildConditionalLookupSeedFixture = async (
   hostTableName: string,
   config: ConditionalLookupCaseConfig,
   seedCacheInfo: SeedCacheInfo,
+  options?: { cleanupHostLookupFields?: boolean },
 ) =>
   (await restoreConditionalLookupSeedFixture(
     baseId,
@@ -991,6 +1031,7 @@ const buildConditionalLookupSeedFixture = async (
     hostTableName,
     config,
     seedCacheInfo,
+    options,
   )) ??
   createConditionalLookupSeedFixture(
     perfCase,
@@ -1041,14 +1082,14 @@ const buildConditionalLookupCaseResult = ({
   >;
   createLookupFieldMeasurement?: Measurement<{ id: string }>;
   fullLookupScanReadyMeasurement?: Measurement<
-    Awaited<ReturnType<typeof waitForLookupFullScan>>
+    Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
   >;
   lookupField?: { id: string };
   seedCacheInfo?: SeedCacheInfo;
   seedCacheHit?: boolean;
   reusableSeed?: boolean;
-  sourceFields: SourceFields;
-  hostFields: HostFields;
+  sourceFields: ConditionalLookupSourceFields;
+  hostFields: ConditionalLookupHostFields;
   error?: unknown;
 }): PerfRunResult => ({
   metrics: {
@@ -1366,7 +1407,7 @@ export const runConditionalLookupCase = async (
       const fullLookupScanReadyMeasurement = await measureAsync(
         "fullLookupScanReady",
         () =>
-          waitForLookupFullScan(
+          waitForConditionalLookupFullScan(
             hostTableId,
             createLookupFieldMeasurement.result.id,
             config,
