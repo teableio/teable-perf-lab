@@ -7,6 +7,7 @@ export type PerfRunnerKind =
   | "conditional-lookup"
   | "lookup-search-index"
   | "field-create"
+  | "field-duplicate"
   | "csv-import"
   | "record-paste"
   | "record-create"
@@ -29,6 +30,7 @@ export interface PerfCase {
     | ConditionalLookupCaseConfig
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
+    | FieldDuplicateCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordCreateCaseConfig
@@ -220,6 +222,17 @@ export interface FieldCreateCaseConfig {
   };
   threshold: {
     metric: "singleSelectCreateOptionsMs";
+    maxMs: number;
+  };
+}
+
+export interface FieldDuplicateCaseConfig
+  extends Omit<ConditionalLookupCaseConfig, "threshold"> {
+  duplicate: {
+    name: string;
+  };
+  threshold: {
+    metric: "conditionalLookupDuplicateReadyMs";
     maxMs: number;
   };
 }
