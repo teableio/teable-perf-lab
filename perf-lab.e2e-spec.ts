@@ -68,7 +68,37 @@ const getForceV2All = (engine: Engine) => (engine === "v2" ? "true" : "false");
 const getMode = (): Mode =>
   process.env.PERF_LAB_MODE === "seed" ? "seed" : "execute";
 
+const getRuntimeEnvValue = (value: string | number | boolean) =>
+  typeof value === "string" ? value : String(value);
+
+const shouldOverrideRuntimeEnv = (
+  currentValue: string | undefined,
+  requiredValue: string,
+) => {
+  if (currentValue == null || currentValue === "") {
+    return true;
+  }
+
+  const currentNumber = Number.parseFloat(currentValue);
+  const requiredNumber = Number.parseFloat(requiredValue);
+
+  if (Number.isFinite(currentNumber) && Number.isFinite(requiredNumber)) {
+    return currentNumber < requiredNumber;
+  }
+
+  return false;
+};
+
 const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
+  for (const perfCase of perfCases) {
+    for (const [key, value] of Object.entries(perfCase.runtimeEnv ?? {})) {
+      const requiredValue = getRuntimeEnvValue(value);
+      if (shouldOverrideRuntimeEnv(process.env[key], requiredValue)) {
+        process.env[key] = requiredValue;
+      }
+    }
+  }
+
   const requiredMaxPasteCells = Math.max(
     0,
     ...perfCases
@@ -192,6 +222,7 @@ describe("perf-lab serial case runner (e2e)", () => {
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
     engines: engines.join(","),
     maxPasteCells: process.env.MAX_PASTE_CELLS,
+    maxSelectChoices: process.env.TABLE_LIMIT_SELECT_CHOICES_MAX,
   });
 
   beforeAll(() => {

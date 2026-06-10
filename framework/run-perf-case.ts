@@ -3,6 +3,7 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
+import { runFieldCreateCase } from "./runners/field-create.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
@@ -36,6 +37,8 @@ const runCaseByKind = async (
       return runConditionalLookupCase(perfCase, context);
     case "lookup-search-index":
       return runLookupSearchIndexCase(perfCase, context);
+    case "field-create":
+      return runFieldCreateCase(perfCase, context);
     case "csv-import":
       return runCsvImportCase(perfCase, context);
     case "record-paste":
