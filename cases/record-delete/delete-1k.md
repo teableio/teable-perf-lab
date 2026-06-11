@@ -56,6 +56,13 @@ This case isolates delete performance. It does not measure undo or redo replay.
 
 - `delete1kMs`: elapsed time for the synchronous selection delete request.
 
+The timer starts after the 1k-row source table has passed `seedReady` and stops
+when the selection-delete response returns with 1,000 deleted ids. It does not
+include seed preparation, pre-delete full-scan validation, post-delete empty
+table verification, undo-based cleanup, or seed-cache restore/build work; those
+are emitted separately as diagnostic metrics such as `prepareMs`, `seedReadyMs`,
+plus the `verifyDeleted` phase.
+
 ## Notes
 
 The `x-window-id` header is still sent so the request matches real grid

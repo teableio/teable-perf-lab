@@ -51,6 +51,15 @@ cache miss or failed seed validation.
 - `conditionalLookupReadyMs`: conditional lookup field creation plus full
   readiness verification.
 
+The metric is the sum of `createLookupFieldMs` and `fullLookupScanReadyMs`. It
+starts after the source and host seed tables have passed `seedReady`, includes
+creating the conditional lookup field, and waits for a paged full scan of all
+10,000 host rows to prove the lookup values are ready. It does not include
+source/host table creation, seed record insertion, seed-cache restore/build,
+pre-operation seed validation, or cleanup; those are diagnostic metrics such as
+`createTablesMs`, `seedSourceRecordsMs`, `seedHostRecordsMs`, `seedReadyMs`,
+`seedRestoreMs`, and `seedBuildMs`.
+
 ## Notes
 
 This case is designed to stress the conditional lookup path with high-cardinality

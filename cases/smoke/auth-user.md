@@ -35,6 +35,11 @@ and measure basic request latency.
 
 - `p95Ms`: p95 latency of measured `GET /api/auth/user/me` calls.
 
+Only the configured measured samples contribute to `p95Ms`. App startup,
+session initialization, the warmup request, and seeded-user validation setup are
+outside the sample set; each measured sample still verifies the HTTP 200
+response and seeded user id/email.
+
 ## Notes
 
 This case is a smoke check for the perf-lab harness itself. If it fails, inspect

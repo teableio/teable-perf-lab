@@ -45,6 +45,13 @@ failed `seedReady` validation.
 - `singleSelectCreateOptionsMs`: elapsed time for the external create-field
   request. Field-read verification runs after the primary measurement.
 
+The timer starts after the empty seed table has passed `seedReady`. It includes
+the `createField` request, routing-header assertion, the follow-up field list
+read, and option-count/sample verification. It does not include empty-table
+creation or seed-cache restore/build work; those are emitted as diagnostic
+metrics such as `fieldCreatePrepareMs`, `seedRestoreMs`, `seedBuildMs`, and
+`seedReadyMs`.
+
 ## Notes
 
 This case isolates large select-option metadata creation. It does not insert

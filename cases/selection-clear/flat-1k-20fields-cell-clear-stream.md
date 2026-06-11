@@ -51,6 +51,13 @@ request still crosses the product stream threshold.
 
 - `clear1kMs`: elapsed time for the single selection-clear stream request.
 
+The timer starts after the 1k-row source table and visible projection are ready.
+It covers the `clear-stream` request until the stream emits its final `done`
+event and the runner has parsed the compact stream result. It does not include
+seed preparation, post-clear full-scan verification, cleanup restoration, or
+seed-cache restore/build work; those remain diagnostics outside the threshold
+metric.
+
 ## Verification
 
 - The stream `done` event must report 1,000 processed and cleared rows.
