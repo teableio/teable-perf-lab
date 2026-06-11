@@ -7,7 +7,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -575,7 +575,9 @@ export const runRecordPasteCase = async (
       verifiedRows,
     });
   } finally {
-    if (prepareMeasurement?.result.tableId) {
+    // CI execute jobs run on a disposable restored DB copy; the pasted table
+    // is discarded with the database, so only local runs delete it.
+    if (prepareMeasurement?.result.tableId && !isExecuteDbIsolated()) {
       try {
         await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
       } catch (error) {
