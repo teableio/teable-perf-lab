@@ -583,10 +583,37 @@ jobs:
         with:
           path: perf-lab
 
+      - name: Resolve perf artifact attempt
+        id: perf_artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          selected_attempt=""
+          for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
+            pattern="teable-ee-e2e-perf-v*-${GITHUB_RUN_ID}-${attempt}"
+            count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --paginate \
+              --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^teable-ee-e2e-perf-v[12]-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
+
+            if [ "${count}" -gt 0 ]; then
+              selected_attempt="${attempt}"
+              echo "Using perf execute artifacts from run attempt ${attempt}."
+              echo "pattern=${pattern}" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
+
+          if [ -z "${selected_attempt}" ]; then
+            echo "No perf execute artifacts found for run ${GITHUB_RUN_ID}." >&2
+            exit 1
+          fi
+
       - name: Download perf artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: teable-ee-e2e-perf-v*-${{ github.run_id }}-${{ github.run_attempt }}
+          pattern: ${{ steps.perf_artifacts.outputs.pattern }}
           path: perf-lab-artifacts
           merge-multiple: true
 
