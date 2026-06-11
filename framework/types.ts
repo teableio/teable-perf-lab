@@ -223,17 +223,31 @@ export interface FieldCreateCaseConfig {
   baseFields: Array<IFieldRo & { id?: string; name: string }>;
   field?: IFieldRo & { id?: string; name: string };
   fields?: Array<IFieldRo & { id?: string; name: string }>;
-  generator?: {
-    type: "title-sequence";
-    titlePrefix: string;
-  };
+  generator?:
+    | {
+        type: "title-sequence";
+        titlePrefix: string;
+      }
+    | {
+        type: "numeric-sequence";
+        titlePrefix: string;
+      };
   verify: {
     optionCount?: number;
     sampleOptionIndexes?: number[];
     fullScanPageSize?: number;
   };
+  ready?: {
+    metric: "computedBackfillReadyMs";
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
   threshold: {
-    metric: "singleSelectCreateOptionsMs" | "create19FieldsMs";
+    metric:
+      | "singleSelectCreateOptionsMs"
+      | "create19FieldsMs"
+      | "create5SimpleFieldsMs"
+      | "create5ComputedFieldsMs";
     maxMs: number;
   };
 }
