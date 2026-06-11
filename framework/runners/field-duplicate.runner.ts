@@ -4,7 +4,7 @@ import {
   getFields,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -493,7 +493,11 @@ export const runFieldDuplicateCase = async (
       );
     }
   } finally {
-    if (seedFixture?.reusable) {
+    // CI execute jobs run on a disposable restored DB copy; cleanup that only
+    // tidies the durable database is skipped there.
+    if (isExecuteDbIsolated()) {
+      // discarded with the database
+    } else if (seedFixture?.reusable) {
       if (duplicatedFieldId) {
         try {
           await deleteField(seedFixture.hostTableId, duplicatedFieldId);

@@ -1334,7 +1334,7 @@ export const runFieldCreateCase = async (
           );
         }
       }
-    } else if (fixture?.tableId) {
+    } else if (fixture?.tableId && !isExecuteDbIsolated()) {
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
       } catch (error) {

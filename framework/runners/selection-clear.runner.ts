@@ -892,7 +892,8 @@ export const runSelectionClearCase = async (
       }
     } else if (
       prepareMeasurement?.result.tableId &&
-      !prepareMeasurement.result.reusableSeed
+      !prepareMeasurement.result.reusableSeed &&
+      !isExecuteDbIsolated()
     ) {
       try {
         await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);

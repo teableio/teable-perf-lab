@@ -9,7 +9,7 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -1269,7 +1269,11 @@ export const runFormulaTableCase = async (
       ],
     };
   } finally {
-    if (reusableSeed) {
+    // CI execute jobs run on a disposable restored DB copy; cleanup that only
+    // tidies the durable database is skipped there.
+    if (isExecuteDbIsolated()) {
+      // discarded with the database
+    } else if (reusableSeed) {
       for (const fieldId of createdFormulaFieldIds.reverse()) {
         try {
           await deleteField(tableId, fieldId);

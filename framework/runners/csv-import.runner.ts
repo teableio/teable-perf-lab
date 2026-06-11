@@ -20,7 +20,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
+import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   buildSeedCacheInfo,
@@ -1264,7 +1264,11 @@ export const runCsvImportCase = async (
       primaryMeasurement,
     });
   } finally {
-    if (prepareMeasurement?.result.tableId) {
+    // CI execute jobs run on a disposable restored DB copy, so the imported
+    // (mutated) table is discarded with the database. Locally the table is
+    // deleted: inplace import mutates the cached seed and create-table mode
+    // has no reusable seed.
+    if (prepareMeasurement?.result.tableId && !isExecuteDbIsolated()) {
       try {
         await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
       } catch (error) {
