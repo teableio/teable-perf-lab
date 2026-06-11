@@ -131,6 +131,13 @@ const hostSearchFieldNames = [...hostBaseFieldNames, ...hostLookupFieldNames];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const getSearchTraceSampleSettleMs = () => {
+  if (process.env.PERF_LAB_TRACE_ENABLED === "false") {
+    return 0;
+  }
+  return getPositiveIntegerEnv("PERF_LAB_SEARCH_TRACE_SAMPLE_SETTLE_MS") ?? 50;
+};
+
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -1032,6 +1039,7 @@ const runKeywordSamples = async (
   samples: number,
 ) => {
   const details = [];
+  const traceSampleSettleMs = getSearchTraceSampleSettleMs();
   for (let iteration = 1; iteration <= samples; iteration++) {
     const startedAt = performance.now();
     const data = await withPerfTraceStep(
@@ -1041,6 +1049,9 @@ const runKeywordSamples = async (
       () => runSearchSample(tableId, viewId, keyword),
     );
     const durationMs = roundMetric(performance.now() - startedAt);
+    if (traceSampleSettleMs > 0) {
+      await sleep(traceSampleSettleMs);
+    }
     if (
       keyword.expectedHitCount != null &&
       data.length !== keyword.expectedHitCount
