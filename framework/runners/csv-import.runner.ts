@@ -903,23 +903,31 @@ const importAndVerifyCsv = async (
   fixture: CsvFixture,
   config: CsvImportCaseConfig,
   context: PerfRunContext,
+  perfCase: PerfCase,
+  traceStepId: string,
 ) => {
   if (getCsvImportTargetMode(config) === "create-table") {
-    const importMeasurement = await measureAsync("importRequest", async () => {
-      const response = await importTableFromFile(baseId, {
-        attachmentUrl: fixture.attachmentUrl,
-        fileType: SUPPORTEDTYPE.CSV,
-        worksheets: buildCreateTableWorksheets(
-          fixture.tableName,
-          config,
-          fixture.analyzeColumns,
-        ),
-        notification: true,
-        tz: "UTC",
-      });
-      expect([200, 201]).toContain(response.status);
-      return response;
-    });
+    const importMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      traceStepId,
+      () =>
+        measureAsync("importRequest", async () => {
+          const response = await importTableFromFile(baseId, {
+            attachmentUrl: fixture.attachmentUrl,
+            fileType: SUPPORTEDTYPE.CSV,
+            worksheets: buildCreateTableWorksheets(
+              fixture.tableName,
+              config,
+              fixture.analyzeColumns,
+            ),
+            notification: true,
+            tz: "UTC",
+          });
+          expect([200, 201]).toContain(response.status);
+          return response;
+        }),
+    );
 
     const responseHeaders = pickResponseHeaders(
       importMeasurement.result.headers,
@@ -953,14 +961,20 @@ const importAndVerifyCsv = async (
       createdTableId: createdTable.id,
     };
 
-    const completionMeasurement = await measureAsync("importCompleted", () =>
-      waitForCsvImportCompletion(
-        baseId,
-        createdTable.id,
-        tableMeta.dbTableName,
-        config,
-        context,
-      ),
+    const completionMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      traceStepId,
+      () =>
+        measureAsync("importCompleted", () =>
+          waitForCsvImportCompletion(
+            baseId,
+            createdTable.id,
+            tableMeta.dbTableName,
+            config,
+            context,
+          ),
+        ),
     );
 
     const verifyMeasurement = await measureAsync("verifyReady", () =>
@@ -986,20 +1000,30 @@ const importAndVerifyCsv = async (
     };
   }
 
-  const importMeasurement = await measureAsync("importRequest", async () => {
-    const response = await inplaceImportTableFromFile(baseId, fixture.tableId, {
-      attachmentUrl: fixture.attachmentUrl,
-      fileType: SUPPORTEDTYPE.CSV,
-      insertConfig: {
-        excludeFirstRow: true,
-        sourceWorkSheetKey: IMPORT_SHEET_KEY,
-        sourceColumnMap: fixture.sourceColumnMap,
-      },
-      notification: true,
-    });
-    expect(response.status).toBe(200);
-    return response;
-  });
+  const importMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    traceStepId,
+    () =>
+      measureAsync("importRequest", async () => {
+        const response = await inplaceImportTableFromFile(
+          baseId,
+          fixture.tableId,
+          {
+            attachmentUrl: fixture.attachmentUrl,
+            fileType: SUPPORTEDTYPE.CSV,
+            insertConfig: {
+              excludeFirstRow: true,
+              sourceWorkSheetKey: IMPORT_SHEET_KEY,
+              sourceColumnMap: fixture.sourceColumnMap,
+            },
+            notification: true,
+          },
+        );
+        expect(response.status).toBe(200);
+        return response;
+      }),
+  );
 
   const responseHeaders = pickResponseHeaders(importMeasurement.result.headers);
   assertExpectedCsvRouting(context, config, responseHeaders);
@@ -1210,19 +1234,15 @@ export const runCsvImportCase = async (
     let primaryMeasurement: Measurement<CsvImportPrimaryResult> | undefined;
 
     try {
-      primaryMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, () =>
-            importAndVerifyCsv(
-              baseId,
-              prepareMeasurement.result,
-              config,
-              context,
-            ),
-          ),
+      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
+        importAndVerifyCsv(
+          baseId,
+          prepareMeasurement.result,
+          config,
+          context,
+          perfCase,
+          config.threshold.metric,
+        ),
       );
     } catch (error) {
       const diagnosticResult = buildCsvImportCaseResult({
