@@ -46,6 +46,21 @@ const FIELD_IDS = {
 
 const env = (name, fallback = "") => process.env[name] ?? fallback;
 
+const RETRYABLE_TEABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const retryDelayMs = (attempt, res) => {
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return seconds * 1000;
+    }
+  }
+  return Math.min(1000 * 2 ** (attempt - 1), 5000);
+};
+
 const requiredEnv = (name) => {
   const value = env(name);
   if (!value) {
@@ -294,22 +309,38 @@ const resolveArtifactUrl = async ({ artifactName, runUrl }) => {
 };
 
 const teableRequest = async ({ endpoint, token, method, path, body }) => {
-  const res = await fetch(`${endpoint.replace(/\/+$/, "")}/api${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: body == null ? undefined : JSON.stringify(body),
-  });
+  const maxAttempts = method === "GET" ? 4 : 1;
 
-  if (!res.ok) {
-    throw new Error(
-      `Teable API ${method} ${path} failed: ${res.status} ${await res.text()}`,
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const res = await fetch(`${endpoint.replace(/\/+$/, "")}/api${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+
+    if (res.ok) {
+      return res.status === 204 ? undefined : res.json();
+    }
+
+    const responseText = await res.text();
+    const shouldRetry =
+      attempt < maxAttempts && RETRYABLE_TEABLE_STATUS_CODES.has(res.status);
+
+    if (!shouldRetry) {
+      throw new Error(
+        `Teable API ${method} ${path} failed: ${res.status} ${responseText}`,
+      );
+    }
+
+    const delayMs = retryDelayMs(attempt, res);
+    console.warn(
+      `Teable API ${method} ${path} failed with ${res.status}; retrying in ${delayMs}ms (${attempt + 1}/${maxAttempts})`,
     );
+    await sleep(delayMs);
   }
-
-  return res.status === 204 ? undefined : res.json();
 };
 
 const getFields = async ({ endpoint, token, tableId }) =>
