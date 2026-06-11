@@ -59,12 +59,17 @@ cold-builds the seed table and deletes it after the run.
 
 - `paste10kMs`: elapsed time for the single `PATCH /selection/paste` request.
 
+The timer starts after the empty 4-field table, projection, and deterministic
+10k-row clipboard content are prepared. It includes the paste request, response
+status check, and response range assertion. It does not include table creation,
+TSV content generation, full-scan value verification, or table cleanup; those
+steps are setup/verification diagnostics outside the threshold metric.
+
 ## Notes
 
 This case intentionally starts from an empty table. Manual validation confirmed
 that pasting to `ranges: [[0, 0], [0, 0]]` on an empty table creates all 10,000
 records and returns the expected expanded range.
 
-Fixture preparation and post-paste verification are outside the primary metric.
 The CI artifact records the `prepare` phase separately so the measured
 `paste10kMs` can be interpreted as the paste operation only.
