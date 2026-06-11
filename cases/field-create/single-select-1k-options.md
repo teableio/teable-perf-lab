@@ -42,8 +42,8 @@ failed `seedReady` validation.
 
 ## Primary Metric
 
-- `singleSelectCreateOptionsMs`: single select field creation plus field-read
-  verification.
+- `singleSelectCreateOptionsMs`: elapsed time for the external create-field
+  request. Field-read verification runs after the primary measurement.
 
 ## Notes
 

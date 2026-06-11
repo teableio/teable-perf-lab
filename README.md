@@ -128,6 +128,9 @@ workload.
 - `field-create/single-select-1k-options`: create an empty table, add one
   single select field with 1,000 deterministic options, and verify the field
   metadata.
+- `field-create/mixed-10k-create-19-fields`: create a 10k-row table with only
+  `Title`, then measure one window that sequentially sends 19 external
+  create-field requests for the remaining mixed fields.
 - `field-duplicate/conditional-lookup-10k`: create the same 10k x 10k
   conditional lookup fixture as `lookup/conditional-10k`, duplicate the lookup
   field, and verify the duplicated lookup values.
