@@ -1014,7 +1014,7 @@ export const runFieldConvertCase = async (
     // it would cost as much as reseeding, so delete the table and let the
     // next run (or the seed job) rebuild it.
     const keepFixture =
-      fixture?.reusableSeed && (isExecuteDbIsolated() || !convertAttempted);
+      isExecuteDbIsolated() || (fixture?.reusableSeed && !convertAttempted);
     if (fixture?.tableId && !keepFixture) {
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
