@@ -46,6 +46,14 @@ engines and workflow runs. The runner rebuilds it only on a cache miss or failed
 
 - `formulaFullReadyMs`: formula field creation plus full readiness verification.
 
+The metric is the sum of `formulasReady` and `fullFormulaScanReady`. It starts
+after the 10k-row source table has passed `sourceReady`, includes creating the
+formula field, polling configured sample rows until they are correct, and a
+paged full scan of all 10,000 rows. It does not include table creation, seed
+record insertion, seed-cache restore/build, source sample validation, or
+cleanup; those are diagnostic metrics such as `createTableMs`, `seedRecordsMs`,
+`sourceReadyMs`, `seedRestoreMs`, and `seedBuildMs`.
+
 ## Notes
 
 This case focuses on single-formula computed readiness. If it regresses, compare

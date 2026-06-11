@@ -58,6 +58,13 @@ same workload.
 - `delete19FieldsMs`: elapsed time for the synchronous bulk field delete
   request.
 
+The timer starts after the 10k-row source table has passed `seedReady` and the
+19 deletable field ids have been resolved. It stops when the delete response
+returns and the runner has checked the response status and routing headers. It
+does not include seed preparation, field-id resolution, post-delete field/read
+verification, or cleanup; those are reported separately as diagnostics such as
+`prepareMs`, `seedReadyMs`, and `verifyDeletedMs`.
+
 ## Notes
 
 The initial 120s threshold is a guardrail, not a benchmark result; tighten it

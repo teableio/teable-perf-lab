@@ -50,6 +50,15 @@ Default samples: 30 per keyword.
 
 - `lookupSearchIndexP95Ms`: p95 latency across all OFF host samples.
 
+The sample set contains only requests against the OFF host table. Each sample
+measures one `aggregation/search-index` request and includes response
+verification for hit count and first-hit field group. The primary p95 does not
+include fixture creation, user seeding, lookup-field creation, ON-host index
+activation, or `seedReady`; those are reported as diagnostic metrics such as
+`createTablesMs`, `seedUsersMs`, `seedSourceMs`, `seedOffHostMs`,
+`seedOnHostMs`, `createLookupFieldsMs`, `activateSearchIndexOnHostMs`, and
+`seedReadyMs`.
+
 ## Notes
 
 Keywords:

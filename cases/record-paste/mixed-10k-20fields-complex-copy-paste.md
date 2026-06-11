@@ -68,6 +68,13 @@ but not currently persisted as a reusable seed artifact.
 
 - `paste10kMs`: elapsed time for the single `PATCH /selection/paste` request.
 
+The timer starts after the empty 20-field mixed table, projection, and
+deterministic 10k-row clipboard content are prepared. It includes the paste
+request, response status check, and response range assertion. It does not
+include table creation, TSV content generation, full-scan typed-value
+verification, or table cleanup; those steps are setup/verification diagnostics
+outside the threshold metric.
+
 ## Notes
 
 This case measures paste typecasting and validation overhead for a wide table.
