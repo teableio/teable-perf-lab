@@ -4,6 +4,7 @@ import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
+import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
@@ -29,6 +30,7 @@ const cases = [
   conditionalLookup10kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
+  fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldDuplicateConditionalLookup10kCase,
@@ -65,6 +67,7 @@ const caseAliases = new Map([
   ["search/search-index/on", "search/search-index-on-10k-20search-fields"],
   ["search-index/lookup", "search/search-index-on-10k-20search-fields"],
   ["field-create", "field-create/single-select-1k-options"],
+  ["field-create/19-fields", "field-create/mixed-10k-create-19-fields"],
   ["field-create/single-select", "field-create/single-select-1k-options"],
   ["select-options/1k", "field-create/single-select-1k-options"],
   ["field-delete", "field-delete/mixed-10k-delete-19-fields"],
