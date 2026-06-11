@@ -218,14 +218,22 @@ export interface LookupSearchIndexCaseConfig {
 export interface FieldCreateCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
+  rowCount?: number;
+  batchSize?: number;
   baseFields: Array<IFieldRo & { id?: string; name: string }>;
-  field: IFieldRo & { id?: string; name: string };
+  field?: IFieldRo & { id?: string; name: string };
+  fields?: Array<IFieldRo & { id?: string; name: string }>;
+  generator?: {
+    type: "title-sequence";
+    titlePrefix: string;
+  };
   verify: {
-    optionCount: number;
-    sampleOptionIndexes: number[];
+    optionCount?: number;
+    sampleOptionIndexes?: number[];
+    fullScanPageSize?: number;
   };
   threshold: {
-    metric: "singleSelectCreateOptionsMs";
+    metric: "singleSelectCreateOptionsMs" | "create19FieldsMs";
     maxMs: number;
   };
 }
