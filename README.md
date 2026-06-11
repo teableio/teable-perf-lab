@@ -18,6 +18,9 @@ ready.
 - Adding a runner: read [.agents/runners.md](.agents/runners.md), then
   [.agents/new-runner-contract.md](.agents/new-runner-contract.md) only if reuse or
   extension cannot express the case.
+- Verifying a case locally before handing it back: read
+  [.agents/skills/localrun/SKILL.md](.agents/skills/localrun/SKILL.md). A case
+  is not done until it has passed a local v1+v2 run with verified artifacts.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
   owns trigger commands and workflow inputs.
@@ -90,19 +93,11 @@ Actual workflow behavior:
   runners run `seedReady`/`sourceReady` again before execute. Destructive cases
   may mutate their isolated execute database.
 
-Current cache-aware runners:
-
-- `formula-table`
-- `conditional-lookup`
-- `csv-import`
-- `record-create`
-- `record-update`
-- `record-reorder`
-- `record-delete`
-- `record-undo`
-- `record-redo`
-- `selection-clear`
-- `lookup-search-index`
+Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
+fixture) and `record-paste` / `csv-import` create-table mode (the workload
+builds the table) are not. Cleanup strategy is decided by how the measured
+operation mutates the seed — see the A/B/C/D taxonomy in
+[.agents/seed-execute.md](.agents/seed-execute.md).
 
 Paste cases intentionally keep the 10k inserted rows in the execute stage
 because the paste import is the measured operation. Their reusable seed is only
@@ -140,6 +135,15 @@ workload.
 - `field-create/mixed-10k-create-19-fields`: create a 10k-row table with only
   `Title`, then measure one window that sequentially sends 19 external
   create-field requests for the remaining mixed fields.
+- `field-delete/mixed-10k-delete-19-fields`: seed a 10k-row 20-field mixed
+  table, delete the 19 non-primary fields in one request, and verify the
+  surviving rows and field layout.
+- `field-convert/10k-multi-select-to-text`: seed a 10k-row table with a
+  populated multiple select field, convert it to single line text, and verify
+  every converted cell equals the joined choice text.
+- `field-convert/10k-text-to-formula`: seed a 10k-row numeric table with a
+  text field, convert the text field to a formula `({A} * {B}) + {C}`, and
+  verify every computed value.
 - `field-duplicate/conditional-lookup-10k`: create the same 10k x 10k
   conditional lookup fixture as `lookup/conditional-10k`, duplicate the lookup
   field, and verify the duplicated lookup values.

@@ -7,6 +7,7 @@ export type PerfRunnerKind =
   | "conditional-lookup"
   | "lookup-search-index"
   | "field-create"
+  | "field-convert"
   | "field-delete"
   | "field-duplicate"
   | "csv-import"
@@ -31,6 +32,7 @@ export interface PerfCase {
     | ConditionalLookupCaseConfig
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
+    | FieldConvertCaseConfig
     | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
     | CsvImportCaseConfig
@@ -248,6 +250,40 @@ export interface FieldCreateCaseConfig {
       | "create19FieldsMs"
       | "create5SimpleFieldsMs"
       | "create5ComputedFieldsMs";
+    maxMs: number;
+  };
+}
+
+export type FieldConvertExpectedKind = "multiSelectJoinedText" | "aTimesBPlusC";
+
+export interface FieldConvertCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "field-convert-mixed";
+    titlePrefix: string;
+  };
+  convert: {
+    sourceFieldName: string;
+    target: {
+      type: IFieldRo["type"];
+      // For formula targets the expression uses {FieldName} placeholders that
+      // the runner compiles to field ids before the convert request.
+      options?: Record<string, unknown>;
+    };
+    expected: FieldConvertExpectedKind;
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "convertSelectToTextReadyMs" | "convertTextToFormulaReadyMs";
     maxMs: number;
   };
 }
