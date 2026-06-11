@@ -3,6 +3,7 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
+import { runFieldConvertCase } from "./runners/field-convert.runner";
 import { runFieldCreateCase } from "./runners/field-create.runner";
 import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
@@ -41,6 +42,8 @@ const runCaseByKind = async (
       return runLookupSearchIndexCase(perfCase, context);
     case "field-create":
       return runFieldCreateCase(perfCase, context);
+    case "field-convert":
+      return runFieldConvertCase(perfCase, context);
     case "field-delete":
       return runFieldDeleteCase(perfCase, context);
     case "field-duplicate":

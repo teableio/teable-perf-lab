@@ -8,6 +8,8 @@ import fieldCreateFormula10kCreate5FieldsCase from "./cases/field-create/10k-cre
 import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
 import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
+import fieldConvert10kMultiSelectToTextCase from "./cases/field-convert/10k-multi-select-to-text.case";
+import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
@@ -36,6 +38,8 @@ const cases = [
   fieldCreateFormula10kCreate5FieldsCase,
   fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
+  fieldConvert10kMultiSelectToTextCase,
+  fieldConvert10kTextToFormulaCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldDuplicateConditionalLookup10kCase,
   csvImportMixed1k20FieldsCreateTableImportCase,
@@ -78,6 +82,11 @@ const caseAliases = new Map([
   ["field-create/19-fields", "field-create/mixed-10k-create-19-fields"],
   ["field-create/single-select", "field-create/single-select-1k-options"],
   ["select-options/1k", "field-create/single-select-1k-options"],
+  ["field-convert", "field-convert/10k-multi-select-to-text"],
+  ["field-convert/select-to-text", "field-convert/10k-multi-select-to-text"],
+  ["field-convert/text-to-formula", "field-convert/10k-text-to-formula"],
+  ["convert/select-to-text", "field-convert/10k-multi-select-to-text"],
+  ["convert/text-to-formula", "field-convert/10k-text-to-formula"],
   ["field-delete", "field-delete/mixed-10k-delete-19-fields"],
   ["field-delete/19-fields", "field-delete/mixed-10k-delete-19-fields"],
   ["field-duplicate", "field-duplicate/conditional-lookup-10k"],
