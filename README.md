@@ -128,6 +128,15 @@ workload.
 - `field-create/single-select-1k-options`: create an empty table, add one
   single select field with 1,000 deterministic options, and verify the field
   metadata.
+- `field-create/10k-create-5-simple-fields`: create a 10k-record
+  table with only `Title`, then measure one window that sequentially sends 5
+  external create-field requests for simple fields without waiting on
+  background work.
+- `field-create/10k-create-5-formula-fields`: create a 10k-record
+  table with `Title`, `A`, `B`, and `C`, then measure one window that
+  sequentially sends 5 external formula-field create requests, plus a separate
+  post-create DB aggregate metric that verifies the stored formula values are
+  ready.
 - `field-create/mixed-10k-create-19-fields`: create a 10k-row table with only
   `Title`, then measure one window that sequentially sends 19 external
   create-field requests for the remaining mixed fields.

@@ -4,7 +4,9 @@ import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
+import fieldCreateFormula10kCreate5FieldsCase from "./cases/field-create/10k-create-5-formula-fields.case";
 import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
+import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
@@ -30,6 +32,8 @@ const cases = [
   conditionalLookup10kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
+  fieldCreateSimple10kCreate5FieldsCase,
+  fieldCreateFormula10kCreate5FieldsCase,
   fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
   fieldDeleteMixed10kDelete19FieldsCase,
@@ -66,7 +70,11 @@ const caseAliases = new Map([
   ["search/search-index/off", "search/search-index-off-10k-20search-fields"],
   ["search/search-index/on", "search/search-index-on-10k-20search-fields"],
   ["search-index/lookup", "search/search-index-on-10k-20search-fields"],
-  ["field-create", "field-create/single-select-1k-options"],
+  ["field-create", "field-create/10k-create-5-simple-fields"],
+  ["field-create/5-simple", "field-create/10k-create-5-simple-fields"],
+  ["field-create/simple", "field-create/10k-create-5-simple-fields"],
+  ["field-create/5-formula", "field-create/10k-create-5-formula-fields"],
+  ["field-create/formula", "field-create/10k-create-5-formula-fields"],
   ["field-create/19-fields", "field-create/mixed-10k-create-19-fields"],
   ["field-create/single-select", "field-create/single-select-1k-options"],
   ["select-options/1k", "field-create/single-select-1k-options"],

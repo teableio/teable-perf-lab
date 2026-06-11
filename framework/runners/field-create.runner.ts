@@ -1,4 +1,5 @@
 import { FieldKeyType, FieldType } from "@teable/core";
+import { PrismaService } from "@teable/db-main-prisma";
 import { createField as apiCreateField } from "@teable/openapi";
 import {
   createRecords,
@@ -16,6 +17,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldCreateCaseConfig,
@@ -34,6 +36,7 @@ type Measurement<T> = {
 type FieldCreateFixture = {
   tableId: string;
   tableName: string;
+  dbTableName?: string;
   viewId?: string;
   seedRecordCount?: number;
   seedBatchDurations?: number[];
@@ -52,14 +55,20 @@ type SelectOptions = {
   choices?: SelectChoice[];
 };
 
+type FormulaOptions = {
+  expression?: string;
+};
+
 type FieldOptions = Record<string, unknown>;
 
 type CreatedField = {
   id: string;
   name: string;
   type: FieldType;
-  options?: FieldOptions & SelectOptions;
+  options?: FieldOptions & SelectOptions & FormulaOptions;
 };
+
+type FieldCreateInput = FieldCreateCaseConfig["fields"][number];
 
 type FieldCreatePrimaryResult = {
   fieldIds: string[];
@@ -78,12 +87,30 @@ type FieldCreateVerification = {
     name: string;
     type: FieldType;
     optionCount?: number;
+    expression?: string;
   }>;
   verifiedOptions?: Array<{
     index: number;
     name: string;
     color?: string;
   }>;
+};
+
+type FieldCreateReadyVerification = {
+  metric: "computedBackfillReadyMs";
+  startedAfterMetric: string;
+  attempts: number;
+  totalRows: number;
+  expectedRows: number;
+  dbTableName: string;
+  dependencyFields: Array<
+    FieldStorageMeta & { role: "title" | "A" | "B" | "C" }
+  >;
+  computedFields: Array<
+    FieldStorageMeta & { expectedKind: FormulaExpectedKind }
+  >;
+  checks: ComputedBackfillCheck[];
+  sampleRows: ComputedBackfillSampleRow[];
 };
 
 type FieldCreateRouting = {
@@ -93,6 +120,43 @@ type FieldCreateRouting = {
   routeMatched: boolean;
   xTeableV2Feature: string;
   xTeableV2Reason: string;
+};
+
+type FieldStorageMeta = {
+  id: string;
+  name: string;
+  dbFieldName: string;
+  dbFieldType: string;
+};
+
+type FormulaExpectedKind =
+  | "aTimesBPlusC"
+  | "aPlusBPlusC"
+  | "aTimesCPlusB"
+  | "aPlusBTimesC"
+  | "weightedABC";
+
+type ComputedBackfillCheck = {
+  name: string;
+  fieldId: string;
+  dbFieldName: string;
+  dbFieldType: string;
+  nulls: number;
+  mismatches: number;
+};
+
+type ComputedBackfillSqlRow = Record<string, string | number | null>;
+
+type ComputedBackfillSampleRow = {
+  a: number;
+  b: number;
+  c: number;
+  formulas: Array<{
+    name: string;
+    fieldId: string;
+    actual: number | null;
+    expected: number | null;
+  }>;
 };
 
 const FIELD_CREATE_FIXTURE_VERSION = "field-create-v1";
@@ -212,10 +276,445 @@ const getPrimaryField = (config: FieldCreateCaseConfig) =>
 const buildSeedRecordFields = (
   config: FieldCreateCaseConfig,
   rowNumber: number,
-) => ({
-  [getPrimaryField(config)]:
-    `${config.generator?.titlePrefix ?? "Item"} ${String(rowNumber).padStart(5, "0")}`,
+) => {
+  const title = `${config.generator?.titlePrefix ?? "Item"} ${String(rowNumber).padStart(5, "0")}`;
+  if (config.generator?.type === "numeric-sequence") {
+    return {
+      [getPrimaryField(config)]: title,
+      A: rowNumber,
+      B: (rowNumber % 97) + 1,
+      C: rowNumber % 13,
+    };
+  }
+
+  return {
+    [getPrimaryField(config)]: title,
+  };
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getFormulaExpectedKind = (
+  field: FieldCreateInput,
+): FormulaExpectedKind => {
+  const expression = (field.options as FormulaOptions | undefined)?.expression;
+  const normalizedExpression = expression?.replace(/\s+/g, "");
+  switch (normalizedExpression) {
+    case "({A}*{B})+{C}":
+      return "aTimesBPlusC";
+    case "{A}+{B}+{C}":
+      return "aPlusBPlusC";
+    case "({A}*{C})+{B}":
+      return "aTimesCPlusB";
+    case "{A}+({B}*{C})":
+      return "aPlusBTimesC";
+    case "({A}*3)+({B}*5)+({C}*7)":
+      return "weightedABC";
+    default:
+      throw new Error(
+        `Unsupported formula field ready expression for ${field.name}: ${String(
+          expression,
+        )}`,
+      );
+  }
+};
+
+const quoteSqlIdentifier = (identifier: string) =>
+  `"${identifier.replace(/"/g, '""')}"`;
+
+const getSqlTableRef = (baseId: string, dbTableName: string) => {
+  const [schemaName, tableName, ...rest] = dbTableName.split(".");
+  if (tableName && rest.length === 0) {
+    return `${quoteSqlIdentifier(schemaName)}.${quoteSqlIdentifier(tableName)}`;
+  }
+  return `${quoteSqlIdentifier(baseId)}.${quoteSqlIdentifier(dbTableName)}`;
+};
+
+const getNumericSqlExpression = (field: FieldStorageMeta) => {
+  const columnRef = quoteSqlIdentifier(field.dbFieldName);
+  switch (field.dbFieldType.toUpperCase()) {
+    case "INTEGER":
+    case "REAL":
+      return `(${columnRef})::double precision`;
+    case "TEXT":
+      return `NULLIF(${columnRef}, '')::double precision`;
+    case "JSON":
+      return `NULLIF(${columnRef}#>>'{}', '')::double precision`;
+    default:
+      throw new Error(
+        `Unsupported numeric SQL comparison type for ${field.name}: ${field.dbFieldType}`,
+      );
+  }
+};
+
+const getExpectedFormulaSqlByKind = (
+  a: string,
+  b: string,
+  c: string,
+): Record<FormulaExpectedKind, string> => ({
+  aTimesBPlusC: `((${a} * ${b}) + ${c})`,
+  aPlusBPlusC: `(${a} + ${b} + ${c})`,
+  aTimesCPlusB: `((${a} * ${c}) + ${b})`,
+  aPlusBTimesC: `(${a} + (${b} * ${c}))`,
+  weightedABC: `((${a} * 3) + (${b} * 5) + (${c} * 7))`,
 });
+
+const compileFormulaExpression = (
+  expression: string,
+  fields: Array<{ id: string; name: string }>,
+) => {
+  const fieldIdByName = new Map(fields.map((field) => [field.name, field.id]));
+  return expression.replace(/\{([^}]+)\}/g, (match, fieldName: string) => {
+    const fieldId = fieldIdByName.get(fieldName);
+    return fieldId ? `{${fieldId}}` : match;
+  });
+};
+
+const buildCreateFieldsForTable = async (
+  fixture: FieldCreateFixture,
+  config: FieldCreateCaseConfig,
+) => {
+  const fieldsToCreate = getCreateFields(config);
+  if (
+    !fieldsToCreate.some(
+      (field) =>
+        field.type === FieldType.Formula &&
+        typeof (field.options as FormulaOptions | undefined)?.expression ===
+          "string",
+    )
+  ) {
+    return fieldsToCreate;
+  }
+
+  const tableFields = (await getFields(fixture.tableId)) as CreatedField[];
+  return fieldsToCreate.map((field) => {
+    const expression = (field.options as FormulaOptions | undefined)
+      ?.expression;
+    if (field.type !== FieldType.Formula || !expression) {
+      return field;
+    }
+
+    return {
+      ...field,
+      options: {
+        ...field.options,
+        expression: compileFormulaExpression(expression, tableFields),
+      },
+    };
+  });
+};
+
+const resolveFieldByName = <T extends { name: string }>(
+  fields: T[],
+  fieldName: string,
+): T => {
+  const field = fields.find((candidate) => candidate.name === fieldName);
+  if (!field) {
+    throw new Error(
+      `Missing field ${fieldName}; available fields: ${fields
+        .map((candidate) => candidate.name)
+        .join(", ")}`,
+    );
+  }
+  return field;
+};
+
+const buildComputedReadyFields = (
+  config: FieldCreateCaseConfig,
+  primaryResult: FieldCreatePrimaryResult,
+) =>
+  getCreateFields(config)
+    .map((field, index) => ({
+      field,
+      createdField: primaryResult.fields[index],
+    }))
+    .filter(({ field }) => field.type === FieldType.Formula)
+    .map(({ field, createdField }) => {
+      if (!createdField) {
+        throw new Error(`Missing created formula field ${field.name}`);
+      }
+
+      return {
+        name: field.name,
+        fieldId: createdField.id,
+        expectedKind: getFormulaExpectedKind(field),
+      };
+    });
+
+const resolveFieldStorage = async (
+  context: PerfRunContext,
+  tableId: string,
+): Promise<{ dbTableName: string; fields: FieldStorageMeta[] }> => {
+  const prisma = context.app.get<PrismaService>(PrismaService);
+  const tableMeta = await prisma.tableMeta.findUniqueOrThrow({
+    where: { id: tableId },
+    select: {
+      dbTableName: true,
+      fields: {
+        where: { deletedTime: null },
+        select: {
+          id: true,
+          name: true,
+          dbFieldName: true,
+          dbFieldType: true,
+        },
+      },
+    },
+  });
+
+  return {
+    dbTableName: tableMeta.dbTableName,
+    fields: tableMeta.fields as unknown as FieldStorageMeta[],
+  };
+};
+
+const buildComputedBackfillSql = ({
+  baseId,
+  dbTableName,
+  aField,
+  bField,
+  cField,
+  computedFields,
+}: {
+  baseId: string;
+  dbTableName: string;
+  aField: FieldStorageMeta;
+  bField: FieldStorageMeta;
+  cField: FieldStorageMeta;
+  computedFields: Array<
+    FieldStorageMeta & { expectedKind: FormulaExpectedKind }
+  >;
+}) => {
+  const a = getNumericSqlExpression(aField);
+  const b = getNumericSqlExpression(bField);
+  const c = getNumericSqlExpression(cField);
+  const expectedSqlByKind = getExpectedFormulaSqlByKind(a, b, c);
+
+  const checks = computedFields.flatMap((field, index) => {
+    const actual = getNumericSqlExpression(field);
+    const expected = expectedSqlByKind[field.expectedKind];
+    return [
+      `COUNT(*) FILTER (WHERE ${quoteSqlIdentifier(
+        field.dbFieldName,
+      )} IS NULL)::text AS "f${index}_nulls"`,
+      `COUNT(*) FILTER (WHERE ${quoteSqlIdentifier(
+        field.dbFieldName,
+      )} IS NOT NULL AND abs(${actual} - ${expected}) > 0.000001)::text AS "f${index}_mismatches"`,
+    ];
+  });
+
+  return `
+    SELECT
+      COUNT(*)::text AS "total",
+      ${checks.join(",\n      ")}
+    FROM ${getSqlTableRef(baseId, dbTableName)}
+  `;
+};
+
+const buildComputedBackfillSampleSql = ({
+  baseId,
+  dbTableName,
+  aField,
+  bField,
+  cField,
+  computedFields,
+  sampleAValues,
+}: {
+  baseId: string;
+  dbTableName: string;
+  aField: FieldStorageMeta;
+  bField: FieldStorageMeta;
+  cField: FieldStorageMeta;
+  computedFields: Array<
+    FieldStorageMeta & { expectedKind: FormulaExpectedKind }
+  >;
+  sampleAValues: number[];
+}) => {
+  const a = getNumericSqlExpression(aField);
+  const b = getNumericSqlExpression(bField);
+  const c = getNumericSqlExpression(cField);
+  const expectedSqlByKind = getExpectedFormulaSqlByKind(a, b, c);
+  const formulaColumns = computedFields.flatMap((field, index) => {
+    const actual = getNumericSqlExpression(field);
+    const expected = expectedSqlByKind[field.expectedKind];
+    return [
+      `${actual} AS "f${index}_actual"`,
+      `${expected} AS "f${index}_expected"`,
+    ];
+  });
+
+  return `
+    SELECT
+      ${a} AS "a",
+      ${b} AS "b",
+      ${c} AS "c",
+      ${formulaColumns.join(",\n      ")}
+    FROM ${getSqlTableRef(baseId, dbTableName)}
+    WHERE ${a} IN (${sampleAValues.join(", ")})
+    ORDER BY ${a}
+  `;
+};
+
+const toNumberOrNull = (value: unknown) =>
+  value == null ? null : Number(value);
+
+const assertComputedBackfillReady = async (
+  baseId: string,
+  context: PerfRunContext,
+  fixture: FieldCreateFixture,
+  config: FieldCreateCaseConfig,
+  primaryResult: FieldCreatePrimaryResult,
+  attempts: number,
+): Promise<FieldCreateReadyVerification> => {
+  if (!config.ready) {
+    throw new Error("Computed field ready verification requires config.ready");
+  }
+  if (config.generator?.type !== "numeric-sequence") {
+    throw new Error(
+      "Computed field ready verification requires numeric-sequence",
+    );
+  }
+
+  const storage = await resolveFieldStorage(context, fixture.tableId);
+  fixture.dbTableName = storage.dbTableName;
+  const titleField = {
+    ...resolveFieldByName(storage.fields, getPrimaryField(config)),
+    role: "title" as const,
+  };
+  const aField = {
+    ...resolveFieldByName(storage.fields, "A"),
+    role: "A" as const,
+  };
+  const bField = {
+    ...resolveFieldByName(storage.fields, "B"),
+    role: "B" as const,
+  };
+  const cField = {
+    ...resolveFieldByName(storage.fields, "C"),
+    role: "C" as const,
+  };
+  const computedFields = buildComputedReadyFields(config, primaryResult).map(
+    (field) => ({
+      ...resolveFieldByName(storage.fields, field.name),
+      expectedKind: field.expectedKind,
+    }),
+  );
+  if (computedFields.length === 0) {
+    throw new Error(
+      "Computed field ready verification found no formula fields",
+    );
+  }
+
+  const rows = await queryPerfDb<ComputedBackfillSqlRow>(
+    buildComputedBackfillSql({
+      baseId,
+      dbTableName: storage.dbTableName,
+      aField,
+      bField,
+      cField,
+      computedFields,
+    }),
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new Error("Computed backfill SQL returned no rows");
+  }
+
+  const totalRows = Number(row.total);
+  const checks = computedFields.map((field, index) => ({
+    name: field.name,
+    fieldId: field.id,
+    dbFieldName: field.dbFieldName,
+    dbFieldType: field.dbFieldType,
+    nulls: Number(row[`f${index}_nulls`] ?? 0),
+    mismatches: Number(row[`f${index}_mismatches`] ?? 0),
+  }));
+  const rowCount = config.rowCount ?? 0;
+  const notReady = checks.filter(
+    (check) => check.nulls !== 0 || check.mismatches !== 0,
+  );
+
+  if (totalRows !== rowCount || notReady.length > 0) {
+    throw new Error(
+      `Computed backfill not ready: total=${totalRows}/${rowCount}, checks=${JSON.stringify(
+        checks,
+      )}`,
+    );
+  }
+
+  const sampleAValues = [1, Math.max(1, Math.ceil(rowCount / 2)), rowCount];
+  const sampleRows = await queryPerfDb<ComputedBackfillSqlRow>(
+    buildComputedBackfillSampleSql({
+      baseId,
+      dbTableName: storage.dbTableName,
+      aField,
+      bField,
+      cField,
+      computedFields,
+      sampleAValues,
+    }),
+  );
+
+  return {
+    metric: config.ready.metric,
+    startedAfterMetric: config.threshold.metric,
+    attempts,
+    totalRows,
+    expectedRows: rowCount,
+    dbTableName: storage.dbTableName,
+    dependencyFields: [titleField, aField, bField, cField],
+    computedFields,
+    checks,
+    sampleRows: sampleRows.map((sampleRow) => ({
+      a: Number(sampleRow.a),
+      b: Number(sampleRow.b),
+      c: Number(sampleRow.c),
+      formulas: computedFields.map((field, index) => ({
+        name: field.name,
+        fieldId: field.id,
+        actual: toNumberOrNull(sampleRow[`f${index}_actual`]),
+        expected: toNumberOrNull(sampleRow[`f${index}_expected`]),
+      })),
+    })),
+  };
+};
+
+const waitForComputedFieldsReady = async (
+  baseId: string,
+  context: PerfRunContext,
+  fixture: FieldCreateFixture,
+  config: FieldCreateCaseConfig,
+  primaryResult: FieldCreatePrimaryResult,
+) => {
+  const timeoutMs = config.ready?.timeoutMs ?? 30_000;
+  const pollIntervalMs = config.ready?.pollIntervalMs ?? 200;
+  const startedAt = Date.now();
+  let lastError: unknown;
+  let attempts = 0;
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    attempts += 1;
+    try {
+      return await assertComputedBackfillReady(
+        baseId,
+        context,
+        fixture,
+        config,
+        primaryResult,
+        attempts,
+      );
+    } catch (error) {
+      lastError = error;
+      await sleep(pollIntervalMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for computed backfill ready after ${timeoutMs}ms: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+};
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -435,49 +934,51 @@ const runFieldCreatePrimary = async (
   context: PerfRunContext,
   fixture: FieldCreateFixture,
   config: FieldCreateCaseConfig,
-): Promise<FieldCreatePrimaryResult> => {
-  const fieldsToCreate = getCreateFields(config);
+  fieldsToCreate: FieldCreateInput[],
+): Promise<Measurement<FieldCreatePrimaryResult>> => {
   const createdFields: FieldCreatePrimaryResult["fields"] = [];
 
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    config.threshold.metric,
-    async () => {
-      for (const field of fieldsToCreate) {
-        const createResponse = await apiCreateField(fixture.tableId, field);
-        expect(createResponse.status).toBe(201);
+  return measureAsync(config.threshold.metric.replace(/Ms$/, ""), async () => {
+    await withPerfTraceStep(
+      context,
+      perfCase,
+      config.threshold.metric,
+      async () => {
+        for (const field of fieldsToCreate) {
+          const createResponse = await apiCreateField(fixture.tableId, field);
+          expect(createResponse.status).toBe(201);
 
-        const responseHeaders = pickResponseHeaders(
-          createResponse.headers as Record<string, unknown>,
-        );
-        const routing = assertExpectedRouting(context, responseHeaders);
-        const createdField = createResponse.data as CreatedField;
-        createdFields.push({
-          id: createdField.id,
-          name: createdField.name,
-          type: createdField.type,
-          optionCount: createdField.options?.choices?.length,
-          responseHeaders,
-          routing,
-        });
-      }
-    },
-  );
+          const responseHeaders = pickResponseHeaders(
+            createResponse.headers as Record<string, unknown>,
+          );
+          const routing = assertExpectedRouting(context, responseHeaders);
+          const createdField = createResponse.data as CreatedField;
+          createdFields.push({
+            id: createdField.id,
+            name: createdField.name,
+            type: createdField.type,
+            optionCount: createdField.options?.choices?.length,
+            responseHeaders,
+            routing,
+          });
+        }
+      },
+    );
 
-  return {
-    fieldIds: createdFields.map((field) => field.id),
-    fields: createdFields,
-  };
+    return {
+      fieldIds: createdFields.map((field) => field.id),
+      fields: createdFields,
+    };
+  });
 };
 
 const verifyCreatedFields = async (
   fixture: FieldCreateFixture,
   config: FieldCreateCaseConfig,
+  expectedFields = getCreateFields(config),
 ): Promise<FieldCreateVerification> => {
-  const fieldsToCreate = getCreateFields(config);
   const fields = (await getFields(fixture.tableId)) as CreatedField[];
-  const verifiedFields = fieldsToCreate.map((expectedField) => {
+  const verifiedFields = expectedFields.map((expectedField) => {
     const actualField = fields.find(
       (field) => field.name === expectedField.name,
     );
@@ -526,6 +1027,7 @@ const verifyCreatedFields = async (
       name: actualField.name,
       type: actualField.type,
       optionCount: actualChoices?.length,
+      expression: actualField.options?.expression,
     };
   });
 
@@ -548,6 +1050,7 @@ const buildFieldCreateResult = ({
   prepareMeasurement,
   seedReadyMeasurement,
   primaryMeasurement,
+  readyMeasurement,
   verification,
   error,
 }: {
@@ -557,6 +1060,9 @@ const buildFieldCreateResult = ({
     Awaited<ReturnType<typeof assertSeedReady>>
   >;
   primaryMeasurement?: Measurement<FieldCreatePrimaryResult>;
+  readyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof waitForComputedFieldsReady>>
+  >;
   verification?: FieldCreateVerification;
   error?: unknown;
 }): PerfRunResult => {
@@ -584,6 +1090,9 @@ const buildFieldCreateResult = ({
         : {}),
       ...(primaryMeasurement
         ? { [config.threshold.metric]: primaryMeasurement.durationMs }
+        : {}),
+      ...(readyMeasurement && config.ready
+        ? { [config.ready.metric]: readyMeasurement.durationMs }
         : {}),
     },
     thresholds: primaryMeasurement
@@ -620,6 +1129,14 @@ const buildFieldCreateResult = ({
             },
           ]
         : []),
+      ...(readyMeasurement
+        ? [
+            {
+              name: readyMeasurement.name,
+              durationMs: readyMeasurement.durationMs,
+            },
+          ]
+        : []),
     ],
     details: {
       tableId: fixture?.tableId,
@@ -630,6 +1147,22 @@ const buildFieldCreateResult = ({
       createdFields: primaryResult?.fields,
       verifiedFields: verification?.verifiedFields,
       verifiedOptions: verification?.verifiedOptions,
+      ready: readyMeasurement
+        ? {
+            metric: readyMeasurement.result.metric,
+            durationMs: readyMeasurement.durationMs,
+            startedAfterMetric: readyMeasurement.result.startedAfterMetric,
+            verification: "db-aggregate",
+            attempts: readyMeasurement.result.attempts,
+            totalRows: readyMeasurement.result.totalRows,
+            expectedRows: readyMeasurement.result.expectedRows,
+            dbTableName: readyMeasurement.result.dbTableName,
+            dependencyFields: readyMeasurement.result.dependencyFields,
+            computedFields: readyMeasurement.result.computedFields,
+            checks: readyMeasurement.result.checks,
+            sampleRows: readyMeasurement.result.sampleRows,
+          }
+        : undefined,
       prepare: fixture
         ? {
             durationMs: prepareMeasurement.durationMs,
@@ -712,9 +1245,18 @@ export const runFieldCreateCase = async (
   const seedCacheInfo = await buildSeedCache(perfCase, config);
   let fixture: FieldCreateFixture | undefined;
   let createdFieldIds: string[] = [];
+  let prepareMeasurement: Measurement<FieldCreateFixture> | undefined;
+  let seedReadyMeasurement:
+    | Measurement<Awaited<ReturnType<typeof assertSeedReady>>>
+    | undefined;
+  let primaryMeasurement: Measurement<FieldCreatePrimaryResult> | undefined;
+  let readyMeasurement:
+    | Measurement<Awaited<ReturnType<typeof waitForComputedFieldsReady>>>
+    | undefined;
+  let verification: FieldCreateVerification | undefined;
 
   try {
-    const prepareMeasurement = await measureAsync("prepareFieldCreate", () =>
+    prepareMeasurement = await measureAsync("prepareFieldCreate", () =>
       buildFieldCreateFixture(
         perfCase,
         context,
@@ -725,23 +1267,36 @@ export const runFieldCreateCase = async (
       ),
     );
     fixture = prepareMeasurement.result;
-    const seedReadyMeasurement = await measureAsync("seedReady", () =>
+    seedReadyMeasurement = await measureAsync("seedReady", () =>
       assertSeedReady(prepareMeasurement.result, config),
     );
-    const primaryMeasurement = await measureAsync(
-      config.threshold.metric.replace(/Ms$/, ""),
-      () =>
-        runFieldCreatePrimary(
-          perfCase,
+    const fieldsToCreate = await buildCreateFieldsForTable(
+      prepareMeasurement.result,
+      config,
+    );
+    primaryMeasurement = await runFieldCreatePrimary(
+      perfCase,
+      context,
+      prepareMeasurement.result,
+      config,
+      fieldsToCreate,
+    );
+    createdFieldIds = primaryMeasurement.result.fieldIds;
+    if (config.ready) {
+      readyMeasurement = await measureAsync(config.ready.metric, () =>
+        waitForComputedFieldsReady(
+          baseId,
           context,
           prepareMeasurement.result,
           config,
+          primaryMeasurement.result,
         ),
-    );
-    createdFieldIds = primaryMeasurement.result.fieldIds;
-    const verification = await verifyCreatedFields(
+      );
+    }
+    verification = await verifyCreatedFields(
       prepareMeasurement.result,
       config,
+      fieldsToCreate,
     );
 
     return buildFieldCreateResult({
@@ -749,6 +1304,7 @@ export const runFieldCreateCase = async (
       prepareMeasurement,
       seedReadyMeasurement,
       primaryMeasurement,
+      readyMeasurement,
       verification,
     });
   } catch (error) {
@@ -756,6 +1312,11 @@ export const runFieldCreateCase = async (
       error instanceof Error ? error.message : String(error),
       buildFieldCreateResult({
         config,
+        prepareMeasurement,
+        seedReadyMeasurement,
+        primaryMeasurement,
+        readyMeasurement,
+        verification,
         error,
       }),
     );
@@ -763,11 +1324,9 @@ export const runFieldCreateCase = async (
     if (fixture?.reusableSeed) {
       if (!isExecuteDbIsolated() && createdFieldIds.length > 0) {
         try {
-          await Promise.all(
-            createdFieldIds.map((fieldId) =>
-              deleteField(fixture.tableId, fieldId),
-            ),
-          );
+          for (const fieldId of createdFieldIds) {
+            await deleteField(fixture.tableId, fieldId);
+          }
         } catch (error) {
           console.warn(
             `Failed to cleanup perf field create fields ${createdFieldIds.join(", ")}`,
