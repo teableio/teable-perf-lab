@@ -7,6 +7,7 @@ export type PerfRunnerKind =
   | "conditional-lookup"
   | "lookup-search-index"
   | "field-create"
+  | "field-delete"
   | "field-duplicate"
   | "csv-import"
   | "record-paste"
@@ -30,6 +31,7 @@ export interface PerfCase {
     | ConditionalLookupCaseConfig
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
+    | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
@@ -374,6 +376,16 @@ export interface RecordUndoRedoBaseCaseConfig {
   verify: {
     sampleRows: number[];
     fullScanPageSize?: number;
+  };
+}
+
+export interface FieldDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  delete: {
+    fieldNames: string[];
+  };
+  threshold: {
+    metric: "delete19FieldsMs";
+    maxMs: number;
   };
 }
 

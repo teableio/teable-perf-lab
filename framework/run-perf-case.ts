@@ -4,6 +4,7 @@ import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
 import { runFieldCreateCase } from "./runners/field-create.runner";
+import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
@@ -40,6 +41,8 @@ const runCaseByKind = async (
       return runLookupSearchIndexCase(perfCase, context);
     case "field-create":
       return runFieldCreateCase(perfCase, context);
+    case "field-delete":
+      return runFieldDeleteCase(perfCase, context);
     case "field-duplicate":
       return runFieldDuplicateCase(perfCase, context);
     case "csv-import":
