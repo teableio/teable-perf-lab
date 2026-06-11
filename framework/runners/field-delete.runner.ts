@@ -184,7 +184,7 @@ const cleanupFieldDeleteFixture = async (
 
   // CI execute jobs run on an isolated restored copy of the seed dump, so the
   // mutated database is simply discarded after the job.
-  if (fixture.reusableSeed && isExecuteDbIsolated()) {
+  if (isExecuteDbIsolated()) {
     return;
   }
 

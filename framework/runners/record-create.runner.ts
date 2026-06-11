@@ -742,7 +742,11 @@ export const runRecordCreateCase = async (
           );
         }
       }
-    } else if (fixture?.tableId && !fixture.reusableSeed) {
+    } else if (
+      fixture?.tableId &&
+      !fixture.reusableSeed &&
+      !isExecuteDbIsolated()
+    ) {
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
       } catch (error) {

@@ -825,7 +825,9 @@ export const cleanupRecordUndoRedoFixture = async (
     return;
   }
 
-  if (fixture.reusableSeed && isExecuteDbIsolated()) {
+  // CI execute jobs run on an isolated restored copy of the seed dump, so the
+  // mutated database is simply discarded after the job.
+  if (isExecuteDbIsolated()) {
     return;
   }
 
