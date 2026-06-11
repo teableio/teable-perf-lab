@@ -204,6 +204,31 @@ const primaryMetricValue = (payload) => {
   return numberOrUndefined(payload.durationMs);
 };
 
+const rowStatusRank = (status) => {
+  switch (status) {
+    case "attention":
+      return 0;
+    case "neutral":
+      return 1;
+    default:
+      return 2;
+  }
+};
+
+const compareCaseRows = (a, b) => {
+  const statusDiff = rowStatusRank(a.status) - rowStatusRank(b.status);
+  if (statusDiff !== 0) {
+    return statusDiff;
+  }
+
+  const slownessDiff = b.slowness - a.slowness;
+  if (slownessDiff !== 0) {
+    return slownessDiff;
+  }
+
+  return a.caseId.localeCompare(b.caseId);
+};
+
 const buildCaseRows = (payloads) => {
   const grouped = new Map();
   for (const payload of payloads) {
@@ -213,12 +238,13 @@ const buildCaseRows = (payloads) => {
   }
 
   return [...grouped.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
     .map(([caseId, engines]) => {
       const v1 = engines.v1;
       const v2 = engines.v2;
-      const v1Value = v1?.result === "skipped" ? undefined : primaryMetricValue(v1);
-      const v2Value = v2?.result === "skipped" ? undefined : primaryMetricValue(v2);
+      const v1Value =
+        v1 && v1.result !== "skipped" ? primaryMetricValue(v1) : undefined;
+      const v2Value =
+        v2 && v2.result !== "skipped" ? primaryMetricValue(v2) : undefined;
       const hasBaseline =
         Number.isFinite(v1Value) && Number.isFinite(v2Value) && v1Value > 0;
       const ratio = hasBaseline ? v1Value / v2Value : undefined;
@@ -245,10 +271,12 @@ const buildCaseRows = (payloads) => {
         caseId,
         status,
         comparison,
+        slowness: hasBaseline ? v2Value / v1Value : Number.NEGATIVE_INFINITY,
         v1: v1?.result === "skipped" ? "skip" : formatMetricSeconds(v1Value),
         v2: v2?.result === "skipped" ? "skip" : formatMetricSeconds(v2Value),
       };
-    });
+    })
+    .sort(compareCaseRows);
 };
 
 const resultCounts = (payloads) => {
