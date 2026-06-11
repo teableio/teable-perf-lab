@@ -167,17 +167,30 @@ Existing examples:
 
 ## Cleanup Contract
 
-Always clean up in `finally`.
+Always clean up in `finally`, and always start the `finally` with the
+unconditional isolated-database short-circuit:
 
-For non-cacheable fixtures, delete temporary tables. For cacheable fixtures,
-preserve only if `seedReady` still passes after cleanup. If restore fails, delete
-the fixture so a later run cannot reuse corrupted seed.
+```ts
+if (isExecuteDbIsolated()) {
+  // CI execute jobs run on a disposable restored DB copy; skip all cleanup.
+}
+```
+
+Then pick the local cleanup strategy from the A/B/C/D mutation classes in
+[seed-execute.md](seed-execute.md) ("Cleanup Strategy: Pick by What Execute
+Does to the Seed"). In short: execute only adds objects → delete them and keep
+the seed (B); execute mutates the seed reversibly → reverse it and verify (C);
+execute mutates it irreversibly → delete the table (D). If a restore fails,
+delete the fixture so a later run cannot reuse corrupted seed.
 
 Existing examples:
 
 - `record-delete.runner.ts` calls `cleanupRecordUndoRedoFixture(...)` in
-  `finally`.
+  `finally` (C: restores through the real undo path).
 - Formula and lookup runners remove execute-created fields while keeping valid
-  source seed tables.
+  source seed tables (B).
+- `field-delete.runner.ts` and `field-convert.runner.ts` delete the mutated
+  table locally because restoring the destroyed column costs as much as
+  reseeding (D).
 - Paste runners delete their execute table because pasted records are the
-  measured workload.
+  measured workload (A).

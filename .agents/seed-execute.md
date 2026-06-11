@@ -98,8 +98,11 @@ changes in `teable-ee` reuse the same seed DB cache when the Prisma schema and
 perf-lab source hashes are unchanged. Prisma schema/migration changes change the
 key and force a new dump.
 
-The formula, conditional lookup, CSV import, record delete, record undo, record
-redo, and selection clear runners are cache-aware today:
+All runners with a seed fixture are cache-aware today (formula-table,
+conditional-lookup, lookup-search-index, field-create, field-delete,
+field-convert, field-duplicate, csv-import inplace, record-create,
+record-update, record-reorder, record-delete, record-undo, record-redo,
+selection-clear):
 
 - seed miss: compute `seedHash`, create deterministic seed table(s), validate
   source records, and include those tables in the seed database dump.
@@ -162,6 +165,56 @@ checks the case needs. If it fails, discard the fixture and rebuild.
 every source commit. If a restore-key path picks up an older dump with the same
 schema hash, the runner must validate the restored table before measuring.
 
+## Cleanup Strategy: Pick by What Execute Does to the Seed
+
+Two invariants drive every cleanup decision. Memorize these before reading
+the table:
+
+1. **A cached seed table must be in seed-ready state whenever the next run
+   finds it — otherwise it must not exist.** Leaving a mutated table behind
+   on a durable database creates silent dirty cache, the worst failure mode.
+   (Three defenses back this up: the hash-derived table name, the cache-hit
+   `seedReady` revalidation, and delete-on-failed-restore.)
+2. **On an isolated database (`PERF_LAB_EXECUTE_DB_ISOLATED=true`) skip all
+   cleanup, unconditionally.** The whole database is dropped after the job;
+   any restore or delete there is wasted work. Every `finally` block starts
+   with this check before anything else.
+
+To pick a strategy for a new case, answer one question — _what does the
+measured operation do to the seed fixture?_ — and use the matching class:
+
+| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                             |
+| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                            |
+| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                                                 |
+| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | record-create (delete created rows), record-update (rewrite seed values), record-reorder (move rows back), selection-clear (refill cells), record-delete/undo/redo (real undo path) |
+| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                     |
+
+Decision order when writing a new runner:
+
+1. Execute only creates new objects? → **B**.
+2. The reverse operation is clearly cheaper than reseeding? → **C**.
+3. Otherwise → **D**. Never attempt a "best effort" partial restore.
+
+Rules that apply to every class:
+
+- The isolated short-circuit comes first in `finally` and takes no extra
+  conditions (not even the seed cache flag).
+- Any local restore must be verified at `seedReady` level afterwards; on any
+  failure, delete the table rather than keep a possibly-dirty fixture.
+- Cache-hit paths must self-heal leftovers from crashed or isolated runs:
+  B-class runners delete leftover non-seed fields before reuse; D-class
+  runners detect the mutated column during revalidation and rebuild.
+- Class choice is about the _local_ durable database only. On CI all four
+  classes behave identically: do nothing, the database is discarded.
+
+Note the asymmetry this creates between environments: on CI, "cache hit"
+means the seed job built the table once into the dump and every engine job
+gets a pristine copy for free. Locally, C-class runners keep their cache
+alive by restoring it, while D-class (and A-class) runners pay a rebuild on
+every run — that is a deliberate trade, because their restore would cost as
+much as the rebuild.
+
 ## Execute Stage
 
 Runs after `seedReady`, even on a cache hit. Do **not** cache the computed
@@ -208,11 +261,14 @@ paths:
    `PERF_LAB_MODE=execute`. Cache-aware runners run `seedReady`/`sourceReady`
    before measuring execute.
 
-`PERF_LAB_EXECUTE_DB_ISOLATED=true` tells destructive runners that their current
-database is disposable after the engine job finishes. In that mode cleanup can
-skip expensive seed restoration after a delete or clear operation because the
-next engine already has its own restored copy and the next workflow run starts
-from the seed job dump, not from the mutated execute database.
+`PERF_LAB_EXECUTE_DB_ISOLATED=true` tells every runner that its current
+database is disposable after the engine job finishes. In that mode **all
+cleanup is skipped, unconditionally** — restores, field deletions, and table
+deletions alike. The next engine already has its own restored copy and the
+next workflow run starts from the seed job dump, never from the mutated
+execute database. Do not gate the skip on the seed cache flag or any other
+condition; the invariant is simply "on a disposable database, no cleanup is
+ever useful".
 
 For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
 `seedBuildMs`, `seedReadyMs`. A cache miss is a valid run, but the report should

@@ -24,9 +24,12 @@ needs them:
 
 ```text
 intake -> draft spec -> confirm -> pick runner -> write -> register -> check
+       -> local verify -> summarize
 ```
 
-Do not skip "confirm". Do not start `pnpm check` until files exist.
+The deliverable is not "files that pass `pnpm check`". It is a case that has
+**passed a local v1+v2 runtime run with verified artifacts**, plus a summary
+the user can read without opening any code.
 
 ### 1. Intake
 
@@ -41,6 +44,15 @@ If the API notes are enough to draft a spec, do **not** go search product code
 first. Only inspect `framework/runners/*.runner.ts` or the product when you are
 genuinely blocked on how an operation behaves.
 
+If the user asks for "the next case" without naming an operation, look for
+v1/v2-differentiated operations in `../teable-ee`: the canary feature list is
+`v2FeatureSchema` in
+`community/packages/openapi/src/admin/setting/update.ts`, and each feature is
+marked on its controller with `@UseV2Feature('<name>')`. Compare that list
+against `cases/` groups; an uncovered feature with a real v2 implementation is
+a strong candidate. Prefer heavy operations (rewrites many cells, recomputes
+dependencies) and read paths that are not yet measured.
+
 ### 2. Draft Spec
 
 Fill the missing parts yourself using [case-spec.md](case-spec.md). Mark every
@@ -51,6 +63,12 @@ have to write the spec.
 
 Show the spec. Wait for the user to approve. Ask a question only when a missing
 answer would change the implementation (see "Ask only when blocked" below).
+
+Exception: when the user asked for end-to-end delivery ("write it, verify it,
+give me a summary") or is not available to answer, do not block on
+confirmation. Proceed with sensible defaults, label every inferred value as an
+assumption, and repeat the spec plus its assumptions in the final summary so
+the user can correct them after the fact.
 
 ### 4. Pick Runner
 
@@ -100,7 +118,50 @@ pnpm check
 
 This validates formatting, workflow YAML, TypeScript syntax, and case registry
 (every case registered, exists on disk, has a same-name markdown, and parses the
-metadata Teable sync needs). Run it before you finish.
+metadata Teable sync needs). It does **not** execute anything against a real
+Teable — that is step 8.
+
+### 8. Local Verify
+
+Follow [skills/localrun/SKILL.md](skills/localrun/SKILL.md) for the exact
+commands (sandbox refresh, perf-lab injection, Docker prerequisites, the
+vitest invocation). The short version:
+
+```bash
+.agents/skills/localrun/scripts/refresh-teable-ee-sandbox.sh
+.agents/skills/localrun/scripts/inject-perf-lab.sh
+# then run the case from the sandbox with PERF_LAB_ENGINE_LIST=v1,v2
+```
+
+A run is verified only when you have checked the artifact JSON
+(`$PERF_LAB_ARTIFACT_DIR/<case>-<engine>.json`), not just the vitest exit
+code. Minimum evidence per engine:
+
+- `result` is `pass`.
+- `details.routing.routeMatched` is `true` and `x-teable-v2` matches the
+  requested engine (for cases that assert routing).
+- Verification evidence is complete: full scan `scannedRecords` equals the
+  configured row count, or the equivalent final-state proof for the case.
+- Metrics are sane: the primary metric exists and is well under `maxMs`
+  (local runs should not sit near the threshold).
+
+Common first-run failures and fixes live in the skill file (missing
+dependency after sandbox refresh → `pnpm install`; Prisma enum errors →
+`make switch-db-mode`). If a run fails, fix the case or runner, re-run
+`pnpm check`, re-inject, and re-run until both engines pass. Do not hand back
+a case that has never executed.
+
+### 9. Summarize
+
+End with a summary the user can act on without reading code:
+
+- What the case measures, in one product-level sentence per case.
+- A small table: case x engine -> pass/fail and the primary metric value.
+- Routing evidence (`x-teable-v2-feature`, route matched) when relevant.
+- Every assumption you made, especially the initial `maxMs` guardrail and row
+  counts, and what should be tightened after real CI history.
+- Files added/changed, and the GitHub Actions command for official acceptance
+  (see [../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.md)).
 
 ## Ask Only When Blocked
 
