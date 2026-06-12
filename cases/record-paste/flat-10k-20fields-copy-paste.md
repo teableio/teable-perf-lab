@@ -43,11 +43,12 @@ but not currently persisted as a reusable seed artifact.
    - `ranges: [[0, 0], [0, 0]]`
    - `projection`: the 20 visible field IDs in grid order
    - `content`: the generated TSV clipboard content
-4. Stop the primary timer after the paste response returns.
-5. Verify the paste response range is `[[0, 0], [19, 9999]]`.
-6. Full scan all 10k records and verify deterministic row values, including
+4. Assert the paste response routing matches the requested V1/V2 engine.
+5. Stop the primary timer after the paste response returns.
+6. Verify the paste response range is `[[0, 0], [19, 9999]]`.
+7. Full scan all 10k records and verify deterministic row values, including
    first, middle, and last sample rows.
-7. Permanently delete the temporary table.
+8. Permanently delete the temporary table.
 
 ## Primary Metric
 

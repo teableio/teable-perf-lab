@@ -12,6 +12,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -75,7 +80,9 @@ type SampleVerification = {
 
 type RecordUpdatePrimaryResult = {
   updateRequestMs: number;
-  update: Awaited<ReturnType<typeof updateAllRecords>>;
+  update: Awaited<ReturnType<typeof updateAllRecords>> & {
+    routing: EngineRouting;
+  };
   verified?: SampleVerification;
   verifyUpdatedMs?: number;
 };
@@ -569,12 +576,7 @@ const getUpdatedRecordIds = (
   return [];
 };
 
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": String(headers["x-teable-v2"] ?? ""),
-  "x-teable-v2-feature": String(headers["x-teable-v2-feature"] ?? ""),
-  "x-teable-v2-reason": String(headers["x-teable-v2-reason"] ?? ""),
-  traceparent: String(headers.traceparent ?? ""),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const updateAllRecords = async (
   fixture: RecordUpdateFixture,
@@ -750,6 +752,7 @@ const buildRecordUpdateResult = ({
         }
       : undefined,
     update: primaryMeasurement?.result.update,
+    routing: primaryMeasurement?.result.update.routing,
     sampleVerification: primaryMeasurement?.result.verified
       ? {
           checkedRecords: primaryMeasurement.result.verified.checkedRecords,
@@ -803,7 +806,16 @@ export const runRecordUpdateCase = async (
           ...updateMeasurement,
           result: {
             updateRequestMs: updateMeasurement.durationMs,
-            update: updateMeasurement.result,
+            update: {
+              ...updateMeasurement.result,
+              routing: assertEngineRouting(
+                context,
+                updateMeasurement.result.responseHeaders,
+                {
+                  operation: "updateRecords",
+                },
+              ),
+            },
           },
         };
         const verification = await verifyUpdatedRecords(fixture!, config);
