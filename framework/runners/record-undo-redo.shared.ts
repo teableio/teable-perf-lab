@@ -105,6 +105,10 @@ export type RecordReplayVerification = {
   verifiedSamples: Array<Record<string, unknown>>;
 };
 
+type RestoreVerificationOptions = {
+  verifySamples?: boolean;
+};
+
 export type RecordReplaySetupMeasurements = {
   deleteSetupMeasurement?: Measurement<unknown>;
   deleteSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
@@ -356,6 +360,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const formatRowCountLabel = (rowCount: number) =>
   rowCount % 1_000 === 0 ? `${rowCount / 1_000}k` : String(rowCount);
+
+const SAMPLE_TEXT_FIELD_NAMES = ["Title", "External ID"];
 
 export const buildRecordReplayPhaseName = (
   prefix: "deleteSetup" | "undoSetup",
@@ -751,6 +757,7 @@ const streamUndoRedoOperation = async ({
 export const assertRowsRestored = async (
   fixture: RecordUndoRedoFixture,
   config: RecordUndoRedoBaseCaseConfig,
+  options: RestoreVerificationOptions = {},
 ): Promise<RecordReplayVerification> => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   let scannedRecords = 0;
@@ -776,12 +783,84 @@ export const assertRowsRestored = async (
     scannedRecords += result.records.length;
   }
 
+  const beyondLastPage = await getRecords(fixture.tableId, {
+    viewId: fixture.viewId,
+    fieldKeyType: FieldKeyType.Id,
+    projection: fixture.projection,
+    skip: config.rowCount,
+    take: 1,
+  });
+  if (beyondLastPage.records.length > 0) {
+    throw new Error(
+      `Expected no records after restored row count ${config.rowCount}, got ${beyondLastPage.records.length}`,
+    );
+  }
+
+  const verifiedSamples = options.verifySamples
+    ? await assertRestoredSampleTextValues(fixture, config)
+    : [];
+
   return {
     scannedRecords,
     pageSize,
     pageCount,
-    verifiedSamples: [],
+    verifiedSamples,
   };
+};
+
+const assertRestoredSampleTextValues = async (
+  fixture: RecordUndoRedoFixture,
+  config: RecordUndoRedoBaseCaseConfig,
+): Promise<RecordReplayVerification["verifiedSamples"]> => {
+  const sampleFields = fixture.fields.filter((field) =>
+    SAMPLE_TEXT_FIELD_NAMES.includes(field.name),
+  );
+  if (sampleFields.length !== SAMPLE_TEXT_FIELD_NAMES.length) {
+    throw new Error(
+      `Sample fields ${SAMPLE_TEXT_FIELD_NAMES.join(", ")} not all present in fixture`,
+    );
+  }
+
+  const verifiedSamples = [];
+  for (const rowOffset of config.verify.sampleRows) {
+    const rowNumber = rowOffset + 1;
+    const result = await getRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: sampleFields.map((field) => field.id),
+      skip: rowOffset,
+      take: 1,
+    });
+    const record = result.records[0];
+    if (!record) {
+      throw new Error(`Sample row at offset ${rowOffset} not found`);
+    }
+
+    const actual: Record<string, unknown> = {};
+    const expected: Record<string, unknown> = {};
+    for (const field of sampleFields) {
+      const expectedValue = getExpectedCellValue(field, rowNumber, config);
+      const actualValue = record.fields[field.id];
+      actual[field.name] = actualValue;
+      expected[field.name] = expectedValue;
+      if (actualValue !== expectedValue) {
+        throw new Error(
+          `Sample row ${rowNumber} ${field.name} mismatch: expected ${String(
+            expectedValue,
+          )}, actual ${String(actualValue)}`,
+        );
+      }
+    }
+    verifiedSamples.push({
+      rowOffset,
+      rowNumber,
+      recordId: record.id,
+      actual,
+      expected,
+    });
+  }
+
+  return verifiedSamples;
 };
 
 export const waitForRowsRestored = async (
@@ -790,6 +869,7 @@ export const waitForRowsRestored = async (
   options: {
     timeoutMs?: number;
     pollIntervalMs?: number;
+    verifySamples?: boolean;
   } = {},
 ): Promise<RecordReplayVerification> => {
   const timeoutMs = options.timeoutMs ?? 15_000;
@@ -799,7 +879,9 @@ export const waitForRowsRestored = async (
 
   while (Date.now() - started < timeoutMs) {
     try {
-      return await assertRowsRestored(fixture, config);
+      return await assertRowsRestored(fixture, config, {
+        verifySamples: options.verifySamples,
+      });
     } catch (error) {
       lastError = error;
       await sleep(pollIntervalMs);
