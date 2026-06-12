@@ -3,6 +3,12 @@
 Do not treat one case as the universal template. Pick the closest standard case
 for the behavior you are changing, then read both its `.case.ts` and `.md`.
 
+This file is a curated set of pointers, not an inventory and not a spec. The
+full runnable list lives in `registry.ts` (the root README "Available Cases"
+section is its generated view). When prose here disagrees with the referenced
+`.case.ts`, `.md`, or runner code, the code wins — read the referenced files
+before copying a pattern.
+
 ## Naming Pattern
 
 Case ids should read like:
