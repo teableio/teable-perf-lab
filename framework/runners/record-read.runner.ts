@@ -74,6 +74,14 @@ type ProjectionScanVerification = {
   verifiedSamples: PageSampleVerification[];
 };
 
+type ProjectionBoundaryVerification = {
+  checkedRecords: number;
+  expectedRecords: number;
+  firstRowNumber: number;
+  lastRowNumber: number;
+  beyondLastCount: number;
+};
+
 type PageSampleVerification = {
   rowOffset: number;
   rowNumber: number;
@@ -829,6 +837,87 @@ const assertProjectionFullScan = async (
   };
 };
 
+const assertProjectionBoundary = async (
+  fixture: Pick<RecordReadFixture, "tableId" | "viewId" | "fields">,
+  config: RecordReadCaseConfig,
+): Promise<ProjectionBoundaryVerification> => {
+  const titleField = fixture.fields.find((field) => field.name === "Title");
+  if (!titleField) {
+    throw new Error("record-read projection is missing Title");
+  }
+
+  const [first, last, beyondLast] = await Promise.all([
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: 0,
+      take: 1,
+    }),
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: config.rowCount - 1,
+      take: 1,
+    }),
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: config.rowCount,
+      take: 1,
+    }),
+  ]);
+
+  expect(first.status).toBe(200);
+  expect(last.status).toBe(200);
+  expect(beyondLast.status).toBe(200);
+
+  if (first.data.records.length !== 1) {
+    throw new Error(
+      `record-read seed boundary expected first row, got ${first.data.records.length}`,
+    );
+  }
+  if (last.data.records.length !== 1) {
+    throw new Error(
+      `record-read seed boundary expected row ${config.rowCount}, got ${last.data.records.length}`,
+    );
+  }
+  if (beyondLast.data.records.length !== 0) {
+    throw new Error(
+      `record-read seed boundary found extra rows after rowCount=${config.rowCount}`,
+    );
+  }
+
+  const firstRowNumber = parseRowNumberFromTitle(
+    first.data.records[0].fields[titleField.id],
+    config,
+  );
+  const lastRowNumber = parseRowNumberFromTitle(
+    last.data.records[0].fields[titleField.id],
+    config,
+  );
+  if (firstRowNumber !== 1) {
+    throw new Error(
+      `record-read seed boundary expected first row number 1, got ${firstRowNumber}`,
+    );
+  }
+  if (lastRowNumber !== config.rowCount) {
+    throw new Error(
+      `record-read seed boundary expected last row number ${config.rowCount}, got ${lastRowNumber}`,
+    );
+  }
+
+  return {
+    checkedRecords: first.data.records.length + last.data.records.length,
+    expectedRecords: config.rowCount,
+    firstRowNumber,
+    lastRowNumber,
+    beyondLastCount: beyondLast.data.records.length,
+  };
+};
+
 const waitForProjectionFullScan = async (
   fixture: Pick<
     RecordReadFixture,
@@ -1210,7 +1299,7 @@ const buildRecordReadResult = ({
   config: RecordReadCaseConfig;
   fixture?: RecordReadFixture;
   prepareMeasurement?: Measurement<RecordReadFixture>;
-  seedReadyMeasurement?: Measurement<ProjectionScanVerification>;
+  seedReadyMeasurement?: Measurement<ProjectionBoundaryVerification>;
   readMeasurement?: Measurement<ReadPagedScanResult>;
   verifyMeasurement?: Measurement<ReadPagedScanVerification>;
   error?: unknown;
@@ -1342,11 +1431,13 @@ const buildRecordReadResult = ({
             pageSize: fixture.computedReadyMeasurement.result.pageSize,
             pageCount: fixture.computedReadyMeasurement.result.pageCount,
           },
-          readyFullScan: seedReadyMeasurement?.result
+          readyBoundary: seedReadyMeasurement?.result
             ? {
-                scannedRecords: seedReadyMeasurement.result.scannedRecords,
-                pageSize: seedReadyMeasurement.result.pageSize,
-                pageCount: seedReadyMeasurement.result.pageCount,
+                checkedRecords: seedReadyMeasurement.result.checkedRecords,
+                expectedRecords: seedReadyMeasurement.result.expectedRecords,
+                firstRowNumber: seedReadyMeasurement.result.firstRowNumber,
+                lastRowNumber: seedReadyMeasurement.result.lastRowNumber,
+                beyondLastCount: seedReadyMeasurement.result.beyondLastCount,
               }
             : undefined,
         }
@@ -1374,7 +1465,9 @@ export const runRecordReadCase = async (
   const baseId = globalThis.testConfig.baseId;
   let fixture: RecordReadFixture | undefined;
   let prepareMeasurement: Measurement<RecordReadFixture> | undefined;
-  let seedReadyMeasurement: Measurement<ProjectionScanVerification> | undefined;
+  let seedReadyMeasurement:
+    | Measurement<ProjectionBoundaryVerification>
+    | undefined;
   let readMeasurement: Measurement<ReadPagedScanResult> | undefined;
   let verifyMeasurement: Measurement<ReadPagedScanVerification> | undefined;
 
@@ -1384,7 +1477,7 @@ export const runRecordReadCase = async (
     );
     fixture = prepareMeasurement.result;
     seedReadyMeasurement = await measureAsync("seedReady", () =>
-      waitForProjectionFullScan(fixture!, config),
+      assertProjectionBoundary(fixture!, config),
     );
 
     try {
@@ -1441,7 +1534,7 @@ export const seedRecordReadCase = async (
     prepareFixture(perfCase, context, config),
   );
   const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    waitForProjectionFullScan(prepareMeasurement.result, config),
+    assertProjectionBoundary(prepareMeasurement.result, config),
   );
 
   return buildRecordReadResult({
