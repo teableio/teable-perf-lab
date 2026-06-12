@@ -10,6 +10,7 @@ export type PerfRunnerKind =
   | "field-convert"
   | "field-delete"
   | "field-duplicate"
+  | "duplicate-table"
   | "csv-import"
   | "record-paste"
   | "record-read"
@@ -36,6 +37,7 @@ export interface PerfCase {
     | FieldConvertCaseConfig
     | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
+    | DuplicateTableCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordReadCaseConfig
@@ -327,6 +329,44 @@ export interface RecordPasteCaseConfig {
   };
   threshold: {
     metric: "paste10kMs";
+    maxMs: number;
+  };
+}
+
+export interface DuplicateTableCaseConfig {
+  baseId: "seed-base";
+  sourceTableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  formulas?: Array<{
+    name: string;
+    expression: string;
+    expected:
+      | "amountTimesQuantity"
+      | "amountPlusQuantity"
+      | "percentTimes100"
+      | "quantityPlusPercent"
+      | "amountTimesPercent";
+  }>;
+  generator: {
+    type: "mixed-duplicate-table";
+    titlePrefix: string;
+    payloadPrefix: string;
+    valuePrefix: string;
+  };
+  duplicate: {
+    namePrefix: string;
+    includeRecords: boolean;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "duplicateTableRequestMs";
     maxMs: number;
   };
 }
