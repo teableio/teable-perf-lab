@@ -23,7 +23,9 @@ import { runRecordUpdateCase } from "./runners/record-update.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
 import { runTableCreateCase } from "./runners/table-create.runner";
 import { runTableDeleteCase } from "./runners/table-delete.runner";
+import { runTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { runTableRestoreCase } from "./runners/table-restore.runner";
+import { runTableRestoreLinkCase } from "./runners/table-restore-link.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
@@ -62,8 +64,12 @@ const runCaseByKind = async (
       return runTableCreateCase(perfCase, context);
     case "table-delete":
       return runTableDeleteCase(perfCase, context);
+    case "table-delete-link":
+      return runTableDeleteLinkCase(perfCase, context);
     case "table-restore":
       return runTableRestoreCase(perfCase, context);
+    case "table-restore-link":
+      return runTableRestoreLinkCase(perfCase, context);
     case "csv-import":
       return runCsvImportCase(perfCase, context);
     case "record-paste":

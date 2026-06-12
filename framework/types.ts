@@ -14,7 +14,9 @@ export type PerfRunnerKind =
   | "duplicate-base"
   | "table-create"
   | "table-delete"
+  | "table-delete-link"
   | "table-restore"
+  | "table-restore-link"
   | "csv-import"
   | "record-paste"
   | "record-read"
@@ -45,7 +47,9 @@ export interface PerfCase {
     | DuplicateBaseCaseConfig
     | TableCreateCaseConfig
     | TableDeleteCaseConfig
+    | TableDeleteLinkCaseConfig
     | TableRestoreCaseConfig
+    | TableRestoreLinkCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordReadCaseConfig
@@ -435,8 +439,14 @@ export interface TableCreateCaseConfig {
   tableNamePrefix: string;
   tableCount: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
+  // When set, every createTable request carries this many inline records in
+  // the request body, making the measured cost scale with record count.
+  inlineRecords?: {
+    count: number;
+    titlePrefix: string;
+  };
   threshold: {
-    metric: "createTables10xTotalMs";
+    metric: "createTables10xTotalMs" | "createTable1x1kRecordsMs";
     maxMs: number;
   };
 }
@@ -603,6 +613,51 @@ export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  threshold: {
+    metric: "restoreTableP95Ms";
+    maxMs: number;
+  };
+}
+
+// A one-way many-one link field on the main table pointing at a small foreign
+// table; one-way so archiving the main table leaves no inbound link field for
+// detachLink to convert, keeping the fixture reusable across samples and runs.
+// A type alias (not an interface) so it stays assignable to the seed cache's
+// JsonValue config hash input, which relies on implicit index signatures.
+export type TableLifecycleLinkConfig = {
+  fieldName: string;
+  foreignTable: {
+    rowCount: number;
+    batchSize: number;
+    keyPrefix: string;
+  };
+  // Maps main row i to foreign row ((i - 1) * multiplier + offset) % foreignRowCount + 1.
+  permutation: {
+    multiplier: number;
+    offset: number;
+  };
+};
+
+// Archive the foreign table while the 10k-record main table still links to
+// it: v1 soft delete runs detachLink, converting the surviving link field
+// cell-by-cell (O(main rowCount)); v2 soft delete skips that side effect.
+export interface TableDeleteLinkCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  samples: number;
+  link: TableLifecycleLinkConfig;
+  threshold: {
+    metric: "deleteTableDetachLinkP95Ms";
+    maxMs: number;
+  };
+}
+
+// Restore a 10k-record table that owns a populated link field: today both
+// engines flip metadata only, so this is a sentinel that fires if restore
+// ever gains record-dependent work (link re-attachment, recompute, ...).
+export interface TableRestoreLinkCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  samples: number;
+  link: TableLifecycleLinkConfig;
   threshold: {
     metric: "restoreTableP95Ms";
     maxMs: number;
