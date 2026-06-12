@@ -72,3 +72,8 @@ diagnostics and are not included in the primary metric.
 The runner records import response routing headers such as `x-teable-v2`,
 `x-teable-v2-feature`, and `x-teable-v2-reason` so reports can distinguish the
 legacy path from the V2 `importRecords` path.
+
+`details.import.completion` records that this inplace case measures readiness:
+the `PATCH` request plus SQL row-count readiness and configured sample-row
+verification. This keeps the artifact explicit even though this case does not
+use the create-table `csvCreateTableImportCompletedMs` metric.
