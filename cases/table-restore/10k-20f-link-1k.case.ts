@@ -31,8 +31,9 @@ export default definePerfCase({
       metric: "restoreTableP95Ms",
       // Restore is metadata-only today even with 10k populated link cells;
       // this sentinel fires if restore ever gains record-dependent work
-      // (link re-attachment, computed-field recompute, ...).
-      maxMs: 5_000,
+      // (link re-attachment, computed-field recompute, ...). Local v1/v2
+      // verification on 2026-06-12 measured p95 at 36.29 ms / 26.01 ms.
+      maxMs: 1_000,
     },
   },
 });

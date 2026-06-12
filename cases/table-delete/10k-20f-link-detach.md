@@ -70,5 +70,7 @@ field is converted to text), forcing a full reseed of
   soft delete. The case doubles as a marker of that semantic difference
   (after a v2 soft delete the surviving link field still points at a trashed
   table).
-- The threshold (60 s) only guards against pathological regressions of the v1
-  conversion path; calibrate after the first runs.
+- The threshold (10 s) was calibrated from local 2026-06-12 verification:
+  v1 p95 ~1.1–1.3 s (detachLink conversion), v2 p95 ~23–41 ms. It guards the
+  v1 conversion path against order-of-magnitude regressions while leaving the
+  expected engine gap unasserted.

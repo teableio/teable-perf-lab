@@ -34,8 +34,9 @@ export default definePerfCase({
       metric: "deleteTableDetachLinkP95Ms",
       // v1 pays detachLink: a field convert over the surviving table's 10k
       // link cells inside the delete request (expected seconds, O(rowCount)).
-      // v2 soft delete skips that side effect (expected tens of ms).
-      maxMs: 60_000,
+      // v2 soft delete skips that side effect (expected tens of ms). Local
+      // v1/v2 verification on 2026-06-12 measured p95 at 1312.58 ms / 41.08 ms.
+      maxMs: 10_000,
     },
   },
 });

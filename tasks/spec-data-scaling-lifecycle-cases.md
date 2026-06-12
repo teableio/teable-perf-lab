@@ -114,9 +114,11 @@ Source evidence (teable-ee, do not modify):
 
 Per engine (v1, v2), per case, in the artifact JSON:
 
-- `result` pass; primary threshold respected
-  (`restoreTableP95Ms` <= 5000, `deleteTableDetachLinkP95Ms` <= 60000,
-  `createTable1x1kRecordsMs` <= 60000).
+- `result` pass; primary threshold respected. Thresholds were calibrated from
+  the 2026-06-12 local verification (`restoreTableP95Ms` <= 1000,
+  `deleteTableDetachLinkP95Ms` <= 10000, `createTable1x1kRecordsMs` <= 10000;
+  measured v1/v2: restore 36/23 ms, delete-link 1079/23 ms,
+  create-1k 1371/918 ms, all `routeMatched: true`).
 - `details.routing.routeMatched: true` (single engine header set).
 - restore-link: every sample's verify includes full scan 10000 +
   link samples verified; fixtures left restored and reusable

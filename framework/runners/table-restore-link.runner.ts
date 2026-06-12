@@ -190,6 +190,20 @@ export const runTableRestoreLinkCase = async (
             "linkCellSamples(permuted foreign Key titles)",
           ],
           participatesInThreshold: false,
+          samples: verifySamples.map((sample) => {
+            const result = sample.measurement.result as {
+              fullScan?: unknown;
+              textSamples?: unknown;
+              linkSamples?: unknown;
+            };
+            return {
+              iteration: sample.iteration,
+              verifyMs: sample.measurement.durationMs,
+              fullScan: result.fullScan,
+              textSamples: result.textSamples,
+              linkSamples: result.linkSamples,
+            };
+          }),
         },
       },
     });

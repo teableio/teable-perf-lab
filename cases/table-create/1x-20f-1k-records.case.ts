@@ -19,7 +19,8 @@ export default definePerfCase({
       metric: "createTable1x1kRecordsMs",
       // Unlike the no-records variant, the measured cost scales with the
       // inline record count (records are inserted as part of createTable).
-      maxMs: 60_000,
+      // Local v1/v2 verification on 2026-06-12 measured 1115.85 ms / 924.8 ms.
+      maxMs: 10_000,
     },
   },
 });
