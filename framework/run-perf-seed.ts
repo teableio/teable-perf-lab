@@ -10,6 +10,7 @@ import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
+import { seedRecordReadCase } from "./runners/record-read.runner";
 import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
@@ -50,6 +51,8 @@ const seedCaseByKind = async (
       return seedSelectionClearCase(perfCase, context);
     case "record-create":
       return seedRecordCreateCase(perfCase, context);
+    case "record-read":
+      return seedRecordReadCase(perfCase, context);
     case "http-endpoint":
     case "record-paste":
       return {
