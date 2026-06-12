@@ -40,7 +40,8 @@ field is converted to text), forcing a full reseed of
 
 1. Measured per sample (`deleteTableDetachLink-sample-*`):
    `DELETE /api/base/{baseId}/table/{foreignTableId}` with routing headers
-   recorded (`x-teable-v2-feature: deleteTable`).
+   recorded (`x-teable-v2-feature: deleteTable`), and V1/V2 runs fail if the
+   response did not use the requested engine.
 2. Verify per sample: the foreign table left the base table list, its trash
    item exists, the main table still serves all 10,000 rows, and the surviving
    link field's post-delete state is recorded (v1: `singleLineText`,

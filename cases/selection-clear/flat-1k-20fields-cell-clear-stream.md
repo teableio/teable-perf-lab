@@ -41,9 +41,10 @@ request still crosses the product stream threshold.
 1. Start the primary timer after the source table is ready.
 2. Call `PATCH /selection/clear-stream` with the product large-selection shape:
    `ranges: [[0, 0], [19, 999]]`, `projection`, and `viewId`.
-3. Stop the primary timer after the clear stream emits its final `done` event.
-4. Full scan all 1,000 records and verify the selected fields are empty.
-5. Cleanup restores the cached seed table when a single database is being reused
+3. Assert the stream response routing matches the requested V1/V2 engine.
+4. Stop the primary timer after the clear stream emits its final `done` event.
+5. Full scan all 1,000 records and verify the selected fields are empty.
+6. Cleanup restores the cached seed table when a single database is being reused
    across engines, otherwise the isolated execute database is discarded after
    the job.
 
@@ -64,7 +65,8 @@ metric.
 - The table must still contain 1,000 records.
 - Every projected field must be empty in a full paged scan.
 - Samples from rows 1, 500, and 1,000 are saved in the result artifact.
-- V1 and V2 both run the same `clear-stream` endpoint.
+- V1 and V2 both run the same `clear-stream` endpoint, and the run fails if
+  routing falls back to the wrong engine.
 
 ## Notes
 

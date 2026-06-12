@@ -16,6 +16,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
+import { assertEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -458,8 +459,9 @@ const clearAllCells = async (
   expect(done.processedCount).toBe(fixture.seededRecords.length);
   expect(done.clearedCount).toBe(fixture.seededRecords.length);
 
-  const expectedXTeableV2 = context.engine === "v2" ? "true" : "false";
-  const actualXTeableV2 = sseResult.headers["x-teable-v2"];
+  const routing = assertEngineRouting(context, sseResult.headers, {
+    operation: "clearSelection",
+  });
 
   return {
     totalCount: done.totalCount,
@@ -468,13 +470,8 @@ const clearAllCells = async (
     progressEventCount: progressEvents.length,
     status: sseResult.status,
     routing: {
-      requestedEngine: context.engine,
       canaryHeader: context.engine === "v2" ? "true" : "false",
-      expectedXTeableV2,
-      actualXTeableV2,
-      routeMatched: actualXTeableV2 === expectedXTeableV2,
-      xTeableV2Reason: sseResult.headers["x-teable-v2-reason"],
-      xTeableV2Feature: sseResult.headers["x-teable-v2-feature"],
+      ...routing,
     },
     trace: sseResult.trace,
   };

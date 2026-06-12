@@ -50,7 +50,8 @@ not part of the primary metric.
 3. Call `POST /api/table/{tableId}/undo-redo/undo-stream` with the same
    `x-window-id`.
 4. Read the `text/event-stream` response until the `done` event reports
-   `status: fulfilled`.
+   `status: fulfilled`, then assert `done.engine` matches the requested V1/V2
+   engine.
 5. Stop the primary timer.
 6. Full-scan the restored table and verify 1,000 records plus sample values.
 7. Cleanup preserves the cached seed table when it is back in seed-ready state,

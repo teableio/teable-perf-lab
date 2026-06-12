@@ -14,6 +14,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -73,6 +78,7 @@ type RecordCreatePrimaryResult = {
   createStatus: number;
   createdRecordIds: string[];
   responseHeaders: Record<string, string>;
+  routing: EngineRouting;
   verifiedRows?: Awaited<ReturnType<typeof assertCreatedRowCount>>;
   verifyRowCountMs?: number;
 };
@@ -478,21 +484,11 @@ const assertSeedReady = async (
   sqlRowCount: await assertSqlRowCount(baseId, fixture.dbTableName, 0),
 });
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const createRecordsForCase = async (
   fixture: RecordCreateFixture,
-): Promise<Omit<RecordCreatePrimaryResult, "createRequestMs">> => {
+): Promise<Omit<RecordCreatePrimaryResult, "createRequestMs" | "routing">> => {
   const response = await createRecords(fixture.tableId, {
     fieldKeyType: FieldKeyType.Name,
     typecast: false,
@@ -650,8 +646,10 @@ const buildRecordCreateCaseResult = ({
             fieldKeyType: "name",
             typecast: false,
             responseHeaders: primaryResult.responseHeaders,
+            routing: primaryResult.routing,
           }
         : undefined,
+      routing: primaryResult?.routing,
       verification: primaryResult
         ? primaryResult.verifiedRows
           ? {
@@ -708,6 +706,13 @@ export const runRecordCreateCase = async (
         result: {
           ...createMeasurement.result,
           createRequestMs: createMeasurement.durationMs,
+          routing: assertEngineRouting(
+            context,
+            createMeasurement.result.responseHeaders,
+            {
+              operation: "createRecords",
+            },
+          ),
         },
       };
       const verification = await verifyCreatedRecords(

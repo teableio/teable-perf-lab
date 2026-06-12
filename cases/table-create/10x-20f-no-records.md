@@ -25,7 +25,8 @@ so there is no reusable seed cache (the same class as the paste cases).
 2. Measured window: loop the 10 `POST /api/base/{baseId}/table` requests
    sequentially. Each request runs under its own trace step
    (`createTable-01` .. `createTable-10`) and captures `x-teable-v2*` routing
-   headers; the runner asserts all 10 requests routed to the same engine.
+   headers; the runner asserts all 10 requests routed to the requested V1/V2
+   engine.
 3. Verify each created table: all 20 fields present with expected names, at
    least one view, and zero records.
 4. Cleanup permanently deletes all created tables, including any partial set

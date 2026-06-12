@@ -59,7 +59,7 @@ export const runRecordUndoCase = async (
           ...setupMeasurements,
           deleteSetupMeasurement: await measureAsync(
             buildRecordReplayPhaseName("deleteSetup", config.rowCount),
-            () => deleteAllRowsViaSelectionDelete(fixture),
+            () => deleteAllRowsViaSelectionDelete(fixture, context),
           ),
         };
         setupMeasurements = {

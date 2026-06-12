@@ -3,6 +3,11 @@ import { axios, getTableList, getTrashItems, TrashType } from "@teable/openapi";
 import { getRecords } from "../../../utils/init-app";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
 import { measureAsync, summarizeDurations } from "../metrics";
+import {
+  assertEngineRouting,
+  getRoutingResponseHeader,
+  type EngineRouting,
+} from "../routing";
 import type {
   PerfCase,
   PerfRunContext,
@@ -70,7 +75,7 @@ export type TableLifecycleRequestSample = {
   tableId: string;
   tableName: string;
   measurement: Measurement<TableLifecycleRequestResult>;
-  routing: ReturnType<typeof buildTableLifecycleRouting>;
+  routing: EngineRouting | undefined;
   trashLookup?: TableTrashLookup;
 };
 
@@ -92,18 +97,16 @@ const TRASH_SCAN_MAX_PAGES = 25;
 // that the count-scan verification deliberately avoids).
 const SAMPLE_TEXT_FIELD_NAMES = ["Title", "External ID"];
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
 export const pickTableLifecycleHeaders = (
   headers: Record<string, unknown>,
 ): TableLifecycleRoutingHeaders => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
+  "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
+  "x-teable-v2-feature": getRoutingResponseHeader(
+    headers,
+    "x-teable-v2-feature",
+  ),
+  "x-teable-v2-reason": getRoutingResponseHeader(headers, "x-teable-v2-reason"),
+  traceparent: getRoutingResponseHeader(headers, "traceparent"),
 });
 
 export const prepareTableLifecycleFixture = async (
@@ -250,34 +253,17 @@ export const findTableTrashId = async (
 export const buildTableLifecycleRouting = (
   responseHeaders: TableLifecycleRoutingHeaders | undefined,
   expectedFeature: string,
+  context: Pick<PerfRunContext, "engine">,
 ) => {
   if (!responseHeaders) {
     return undefined;
   }
 
-  const requestedEngine = process.env.PERF_LAB_ENGINE ?? "local";
-  const actualV2Header = responseHeaders["x-teable-v2"];
-  const expectedV2Header =
-    requestedEngine === "v2"
-      ? "true"
-      : requestedEngine === "v1"
-        ? "false"
-        : undefined;
-  const featureMatched =
-    responseHeaders["x-teable-v2-feature"] === expectedFeature;
-  const engineMatched =
-    expectedV2Header == null || actualV2Header === expectedV2Header;
-
-  return {
-    routeMatched: featureMatched && engineMatched,
-    featureMatched,
-    engineMatched,
-    requestedEngine,
-    expectedV2Header,
-    actualV2Header,
-    feature: responseHeaders["x-teable-v2-feature"],
-    reason: responseHeaders["x-teable-v2-reason"],
-  };
+  return assertEngineRouting(context, responseHeaders, {
+    feature: expectedFeature,
+    operation:
+      expectedFeature === "deleteTable" ? "deleteTable" : "restoreTable",
+  });
 };
 
 export const buildTableLifecycleSampleResult = (
@@ -285,6 +271,7 @@ export const buildTableLifecycleSampleResult = (
   fixture: RecordUndoRedoFixture,
   measurement: Measurement<TableLifecycleRequestResult>,
   expectedFeature: string,
+  context: PerfRunContext,
   trashLookup?: TableTrashLookup,
 ): TableLifecycleRequestSample => ({
   iteration,
@@ -295,6 +282,7 @@ export const buildTableLifecycleSampleResult = (
   routing: buildTableLifecycleRouting(
     measurement.result.responseHeaders,
     expectedFeature,
+    context,
   ),
 });
 
@@ -386,14 +374,9 @@ export const buildTableLifecycleResult = ({
   const expectedFeature =
     runner === "table-delete" ? "deleteTable" : "restoreTable";
   const routing = responseHeaders
-    ? {
-        routeMatched:
-          responseHeaders["x-teable-v2-feature"] === expectedFeature,
-        requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
-        actualV2Header: responseHeaders["x-teable-v2"],
-        feature: responseHeaders["x-teable-v2-feature"],
-        reason: responseHeaders["x-teable-v2-reason"],
-      }
+    ? buildTableLifecycleRouting(responseHeaders, expectedFeature, {
+        engine: process.env.PERF_LAB_ENGINE ?? "local",
+      })
     : undefined;
 
   return {
