@@ -44,11 +44,12 @@ This case isolates delete performance. It does not measure undo or redo replay.
    - `ranges=[[0,0],[0,999]]`
    - the first grid `viewId`
    - a stable per-run `x-window-id`
-3. Stop the primary timer after the JSON response returns 1,000 deleted ids.
-4. Record routing headers such as `x-teable-v2`, `x-teable-v2-feature`, and
+3. Assert the response routing matches the requested V1/V2 engine.
+4. Stop the primary timer after the JSON response returns 1,000 deleted ids.
+5. Record routing headers such as `x-teable-v2`, `x-teable-v2-feature`, and
    `x-teable-v2-reason` in the run artifact.
-5. Verify the table has no visible records.
-6. Cleanup restores the cached seed table when a single database is being reused
+6. Verify the table has no visible records.
+7. Cleanup restores the cached seed table when a single database is being reused
    across engines, otherwise the isolated execute database is discarded after
    the job.
 

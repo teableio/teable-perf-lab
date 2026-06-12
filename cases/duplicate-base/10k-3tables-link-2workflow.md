@@ -41,7 +41,8 @@ measurement.
 1. Reuse or create the source base, full-scan validated.
 2. Measured: `POST /api/base/duplicate` with `withRecords: true` and the
    seeded space as the target. Routing headers
-   (`x-teable-v2-feature: duplicateBase`) are captured.
+   (`x-teable-v2-feature: duplicateBase`) are captured, and V1/V2 runs fail if
+   the response did not use the requested engine.
 3. Verify the duplicated base:
    - main table: paged full scan of all 10,000 rows plus sampled `Title` /
      `External ID` values;

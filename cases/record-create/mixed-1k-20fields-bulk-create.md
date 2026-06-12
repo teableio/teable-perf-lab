@@ -52,9 +52,10 @@ non-isolated runs; isolated execute databases are left for job teardown.
    - `typecast: false`
    - `records`: 1,000 deterministic typed records
 3. Stop the primary timer after the create endpoint response.
-4. Run SQL count verification separately and confirm the table has 1,000 rows.
-5. If the SQL count does not match 1,000 rows, fail the run.
-6. Cleanup removes the records created during execute when the seed table is
+4. Assert the response routing matches the requested V1/V2 engine.
+5. Run SQL count verification separately and confirm the table has 1,000 rows.
+6. If the SQL count does not match 1,000 rows, fail the run.
+7. Cleanup removes the records created during execute when the seed table is
    reusable in a non-isolated run; non-reusable temporary tables are deleted.
 
 ## Primary Metric

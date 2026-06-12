@@ -12,6 +12,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
+  assertEngineRouting,
+  getRoutingResponseHeader,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -82,6 +87,7 @@ type DuplicateTablePrimaryResult = {
   fieldMap: Record<string, string>;
   viewMap: Record<string, string>;
   responseHeaders: Record<string, string>;
+  routing: EngineRouting;
   duplicatedFormulaFields: Array<{ id: string; name: string }>;
   verifiedRows: Awaited<ReturnType<typeof waitForDuplicatedRows>>;
 };
@@ -555,16 +561,14 @@ const waitForDuplicatedRows = async (
   );
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
+  "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
+  "x-teable-v2-feature": getRoutingResponseHeader(
+    headers,
+    "x-teable-v2-feature",
+  ),
+  "x-teable-v2-reason": getRoutingResponseHeader(headers, "x-teable-v2-reason"),
+  traceparent: getRoutingResponseHeader(headers, "traceparent"),
 });
 
 const parseMetadata = (description: string | null | undefined) => {
@@ -827,6 +831,7 @@ const resolveDuplicatedFields = async (
 };
 
 const duplicateTableAndVerify = async (
+  context: PerfRunContext,
   baseId: string,
   fixture: DuplicateTableFixture,
   config: DuplicateTableCaseConfig,
@@ -846,6 +851,13 @@ const duplicateTableAndVerify = async (
       return response;
     },
   );
+  const responseHeaders = pickResponseHeaders(
+    duplicateMeasurement.result.headers,
+  );
+  const routing = assertEngineRouting(context, responseHeaders, {
+    feature: "duplicateTable",
+    operation: "duplicateTable",
+  });
 
   const duplicateTableId = duplicateMeasurement.result.data.id;
   const fieldMap = duplicateMeasurement.result.data.fieldMap ?? {};
@@ -880,7 +892,8 @@ const duplicateTableAndVerify = async (
     duplicateTableName: duplicateMeasurement.result.data.name,
     fieldMap,
     viewMap,
-    responseHeaders: pickResponseHeaders(duplicateMeasurement.result.headers),
+    responseHeaders,
+    routing,
     duplicatedFormulaFields: duplicatedFields.formulas.map((formula) => ({
       id: formula.id,
       name: formula.name,
@@ -988,6 +1001,7 @@ const buildDuplicateTableCaseResult = ({
         : []),
     ],
     details: {
+      routing: primaryResult?.routing,
       tableId: fixture?.tableId,
       tableName: fixture?.tableName,
       viewId: fixture?.viewId,
@@ -1036,15 +1050,7 @@ const buildDuplicateTableCaseResult = ({
               primaryResult.verifiedRows.formulaValueVerification,
             requestOnlyPrimaryMetric: true,
             responseHeaders: primaryResult.responseHeaders,
-            routing: {
-              routeMatched:
-                primaryResult.responseHeaders["x-teable-v2-feature"] ===
-                "duplicateTable",
-              requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
-              actualV2Header: primaryResult.responseHeaders["x-teable-v2"],
-              feature: primaryResult.responseHeaders["x-teable-v2-feature"],
-              reason: primaryResult.responseHeaders["x-teable-v2-reason"],
-            },
+            routing: primaryResult.routing,
           }
         : undefined,
       fullScan: primaryResult
@@ -1108,7 +1114,12 @@ export const runDuplicateTableCase = async (
         config.threshold.metric,
         () =>
           measureAsync("duplicateTableTotalReady", () =>
-            duplicateTableAndVerify(baseId, prepareMeasurement!.result, config),
+            duplicateTableAndVerify(
+              context,
+              baseId,
+              prepareMeasurement!.result,
+              config,
+            ),
           ),
       );
     } catch (error) {

@@ -2,6 +2,11 @@ import { deleteFields as apiDeleteFields } from "@teable/openapi";
 import { getFields, permanentDeleteTable } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
+import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldDeleteCaseConfig,
@@ -29,14 +34,7 @@ type NamedField = {
 type FieldDeletePrimaryResult = {
   deletedFieldIds: string[];
   responseHeaders: Record<string, string>;
-  routing: {
-    requestedEngine: string;
-    expectedXTeableV2: string;
-    actualXTeableV2: string;
-    routeMatched: boolean;
-    xTeableV2Feature: string;
-    xTeableV2Reason: string;
-  };
+  routing: EngineRouting;
 };
 
 type FieldDeleteVerification = RecordReplayVerification & {
@@ -44,41 +42,15 @@ type FieldDeleteVerification = RecordReplayVerification & {
   remainingFieldNames: string[];
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const assertExpectedRouting = (
   context: PerfRunContext,
   responseHeaders: Record<string, string>,
-) => {
-  const expectedXTeableV2 = context.engine === "v2" ? "true" : "false";
-  const actualXTeableV2 = responseHeaders["x-teable-v2"];
-  if (actualXTeableV2 !== expectedXTeableV2) {
-    throw new Error(
-      `Field delete did not use expected ${context.engine.toUpperCase()} route; expected x-teable-v2=${expectedXTeableV2}, got ${actualXTeableV2}; headers=${JSON.stringify(
-        responseHeaders,
-      )}`,
-    );
-  }
-
-  return {
-    requestedEngine: context.engine,
-    expectedXTeableV2,
-    actualXTeableV2,
-    routeMatched: true,
-    xTeableV2Feature: responseHeaders["x-teable-v2-feature"],
-    xTeableV2Reason: responseHeaders["x-teable-v2-reason"],
-  };
-};
+) =>
+  assertEngineRouting(context, responseHeaders, {
+    operation: "Field delete",
+  });
 
 const resolveDeleteFieldIds = (
   fixture: RecordUndoRedoFixture,

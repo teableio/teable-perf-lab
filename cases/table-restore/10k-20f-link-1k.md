@@ -46,7 +46,8 @@ Seed validation: paged full row-count scan plus link-cell samples (offsets
 1. Setup per sample (not measured, `deleteSetup-*`): archive the main table,
    confirm it left the base table list, resolve its `trashId`.
 2. Measured: 5 `POST /api/trash/restore/{trashId}` requests
-   (`restoreTable-sample-*` steps) with routing headers recorded.
+   (`restoreTable-sample-*` steps) with routing headers recorded. V1/V2 runs
+   fail if the response did not use the requested engine.
 3. Verify per sample: paged 10,000-row full scan, `Title` / `External ID`
    sample text values, and link-cell samples proving the link data survived
    the archive/restore round trip.

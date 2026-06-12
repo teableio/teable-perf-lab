@@ -57,7 +57,8 @@ the primary timer starts.
 4. Call `POST /api/table/{tableId}/undo-redo/redo-stream` with the same
    `x-window-id`.
 5. Read the `text/event-stream` response until the `done` event reports
-   `status: fulfilled`.
+   `status: fulfilled`, then assert `done.engine` matches the requested V1/V2
+   engine.
 6. Stop the primary timer.
 7. Verify the table has no visible records.
 8. Cleanup restores the cached seed table when a single database is being reused
