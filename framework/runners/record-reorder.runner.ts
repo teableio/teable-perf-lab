@@ -87,7 +87,8 @@ type ReorderOperationResult = {
     "x-teable-v2-reason": string;
     traceparent: string;
   };
-  verification: ReorderVerification;
+  verification?: ReorderVerification;
+  verifyReorderMs?: number;
 };
 
 const RECORD_REORDER_FIXTURE_VERSION = "record-reorder-v2";
@@ -883,27 +884,30 @@ const executeReorder = async (
   perfCase: PerfCase,
   fixture: ReorderFixture,
   config: RecordReorderCaseConfig,
-): Promise<ReorderOperationResult> => {
+) => {
   if (!fixture.cachedOrder) {
     throw new Error("Missing cached reorder order metadata");
   }
-  const operation = await withPerfTraceStep(
-    context,
-    perfCase,
-    config.threshold.metric,
-    () =>
-      moveRecords({
-        fixture,
-        config,
-        recordIds: fixture.cachedOrder!.movedRecordIds,
-        anchorId: fixture.cachedOrder!.anchorRecordId,
-      }),
+  return withPerfTraceStep(context, perfCase, config.threshold.metric, () =>
+    moveRecords({
+      fixture,
+      config,
+      recordIds: fixture.cachedOrder!.movedRecordIds,
+      anchorId: fixture.cachedOrder!.anchorRecordId,
+    }),
   );
-  const verification = await assertReordered(fixture, config);
+};
 
+const verifyReorder = async (
+  fixture: ReorderFixture,
+  config: RecordReorderCaseConfig,
+) => {
+  const verificationMeasurement = await measureAsync("verifyReorder", () =>
+    assertReordered(fixture, config),
+  );
   return {
-    ...operation,
-    verification,
+    verification: verificationMeasurement.result,
+    verifyReorderMs: verificationMeasurement.durationMs,
   };
 };
 
@@ -975,7 +979,10 @@ const buildResult = ({
     ...(reorderMeasurement
       ? {
           [config.threshold.metric]: reorderMeasurement.durationMs,
-          reorderRequestMs: reorderMeasurement.result.requestMs,
+          reorderRequestMs: reorderMeasurement.durationMs,
+          ...(reorderMeasurement.result.verifyReorderMs != null
+            ? { verifyReorderMs: reorderMeasurement.result.verifyReorderMs }
+            : {}),
         }
       : {}),
   },
@@ -1096,9 +1103,25 @@ export const runRecordReorderCase = async (
 
     try {
       await withRecordWindowId(windowId, async () => {
-        reorderMeasurement = await measureAsync(config.threshold.metric, () =>
-          executeReorder(context, perfCase, fixture, config),
+        const requestMeasurement = await measureAsync(
+          config.threshold.metric,
+          () => executeReorder(context, perfCase, fixture, config),
         );
+        reorderMeasurement = {
+          ...requestMeasurement,
+          result: {
+            ...requestMeasurement.result,
+            requestMs: requestMeasurement.durationMs,
+          },
+        };
+        const verification = await verifyReorder(fixture, config);
+        reorderMeasurement = {
+          ...reorderMeasurement,
+          result: {
+            ...reorderMeasurement.result,
+            ...verification,
+          },
+        };
       });
     } catch (error) {
       throw new PerfRunDiagnosticError(
