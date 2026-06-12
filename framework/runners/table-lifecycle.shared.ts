@@ -1,8 +1,8 @@
 import { FieldKeyType } from "@teable/core";
 import { axios, getTableList, getTrashItems, TrashType } from "@teable/openapi";
 import { getRecords } from "../../../utils/init-app";
-import { getPrimaryThresholdMs } from "../env";
-import { measureAsync } from "../metrics";
+import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
+import { measureAsync, summarizeDurations } from "../metrics";
 import type {
   PerfCase,
   PerfRunContext,
@@ -25,6 +25,7 @@ export type TableLifecycleRunnerKind = Extract<
 >;
 
 export type TableLifecycleCaseConfig = RecordUndoRedoBaseCaseConfig & {
+  samples?: number;
   threshold: { metric: string; maxMs: number };
 };
 
@@ -57,6 +58,33 @@ export type TableLifecycleSampleVerification = {
   verifiedFieldNames: string[];
 };
 
+export type TableLifecycleFixtureSample = {
+  iteration: number;
+  fixture: RecordUndoRedoFixture;
+  prepareMeasurement: Measurement<RecordUndoRedoFixture>;
+  seedReadyMeasurement: Measurement<RecordReplayVerification>;
+};
+
+export type TableLifecycleRequestSample = {
+  iteration: number;
+  tableId: string;
+  tableName: string;
+  measurement: Measurement<TableLifecycleRequestResult>;
+  routing: ReturnType<typeof buildTableLifecycleRouting>;
+  trashLookup?: TableTrashLookup;
+};
+
+export type TableLifecycleVerifySample = {
+  iteration: number;
+  measurement: Measurement<unknown>;
+};
+
+export type TableLifecycleCleanupSample = {
+  iteration: number;
+  restoreMeasurement?: Measurement<TableLifecycleRequestResult>;
+  verifyMeasurement?: Measurement<RecordReplayVerification>;
+};
+
 const TRASH_SCAN_MAX_PAGES = 25;
 
 // Text fields whose seeded values are plain strings, so post-restore sample
@@ -84,10 +112,12 @@ export const prepareTableLifecycleFixture = async (
   config: TableLifecycleCaseConfig,
   perfCase: PerfCase,
   runner: TableLifecycleRunnerKind,
+  seedIdentity?: Record<string, string | number | boolean>,
 ): Promise<RecordUndoRedoFixture> =>
   prepareRecordUndoRedoFixture(baseId, tableName, config, {
     perfCase,
     runner,
+    seedIdentity,
     seedCodeFiles: [
       new URL(import.meta.url),
       runner === "table-delete"
@@ -95,6 +125,54 @@ export const prepareTableLifecycleFixture = async (
         : new URL("./table-restore.runner.ts", import.meta.url),
     ],
   });
+
+export const getTableLifecycleSampleCount = (
+  config: TableLifecycleCaseConfig,
+) => getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples ?? 1;
+
+export const formatTableLifecycleSample = (iteration: number) =>
+  `sample-${String(iteration).padStart(2, "0")}`;
+
+export const prepareTableLifecycleFixtures = async (
+  baseId: string,
+  config: TableLifecycleCaseConfig,
+  perfCase: PerfCase,
+  runner: TableLifecycleRunnerKind,
+): Promise<TableLifecycleFixtureSample[]> => {
+  const samples = getTableLifecycleSampleCount(config);
+  const fixtures: TableLifecycleFixtureSample[] = [];
+  const runSuffix = `${Date.now()}`;
+
+  for (let iteration = 1; iteration <= samples; iteration += 1) {
+    const sampleLabel = formatTableLifecycleSample(iteration);
+    const tableName = `${config.tableNamePrefix}-${runSuffix}-${sampleLabel}`;
+    const prepareMeasurement = await measureAsync(
+      `prepare-${sampleLabel}`,
+      () =>
+        prepareTableLifecycleFixture(
+          baseId,
+          tableName,
+          config,
+          perfCase,
+          runner,
+          { sample: iteration },
+        ),
+    );
+    const seedReadyMeasurement = await measureAsync(
+      `seedReady-${sampleLabel}`,
+      () => assertRowsRestored(prepareMeasurement.result, config),
+    );
+
+    fixtures.push({
+      iteration,
+      fixture: prepareMeasurement.result,
+      prepareMeasurement,
+      seedReadyMeasurement,
+    });
+  }
+
+  return fixtures;
+};
 
 // Archive (move to trash) through the UI route, capturing routing headers.
 export const archiveTable = async (
@@ -168,6 +246,57 @@ export const findTableTrashId = async (
     `Trash item for table ${tableId} not found in base ${baseId} trash`,
   );
 };
+
+export const buildTableLifecycleRouting = (
+  responseHeaders: TableLifecycleRoutingHeaders | undefined,
+  expectedFeature: string,
+) => {
+  if (!responseHeaders) {
+    return undefined;
+  }
+
+  const requestedEngine = process.env.PERF_LAB_ENGINE ?? "local";
+  const actualV2Header = responseHeaders["x-teable-v2"];
+  const expectedV2Header =
+    requestedEngine === "v2"
+      ? "true"
+      : requestedEngine === "v1"
+        ? "false"
+        : undefined;
+  const featureMatched =
+    responseHeaders["x-teable-v2-feature"] === expectedFeature;
+  const engineMatched =
+    expectedV2Header == null || actualV2Header === expectedV2Header;
+
+  return {
+    routeMatched: featureMatched && engineMatched,
+    featureMatched,
+    engineMatched,
+    requestedEngine,
+    expectedV2Header,
+    actualV2Header,
+    feature: responseHeaders["x-teable-v2-feature"],
+    reason: responseHeaders["x-teable-v2-reason"],
+  };
+};
+
+export const buildTableLifecycleSampleResult = (
+  iteration: number,
+  fixture: RecordUndoRedoFixture,
+  measurement: Measurement<TableLifecycleRequestResult>,
+  expectedFeature: string,
+  trashLookup?: TableTrashLookup,
+): TableLifecycleRequestSample => ({
+  iteration,
+  tableId: fixture.tableId,
+  tableName: fixture.tableName,
+  measurement,
+  trashLookup,
+  routing: buildTableLifecycleRouting(
+    measurement.result.responseHeaders,
+    expectedFeature,
+  ),
+});
 
 // Sample value evidence on plain text fields; rows are addressed by view
 // offset, which archive/restore does not change.
@@ -393,6 +522,238 @@ export const buildTableLifecycleResult = ({
   };
 };
 
+export const buildTableLifecycleSamplesResult = ({
+  config,
+  runner,
+  fixtureSamples,
+  requestSamples,
+  setupSamples,
+  verifySamples,
+  cleanupSamples,
+  details,
+  error,
+}: {
+  config: TableLifecycleCaseConfig;
+  runner: TableLifecycleRunnerKind;
+  fixtureSamples: TableLifecycleFixtureSample[];
+  requestSamples: TableLifecycleRequestSample[];
+  setupSamples?: TableLifecycleVerifySample[];
+  verifySamples?: TableLifecycleVerifySample[];
+  cleanupSamples?: TableLifecycleCleanupSample[];
+  details?: Record<string, unknown>;
+  error?: unknown;
+}): PerfRunResult => {
+  const expectedFeature =
+    runner === "table-delete" ? "deleteTable" : "restoreTable";
+  const requestDurations = requestSamples.map(
+    (sample) => sample.measurement.durationMs,
+  );
+  const requestSummary = summarizeDurations(requestDurations);
+  const routeMatched =
+    requestSamples.length > 0 &&
+    requestSamples.every((sample) => sample.routing?.routeMatched === true);
+  const actualV2Headers = [
+    ...new Set(
+      requestSamples
+        .map((sample) => sample.routing?.actualV2Header)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const featureHeaders = [
+    ...new Set(
+      requestSamples
+        .map((sample) => sample.routing?.feature)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const expectedV2Headers = [
+    ...new Set(
+      requestSamples
+        .map((sample) => sample.routing?.expectedV2Header)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const cacheEnabledSamples = fixtureSamples.filter(
+    (sample) => sample.fixture.seedCacheInfo?.enabled,
+  );
+  const cacheHitSamples = cacheEnabledSamples.filter(
+    (sample) => sample.fixture.seedCacheHit,
+  );
+
+  return {
+    metrics: {
+      samples: getTableLifecycleSampleCount(config),
+      prepareMs: fixtureSamples.reduce(
+        (total, sample) => total + sample.prepareMeasurement.durationMs,
+        0,
+      ),
+      seedReadyMs: fixtureSamples.reduce(
+        (total, sample) => total + sample.seedReadyMeasurement.durationMs,
+        0,
+      ),
+      ...(cacheEnabledSamples.length > 0
+        ? {
+            seedCacheEnabled: 1,
+            seedCacheHit:
+              cacheHitSamples.length === cacheEnabledSamples.length ? 1 : 0,
+            seedCacheHitCount: cacheHitSamples.length,
+          }
+        : {}),
+      ...(setupSamples
+        ? {
+            setupMs: setupSamples.reduce(
+              (total, sample) => total + sample.measurement.durationMs,
+              0,
+            ),
+          }
+        : {}),
+      ...(requestSamples.length > 0
+        ? {
+            [`${expectedFeature}MinMs`]: requestSummary.minMs,
+            [`${expectedFeature}P50Ms`]: requestSummary.p50Ms,
+            [config.threshold.metric]: requestSummary.p95Ms,
+            [`${expectedFeature}MaxMs`]: requestSummary.maxMs,
+            [`${expectedFeature}TotalMs`]: requestDurations.reduce(
+              (total, duration) => total + duration,
+              0,
+            ),
+          }
+        : {}),
+      ...(verifySamples
+        ? {
+            verifyMs: verifySamples.reduce(
+              (total, sample) => total + sample.measurement.durationMs,
+              0,
+            ),
+          }
+        : {}),
+      ...(cleanupSamples
+        ? {
+            cleanupRestoreMs: cleanupSamples.reduce(
+              (total, sample) =>
+                total + (sample.restoreMeasurement?.durationMs ?? 0),
+              0,
+            ),
+            cleanupFullScanMs: cleanupSamples.reduce(
+              (total, sample) =>
+                total + (sample.verifyMeasurement?.durationMs ?? 0),
+              0,
+            ),
+          }
+        : {}),
+    },
+    thresholds:
+      requestSamples.length > 0
+        ? [
+            {
+              metric: config.threshold.metric,
+              max: getPrimaryThresholdMs(config.threshold.maxMs),
+              unit: "ms",
+            },
+          ]
+        : [],
+    phases: [
+      ...fixtureSamples.flatMap((sample) => [
+        {
+          name: sample.prepareMeasurement.name,
+          durationMs: sample.prepareMeasurement.durationMs,
+        },
+        {
+          name: sample.seedReadyMeasurement.name,
+          durationMs: sample.seedReadyMeasurement.durationMs,
+        },
+      ]),
+      ...(setupSamples ?? []).map((sample) => ({
+        name: sample.measurement.name,
+        durationMs: sample.measurement.durationMs,
+      })),
+      ...requestSamples.map((sample) => ({
+        name: sample.measurement.name,
+        durationMs: sample.measurement.durationMs,
+      })),
+      ...(verifySamples ?? []).map((sample) => ({
+        name: sample.measurement.name,
+        durationMs: sample.measurement.durationMs,
+      })),
+      ...(cleanupSamples ?? []).flatMap((sample) => [
+        ...(sample.restoreMeasurement
+          ? [
+              {
+                name: sample.restoreMeasurement.name,
+                durationMs: sample.restoreMeasurement.durationMs,
+              },
+            ]
+          : []),
+        ...(sample.verifyMeasurement
+          ? [
+              {
+                name: sample.verifyMeasurement.name,
+                durationMs: sample.verifyMeasurement.durationMs,
+              },
+            ]
+          : []),
+      ]),
+    ],
+    details: {
+      runner,
+      sampleCount: getTableLifecycleSampleCount(config),
+      rowCount: config.rowCount,
+      batchSize: config.batchSize,
+      fieldCount: config.fields.length,
+      routing: {
+        routeMatched,
+        requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
+        expectedV2Header:
+          expectedV2Headers.length === 1 ? expectedV2Headers[0] : undefined,
+        expectedV2Headers,
+        actualV2Header:
+          actualV2Headers.length === 1 ? actualV2Headers[0] : undefined,
+        actualV2Headers,
+        feature: featureHeaders.length === 1 ? featureHeaders[0] : undefined,
+        featureHeaders,
+      },
+      seed: {
+        samples: fixtureSamples.map((sample) => ({
+          iteration: sample.iteration,
+          tableId: sample.fixture.tableId,
+          tableName: sample.fixture.tableName,
+          viewId: sample.fixture.viewId,
+          ready: sample.seedReadyMeasurement.result,
+          cache: sample.fixture.seedCacheInfo
+            ? {
+                enabled: sample.fixture.seedCacheInfo.enabled,
+                cacheHit: Boolean(sample.fixture.seedCacheHit),
+                reusable: Boolean(sample.fixture.reusableSeed),
+                seedHash: sample.fixture.seedCacheInfo.seedHash,
+                seedHashShort: sample.fixture.seedCacheInfo.seedHashShort,
+                seedTableName: sample.fixture.seedCacheInfo.seedTableName,
+                schemaSignature: sample.fixture.seedCacheInfo.schemaSignature,
+              }
+            : undefined,
+        })),
+      },
+      requests: requestSamples.map((sample) => ({
+        iteration: sample.iteration,
+        tableId: sample.tableId,
+        tableName: sample.tableName,
+        status: sample.measurement.result.status,
+        requestMs: sample.measurement.durationMs,
+        responseHeaders: sample.measurement.result.responseHeaders,
+        routing: sample.routing,
+        trash: sample.trashLookup,
+      })),
+      ...details,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : undefined,
+    },
+  };
+};
+
 export const seedTableLifecycleCase = async (
   perfCase: PerfCase,
   _context: PerfRunContext,
@@ -400,18 +761,17 @@ export const seedTableLifecycleCase = async (
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as TableLifecycleCaseConfig;
   const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareTableLifecycleFixture(baseId, tableName, config, perfCase, runner),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertRowsRestored(prepareMeasurement.result, config),
+  const fixtureSamples = await prepareTableLifecycleFixtures(
+    baseId,
+    config,
+    perfCase,
+    runner,
   );
 
-  return buildTableLifecycleResult({
+  return buildTableLifecycleSamplesResult({
     config,
     runner,
-    prepareMeasurement,
-    seedReadyMeasurement,
+    fixtureSamples,
+    requestSamples: [],
   });
 };

@@ -13,8 +13,9 @@ export default definePerfCase({
       ...undoRedo10kBaseConfig.generator,
       source: "perf-lab-table-restore",
     },
+    samples: 10,
     threshold: {
-      metric: "restoreTableRequestMs",
+      metric: "restoreTableP95Ms",
       maxMs: 60_000,
     },
   },

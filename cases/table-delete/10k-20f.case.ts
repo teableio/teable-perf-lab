@@ -13,8 +13,9 @@ export default definePerfCase({
       ...undoRedo10kBaseConfig.generator,
       source: "perf-lab-table-delete",
     },
+    samples: 10,
     threshold: {
-      metric: "deleteTableRequestMs",
+      metric: "deleteTableP95Ms",
       maxMs: 30_000,
     },
   },

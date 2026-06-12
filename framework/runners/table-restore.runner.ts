@@ -10,24 +10,36 @@ import type {
 } from "../types";
 import { PerfRunDiagnosticError } from "../types";
 import {
-  assertRowsRestored,
   waitForRowsRestored,
-  type Measurement,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";
 import {
   archiveTable,
   assertSampleTextValues,
   assertTableNotListed,
-  buildTableLifecycleResult,
+  buildTableLifecycleSampleResult,
+  buildTableLifecycleSamplesResult,
   findTableTrashId,
-  prepareTableLifecycleFixture,
+  formatTableLifecycleSample,
+  prepareTableLifecycleFixtures,
   restoreTableTrash,
   seedTableLifecycleCase,
-  type TableLifecycleRequestResult,
+  type TableLifecycleFixtureSample,
+  type TableLifecycleRequestSample,
+  type TableLifecycleVerifySample,
   type TableTrashLookup,
 } from "./table-lifecycle.shared";
+
+type RestoreSetupSample = TableLifecycleVerifySample & {
+  trashLookup: TableTrashLookup;
+};
+
+type RestoreVerifySample = TableLifecycleVerifySample & {
+  result: {
+    fullScan: RecordReplayVerification;
+    samples: Awaited<ReturnType<typeof assertSampleTextValues>>;
+  };
+};
 
 export const runTableRestoreCase = async (
   perfCase: PerfCase,
@@ -35,154 +47,186 @@ export const runTableRestoreCase = async (
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as TableRestoreCaseConfig;
   const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<RecordUndoRedoFixture> | undefined;
-  let seedReadyMeasurement: Measurement<RecordReplayVerification> | undefined;
-  let deleteSetupMeasurement: Measurement<unknown> | undefined;
-  let primaryMeasurement: Measurement<TableLifecycleRequestResult> | undefined;
-  let verifyMeasurement: Measurement<unknown> | undefined;
-  let trashLookup: TableTrashLookup | undefined;
+  let fixtureSamples: TableLifecycleFixtureSample[] = [];
+  const setupSamples: RestoreSetupSample[] = [];
+  const requestSamples: TableLifecycleRequestSample[] = [];
+  const verifySamples: RestoreVerifySample[] = [];
+
+  const restoreArchivedSample = async (
+    sample: TableLifecycleFixtureSample,
+    trashLookup: TableTrashLookup,
+  ) => {
+    const sampleLabel = formatTableLifecycleSample(sample.iteration);
+    await withPerfTraceStep(
+      context,
+      perfCase,
+      `cleanupRestoreTable-${sampleLabel}`,
+      () => restoreTableTrash(trashLookup.trashId),
+    );
+    await waitForRowsRestored(sample.fixture, config);
+  };
 
   try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareTableLifecycleFixture(
-        baseId,
-        tableName,
-        config,
-        perfCase,
-        "table-restore",
-      ),
-    );
-    const fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertRowsRestored(fixture, config),
+    fixtureSamples = await prepareTableLifecycleFixtures(
+      baseId,
+      config,
+      perfCase,
+      "table-restore",
     );
 
     try {
-      // Archive-to-trash is setup for the measured restore, not the metric.
-      deleteSetupMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "deleteSetup",
-        () =>
-          measureAsync("deleteSetup", async () => {
-            const archive = await archiveTable(baseId, fixture.tableId);
-            const listing = await assertTableNotListed(baseId, fixture.tableId);
-            trashLookup = await findTableTrashId(baseId, fixture.tableId);
-            return {
-              archiveStatus: archive.status,
-              ...listing,
-              trashId: trashLookup.trashId,
-            };
-          }),
-      );
+      for (const sample of fixtureSamples) {
+        const sampleLabel = formatTableLifecycleSample(sample.iteration);
+        const setupMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          `deleteSetup-${sampleLabel}`,
+          () =>
+            measureAsync(`deleteSetup-${sampleLabel}`, async () => {
+              const archive = await archiveTable(
+                baseId,
+                sample.fixture.tableId,
+              );
+              const listing = await assertTableNotListed(
+                baseId,
+                sample.fixture.tableId,
+              );
+              const trashLookup = await findTableTrashId(
+                baseId,
+                sample.fixture.tableId,
+              );
+              return {
+                archiveStatus: archive.status,
+                ...listing,
+                trashLookup,
+              };
+            }),
+        );
+        const { trashLookup } = setupMeasurement.result as {
+          trashLookup: TableTrashLookup;
+        };
+        setupSamples.push({
+          iteration: sample.iteration,
+          measurement: setupMeasurement,
+          trashLookup,
+        });
 
-      primaryMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync("restoreTableRequest", () =>
-            restoreTableTrash(trashLookup!.trashId),
+        const requestMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          `restoreTable-${sampleLabel}`,
+          () =>
+            measureAsync(`restoreTable-${sampleLabel}`, () =>
+              restoreTableTrash(trashLookup.trashId),
+            ),
+        );
+        requestSamples.push(
+          buildTableLifecycleSampleResult(
+            sample.iteration,
+            sample.fixture,
+            requestMeasurement,
+            "restoreTable",
+            trashLookup,
           ),
-      );
+        );
 
-      verifyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "restoreTableVerify",
-        () =>
-          measureAsync("restoreTableVerify", async () => {
-            const fullScan = await waitForRowsRestored(fixture, config, {
-              timeoutMs: 60_000,
-              pollIntervalMs: 1_000,
-            });
-            const samples = await assertSampleTextValues(fixture, config);
-            return { fullScan, samples };
-          }),
-      );
+        const verifyMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          `restoreTableVerify-${sampleLabel}`,
+          () =>
+            measureAsync(`restoreTableVerify-${sampleLabel}`, async () => {
+              const fullScan = await waitForRowsRestored(
+                sample.fixture,
+                config,
+                {
+                  timeoutMs: 60_000,
+                  pollIntervalMs: 1_000,
+                },
+              );
+              const samples = await assertSampleTextValues(
+                sample.fixture,
+                config,
+              );
+              return { fullScan, samples };
+            }),
+        );
+        verifySamples.push({
+          iteration: sample.iteration,
+          measurement: verifyMeasurement,
+          result: verifyMeasurement.result as RestoreVerifySample["result"],
+        });
+      }
     } catch (error) {
       throw new PerfRunDiagnosticError(
         error instanceof Error ? error.message : String(error),
-        buildTableLifecycleResult({
+        buildTableLifecycleSamplesResult({
           config,
           runner: "table-restore",
-          prepareMeasurement,
-          seedReadyMeasurement,
-          setupMeasurements: deleteSetupMeasurement
-            ? [deleteSetupMeasurement]
-            : undefined,
-          primaryMeasurement,
-          verifyMeasurement,
-          trashLookup,
+          fixtureSamples,
+          setupSamples,
+          requestSamples,
+          verifySamples,
           error,
         }),
       );
     }
 
-    const verifyResult = verifyMeasurement.result as {
-      fullScan: RecordReplayVerification;
-      samples: Awaited<ReturnType<typeof assertSampleTextValues>>;
-    };
-
-    return buildTableLifecycleResult({
+    return buildTableLifecycleSamplesResult({
       config,
       runner: "table-restore",
-      prepareMeasurement,
-      seedReadyMeasurement,
-      setupMeasurements: [deleteSetupMeasurement],
-      primaryMeasurement,
-      verifyMeasurement,
-      trashLookup,
+      fixtureSamples,
+      setupSamples,
+      requestSamples,
+      verifySamples,
       details: {
-        fullScan: verifyResult.fullScan,
-        verifiedSamples: verifyResult.samples.verifiedSamples,
+        fullScans: verifySamples.map((sample) => ({
+          iteration: sample.iteration,
+          fullScan: sample.result.fullScan,
+        })),
+        verifiedSamples: verifySamples.map((sample) => ({
+          iteration: sample.iteration,
+          samples: sample.result.samples.verifiedSamples,
+        })),
         verification: {
-          metric: "restoreTableVerifyMs",
-          checks: [
-            "fullRowCountScan",
-            `sampleTextValues(${verifyResult.samples.verifiedFieldNames.join(
-              ",",
-            )})`,
-          ],
+          metric: "verifyMs",
+          checks: ["fullRowCountScan", "sampleTextValues(Title,External ID)"],
           participatesInThreshold: false,
         },
       },
     });
   } finally {
-    // CI execute jobs run on an isolated restored copy of the seed dump, so
-    // the mutated database is simply discarded after the job.
     if (!isExecuteDbIsolated()) {
-      const fixture = prepareMeasurement?.result;
-      if (fixture?.tableId) {
-        const archived = Boolean(deleteSetupMeasurement);
-        const restoredByPrimary = Boolean(primaryMeasurement);
-        let tableIsLive = !archived || restoredByPrimary;
+      for (const sample of fixtureSamples) {
+        const requestSample = requestSamples.find(
+          (item) => item.iteration === sample.iteration,
+        );
+        const setupSample = setupSamples.find(
+          (item) => item.iteration === sample.iteration,
+        );
+        const verifiedAfterRestore = Boolean(
+          verifySamples.find((item) => item.iteration === sample.iteration),
+        );
+        let tableIsSeedReady = !setupSample || verifiedAfterRestore;
 
-        if (archived && !restoredByPrimary && trashLookup) {
+        if (!tableIsSeedReady && setupSample && !requestSample) {
           try {
-            await withPerfTraceStep(
-              context,
-              perfCase,
-              "cleanupRestoreTable",
-              () => restoreTableTrash(trashLookup!.trashId),
-            );
-            await waitForRowsRestored(fixture, config);
-            tableIsLive = true;
+            await restoreArchivedSample(sample, setupSample.trashLookup);
+            tableIsSeedReady = true;
           } catch (error) {
             console.warn(
-              `Failed to restore archived table ${fixture.tableId}; deleting it`,
+              `Failed to restore archived table ${sample.fixture.tableId}; deleting it`,
               error,
             );
           }
         }
 
-        if (!(tableIsLive && fixture.reusableSeed)) {
+        if (!(tableIsSeedReady && sample.fixture.reusableSeed)) {
           try {
-            await permanentDeleteTable(baseId, fixture.tableId);
+            await permanentDeleteTable(baseId, sample.fixture.tableId);
           } catch (error) {
             console.warn(
-              `Failed to cleanup perf table ${fixture.tableId}`,
+              `Failed to cleanup perf table ${sample.fixture.tableId}`,
               error,
             );
           }

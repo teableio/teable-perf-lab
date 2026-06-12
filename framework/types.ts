@@ -594,15 +594,17 @@ export interface FieldDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
 }
 
 export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  samples: number;
   threshold: {
-    metric: "deleteTableRequestMs";
+    metric: "deleteTableP95Ms";
     maxMs: number;
   };
 }
 
 export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  samples: number;
   threshold: {
-    metric: "restoreTableRequestMs";
+    metric: "restoreTableP95Ms";
     maxMs: number;
   };
 }

@@ -114,6 +114,7 @@ export type RecordReplaySetupMeasurements = {
 type RecordUndoRedoSeedOptions = {
   perfCase: PerfCase;
   runner: PerfRunnerKind;
+  seedIdentity?: Record<string, string | number | boolean>;
   seedCodeFiles?: URL[];
 };
 
@@ -437,7 +438,10 @@ const seedRecords = async (
   return { seededRecords, batchDurations };
 };
 
-const getRecordUndoRedoSeedConfig = (config: RecordUndoRedoBaseCaseConfig) => ({
+const getRecordUndoRedoSeedConfig = (
+  config: RecordUndoRedoBaseCaseConfig,
+  seedIdentity?: Record<string, string | number | boolean>,
+) => ({
   baseId: config.baseId,
   rowCount: config.rowCount,
   batchSize: config.batchSize,
@@ -445,6 +449,7 @@ const getRecordUndoRedoSeedConfig = (config: RecordUndoRedoBaseCaseConfig) => ({
   generator: config.generator,
   verifySampleRows: config.verify.sampleRows,
   fixtureVersion: "record-undo-redo-v1",
+  seedIdentity,
 });
 
 const buildBaseFixture = async (
@@ -483,7 +488,10 @@ export const prepareRecordUndoRedoFixture = async (
         perfCase: seedOptions.perfCase,
         runner: seedOptions.runner,
         fixtureVersion: "record-undo-redo-v1",
-        seedConfig: getRecordUndoRedoSeedConfig(config),
+        seedConfig: getRecordUndoRedoSeedConfig(
+          config,
+          seedOptions.seedIdentity,
+        ),
         seedCodeFiles: [
           new URL(import.meta.url),
           new URL("../seed-cache.ts", import.meta.url),
