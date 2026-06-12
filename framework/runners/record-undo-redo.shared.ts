@@ -21,6 +21,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
+import { assertEngineRouting, assertStreamEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -589,6 +590,7 @@ export const deleteAllRows = async (
 
 export const deleteAllRowsViaSelectionDelete = async (
   fixture: RecordUndoRedoFixture,
+  context?: Pick<PerfRunContext, "engine">,
 ): Promise<{
   status: number;
   deletedCount: number;
@@ -610,14 +612,29 @@ export const deleteAllRowsViaSelectionDelete = async (
   expect(response.status).toBe(200);
   expect(response.data.ids).toHaveLength(fixture.seededRecords.length);
 
+  const routing = {
+    xTeableV2: headers["x-teable-v2"],
+    xTeableV2Reason: headers["x-teable-v2-reason"],
+    xTeableV2Feature: headers["x-teable-v2-feature"],
+  };
+  if (context) {
+    assertEngineRouting(
+      context,
+      {
+        "x-teable-v2": routing.xTeableV2,
+        "x-teable-v2-reason": routing.xTeableV2Reason,
+        "x-teable-v2-feature": routing.xTeableV2Feature,
+      },
+      {
+        operation: "deleteSelection",
+      },
+    );
+  }
+
   return {
     status: response.status,
     deletedCount: response.data.ids.length,
-    routing: {
-      xTeableV2: headers["x-teable-v2"],
-      xTeableV2Reason: headers["x-teable-v2-reason"],
-      xTeableV2Feature: headers["x-teable-v2-feature"],
-    },
+    routing,
     trace: {
       traceparent: headers.traceparent,
     },
@@ -701,6 +718,9 @@ const streamUndoRedoOperation = async ({
 
   expect(errors).toHaveLength(0);
   expect(done.status).toBe("fulfilled");
+  const engineRouting = assertStreamEngineRouting(context, done.engine, {
+    operation: mode === "undo" ? "undo" : "redo",
+  });
 
   return {
     status: sseResult.status,
@@ -709,6 +729,7 @@ const streamUndoRedoOperation = async ({
     progressEvents,
     routing: {
       engine: done.engine,
+      ...engineRouting,
       commandTypes: [
         ...new Set(
           progressEvents
@@ -1130,6 +1151,9 @@ export const buildRecordReplayResult = ({
               setupMeasurements.undoSetupVerifyMeasurement?.durationMs,
           }
         : undefined,
+      routing: (
+        operationMeasurement?.result as { routing?: unknown } | undefined
+      )?.routing,
       fullScan: verifyMeasurement?.result
         ? {
             scannedRecords: verifyMeasurement.result.scannedRecords,

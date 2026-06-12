@@ -56,7 +56,7 @@ export const runRecordDeleteCase = async (
           config.threshold.metric,
           () =>
             measureAsync(config.threshold.metric, () =>
-              deleteAllRowsViaSelectionDelete(fixture),
+              deleteAllRowsViaSelectionDelete(fixture, context),
             ),
         );
       });

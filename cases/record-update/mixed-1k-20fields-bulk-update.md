@@ -39,9 +39,10 @@ bulk update path.
 3. Call `PATCH /api/table/{tableId}/record` with `fieldKeyType: "id"`,
    `typecast: false`, `records`, and a stable `X-Window-Id`.
 4. Stop the primary timer after the update response.
-5. Read rows 1, 500, and 1,000, then verify their record ids and all 20 mixed
+5. Assert the update response routing matches the requested V1/V2 engine.
+6. Read rows 1, 500, and 1,000, then verify their record ids and all 20 mixed
    fields match the deterministic `updated-` values.
-6. Cleanup restores reusable cached tables back to seed values in local
+7. Cleanup restores reusable cached tables back to seed values in local
    single-database runs. Isolated execute databases are left for job teardown.
 
 ## Primary Metric

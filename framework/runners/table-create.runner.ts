@@ -8,6 +8,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, summarizeDurations } from "../metrics";
+import { assertEngineRouting, type EngineRouting } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -31,6 +32,7 @@ type CreatedTable = {
   status: number;
   durationMs: number;
   responseHeaders: ReturnType<typeof pickTableLifecycleHeaders>;
+  routing: EngineRouting;
 };
 
 type TableVerification = {
@@ -284,13 +286,12 @@ export const runTableCreateCase = async (
           status: table.status,
           durationMs: table.durationMs,
           responseHeaders: table.responseHeaders,
+          routing: table.routing,
         })),
         routing: createdTables.length
           ? {
               routeMatched: createdTables.every(
-                (table) =>
-                  table.responseHeaders["x-teable-v2-feature"] ===
-                  "createTable",
+                (table) => table.routing.routeMatched === true,
               ),
               consistentEngine: v2Headers.length === 1,
               requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
@@ -334,15 +335,20 @@ export const runTableCreateCase = async (
                 createOneTable(baseId, tableName, config),
               ),
           );
+          const responseHeaders = pickTableLifecycleHeaders(
+            requestMeasurement.result.headers as Record<string, unknown>,
+          );
           createdTables.push({
             index,
             tableId: requestMeasurement.result.data.id,
             tableName,
             status: requestMeasurement.result.status,
             durationMs: requestMeasurement.durationMs,
-            responseHeaders: pickTableLifecycleHeaders(
-              requestMeasurement.result.headers as Record<string, unknown>,
-            ),
+            responseHeaders,
+            routing: assertEngineRouting(context, responseHeaders, {
+              feature: "createTable",
+              operation: "createTable",
+            }),
           });
         }
       });
