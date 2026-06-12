@@ -106,87 +106,99 @@ workload.
 
 ## Available Cases
 
-- `smoke/auth-user`: authenticated `GET /api/auth/user/me` smoke timing.
-- `formula/10k-calc`: create 10k rows, add a formula field, and verify computed
-  values are ready.
-- `formula/10k-5-concurrent`: create 10k rows once, concurrently add 5 formula
-  fields on the same table, and verify computed values are ready.
-- `lookup/conditional-10k`: create two 10k-row tables with permuted unique keys,
-  add a conditional lookup on the host table, and verify each sampled row
-  returns a different source value.
-- `search/search-index-off-10k-20search-fields`: create source and host 10k-row
-  lookup-search tables, then measure global `aggregation/search-index` requests
-  on the host whose `TableIndex.search` is disabled.
-- `search/search-index-on-10k-20search-fields`: reuse the same deterministic
-  lookup-search fixture, then measure global `aggregation/search-index`
-  requests on the host whose `TableIndex.search` is enabled.
-- `field-create/single-select-1k-options`: create an empty table, add one
-  single select field with 1,000 deterministic options, and verify the field
-  metadata.
-- `field-create/10k-create-5-simple-fields`: create a 10k-record
-  table with only `Title`, then measure one window that sequentially sends 5
-  external create-field requests for simple fields without waiting on
-  background work.
-- `field-create/10k-create-5-formula-fields`: create a 10k-record
-  table with `Title`, `A`, `B`, and `C`, then measure one window that
-  sequentially sends 5 external formula-field create requests, plus a separate
-  post-create DB aggregate metric that verifies the stored formula values are
-  ready.
-- `field-create/mixed-10k-create-19-fields`: create a 10k-row table with only
-  `Title`, then measure one window that sequentially sends 19 external
-  create-field requests for the remaining mixed fields.
-- `field-delete/mixed-10k-delete-19-fields`: seed a 10k-row 20-field mixed
-  table, delete the 19 non-primary fields in one request, and verify the
-  surviving rows and field layout.
-- `field-convert/10k-multi-select-to-text`: seed a 10k-row table with a
-  populated multiple select field, convert it to single line text, and verify
-  every converted cell equals the joined choice text.
-- `field-convert/10k-text-to-formula`: seed a 10k-row numeric table with a
-  text field, convert the text field to a formula `({A} * {B}) + {C}`, and
-  verify every computed value.
-- `field-duplicate/conditional-lookup-10k`: create the same 10k x 10k
-  conditional lookup fixture as `lookup/conditional-10k`, duplicate the lookup
-  field, and verify the duplicated lookup values.
-- `csv-import/mixed-1k-20fields-create-table-import`: upload a 1k-row 20-field
-  mixed CSV, create a new table through `POST /api/import/{baseId}`, and verify
-  the imported records and V2 `importCsv` routing.
-- `csv-import/mixed-10k-20fields-create-table-import`: upload a 10k-row
-  20-field mixed CSV, create a new table through `POST /api/import/{baseId}`,
-  and verify the imported records and V2 `importCsv` routing.
-- `csv-import/mixed-10k-20fields-inplace-import`: create an empty 20-field
-  mixed-type table, import 10k deterministic CSV rows through
-  `PATCH /api/import/{baseId}/{tableId}`, and verify the typed inserted
-  records.
-- `record-create/mixed-1k-20fields-bulk-create`: create 1k typed records in an
-  empty 20-field mixed table through `POST /api/table/{tableId}/record`, then
-  verify row count.
-- `record-update/mixed-1k-20fields-bulk-update`: update 1k existing records
-  across 20 mixed fields through `PATCH /api/table/{tableId}/record`, then
-  verify sampled typed records.
-- `record-reorder/10k-move-last-1k-to-front`: move the original last 1k records
-  to the front of a 10k-row mixed table through the record reorder API, then
-  verify sampled view positions.
-- `selection-clear/flat-1k-20fields-cell-clear-stream`: create a 1k-row
-  mixed-field table, clear all visible cells through
-  `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
-- `record-delete/delete-1k`: create a 1k-row mixed-field table, delete all rows
-  through `DELETE /selection/delete`, and verify the table is empty.
-- `record-read/10k-50fields-10x1k-pages`: read a 10k-row table through ten
-  sequential `GET /record` pages with 50 projected fields, including formula and
-  stored lookup values.
-- `record-undo/delete-1k`: create a 1k-row mixed-field table, delete all rows
-  before measurement, replay undo, and verify the row count is restored.
-- `record-redo/delete-1k`: create a 1k-row mixed-field table, delete and undo
-  before measurement, replay redo, and verify the table is empty.
-- `record-paste/flat-10k-4fields-copy-paste`: create an empty 4-field table,
-  paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
-  inserted records.
-- `record-paste/flat-10k-20fields-copy-paste`: create an empty 20-field table,
-  paste 10k deterministic rows through `PATCH /selection/paste`, and verify the
-  inserted records.
-- `record-paste/mixed-10k-20fields-complex-copy-paste`: create an empty
-  20-field mixed-type table, paste 10k deterministic rows through
-  `PATCH /selection/paste`, and verify the typed inserted records.
+<!-- Generated from registry.ts and each case's `## Goal` section. -->
+<!-- Do not edit by hand; run `pnpm sync:readme` to regenerate. -->
+
+- `smoke/auth-user`: Verify that the seeded e2e user can call the authenticated
+  user profile endpoint and measure basic request latency.
+- `formula/10k-calc`: Measure how long it takes to create one formula field on a
+  10k-row table and make the computed values fully readable.
+- `formula/10k-5-concurrent`: Measure concurrent creation of five formula fields
+  on the same 10k-row table and verify that all computed values become fully
+  readable.
+- `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
+  tables where every host row matches a different source row through a unique
+  key.
+- `search/search-index-off-10k-20search-fields`: Measure global
+  `aggregation/search-index` latency on the 10k-row host table whose
+  `TableIndex.search` is disabled.
+- `search/search-index-on-10k-20search-fields`: Measure global
+  `aggregation/search-index` latency on the 10k-row host table whose
+  `TableIndex.search` is enabled.
+- `field-create/10k-create-5-simple-fields`: Measure create-request latency for
+  adding 5 simple fields to a 10,000-record table. This case is paired with
+  `field-create/10k-create-5-formula-fields` to compare whether the request
+  latency layer is close when formula calculation completion is not measured.
+- `field-create/10k-create-5-formula-fields`: Measure create-request latency for
+  adding 5 formula fields to a 10,000-record table, then separately verify how
+  long it takes after the create responses for the formula values to be correct
+  in the underlying physical table columns. The create-request metric can be
+  compared with `field-create/10k-create-5-simple-fields` at the request latency
+  layer, while the ready metric captures post-create storage readiness without
+  using records API pagination as the readiness signal.
+- `field-create/mixed-10k-create-19-fields`: Measure the external field creation
+  path for adding 19 mixed-type fields to a 10,000-row table.
+- `field-create/single-select-1k-options`: Measure the field creation path for
+  adding one single select field with 1,000 deterministic options.
+- `field-convert/10k-multi-select-to-text`: Catch regressions in converting a
+  populated multiple select column to single line text on a 10k-row grid — the
+  standard field type conversion path that rewrites every cell value of the
+  column (`PUT /table/{tableId}/field/{fieldId}/convert`, canary feature
+  `convertField`).
+- `field-convert/10k-text-to-formula`: Catch regressions in converting a
+  populated text column into a computed formula field on a 10k-row grid — the
+  complex conversion path that discards old cell values and recomputes the whole
+  column (`PUT /table/{tableId}/field/{fieldId}/convert`, canary feature
+  `convertField`).
+- `field-delete/mixed-10k-delete-19-fields`: Measure the bulk field delete path
+  for removing 19 mixed-type fields from a 10,000-row table in one request.
+- `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
+  lookup field from the `lookup/conditional-10k` workload.
+- `csv-import/mixed-1k-20fields-create-table-import`: Measure CSV import that
+  creates a new table through `POST /api/import/{baseId}`. This covers the
+  product path where a user uploads a CSV file and imports it as a new table. V1
+  and V2 runs execute the same user-facing behavior, with the same CSV data,
+  endpoint shape, readiness checks, and cleanup.
+- `csv-import/mixed-10k-20fields-create-table-import`: Measure CSV import that
+  creates a new table through `POST /api/import/{baseId}` with 10,000 rows and 20
+  mixed columns. This covers the product path where a user uploads a larger CSV
+  file and imports it as a new table.
+- `csv-import/mixed-10k-20fields-inplace-import`: Measure CSV import into an
+  existing mixed 20-field table through `PATCH /api/import/{baseId}/{tableId}`.
+  This covers the product path where a user uploads CSV data and appends it to a
+  table whose field types already exist.
+- `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
+  selection-clear stream path for clearing every visible cell across 1,000 rows
+  and 20 mixed fields through
+  `PATCH /api/table/{tableId}/selection/clear-stream`.
+- `record-delete/delete-1k`: Measure the grid selection delete path for deleting
+  1,000 mixed-type records from a 20-field table.
+- `record-read/10k-50fields-10x1k-pages`: Measure
+  `GET /api/table/{tableId}/record` latency for reading a full 10,000-row table
+  as ten sequential maximum-size 1,000-record pages with 50 projected fields,
+  including stored lookup columns and formula values.
+- `record-create/mixed-1k-20fields-bulk-create`: Measure
+  `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
+  request against an empty 20-field mixed table.
+- `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
+  update performance for updating 1,000 existing records across 20 mixed fields
+  through `PATCH /api/table/{tableId}/record`.
+- `record-reorder/10k-move-last-1k-to-front`: Measure block reorder performance
+  in a 10,000-row grid by moving the original last 1,000 visible records to the
+  front in one operation.
+- `record-undo/delete-1k`: Measure undo replay performance after a user deletes
+  1,000 mixed-type records through the grid selection delete path.
+- `record-redo/delete-1k`: Measure redo replay performance after a user deletes
+  1,000 mixed-type records and then undoes that delete.
+- `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
+  for inserting 10,000 flat records into an empty 20-field table through
+  `PATCH /api/table/{tableId}/selection/paste`.
+- `record-paste/flat-10k-4fields-copy-paste`: Measure the grid paste API path
+  for inserting 10,000 flat records into an empty table through
+  `PATCH /api/table/{tableId}/selection/paste`.
+- `record-paste/mixed-10k-20fields-complex-copy-paste`: Measure the grid paste
+  API path for inserting 10,000 mixed-type records into an empty 20-field table
+  through `PATCH /api/table/{tableId}/selection/paste`.
 
 ## Case Registry
 
