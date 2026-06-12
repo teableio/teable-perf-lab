@@ -56,12 +56,16 @@ Seed validation: paged full row-count scan plus link-cell samples (offsets
 
 ## Primary Metric
 
-- `restoreTableP95Ms`: p95 latency of the 5 measured restore requests.
+- `restoreTableP95Ms`: historical p95 threshold key for the 5 measured restore
+  requests. With 5 samples, the current nearest-rank percentile math makes this
+  gate effectively the slowest request (max).
 
 ## Verification Metrics
 
 - `restoreTableMinMs` / `restoreTableP50Ms` / `restoreTableMaxMs` /
   `restoreTableTotalMs`: request distribution (diagnostic).
+  `restoreTableMaxMs` is expected to match `restoreTableP95Ms` while the case
+  keeps 5 samples.
 - `setupMs`: archive-to-trash setup duration across samples (diagnostic).
 - `verifyMs`: full scans + text samples + link-cell samples. Diagnostic only.
 
