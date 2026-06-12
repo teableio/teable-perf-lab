@@ -94,3 +94,13 @@ import the full 10,000 rows with the expected sample values.
 test: V1 reports `import-status-completed` with the status-poll count and 1 s
 poll interval, while V2 reports `post-response-sql-row-count` with the asserted
 row count observed immediately after the awaited `POST` response.
+
+The V2 completion boundary is backed by the read-only `teable-ee` import path:
+`community/packages/v2/contract-http-implementation/src/handlers/tables/importCsv.ts:24`
+awaits `commandBus.execute<ImportCsvCommand, ImportCsvResult>(...)` before
+building the HTTP response, so the endpoint is not fire-and-forget. Inside the
+command handler,
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:283` awaits
+`tableRecordRepository.insertManyStream(...)` in the data transaction, then
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:339-349` completes
+the schema operation and publishes events only after insertion has finished.

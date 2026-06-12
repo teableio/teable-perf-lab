@@ -89,3 +89,13 @@ test so artifacts explain whether completion came from V1 status polling or the
 V2 post-response SQL row-count assertion. The primary metric remains
 `csvCreateTableImportReadyMs`, so sample-row verification still contributes to
 the threshold metric for this 1k readiness case.
+
+The V2 completion boundary is backed by the read-only `teable-ee` import path:
+`community/packages/v2/contract-http-implementation/src/handlers/tables/importCsv.ts:24`
+awaits `commandBus.execute<ImportCsvCommand, ImportCsvResult>(...)` before
+building the HTTP response, so the endpoint is not fire-and-forget. Inside the
+command handler,
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:283` awaits
+`tableRecordRepository.insertManyStream(...)` in the data transaction, then
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:339-349` completes
+the schema operation and publishes events only after insertion has finished.
