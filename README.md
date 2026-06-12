@@ -171,6 +171,9 @@ workload.
   `PATCH /selection/clear-stream`, and verify the rows remain with empty cells.
 - `record-delete/delete-1k`: create a 1k-row mixed-field table, delete all rows
   through `DELETE /selection/delete`, and verify the table is empty.
+- `record-read/10k-50fields-10x1k-pages`: read a 10k-row table through ten
+  sequential `GET /record` pages with 50 projected fields, including formula and
+  stored lookup values.
 - `record-undo/delete-1k`: create a 1k-row mixed-field table, delete all rows
   before measurement, replay undo, and verify the row count is restored.
 - `record-redo/delete-1k`: create a 1k-row mixed-field table, delete and undo

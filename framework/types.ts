@@ -12,6 +12,7 @@ export type PerfRunnerKind =
   | "field-duplicate"
   | "csv-import"
   | "record-paste"
+  | "record-read"
   | "record-create"
   | "record-update"
   | "record-reorder"
@@ -37,6 +38,7 @@ export interface PerfCase {
     | FieldDuplicateCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
+    | RecordReadCaseConfig
     | RecordCreateCaseConfig
     | RecordUpdateCaseConfig
     | RecordReorderCaseConfig
@@ -325,6 +327,40 @@ export interface RecordPasteCaseConfig {
   };
   threshold: {
     metric: "paste10kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordReadCaseConfig {
+  baseId: "seed-base";
+  sourceTableNamePrefix: string;
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  pageSize: number;
+  skip: number;
+  simpleTextFieldCount: number;
+  formulaFieldCount: number;
+  lookupFieldCount: number;
+  generator: {
+    type: "record-read-lookup-formula";
+    titlePrefix: string;
+    textPrefix: string;
+    sourceKeyPrefix: string;
+    sourceValuePrefix: string;
+    permutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "getRecords10kPagedScanMs";
     maxMs: number;
   };
 }
