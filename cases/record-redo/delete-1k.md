@@ -52,7 +52,7 @@ the primary timer starts.
    - call `POST /api/table/{tableId}/undo-redo/undo-stream`
    - use the same `x-window-id`
    - wait for `done` with `status: fulfilled`
-   - full-scan the restored table and verify 1,000 records plus sample values
+   - full-scan the restored table and verify exactly 1,000 records
 3. Start the primary timer when redo is ready.
 4. Call `POST /api/table/{tableId}/undo-redo/redo-stream` with the same
    `x-window-id`.

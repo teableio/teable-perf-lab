@@ -87,7 +87,7 @@ export const runRecordUndoCase = async (
       });
 
       verifyMeasurement = await measureAsync("verifyRestored", () =>
-        waitForRowsRestored(fixture, config),
+        waitForRowsRestored(fixture, config, { verifySamples: true }),
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(
