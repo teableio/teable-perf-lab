@@ -9,6 +9,11 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
+import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -43,6 +48,11 @@ type PasteFixture = {
   pasteFields: PasteField[];
   projection: string[];
   content: string;
+};
+
+type PastePrimaryResult = Awaited<ReturnType<typeof paste>> & {
+  responseHeaders: ReturnType<typeof pickRoutingResponseHeaders>;
+  routing: EngineRouting;
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
@@ -419,7 +429,7 @@ const buildRecordPasteCaseResult = ({
 }: {
   config: RecordPasteCaseConfig;
   prepareMeasurement?: Measurement<PasteFixture>;
-  pasteMeasurement?: Measurement<Awaited<ReturnType<typeof paste>>>;
+  pasteMeasurement?: Measurement<PastePrimaryResult>;
   verifiedRows?: Awaited<ReturnType<typeof assertPastedRows>>;
   error?: unknown;
 }): PerfRunResult => {
@@ -480,8 +490,11 @@ const buildRecordPasteCaseResult = ({
         ? {
             status: pasteMeasurement.result.status,
             ranges: pasteMeasurement.result.data.ranges,
+            responseHeaders: pasteMeasurement.result.responseHeaders,
+            routing: pasteMeasurement.result.routing,
           }
         : undefined,
+      routing: pasteMeasurement?.result.routing,
       fullScan: verifiedRows
         ? {
             scannedRecords: verifiedRows.scannedRecords,
@@ -515,9 +528,7 @@ export const runRecordPasteCase = async (
       preparePasteFixture(baseId, tableName, config),
     );
     const prepared = prepareMeasurement.result;
-    let pasteMeasurement:
-      | Measurement<Awaited<ReturnType<typeof paste>>>
-      | undefined;
+    let pasteMeasurement: Measurement<PastePrimaryResult> | undefined;
     let verifiedRows: Awaited<ReturnType<typeof assertPastedRows>> | undefined;
 
     try {
@@ -542,7 +553,16 @@ export const runRecordPasteCase = async (
               config,
               prepared.projection.length,
             );
-            return response;
+            const responseHeaders = pickRoutingResponseHeaders(
+              response.headers as Record<string, unknown>,
+            );
+            return {
+              ...response,
+              responseHeaders,
+              routing: assertEngineRouting(context, responseHeaders, {
+                operation: "pasteRecords",
+              }),
+            };
           }),
       );
 

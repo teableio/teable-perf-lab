@@ -13,6 +13,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -113,14 +118,7 @@ type FieldCreateReadyVerification = {
   sampleRows: ComputedBackfillSampleRow[];
 };
 
-type FieldCreateRouting = {
-  requestedEngine: string;
-  expectedXTeableV2: string;
-  actualXTeableV2: string;
-  routeMatched: boolean;
-  xTeableV2Feature: string;
-  xTeableV2Reason: string;
-};
+type FieldCreateRouting = EngineRouting;
 
 type FieldStorageMeta = {
   id: string;
@@ -724,41 +722,15 @@ const chunk = <T>(items: T[], size: number) => {
   return chunks;
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const assertExpectedRouting = (
   context: PerfRunContext,
   responseHeaders: Record<string, string>,
-) => {
-  const expectedXTeableV2 = context.engine === "v2" ? "true" : "false";
-  const actualXTeableV2 = responseHeaders["x-teable-v2"];
-  if (actualXTeableV2 !== expectedXTeableV2) {
-    throw new Error(
-      `Field create did not use expected ${context.engine.toUpperCase()} route; expected x-teable-v2=${expectedXTeableV2}, got ${actualXTeableV2}; headers=${JSON.stringify(
-        responseHeaders,
-      )}`,
-    );
-  }
-
-  return {
-    requestedEngine: context.engine,
-    expectedXTeableV2,
-    actualXTeableV2,
-    routeMatched: true,
-    xTeableV2Feature: responseHeaders["x-teable-v2-feature"],
-    xTeableV2Reason: responseHeaders["x-teable-v2-reason"],
-  };
-};
+) =>
+  assertEngineRouting(context, responseHeaders, {
+    operation: "Field create",
+  });
 
 const assertSeedReady = async (
   fixture: FieldCreateFixture,

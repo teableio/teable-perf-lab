@@ -123,8 +123,6 @@ const caseAliases = new Map([
   ["field-duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
   ["duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
   ["duplicate-table", "duplicate-table/10k-20f"],
-  ["duplicate-table/10k-20f", "duplicate-table/10k-20f"],
-  ["duplicate-table/10k-25f-5formula", "duplicate-table/10k-25f-5formula"],
   ["duplicate-table/mixed", "duplicate-table/10k-20f"],
   ["duplicate-table/10k-20fields", "duplicate-table/10k-20f"],
   ["duplicate-table/complex", "duplicate-table/10k-25f-5formula"],

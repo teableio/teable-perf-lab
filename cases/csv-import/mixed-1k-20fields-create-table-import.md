@@ -59,9 +59,13 @@ not as the primary metric.
    do not report `x-teable-v2-reason: no_feature`.
 4. Resolve the created table, grid view, fields, and database table name from
    the response/read path.
-5. Run SQL count verification and confirm the new table has 1,000 rows.
-6. Read configured sample rows and verify imported values.
-7. Permanently delete the created table.
+5. Record the engine-specific import completion signal. V1 polls
+   `GET /api/import/status/{tableId}` until `completed`; V2 asserts the SQL row
+   count immediately after the awaited `POST` response because the V2
+   `ImportCsvCommand` writes records before returning.
+6. Run SQL count verification and confirm the new table has 1,000 rows.
+7. Read configured sample rows and verify imported values.
+8. Permanently delete the created table.
 
 ## Primary Metric
 
@@ -79,3 +83,19 @@ legacy V1 path from the V2 `importCsv` path. For this create-table case, V1 is a
 valid baseline run and V2 is treated as failed only if the same product operation
 does not route to the expected V2 `importCsv` feature or does not import the full
 1,000 rows with the expected sample values.
+
+`details.import.completion` records the completion signal for the engine under
+test so artifacts explain whether completion came from V1 status polling or the
+V2 post-response SQL row-count assertion. The primary metric remains
+`csvCreateTableImportReadyMs`, so sample-row verification still contributes to
+the threshold metric for this 1k readiness case.
+
+The V2 completion boundary is backed by the read-only `teable-ee` import path:
+`community/packages/v2/contract-http-implementation/src/handlers/tables/importCsv.ts:24`
+awaits `commandBus.execute<ImportCsvCommand, ImportCsvResult>(...)` before
+building the HTTP response, so the endpoint is not fire-and-forget. Inside the
+command handler,
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:283` awaits
+`tableRecordRepository.insertManyStream(...)` in the data transaction, then
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:339-349` completes
+the schema operation and publishes events only after insertion has finished.

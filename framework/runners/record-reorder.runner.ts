@@ -12,6 +12,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -87,7 +92,9 @@ type ReorderOperationResult = {
     "x-teable-v2-reason": string;
     traceparent: string;
   };
-  verification: ReorderVerification;
+  routing: EngineRouting;
+  verification?: ReorderVerification;
+  verifyReorderMs?: number;
 };
 
 const RECORD_REORDER_FIXTURE_VERSION = "record-reorder-v2";
@@ -241,17 +248,7 @@ const chunk = <T>(items: T[], size: number) => {
   return chunks;
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const resolveFields = (
   tableFields: Array<{ id: string; name: string }>,
@@ -883,27 +880,30 @@ const executeReorder = async (
   perfCase: PerfCase,
   fixture: ReorderFixture,
   config: RecordReorderCaseConfig,
-): Promise<ReorderOperationResult> => {
+) => {
   if (!fixture.cachedOrder) {
     throw new Error("Missing cached reorder order metadata");
   }
-  const operation = await withPerfTraceStep(
-    context,
-    perfCase,
-    config.threshold.metric,
-    () =>
-      moveRecords({
-        fixture,
-        config,
-        recordIds: fixture.cachedOrder!.movedRecordIds,
-        anchorId: fixture.cachedOrder!.anchorRecordId,
-      }),
+  return withPerfTraceStep(context, perfCase, config.threshold.metric, () =>
+    moveRecords({
+      fixture,
+      config,
+      recordIds: fixture.cachedOrder!.movedRecordIds,
+      anchorId: fixture.cachedOrder!.anchorRecordId,
+    }),
   );
-  const verification = await assertReordered(fixture, config);
+};
 
+const verifyReorder = async (
+  fixture: ReorderFixture,
+  config: RecordReorderCaseConfig,
+) => {
+  const verificationMeasurement = await measureAsync("verifyReorder", () =>
+    assertReordered(fixture, config),
+  );
   return {
-    ...operation,
-    verification,
+    verification: verificationMeasurement.result,
+    verifyReorderMs: verificationMeasurement.durationMs,
   };
 };
 
@@ -915,7 +915,7 @@ const restoreOriginalOrder = async (
     throw new Error("Missing cached reorder order metadata");
   }
 
-  await moveRecords({
+  const restored = await moveRecords({
     fixture,
     config: {
       ...config,
@@ -927,6 +927,13 @@ const restoreOriginalOrder = async (
     recordIds: fixture.cachedOrder.movedRecordIds,
     anchorId: fixture.cachedOrder.restoreAnchorRecordId,
   });
+  assertEngineRouting(
+    { engine: process.env.PERF_LAB_ENGINE ?? "local" },
+    restored.responseHeaders,
+    {
+      operation: "updateRecordOrders",
+    },
+  );
   await verifyInitialPositions(fixture, config);
 };
 
@@ -975,7 +982,10 @@ const buildResult = ({
     ...(reorderMeasurement
       ? {
           [config.threshold.metric]: reorderMeasurement.durationMs,
-          reorderRequestMs: reorderMeasurement.result.requestMs,
+          reorderRequestMs: reorderMeasurement.durationMs,
+          ...(reorderMeasurement.result.verifyReorderMs != null
+            ? { verifyReorderMs: reorderMeasurement.result.verifyReorderMs }
+            : {}),
         }
       : {}),
   },
@@ -1053,8 +1063,10 @@ const buildResult = ({
           requestMs: reorderMeasurement.result.requestMs,
           updatedRecordCount: reorderMeasurement.result.updatedRecordCount,
           responseHeaders: reorderMeasurement.result.responseHeaders,
+          routing: reorderMeasurement.result.routing,
         }
       : undefined,
+    routing: reorderMeasurement?.result.routing,
     verification: reorderMeasurement?.result.verification,
     fields: fixture?.fields.map((field) => ({
       id: field.id,
@@ -1096,9 +1108,32 @@ export const runRecordReorderCase = async (
 
     try {
       await withRecordWindowId(windowId, async () => {
-        reorderMeasurement = await measureAsync(config.threshold.metric, () =>
-          executeReorder(context, perfCase, fixture, config),
+        const requestMeasurement = await measureAsync(
+          config.threshold.metric,
+          () => executeReorder(context, perfCase, fixture, config),
         );
+        reorderMeasurement = {
+          ...requestMeasurement,
+          result: {
+            ...requestMeasurement.result,
+            requestMs: requestMeasurement.durationMs,
+            routing: assertEngineRouting(
+              context,
+              requestMeasurement.result.responseHeaders,
+              {
+                operation: "updateRecordOrders",
+              },
+            ),
+          },
+        };
+        const verification = await verifyReorder(fixture, config);
+        reorderMeasurement = {
+          ...reorderMeasurement,
+          result: {
+            ...reorderMeasurement.result,
+            ...verification,
+          },
+        };
       });
     } catch (error) {
       throw new PerfRunDiagnosticError(

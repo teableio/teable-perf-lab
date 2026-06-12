@@ -29,7 +29,8 @@ the table; nothing is reused between runs.
    per field type (full ISO datetimes, exact select choice names, checkbox
    `true`/omitted) because the create-table path performs **no typecast**,
    unlike the `createRecords` seeding API.
-2. Routing headers are recorded (`x-teable-v2-feature: createTable`).
+2. Routing headers are recorded (`x-teable-v2-feature: createTable`), and V1/V2
+   runs fail if the response did not use the requested engine.
 3. Verify: field count and view presence, a paged scan proving exactly 1,000
    records exist, and first/last-row sample checks on two text fields.
 4. Cleanup permanently deletes the created table.

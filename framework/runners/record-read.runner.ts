@@ -11,6 +11,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   buildSeedTableName,
   findSeedTable,
@@ -74,6 +79,14 @@ type ProjectionScanVerification = {
   verifiedSamples: PageSampleVerification[];
 };
 
+type ProjectionBoundaryVerification = {
+  checkedRecords: number;
+  expectedRecords: number;
+  firstRowNumber: number;
+  lastRowNumber: number;
+  beyondLastCount: number;
+};
+
 type PageSampleVerification = {
   rowOffset: number;
   rowNumber: number;
@@ -89,14 +102,7 @@ type ReadPageResult = {
   status: number;
   records: Array<{ id: string; fields: Record<string, unknown> }>;
   responseHeaders: Record<string, string>;
-  routing: {
-    requestedEngine: string;
-    expectedXTeableV2: string;
-    actualXTeableV2: string;
-    routeMatched: boolean;
-    xTeableV2Feature: string;
-    xTeableV2Reason: string;
-  };
+  routing: EngineRouting;
 };
 
 type ReadPagedScanResult = {
@@ -402,41 +408,15 @@ const chunk = <T>(items: T[], size: number) => {
   return chunks;
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const assertExpectedRouting = (
   context: PerfRunContext,
   responseHeaders: Record<string, string>,
-) => {
-  const expectedXTeableV2 = context.engine === "v2" ? "true" : "false";
-  const actualXTeableV2 = responseHeaders["x-teable-v2"];
-  if (actualXTeableV2 !== expectedXTeableV2) {
-    throw new Error(
-      `getRecords did not use expected ${context.engine.toUpperCase()} route; expected x-teable-v2=${expectedXTeableV2}, got ${actualXTeableV2}; headers=${JSON.stringify(
-        responseHeaders,
-      )}`,
-    );
-  }
-
-  return {
-    requestedEngine: context.engine,
-    expectedXTeableV2,
-    actualXTeableV2,
-    routeMatched: true,
-    xTeableV2Feature: responseHeaders["x-teable-v2-feature"],
-    xTeableV2Reason: responseHeaders["x-teable-v2-reason"],
-  };
-};
+) =>
+  assertEngineRouting(context, responseHeaders, {
+    operation: "getRecords",
+  });
 
 const getSeedConfig = (config: RecordReadCaseConfig) => ({
   baseId: config.baseId,
@@ -829,6 +809,87 @@ const assertProjectionFullScan = async (
   };
 };
 
+const assertProjectionBoundary = async (
+  fixture: Pick<RecordReadFixture, "tableId" | "viewId" | "fields">,
+  config: RecordReadCaseConfig,
+): Promise<ProjectionBoundaryVerification> => {
+  const titleField = fixture.fields.find((field) => field.name === "Title");
+  if (!titleField) {
+    throw new Error("record-read projection is missing Title");
+  }
+
+  const [first, last, beyondLast] = await Promise.all([
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: 0,
+      take: 1,
+    }),
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: config.rowCount - 1,
+      take: 1,
+    }),
+    apiGetRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: [titleField.id],
+      skip: config.rowCount,
+      take: 1,
+    }),
+  ]);
+
+  expect(first.status).toBe(200);
+  expect(last.status).toBe(200);
+  expect(beyondLast.status).toBe(200);
+
+  if (first.data.records.length !== 1) {
+    throw new Error(
+      `record-read seed boundary expected first row, got ${first.data.records.length}`,
+    );
+  }
+  if (last.data.records.length !== 1) {
+    throw new Error(
+      `record-read seed boundary expected row ${config.rowCount}, got ${last.data.records.length}`,
+    );
+  }
+  if (beyondLast.data.records.length !== 0) {
+    throw new Error(
+      `record-read seed boundary found extra rows after rowCount=${config.rowCount}`,
+    );
+  }
+
+  const firstRowNumber = parseRowNumberFromTitle(
+    first.data.records[0].fields[titleField.id],
+    config,
+  );
+  const lastRowNumber = parseRowNumberFromTitle(
+    last.data.records[0].fields[titleField.id],
+    config,
+  );
+  if (firstRowNumber !== 1) {
+    throw new Error(
+      `record-read seed boundary expected first row number 1, got ${firstRowNumber}`,
+    );
+  }
+  if (lastRowNumber !== config.rowCount) {
+    throw new Error(
+      `record-read seed boundary expected last row number ${config.rowCount}, got ${lastRowNumber}`,
+    );
+  }
+
+  return {
+    checkedRecords: first.data.records.length + last.data.records.length,
+    expectedRecords: config.rowCount,
+    firstRowNumber,
+    lastRowNumber,
+    beyondLastCount: beyondLast.data.records.length,
+  };
+};
+
 const waitForProjectionFullScan = async (
   fixture: Pick<
     RecordReadFixture,
@@ -1210,7 +1271,7 @@ const buildRecordReadResult = ({
   config: RecordReadCaseConfig;
   fixture?: RecordReadFixture;
   prepareMeasurement?: Measurement<RecordReadFixture>;
-  seedReadyMeasurement?: Measurement<ProjectionScanVerification>;
+  seedReadyMeasurement?: Measurement<ProjectionBoundaryVerification>;
   readMeasurement?: Measurement<ReadPagedScanResult>;
   verifyMeasurement?: Measurement<ReadPagedScanVerification>;
   error?: unknown;
@@ -1342,11 +1403,13 @@ const buildRecordReadResult = ({
             pageSize: fixture.computedReadyMeasurement.result.pageSize,
             pageCount: fixture.computedReadyMeasurement.result.pageCount,
           },
-          readyFullScan: seedReadyMeasurement?.result
+          readyBoundary: seedReadyMeasurement?.result
             ? {
-                scannedRecords: seedReadyMeasurement.result.scannedRecords,
-                pageSize: seedReadyMeasurement.result.pageSize,
-                pageCount: seedReadyMeasurement.result.pageCount,
+                checkedRecords: seedReadyMeasurement.result.checkedRecords,
+                expectedRecords: seedReadyMeasurement.result.expectedRecords,
+                firstRowNumber: seedReadyMeasurement.result.firstRowNumber,
+                lastRowNumber: seedReadyMeasurement.result.lastRowNumber,
+                beyondLastCount: seedReadyMeasurement.result.beyondLastCount,
               }
             : undefined,
         }
@@ -1374,7 +1437,9 @@ export const runRecordReadCase = async (
   const baseId = globalThis.testConfig.baseId;
   let fixture: RecordReadFixture | undefined;
   let prepareMeasurement: Measurement<RecordReadFixture> | undefined;
-  let seedReadyMeasurement: Measurement<ProjectionScanVerification> | undefined;
+  let seedReadyMeasurement:
+    | Measurement<ProjectionBoundaryVerification>
+    | undefined;
   let readMeasurement: Measurement<ReadPagedScanResult> | undefined;
   let verifyMeasurement: Measurement<ReadPagedScanVerification> | undefined;
 
@@ -1384,7 +1449,7 @@ export const runRecordReadCase = async (
     );
     fixture = prepareMeasurement.result;
     seedReadyMeasurement = await measureAsync("seedReady", () =>
-      waitForProjectionFullScan(fixture!, config),
+      assertProjectionBoundary(fixture!, config),
     );
 
     try {
@@ -1441,7 +1506,7 @@ export const seedRecordReadCase = async (
     prepareFixture(perfCase, context, config),
   );
   const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    waitForProjectionFullScan(prepareMeasurement.result, config),
+    assertProjectionBoundary(prepareMeasurement.result, config),
   );
 
   return buildRecordReadResult({

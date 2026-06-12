@@ -68,11 +68,24 @@ type CsvFixture = {
 type CsvImportPrimaryResult = {
   importRequestMs: number;
   importCompletedMs?: number;
-  importCompletion?: Awaited<ReturnType<typeof waitForCsvImportCompletion>>;
+  importCompletion?: CsvImportCompletion;
   importStatus: number;
   responseHeaders: Record<string, string>;
   verifiedRows: Awaited<ReturnType<typeof assertImportedRows>>;
   createdTableId?: string;
+};
+
+type CsvImportCompletion = {
+  status: string;
+  engine: PerfRunContext["engine"];
+  completionSignal: string;
+  measuredWindow: string;
+  pollCount: number;
+  durationMs: number;
+  expectedRowCount: number;
+  rowCountAtCompletion: number;
+  pollIntervalMs?: number;
+  message?: string;
 };
 
 const IMPORT_SHEET_KEY = "Import Table";
@@ -557,15 +570,27 @@ const waitForCsvImportCompletion = async (
   dbTableName: string,
   config: CsvImportCaseConfig,
   context: PerfRunContext,
-) => {
+): Promise<CsvImportCompletion> => {
   const startedAt = Date.now();
   if (context.engine === "v2") {
+    const rowCountAtCompletion = await readImportedRowCount(baseId, {
+      dbTableName,
+    });
+    if (rowCountAtCompletion !== config.rowCount) {
+      throw new Error(
+        `V2 CSV import returned before all records were written: expected ${config.rowCount}, got ${rowCountAtCompletion}`,
+      );
+    }
     return {
       status: "completed" as const,
+      engine: context.engine,
+      completionSignal: "post-response-sql-row-count" as const,
+      measuredWindow:
+        "POST request duration; V2 ImportCsvCommand writes records before responding, then SQL row count is asserted after the response",
       pollCount: 0,
       durationMs: 0,
       expectedRowCount: config.rowCount,
-      rowCountAtCompletion: await readImportedRowCount(baseId, { dbTableName }),
+      rowCountAtCompletion,
     };
   }
 
@@ -583,6 +608,11 @@ const waitForCsvImportCompletion = async (
     if (latestStatus.status === "completed") {
       return {
         ...latestStatus,
+        engine: context.engine,
+        completionSignal: "import-status-completed" as const,
+        measuredWindow:
+          "POST request duration plus GET /api/import/status polling until completed",
+        pollIntervalMs,
         pollCount,
         durationMs: roundMetric(Date.now() - startedAt),
         expectedRowCount: config.rowCount,
@@ -1046,6 +1076,17 @@ const importAndVerifyCsv = async (
 
   return {
     importRequestMs: importMeasurement.durationMs,
+    importCompletion: {
+      status: "completed",
+      engine: context.engine,
+      completionSignal: "verify-ready-sql-row-count-plus-samples",
+      measuredWindow:
+        "PATCH request duration plus SQL row-count readiness and configured sample-row verification",
+      pollCount: 0,
+      durationMs: verifyMeasurement.durationMs,
+      expectedRowCount: config.rowCount,
+      rowCountAtCompletion: verifyMeasurement.result.rowCount,
+    },
     importStatus: importMeasurement.result.status,
     responseHeaders,
     verifiedRows: verifyMeasurement.result,

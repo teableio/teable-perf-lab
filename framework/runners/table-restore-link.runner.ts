@@ -117,6 +117,7 @@ export const runTableRestoreLinkCase = async (
             sample.fixture,
             requestMeasurement,
             "restoreTable",
+            context,
             trashLookup,
           ),
         );
