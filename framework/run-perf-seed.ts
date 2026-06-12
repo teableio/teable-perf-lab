@@ -3,6 +3,7 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { seedCsvImportCase } from "./runners/csv-import.runner";
+import { seedDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { seedDuplicateTableCase } from "./runners/duplicate-table.runner";
 import { seedFieldConvertCase } from "./runners/field-convert.runner";
 import { seedFieldCreateCase } from "./runners/field-create.runner";
@@ -16,6 +17,8 @@ import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
+import { seedTableDeleteCase } from "./runners/table-delete.runner";
+import { seedTableRestoreCase } from "./runners/table-restore.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
 
@@ -40,6 +43,12 @@ const seedCaseByKind = async (
       return seedFieldDuplicateCase(perfCase, context);
     case "duplicate-table":
       return seedDuplicateTableCase(perfCase, context);
+    case "duplicate-base":
+      return seedDuplicateBaseCase(perfCase, context);
+    case "table-delete":
+      return seedTableDeleteCase(perfCase, context);
+    case "table-restore":
+      return seedTableRestoreCase(perfCase, context);
     case "csv-import":
       return seedCsvImportCase(perfCase, context);
     case "record-delete":
@@ -58,6 +67,7 @@ const seedCaseByKind = async (
       return seedRecordReadCase(perfCase, context);
     case "http-endpoint":
     case "record-paste":
+    case "table-create":
       return {
         result: "skipped",
         metrics: {},

@@ -14,6 +14,10 @@ import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
+import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
+import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
+import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
+import tableRestore10k20FCase from "./cases/table-restore/10k-20f.case";
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
@@ -47,6 +51,10 @@ const cases = [
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
+  duplicateBase10k3TablesLink2WorkflowCase,
+  tableCreate10x20FNoRecordsCase,
+  tableDelete10k20FCase,
+  tableRestore10k20FCase,
   csvImportMixed1k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
@@ -104,6 +112,14 @@ const caseAliases = new Map([
   ["duplicate-table/mixed", "duplicate-table/10k-20f"],
   ["duplicate-table/10k-20fields", "duplicate-table/10k-20f"],
   ["duplicate-table/complex", "duplicate-table/10k-25f-5formula"],
+  ["duplicate-base", "duplicate-base/10k-3tables-link-2workflow"],
+  ["duplicate-base/3tables", "duplicate-base/10k-3tables-link-2workflow"],
+  ["table-create", "table-create/10x-20f-no-records"],
+  ["table-create/10x", "table-create/10x-20f-no-records"],
+  ["table-delete", "table-delete/10k-20f"],
+  ["table-delete/10k", "table-delete/10k-20f"],
+  ["table-restore", "table-restore/10k-20f"],
+  ["table-restore/10k", "table-restore/10k-20f"],
   ["csv-import", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k-20fields", "csv-import/mixed-10k-20fields-inplace-import"],

@@ -159,6 +159,15 @@ workload.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
   complex mixed table with 25 stored fields, 5 formula fields, and records
   included.
+- `duplicate-base/10k-3tables-link-2workflow`: Measure duplicating a base that
+  contains a 10,000-record mixed 20-field main table, a 1,000-record table linked
+  to it, a 100-record small table, and 2 workflows, with records included.
+- `table-create/10x-20f-no-records`: Measure creating 10 tables, each with 20
+  mixed fields and no records, sequentially inside one timed window.
+- `table-delete/10k-20f`: Measure repeated archive-to-trash requests for 10
+  independent 10,000-record mixed 20-field tables in one run.
+- `table-restore/10k-20f`: Measure repeated restore requests for 10 independent
+  10,000-record mixed 20-field tables from the base trash in one run.
 - `csv-import/mixed-1k-20fields-create-table-import`: Measure CSV import that
   creates a new table through `POST /api/import/{baseId}`. This covers the
   product path where a user uploads a CSV file and imports it as a new table. V1

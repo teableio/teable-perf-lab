@@ -3,6 +3,7 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
+import { runDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { runDuplicateTableCase } from "./runners/duplicate-table.runner";
 import { runFieldConvertCase } from "./runners/field-convert.runner";
 import { runFieldCreateCase } from "./runners/field-create.runner";
@@ -20,6 +21,9 @@ import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
 import { runRecordUpdateCase } from "./runners/record-update.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
+import { runTableCreateCase } from "./runners/table-create.runner";
+import { runTableDeleteCase } from "./runners/table-delete.runner";
+import { runTableRestoreCase } from "./runners/table-restore.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
@@ -52,6 +56,14 @@ const runCaseByKind = async (
       return runFieldDuplicateCase(perfCase, context);
     case "duplicate-table":
       return runDuplicateTableCase(perfCase, context);
+    case "duplicate-base":
+      return runDuplicateBaseCase(perfCase, context);
+    case "table-create":
+      return runTableCreateCase(perfCase, context);
+    case "table-delete":
+      return runTableDeleteCase(perfCase, context);
+    case "table-restore":
+      return runTableRestoreCase(perfCase, context);
     case "csv-import":
       return runCsvImportCase(perfCase, context);
     case "record-paste":
