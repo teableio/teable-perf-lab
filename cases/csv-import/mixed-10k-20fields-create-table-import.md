@@ -56,7 +56,8 @@ not as the primary metric.
    the response/read path.
 5. Wait for import completion. V1 polls `GET /api/import/status/{tableId}` until
    `completed`; V2 treats the `POST` response as completion because the V2
-   command returns after records are written.
+   `ImportCsvCommand` parses the CSV and inserts the record stream inside the
+   awaited request path before returning.
 6. Record the table row count at the import completion point.
 7. Run SQL count verification and confirm the new table has 10,000 rows.
 8. Read configured sample rows and verify imported values.
@@ -70,8 +71,9 @@ not as the primary metric.
 For V1, the `POST` request creates the table and enqueues the import chunk job,
 so the runner polls `GET /api/import/status/{tableId}` until `completed`. For
 V2, the `POST` request returns after the `importCsv` command has written the
-records. In both paths, the runner records the table row count at that
-completion point.
+records. The runner asserts that assumption by reading the SQL row count once
+immediately after the V2 response and failing if it is not 10,000. In both
+paths, the runner records the table row count at that completion point.
 
 Readiness checks are still required, but they are reported as verification
 diagnostics instead of contributing to the primary threshold metric.
@@ -87,3 +89,18 @@ legacy V1 path from the V2 `importCsv` path. For this create-table case, V1 is a
 valid baseline run and V2 is treated as failed only if the same product
 operation does not route to the expected V2 `importCsv` feature or does not
 import the full 10,000 rows with the expected sample values.
+
+`details.import.completion` records the completion signal for the engine under
+test: V1 reports `import-status-completed` with the status-poll count and 1 s
+poll interval, while V2 reports `post-response-sql-row-count` with the asserted
+row count observed immediately after the awaited `POST` response.
+
+The V2 completion boundary is backed by the read-only `teable-ee` import path:
+`community/packages/v2/contract-http-implementation/src/handlers/tables/importCsv.ts:24`
+awaits `commandBus.execute<ImportCsvCommand, ImportCsvResult>(...)` before
+building the HTTP response, so the endpoint is not fire-and-forget. Inside the
+command handler,
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:283` awaits
+`tableRecordRepository.insertManyStream(...)` in the data transaction, then
+`community/packages/v2/core/src/commands/ImportCsvHandler.ts:339-349` completes
+the schema operation and publishes events only after insertion has finished.

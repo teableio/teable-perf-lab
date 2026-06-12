@@ -126,6 +126,7 @@ export const runTableRestoreCase = async (
             sample.fixture,
             requestMeasurement,
             "restoreTable",
+            context,
             trashLookup,
           ),
         );

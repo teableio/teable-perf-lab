@@ -18,6 +18,11 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
+import {
+  assertEngineRouting,
+  getRoutingResponseHeader,
+  type EngineRouting,
+} from "../routing";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -97,6 +102,7 @@ type DuplicateBasePrimaryResult = {
   duplicateBaseId: string;
   duplicateBaseName: string;
   responseHeaders: Record<string, string>;
+  routing: EngineRouting;
   verification: Awaited<ReturnType<typeof verifyDuplicatedBase>>;
 };
 
@@ -112,16 +118,14 @@ const chunk = <T>(items: T[], size: number) => {
   return chunks;
 };
 
-const getResponseHeader = (headers: Record<string, unknown>, name: string) => {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  return Array.isArray(value) ? String(value[0]) : String(value ?? "");
-};
-
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": getResponseHeader(headers, "x-teable-v2"),
-  "x-teable-v2-feature": getResponseHeader(headers, "x-teable-v2-feature"),
-  "x-teable-v2-reason": getResponseHeader(headers, "x-teable-v2-reason"),
-  traceparent: getResponseHeader(headers, "traceparent"),
+  "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
+  "x-teable-v2-feature": getRoutingResponseHeader(
+    headers,
+    "x-teable-v2-feature",
+  ),
+  "x-teable-v2-reason": getRoutingResponseHeader(headers, "x-teable-v2-reason"),
+  traceparent: getRoutingResponseHeader(headers, "traceparent"),
 });
 
 // The main table reuses the mixed 20-field deterministic generator from the
@@ -912,6 +916,7 @@ const verifyDuplicatedBase = async (
 };
 
 const duplicateBaseAndVerify = async (
+  context: PerfRunContext,
   spaceId: string,
   fixture: DuplicateBaseFixture,
   config: DuplicateBaseCaseConfig,
@@ -930,6 +935,13 @@ const duplicateBaseAndVerify = async (
       return response;
     },
   );
+  const responseHeaders = pickResponseHeaders(
+    duplicateMeasurement.result.headers,
+  );
+  const routing = assertEngineRouting(context, responseHeaders, {
+    feature: "duplicateBase",
+    operation: "duplicateBase",
+  });
 
   const duplicateBaseId = duplicateMeasurement.result.data.id;
   const verification = await verifyDuplicatedBase(
@@ -943,7 +955,8 @@ const duplicateBaseAndVerify = async (
     duplicateStatus: duplicateMeasurement.result.status,
     duplicateBaseId,
     duplicateBaseName: duplicateMeasurement.result.data.name,
-    responseHeaders: pickResponseHeaders(duplicateMeasurement.result.headers),
+    responseHeaders,
+    routing,
     verification,
   };
 };
@@ -965,17 +978,7 @@ const buildDuplicateBaseCaseResult = ({
 }): PerfRunResult => {
   const fixture = prepareMeasurement?.result;
   const primaryResult = primaryMeasurement?.result;
-  const routing = primaryResult
-    ? {
-        routeMatched:
-          primaryResult.responseHeaders["x-teable-v2-feature"] ===
-          "duplicateBase",
-        requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
-        actualV2Header: primaryResult.responseHeaders["x-teable-v2"],
-        feature: primaryResult.responseHeaders["x-teable-v2-feature"],
-        reason: primaryResult.responseHeaders["x-teable-v2-reason"],
-      }
-    : undefined;
+  const routing = primaryResult?.routing;
 
   return {
     metrics: {
@@ -1173,7 +1176,12 @@ export const runDuplicateBaseCase = async (
         config.threshold.metric,
         () =>
           measureAsync("duplicateBaseTotalReady", () =>
-            duplicateBaseAndVerify(spaceId, prepareMeasurement!.result, config),
+            duplicateBaseAndVerify(
+              context,
+              spaceId,
+              prepareMeasurement!.result,
+              config,
+            ),
           ),
       );
     } catch (error) {

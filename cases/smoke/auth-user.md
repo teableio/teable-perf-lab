@@ -33,12 +33,18 @@ and measure basic request latency.
 
 ## Primary Metric
 
-- `p95Ms`: p95 latency of measured `GET /api/auth/user/me` calls.
+- `p95Ms`: historical p95 threshold key for measured
+  `GET /api/auth/user/me` calls. With the default 10 samples, the current
+  nearest-rank percentile math makes this gate effectively the slowest request
+  (max).
 
 Only the configured measured samples contribute to `p95Ms`. App startup,
 session initialization, the warmup request, and seeded-user validation setup are
 outside the sample set; each measured sample still verifies the HTTP 200
 response and seeded user id/email.
+
+The result also emits `minMs`, `p50Ms`, and `maxMs`; `maxMs` is expected to
+match `p95Ms` while the case keeps 10 samples.
 
 ## Notes
 

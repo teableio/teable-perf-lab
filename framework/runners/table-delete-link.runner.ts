@@ -164,6 +164,7 @@ export const runTableDeleteLinkCase = async (
             sample.fixture,
             requestMeasurement,
             "deleteTable",
+            context,
             trashLookup,
           ),
         );

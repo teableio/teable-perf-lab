@@ -46,7 +46,8 @@ Seed validation: paged full row-count scan plus link-cell samples (offsets
 1. Setup per sample (not measured, `deleteSetup-*`): archive the main table,
    confirm it left the base table list, resolve its `trashId`.
 2. Measured: 5 `POST /api/trash/restore/{trashId}` requests
-   (`restoreTable-sample-*` steps) with routing headers recorded.
+   (`restoreTable-sample-*` steps) with routing headers recorded. V1/V2 runs
+   fail if the response did not use the requested engine.
 3. Verify per sample: paged 10,000-row full scan, `Title` / `External ID`
    sample text values, and link-cell samples proving the link data survived
    the archive/restore round trip.
@@ -56,12 +57,16 @@ Seed validation: paged full row-count scan plus link-cell samples (offsets
 
 ## Primary Metric
 
-- `restoreTableP95Ms`: p95 latency of the 5 measured restore requests.
+- `restoreTableP95Ms`: historical p95 threshold key for the 5 measured restore
+  requests. With 5 samples, the current nearest-rank percentile math makes this
+  gate effectively the slowest request (max).
 
 ## Verification Metrics
 
 - `restoreTableMinMs` / `restoreTableP50Ms` / `restoreTableMaxMs` /
   `restoreTableTotalMs`: request distribution (diagnostic).
+  `restoreTableMaxMs` is expected to match `restoreTableP95Ms` while the case
+  keeps 5 samples.
 - `setupMs`: archive-to-trash setup duration across samples (diagnostic).
 - `verifyMs`: full scans + text samples + link-cell samples. Diagnostic only.
 

@@ -12,6 +12,11 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -71,6 +76,15 @@ type SampleVerification = {
     actual: Record<string, unknown>;
     expected: Record<string, unknown>;
   }>;
+};
+
+type RecordUpdatePrimaryResult = {
+  updateRequestMs: number;
+  update: Awaited<ReturnType<typeof updateAllRecords>> & {
+    routing: EngineRouting;
+  };
+  verified?: SampleVerification;
+  verifyUpdatedMs?: number;
 };
 
 const RECORD_UPDATE_FIXTURE_VERSION = "record-update-v1";
@@ -562,12 +576,7 @@ const getUpdatedRecordIds = (
   return [];
 };
 
-const pickResponseHeaders = (headers: Record<string, unknown>) => ({
-  "x-teable-v2": String(headers["x-teable-v2"] ?? ""),
-  "x-teable-v2-feature": String(headers["x-teable-v2-feature"] ?? ""),
-  "x-teable-v2-reason": String(headers["x-teable-v2-reason"] ?? ""),
-  traceparent: String(headers.traceparent ?? ""),
-});
+const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const updateAllRecords = async (
   fixture: RecordUpdateFixture,
@@ -604,20 +613,15 @@ const updateAllRecords = async (
   };
 };
 
-const updateAndVerify = async (
+const verifyUpdatedRecords = async (
   fixture: RecordUpdateFixture,
   config: RecordUpdateCaseConfig,
 ) => {
-  const updateMeasurement = await measureAsync("updateRequest", () =>
-    updateAllRecords(fixture, config, "updated"),
-  );
   const verifyMeasurement = await measureAsync("verifyUpdated", () =>
     assertSampleRecordsState(fixture, config, "updated"),
   );
 
   return {
-    updateRequestMs: updateMeasurement.durationMs,
-    update: updateMeasurement.result,
     verified: verifyMeasurement.result,
     verifyUpdatedMs: verifyMeasurement.durationMs,
   };
@@ -637,7 +641,7 @@ const buildRecordUpdateResult = ({
   windowId?: string;
   prepareMeasurement?: Measurement<RecordUpdateFixture>;
   seedReadyMeasurement?: Measurement<SampleVerification>;
-  primaryMeasurement?: Measurement<Awaited<ReturnType<typeof updateAndVerify>>>;
+  primaryMeasurement?: Measurement<RecordUpdatePrimaryResult>;
   error?: unknown;
 }): PerfRunResult => ({
   metrics: {
@@ -660,8 +664,10 @@ const buildRecordUpdateResult = ({
     ...(primaryMeasurement
       ? {
           [config.threshold.metric]: primaryMeasurement.durationMs,
-          updateRequestMs: primaryMeasurement.result.updateRequestMs,
-          verifyUpdatedMs: primaryMeasurement.result.verifyUpdatedMs,
+          updateRequestMs: primaryMeasurement.durationMs,
+          ...(primaryMeasurement.result.verifyUpdatedMs != null
+            ? { verifyUpdatedMs: primaryMeasurement.result.verifyUpdatedMs }
+            : {}),
         }
       : {}),
   },
@@ -746,12 +752,13 @@ const buildRecordUpdateResult = ({
         }
       : undefined,
     update: primaryMeasurement?.result.update,
+    routing: primaryMeasurement?.result.update.routing,
     sampleVerification: primaryMeasurement?.result.verified
       ? {
           checkedRecords: primaryMeasurement.result.verified.checkedRecords,
         }
       : undefined,
-    verifiedSamples: primaryMeasurement?.result.verified.verifiedSamples,
+    verifiedSamples: primaryMeasurement?.result.verified?.verifiedSamples,
     error:
       error instanceof Error
         ? {
@@ -782,21 +789,43 @@ export const runRecordUpdateCase = async (
     seedReadyMeasurement = await measureAsync("seedReady", () =>
       assertSampleRecordsState(fixture!, config, "seed"),
     );
-    let primaryMeasurement:
-      | Measurement<Awaited<ReturnType<typeof updateAndVerify>>>
-      | undefined;
+    let primaryMeasurement: Measurement<RecordUpdatePrimaryResult> | undefined;
 
     try {
       await withRecordWindowId(windowId, async () => {
-        primaryMeasurement = await withPerfTraceStep(
+        const updateMeasurement = await withPerfTraceStep(
           context,
           perfCase,
           config.threshold.metric,
           () =>
             measureAsync(config.threshold.metric, () =>
-              updateAndVerify(fixture!, config),
+              updateAllRecords(fixture!, config, "updated"),
             ),
         );
+        primaryMeasurement = {
+          ...updateMeasurement,
+          result: {
+            updateRequestMs: updateMeasurement.durationMs,
+            update: {
+              ...updateMeasurement.result,
+              routing: assertEngineRouting(
+                context,
+                updateMeasurement.result.responseHeaders,
+                {
+                  operation: "updateRecords",
+                },
+              ),
+            },
+          },
+        };
+        const verification = await verifyUpdatedRecords(fixture!, config);
+        primaryMeasurement = {
+          ...primaryMeasurement,
+          result: {
+            ...primaryMeasurement.result,
+            ...verification,
+          },
+        };
       });
     } catch (error) {
       throw new PerfRunDiagnosticError(

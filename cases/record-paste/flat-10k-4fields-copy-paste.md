@@ -48,12 +48,13 @@ cold-builds the seed table and deletes it after the run.
    - `ranges: [[0, 0], [0, 0]]`
    - `projection`: the four visible field IDs in grid order
    - `content`: the generated TSV clipboard content
-6. Stop the primary timer after the paste response returns.
-7. Verify the paste response range is `[[0, 0], [3, 9999]]`.
-8. Full scan all 10k records and verify deterministic row values, including
+6. Assert the paste response routing matches the requested V1/V2 engine.
+7. Stop the primary timer after the paste response returns.
+8. Verify the paste response range is `[[0, 0], [3, 9999]]`.
+9. Full scan all 10k records and verify deterministic row values, including
    first, middle, and last sample rows.
-9. Clean up the pasted records or execute table state. The current runner
-   deletes the temporary table as part of cleanup.
+10. Clean up the pasted records or execute table state. The current runner
+    deletes the temporary table as part of cleanup.
 
 ## Primary Metric
 

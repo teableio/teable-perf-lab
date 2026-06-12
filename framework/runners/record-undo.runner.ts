@@ -59,7 +59,7 @@ export const runRecordUndoCase = async (
           ...setupMeasurements,
           deleteSetupMeasurement: await measureAsync(
             buildRecordReplayPhaseName("deleteSetup", config.rowCount),
-            () => deleteAllRowsViaSelectionDelete(fixture),
+            () => deleteAllRowsViaSelectionDelete(fixture, context),
           ),
         };
         setupMeasurements = {
@@ -87,7 +87,7 @@ export const runRecordUndoCase = async (
       });
 
       verifyMeasurement = await measureAsync("verifyRestored", () =>
-        waitForRowsRestored(fixture, config),
+        waitForRowsRestored(fixture, config, { verifySamples: true }),
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(

@@ -40,7 +40,8 @@ field is converted to text), forcing a full reseed of
 
 1. Measured per sample (`deleteTableDetachLink-sample-*`):
    `DELETE /api/base/{baseId}/table/{foreignTableId}` with routing headers
-   recorded (`x-teable-v2-feature: deleteTable`).
+   recorded (`x-teable-v2-feature: deleteTable`), and V1/V2 runs fail if the
+   response did not use the requested engine.
 2. Verify per sample: the foreign table left the base table list, its trash
    item exists, the main table still serves all 10,000 rows, and the surviving
    link field's post-delete state is recorded (v1: `singleLineText`,
@@ -51,13 +52,17 @@ field is converted to text), forcing a full reseed of
 
 ## Primary Metric
 
-- `deleteTableDetachLinkP95Ms`: p95 latency of the 3 measured delete requests.
-  Expected: seconds on v1 (field conversion over 10k cells), tens of ms on v2.
+- `deleteTableDetachLinkP95Ms`: historical p95 threshold key for the 3 measured
+  delete requests. With 3 samples, the current nearest-rank percentile math
+  makes this gate effectively the slowest request (max). Expected: seconds on
+  v1 (field conversion over 10k cells), tens of ms on v2.
 
 ## Verification Metrics
 
 - `deleteTableMinMs` / `deleteTableP50Ms` / `deleteTableMaxMs` /
   `deleteTableTotalMs`: request distribution (diagnostic).
+  `deleteTableMaxMs` is expected to match `deleteTableDetachLinkP95Ms` while
+  the case keeps 3 samples.
 - `verifyMs`: table-list/trash checks plus the main-table full scan.
   Diagnostic only.
 

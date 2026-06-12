@@ -45,18 +45,21 @@ update record field values.
    - `records`: the original last 1,000 record ids, each with `fields: {}`
    - `order`: `{ viewId, anchorId: originalFirstRecordId, position: "before" }`
    - a stable per-run `X-Window-Id`
-3. Verify sampled view positions: rows 1, 500, and 1,000 are from the moved
+3. Stop the primary timer after the reorder PATCH response.
+4. Assert the reorder response routing matches the requested V1/V2 engine.
+5. Verify sampled view positions: rows 1, 500, and 1,000 are from the moved
    block, and row 1,001 is the original first row.
-4. Verify sampled mixed-field values by reading the sampled original rows at
+6. Verify sampled mixed-field values by reading the sampled original rows at
    their reordered view positions.
-5. Cleanup restores the cached seed table to its original order for local
+7. Cleanup restores the cached seed table to its original order for local
    single-database runs. Isolated execute databases can keep the mutated order
    because the job discards them.
 
 ## Primary Metric
 
-- `moveLast1kToFrontMs`: elapsed time for the reorder PATCH request plus sample
-  order verification.
+- `moveLast1kToFrontMs`: elapsed time for the reorder PATCH request only.
+
+Sample order and value verification is recorded separately as `verifyReorderMs`.
 
 ## Notes
 

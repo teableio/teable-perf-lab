@@ -70,5 +70,5 @@ including formula values.
   cases should cover cross-table copy behavior separately.
 - Source table creation and seed validation are setup phases and are not part of
   the primary metric.
-- The case records duplicate-table routing headers so V1/V2 dispatch can be
-  checked from the artifact.
+- The case records duplicate-table routing headers and fails V1/V2 runs on
+  engine mismatch, so dispatch can be checked from the artifact.
