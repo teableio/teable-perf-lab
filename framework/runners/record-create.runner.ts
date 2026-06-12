@@ -12,7 +12,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync } from "../metrics";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -73,7 +73,8 @@ type RecordCreatePrimaryResult = {
   createStatus: number;
   createdRecordIds: string[];
   responseHeaders: Record<string, string>;
-  verifiedRows: Awaited<ReturnType<typeof assertCreatedRowCount>>;
+  verifiedRows?: Awaited<ReturnType<typeof assertCreatedRowCount>>;
+  verifyRowCountMs?: number;
 };
 
 const RECORD_CREATE_FIXTURE_VERSION = "record-create-v2";
@@ -489,33 +490,35 @@ const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   traceparent: getResponseHeader(headers, "traceparent"),
 });
 
-const createAndVerifyRecords = async (
+const createRecordsForCase = async (
+  fixture: RecordCreateFixture,
+): Promise<Omit<RecordCreatePrimaryResult, "createRequestMs">> => {
+  const response = await createRecords(fixture.tableId, {
+    fieldKeyType: FieldKeyType.Name,
+    typecast: false,
+    records: fixture.records,
+  });
+  expect(response.status).toBe(201);
+
+  return {
+    createStatus: response.status,
+    createdRecordIds: response.data.records.map((record) => record.id),
+    responseHeaders: pickResponseHeaders(response.headers),
+  };
+};
+
+const verifyCreatedRecords = async (
   baseId: string,
   fixture: RecordCreateFixture,
   config: RecordCreateCaseConfig,
-): Promise<RecordCreatePrimaryResult> => {
-  const createMeasurement = await measureAsync("createRequest", async () => {
-    const response = await createRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Name,
-      typecast: false,
-      records: fixture.records,
-    });
-    expect(response.status).toBe(201);
-    return response;
-  });
-
+) => {
   const verifyMeasurement = await measureAsync("verifyRowCount", () =>
     assertCreatedRowCount(baseId, fixture, config),
   );
 
   return {
-    createRequestMs: createMeasurement.durationMs,
-    createStatus: createMeasurement.result.status,
-    createdRecordIds: createMeasurement.result.data.records.map(
-      (record) => record.id,
-    ),
-    responseHeaders: pickResponseHeaders(createMeasurement.result.headers),
     verifiedRows: verifyMeasurement.result,
+    verifyRowCountMs: verifyMeasurement.durationMs,
   };
 };
 
@@ -560,7 +563,10 @@ const buildRecordCreateCaseResult = ({
       ...(primaryMeasurement
         ? {
             bulkCreate1kMs: primaryMeasurement.durationMs,
-            createRequestMs: primaryResult?.createRequestMs ?? 0,
+            createRequestMs: primaryMeasurement.durationMs,
+            ...(primaryResult?.verifyRowCountMs != null
+              ? { verifyRowCountMs: primaryResult.verifyRowCountMs }
+              : {}),
           }
         : {}),
     },
@@ -647,13 +653,13 @@ const buildRecordCreateCaseResult = ({
           }
         : undefined,
       verification: primaryResult
-        ? {
-            method: "sql-count",
-            sqlRowCount: primaryResult.verifiedRows.sqlRowCount,
-            durationMs: roundMetric(
-              primaryMeasurement.durationMs - primaryResult.createRequestMs,
-            ),
-          }
+        ? primaryResult.verifiedRows
+          ? {
+              method: "sql-count",
+              sqlRowCount: primaryResult.verifiedRows.sqlRowCount,
+              durationMs: primaryResult.verifyRowCountMs,
+            }
+          : undefined
         : undefined,
       error:
         error instanceof Error
@@ -688,15 +694,35 @@ export const runRecordCreateCase = async (
     );
 
     try {
-      primaryMeasurement = await withPerfTraceStep(
+      const createMeasurement = await withPerfTraceStep(
         context,
         perfCase,
         config.threshold.metric,
         () =>
           measureAsync(config.threshold.metric, () =>
-            createAndVerifyRecords(baseId, prepareMeasurement.result, config),
+            createRecordsForCase(prepareMeasurement.result),
           ),
       );
+      primaryMeasurement = {
+        ...createMeasurement,
+        result: {
+          ...createMeasurement.result,
+          createRequestMs: createMeasurement.durationMs,
+        },
+      };
+      const verification = await verifyCreatedRecords(
+        baseId,
+        prepareMeasurement.result,
+        config,
+      );
+      primaryMeasurement = {
+        ...primaryMeasurement,
+        result: {
+          ...primaryMeasurement.result,
+          createRequestMs: primaryMeasurement.durationMs,
+          ...verification,
+        },
+      };
     } catch (error) {
       const diagnosticResult = buildRecordCreateCaseResult({
         config,
