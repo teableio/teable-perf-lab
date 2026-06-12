@@ -12,6 +12,7 @@ import fieldConvert10kMultiSelectToTextCase from "./cases/field-convert/10k-mult
 import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
+import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
@@ -50,6 +51,7 @@ const cases = [
   fieldCreateSingleSelect1kOptionsCase,
   fieldConvert10kMultiSelectToTextCase,
   fieldConvert10kTextToFormulaCase,
+  fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
@@ -107,6 +109,14 @@ const caseAliases = new Map([
   ["field-convert/text-to-formula", "field-convert/10k-text-to-formula"],
   ["convert/select-to-text", "field-convert/10k-multi-select-to-text"],
   ["convert/text-to-formula", "field-convert/10k-text-to-formula"],
+  [
+    "field-update",
+    "field-update/v2-only-10k-select-option-rename-computed-cascade",
+  ],
+  [
+    "field-update/select-rename",
+    "field-update/v2-only-10k-select-option-rename-computed-cascade",
+  ],
   ["field-delete", "field-delete/mixed-10k-delete-19-fields"],
   ["field-delete/19-fields", "field-delete/mixed-10k-delete-19-fields"],
   ["field-duplicate", "field-duplicate/conditional-lookup-10k"],

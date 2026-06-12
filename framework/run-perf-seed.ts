@@ -9,6 +9,7 @@ import { seedFieldConvertCase } from "./runners/field-convert.runner";
 import { seedFieldCreateCase } from "./runners/field-create.runner";
 import { seedFieldDeleteCase } from "./runners/field-delete.runner";
 import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
+import { seedFieldUpdateCase } from "./runners/field-update.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
@@ -39,6 +40,8 @@ const seedCaseByKind = async (
       return seedFieldCreateCase(perfCase, context);
     case "field-convert":
       return seedFieldConvertCase(perfCase, context);
+    case "field-update":
+      return seedFieldUpdateCase(perfCase, context);
     case "field-delete":
       return seedFieldDeleteCase(perfCase, context);
     case "field-duplicate":
