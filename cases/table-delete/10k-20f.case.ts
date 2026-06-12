@@ -16,7 +16,9 @@ export default definePerfCase({
     samples: 10,
     threshold: {
       metric: "deleteTableP95Ms",
-      maxMs: 30_000,
+      // Local v1/v2 runs measured p95 ~39ms; 2s still leaves ~50x headroom
+      // while catching order-of-magnitude regressions.
+      maxMs: 2_000,
     },
   },
 });

@@ -152,7 +152,8 @@ export const runTableDeleteCase = async (
         cleanup: {
           restoredSamples: cleanupSamples.filter(
             (sample) =>
-              sample.verifyMeasurement?.result.scannedRecords === 10000,
+              sample.verifyMeasurement?.result.scannedRecords ===
+              config.rowCount,
           ).length,
           fullScans: cleanupSamples.map((sample) => ({
             iteration: sample.iteration,
