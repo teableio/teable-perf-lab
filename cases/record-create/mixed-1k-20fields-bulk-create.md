@@ -51,18 +51,19 @@ non-isolated runs; isolated execute databases are left for job teardown.
    - `fieldKeyType: "id"`
    - `typecast: false`
    - `records`: 1,000 deterministic typed records
-3. Run SQL count verification and confirm the table has 1,000 rows.
-4. If the SQL count does not match 1,000 rows, fail the run.
-5. Cleanup removes the records created during execute when the seed table is
+3. Stop the primary timer after the create endpoint response.
+4. Run SQL count verification separately and confirm the table has 1,000 rows.
+5. If the SQL count does not match 1,000 rows, fail the run.
+6. Cleanup removes the records created during execute when the seed table is
    reusable in a non-isolated run; non-reusable temporary tables are deleted.
 
 ## Primary Metric
 
-- `bulkCreate1kMs`: elapsed time for the create endpoint request plus SQL count
-  verification.
+- `bulkCreate1kMs`: elapsed time for the create endpoint request only.
 
 Setup diagnostics such as table creation, field resolution, and payload
 construction are recorded separately and are not counted as the primary metric.
+SQL count verification is recorded separately as `verifyRowCountMs`.
 
 ## Notes
 
