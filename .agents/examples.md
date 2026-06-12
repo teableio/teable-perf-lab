@@ -66,6 +66,32 @@ values to become ready:
 Notice how these cases keep deterministic source rows in seed, create the
 computed field in execute, and verify readiness by scanning records.
 
+## Field Lifecycle
+
+Use these when the measured operation creates, converts, deletes, or
+duplicates fields on a seeded table:
+
+- Sequential external create-field requests (simple, formula, or mixed):
+  - `cases/field-create/10k-create-5-simple-fields.case.ts`
+  - `cases/field-create/10k-create-5-formula-fields.case.ts`
+  - `cases/field-create/mixed-10k-create-19-fields.case.ts`
+- One field with a very large option set:
+  - `cases/field-create/single-select-1k-options.case.ts`
+- Field type conversion that rewrites or recomputes every cell:
+  - `cases/field-convert/10k-multi-select-to-text.case.ts`
+  - `cases/field-convert/10k-text-to-formula.case.ts`
+- Bulk field delete in one request:
+  - `cases/field-delete/mixed-10k-delete-19-fields.case.ts`
+- Duplicate a computed field on an existing fixture:
+  - `cases/field-duplicate/conditional-lookup-10k.case.ts`
+
+Notice that create cases model real external behavior: the public OpenAPI only
+exposes single-field `POST /api/table/{tableId}/field`, so multi-field cases
+send sequential requests inside one measurement window instead of inventing a
+bulk API. Convert cases go through
+`PUT /table/{tableId}/field/{fieldId}/convert` (canary feature
+`convertField`) and verify every converted cell value.
+
 ## Selection Mutations
 
 Use these when the measured operation is a grid selection action:
@@ -116,3 +142,43 @@ Use this when the measured operation imports CSV rows into an existing table:
 
 Notice that CSV upload and analyze are setup diagnostics, while the primary
 metric starts at the import request and ends after records read verification.
+
+## Bulk Record Mutations (OpenAPI)
+
+Use these when the measured operation hits the record OpenAPI directly instead
+of grid selection, paste, or import:
+
+- Bulk create typed records in one request:
+  - `cases/record-create/mixed-1k-20fields-bulk-create.case.ts`
+- Bulk update existing records in one request:
+  - `cases/record-update/mixed-1k-20fields-bulk-update.case.ts`
+- Reorder a visible block of records in one operation:
+  - `cases/record-reorder/10k-move-last-1k-to-front.case.ts`
+
+Notice that these cases deliberately avoid grid paste, selection streams,
+computed fields, and undo/redo so V1 and V2 compare the same direct endpoint
+path.
+
+## Read Paths
+
+Use these when the measured operation reads data without mutating the seed:
+
+- Paged full-table record read with wide projection:
+  - `cases/record-read/10k-50fields-10x1k-pages.case.ts`
+- Global search with the table search index off vs on:
+  - `cases/search/search-index-off-10k-20search-fields.case.ts`
+  - `cases/search/search-index-on-10k-20search-fields.case.ts`
+
+Notice that the search OFF/ON cases share one deterministic seed fixture
+(source plus both host tables) so the pair reuses the same DB seed cache, and
+each case measures only its own mode.
+
+## Smoke
+
+Use this when the case needs no fixture and only times an HTTP endpoint:
+
+- Authenticated profile endpoint:
+  - `cases/smoke/auth-user.case.ts`
+
+Notice that it relies on the standard e2e seed user only — no tables, no
+seed cache participation.
