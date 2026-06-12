@@ -150,6 +150,12 @@ workload.
   complex conversion path that discards old cell values and recomputes the whole
   column (`PUT /table/{tableId}/field/{fieldId}/convert`, canary feature
   `convertField`).
+- `field-update/v2-only-10k-select-option-rename-computed-cascade`: Catch
+  regressions in the V2 field update path when renaming a populated single-select
+  option forces dependent computed fields to recalculate across a 10,000-row
+  table. V2-only diagnostic: legacy updateField cannot express select option
+  rename, so V1 returns a skipped artifact and the case never enters V1/V2
+  comparison.
 - `field-delete/mixed-10k-delete-19-fields`: Measure the bulk field delete path
   for removing 19 mixed-type fields from a 10,000-row table in one request.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional

@@ -8,6 +8,7 @@ export type PerfRunnerKind =
   | "lookup-search-index"
   | "field-create"
   | "field-convert"
+  | "field-update"
   | "field-delete"
   | "field-duplicate"
   | "duplicate-table"
@@ -41,6 +42,7 @@ export interface PerfCase {
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
     | FieldConvertCaseConfig
+    | FieldUpdateCaseConfig
     | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
     | DuplicateTableCaseConfig
@@ -300,6 +302,59 @@ export interface FieldConvertCaseConfig {
   };
   threshold: {
     metric: "convertSelectToTextReadyMs" | "convertTextToFormulaReadyMs";
+    maxMs: number;
+  };
+}
+
+// Expected-value kinds for the field-update computed cascade chain. The
+// runner derives each row's expected value locally from the row number and
+// the rename state, so the case config expression text must stay in sync
+// with the runner's expectation logic (same pattern as FormulaExpectedKind).
+export type FieldUpdateComputedExpectedKind =
+  | "statusTextMark"
+  | "statusScore"
+  | "statusScoreBucket";
+
+export interface FieldUpdateComputedFieldConfig {
+  name: string;
+  // Formula expression with {FieldName} placeholders compiled to field ids
+  // before the create request. May reference Status or earlier computed
+  // fields in the list (fields are created in list order).
+  expression: string;
+  expected: FieldUpdateComputedExpectedKind;
+}
+
+// V2-only diagnostic workload: rename a single select option (id preserved)
+// through the v2 UpdateFieldCommand path and wait for the dependent computed
+// fields to recompute. The legacy updateFieldRoSchema cannot express select
+// options, so the case skips on every engine except v2.
+export interface FieldUpdateCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  select: {
+    fieldName: string;
+    // Fixed option names; row N gets optionNames[(N - 1) % optionNames.length].
+    optionNames: string[];
+    rename: {
+      previous: string;
+      next: string;
+    };
+  };
+  computedFields: FieldUpdateComputedFieldConfig[];
+  generator: {
+    type: "select-option-cycle";
+    titlePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "updateSelectOptionRenameCascadeReadyMs";
     maxMs: number;
   };
 }

@@ -9,6 +9,7 @@ import { runFieldConvertCase } from "./runners/field-convert.runner";
 import { runFieldCreateCase } from "./runners/field-create.runner";
 import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
+import { runFieldUpdateCase } from "./runners/field-update.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
@@ -52,6 +53,8 @@ const runCaseByKind = async (
       return runFieldCreateCase(perfCase, context);
     case "field-convert":
       return runFieldConvertCase(perfCase, context);
+    case "field-update":
+      return runFieldUpdateCase(perfCase, context);
     case "field-delete":
       return runFieldDeleteCase(perfCase, context);
     case "field-duplicate":

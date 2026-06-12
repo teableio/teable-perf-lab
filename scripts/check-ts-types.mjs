@@ -25,10 +25,14 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const EXTERNAL_MODULES = [
   "@nestjs/common",
+  "@opentelemetry/api",
   "@teable/core",
   "@teable/db-main-prisma",
   "@teable/openapi",
+  "@teable/v2-contract-http-implementation/handlers",
+  "@teable/v2-core",
   "bcrypt",
+  "nestjs-cls",
   "pg",
 ];
 
@@ -49,6 +53,8 @@ const RELATIVE_MODULE_STUBS = [
   "test/utils/init-app",
   "src/tracing",
   "src/features/table/table-index.service",
+  "src/features/v2/v2-container.service",
+  "src/features/v2/v2-execution-context.factory",
 ];
 
 const collectTsFiles = async (dir) => {
