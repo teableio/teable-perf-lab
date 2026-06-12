@@ -11,6 +11,10 @@ export type PerfRunnerKind =
   | "field-delete"
   | "field-duplicate"
   | "duplicate-table"
+  | "duplicate-base"
+  | "table-create"
+  | "table-delete"
+  | "table-restore"
   | "csv-import"
   | "record-paste"
   | "record-read"
@@ -38,6 +42,10 @@ export interface PerfCase {
     | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
     | DuplicateTableCaseConfig
+    | DuplicateBaseCaseConfig
+    | TableCreateCaseConfig
+    | TableDeleteCaseConfig
+    | TableRestoreCaseConfig
     | CsvImportCaseConfig
     | RecordPasteCaseConfig
     | RecordReadCaseConfig
@@ -371,6 +379,68 @@ export interface DuplicateTableCaseConfig {
   };
 }
 
+export interface DuplicateBaseCaseConfig {
+  spaceId: "seed-space";
+  sourceBaseNamePrefix: string;
+  mainTable: {
+    name: string;
+    rowCount: number;
+    batchSize: number;
+    generator: {
+      titlePrefix: string;
+      payloadPrefix: string;
+      source?: string;
+    };
+  };
+  linkedTable: {
+    name: string;
+    rowCount: number;
+    batchSize: number;
+    keyPrefix: string;
+    // Maps linked row i to main row ((i - 1) * multiplier + offset) % mainRowCount + 1.
+    // multiplier must be coprime with mainTable.rowCount so link targets are unique.
+    permutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  smallTable: {
+    name: string;
+    rowCount: number;
+    valuePrefix: string;
+  };
+  workflows: {
+    count: number;
+    namePrefix: string;
+  };
+  duplicate: {
+    namePrefix: string;
+    withRecords: boolean;
+  };
+  verify: {
+    mainSampleRows: number[];
+    linkSampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "duplicateBaseRequestMs";
+    maxMs: number;
+  };
+}
+
+export interface TableCreateCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  tableCount: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  threshold: {
+    metric: "createTables10xTotalMs";
+    maxMs: number;
+  };
+}
+
 export interface RecordReadCaseConfig {
   baseId: "seed-base";
   sourceTableNamePrefix: string;
@@ -519,6 +589,20 @@ export interface FieldDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   };
   threshold: {
     metric: "delete19FieldsMs";
+    maxMs: number;
+  };
+}
+
+export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "deleteTableRequestMs";
+    maxMs: number;
+  };
+}
+
+export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "restoreTableRequestMs";
     maxMs: number;
   };
 }

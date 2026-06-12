@@ -240,7 +240,7 @@ const dateOnlyForRow = (rowNumber: number, offsetDays = 0) => {
   return date.toISOString().slice(0, 10);
 };
 
-const getExpectedCellValue = (
+export const getExpectedCellValue = (
   field: RecordUndoRedoBaseCaseConfig["fields"][number],
   rowNumber: number,
   config: RecordUndoRedoBaseCaseConfig,
@@ -299,7 +299,7 @@ const getExpectedCellValue = (
   }
 };
 
-const buildRecordFields = (
+export const buildRecordFields = (
   config: RecordUndoRedoBaseCaseConfig,
   rowNumber: number,
 ) =>
