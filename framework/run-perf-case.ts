@@ -13,6 +13,7 @@ import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
+import { runRecordReadCase } from "./runners/record-read.runner";
 import { runRecordRedoCase } from "./runners/record-redo.runner";
 import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
@@ -52,6 +53,8 @@ const runCaseByKind = async (
       return runCsvImportCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
+    case "record-read":
+      return runRecordReadCase(perfCase, context);
     case "record-create":
       return runRecordCreateCase(perfCase, context);
     case "record-update":

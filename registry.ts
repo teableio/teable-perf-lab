@@ -16,6 +16,7 @@ import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mi
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
+import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
@@ -47,6 +48,7 @@ const cases = [
   csvImportMixed10k20FieldsInplaceImportCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
+  recordRead10k50Fields10x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
   recordReorder10kMoveLast1kToFrontCase,
@@ -112,6 +114,10 @@ const caseAliases = new Map([
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["record-delete", "record-delete/delete-1k"],
   ["delete/1k", "record-delete/delete-1k"],
+  ["record-read", "record-read/10k-50fields-10x1k-pages"],
+  ["get-records", "record-read/10k-50fields-10x1k-pages"],
+  ["get-records/10k", "record-read/10k-50fields-10x1k-pages"],
+  ["read/10k-50fields", "record-read/10k-50fields-10x1k-pages"],
   ["record-create", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k-mixed-20fields", "record-create/mixed-1k-20fields-bulk-create"],
