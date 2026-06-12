@@ -154,6 +154,11 @@ workload.
   for removing 19 mixed-type fields from a 10,000-row table in one request.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
   lookup field from the `lookup/conditional-10k` workload.
+- `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
+  table with records included.
+- `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
+  complex mixed table with 25 stored fields, 5 formula fields, and records
+  included.
 - `csv-import/mixed-1k-20fields-create-table-import`: Measure CSV import that
   creates a new table through `POST /api/import/{baseId}`. This covers the
   product path where a user uploads a CSV file and imports it as a new table. V1
