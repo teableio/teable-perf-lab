@@ -50,7 +50,9 @@ must pass the same full projection scan before execute.
 ## Execute Phase
 
 1. Restore or build the 10k-row source and host seed tables.
-2. Verify the 50-field projection is readable across all 10,000 rows.
+2. Run a cheap boundary check that confirms the first row, last row, and empty
+   page after row 10,000 are readable. The full 50-field projection scan already
+   ran during seed preparation.
 3. Start the primary timer.
 4. Inside one measurement window, call `GET /api/table/{tableId}/record`
    sequentially ten times with:
@@ -74,6 +76,10 @@ post-response page verification are reported as diagnostics such as
 `seedBuildMs`, `computedReadyMs`, `seedReadyMs`, and `verifyReadPagesMs`; they
 are not included in the primary metric.
 
+`seedReadyMs` is a boundary-read diagnostic, not another full projection scan.
+The measured scan reads data that the server has just served during seed
+preparation, so this case is a warm-read benchmark by design.
+
 ## Verification
 
 - The seed full scan must read 10,000 rows and 50 projected fields.
@@ -93,4 +99,5 @@ lookup-column read-query path.
 
 Cleanup uses the B-class strategy: execute only reads the reusable seed fixture,
 so local cleanup keeps the cached source and host tables. On the next cache hit,
-the runner revalidates the 10,000-row, 50-field projection before measuring.
+the runner revalidates the 10,000-row, 50-field projection during preparation,
+then performs only the boundary-read diagnostic before measuring.
