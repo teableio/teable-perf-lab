@@ -51,3 +51,6 @@ so there is no reusable seed cache (the same class as the paste cases).
   server only generates 3 default records when the key is omitted).
 - If per-create latency turns out tiny in CI, raise the table count in a NEW
   case id before tightening thresholds; never change the workload of this id.
+- Data-scaling companion: `table-create/1x-20f-1k-records` carries 1,000
+  inline records in the create request, covering the record-dependent
+  share of createTable that this case deliberately excludes.

@@ -18,7 +18,9 @@ import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
 import { seedTableDeleteCase } from "./runners/table-delete.runner";
+import { seedTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { seedTableRestoreCase } from "./runners/table-restore.runner";
+import { seedTableRestoreLinkCase } from "./runners/table-restore-link.runner";
 import { writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
 
@@ -47,8 +49,12 @@ const seedCaseByKind = async (
       return seedDuplicateBaseCase(perfCase, context);
     case "table-delete":
       return seedTableDeleteCase(perfCase, context);
+    case "table-delete-link":
+      return seedTableDeleteLinkCase(perfCase, context);
     case "table-restore":
       return seedTableRestoreCase(perfCase, context);
+    case "table-restore-link":
+      return seedTableRestoreLinkCase(perfCase, context);
     case "csv-import":
       return seedCsvImportCase(perfCase, context);
     case "record-delete":

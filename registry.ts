@@ -16,8 +16,11 @@ import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
 import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
+import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-records.case";
 import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
+import tableDelete10k20FLinkDetachCase from "./cases/table-delete/10k-20f-link-detach.case";
 import tableRestore10k20FCase from "./cases/table-restore/10k-20f.case";
+import tableRestore10k20FLink1kCase from "./cases/table-restore/10k-20f-link-1k.case";
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
@@ -53,8 +56,11 @@ const cases = [
   duplicateTable10k25F5FormulaCase,
   duplicateBase10k3TablesLink2WorkflowCase,
   tableCreate10x20FNoRecordsCase,
+  tableCreate1x20F1kRecordsCase,
   tableDelete10k20FCase,
+  tableDelete10k20FLinkDetachCase,
   tableRestore10k20FCase,
+  tableRestore10k20FLink1kCase,
   csvImportMixed1k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
@@ -116,10 +122,16 @@ const caseAliases = new Map([
   ["duplicate-base/3tables", "duplicate-base/10k-3tables-link-2workflow"],
   ["table-create", "table-create/10x-20f-no-records"],
   ["table-create/10x", "table-create/10x-20f-no-records"],
+  ["table-create/1k-records", "table-create/1x-20f-1k-records"],
+  ["table-create/inline-records", "table-create/1x-20f-1k-records"],
   ["table-delete", "table-delete/10k-20f"],
   ["table-delete/10k", "table-delete/10k-20f"],
+  ["table-delete/link-detach", "table-delete/10k-20f-link-detach"],
+  ["table-delete/link", "table-delete/10k-20f-link-detach"],
   ["table-restore", "table-restore/10k-20f"],
   ["table-restore/10k", "table-restore/10k-20f"],
+  ["table-restore/link", "table-restore/10k-20f-link-1k"],
+  ["table-restore/10k-link", "table-restore/10k-20f-link-1k"],
   ["csv-import", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k", "csv-import/mixed-10k-20fields-inplace-import"],
   ["csv-import/10k-20fields", "csv-import/mixed-10k-20fields-inplace-import"],

@@ -164,10 +164,21 @@ workload.
   to it, a 100-record small table, and 2 workflows, with records included.
 - `table-create/10x-20f-no-records`: Measure creating 10 tables, each with 20
   mixed fields and no records, sequentially inside one timed window.
+- `table-create/1x-20f-1k-records`: The data-scaling variant of `createTable`:
+  create one mixed 20-field table whose `POST /api/base/{baseId}/table` request
+  body carries **1,000 inline records**, so the measured cost includes the record
+  insertion that the no-records variant deliberately excludes.
 - `table-delete/10k-20f`: Measure repeated archive-to-trash requests for 10
   independent 10,000-record mixed 20-field tables in one run.
+- `table-delete/10k-20f-link-detach`: The data-scaling path of `deleteTable`:
+  archive a small foreign table while a 10,000-record mixed 20-field table still
+  links to it.
 - `table-restore/10k-20f`: Measure repeated restore requests for 10 independent
   10,000-record mixed 20-field tables from the base trash in one run.
+- `table-restore/10k-20f-link-1k`: Data-scaling sentinel for `restoreTable`:
+  restore 5 independent 10,000-record mixed 20-field tables that each own a
+  **populated one-way link field** (10,000 link cells pointing at a 1,000-record
+  foreign table).
 - `csv-import/mixed-1k-20fields-create-table-import`: Measure CSV import that
   creates a new table through `POST /api/import/{baseId}`. This covers the
   product path where a user uploads a CSV file and imports it as a new table. V1

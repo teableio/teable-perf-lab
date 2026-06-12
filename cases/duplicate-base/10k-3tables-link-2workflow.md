@@ -77,3 +77,7 @@ measurement.
   the duplicated tables, which table duplication never exercises.
 - No lookup/rollup fields through the link yet; a computed-field-heavy base is
   a candidate follow-up case.
+- This case is inherently data-scaling already: the duplicate copies all
+  11,100 records of the source base, so the primary metric grows with
+  record volume by construction (unlike the metadata-only lifecycle
+  operations, which need dedicated link/inline-record variants).
