@@ -11,13 +11,16 @@ import { seedFieldDeleteCase } from "./runners/field-delete.runner";
 import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { seedFieldUpdateCase } from "./runners/field-update.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
+import { seedFormSubmitCase } from "./runners/form-submit.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
+import { seedRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
 import { seedRecordReadCase } from "./runners/record-read.runner";
 import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
+import { seedSelectionDuplicateCase } from "./runners/selection-duplicate.runner";
 import { seedTableDeleteCase } from "./runners/table-delete.runner";
 import { seedTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { seedTableRestoreCase } from "./runners/table-restore.runner";
@@ -60,16 +63,22 @@ const seedCaseByKind = async (
       return seedTableRestoreLinkCase(perfCase, context);
     case "csv-import":
       return seedCsvImportCase(perfCase, context);
+    case "form-submit":
+      return seedFormSubmitCase(perfCase, context);
     case "record-delete":
     case "record-undo":
     case "record-redo":
       return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
     case "record-update":
       return seedRecordUpdateCase(perfCase, context);
+    case "record-duplicate-single":
+      return seedRecordDuplicateSingleCase(perfCase, context);
     case "record-reorder":
       return seedRecordReorderCase(perfCase, context);
     case "selection-clear":
       return seedSelectionClearCase(perfCase, context);
+    case "selection-duplicate":
+      return seedSelectionDuplicateCase(perfCase, context);
     case "record-create":
       return seedRecordCreateCase(perfCase, context);
     case "record-read":

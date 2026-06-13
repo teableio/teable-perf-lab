@@ -25,7 +25,10 @@ import tableRestore10k20FLink1kCase from "./cases/table-restore/10k-20f-link-1k.
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
+import formSubmitSequential200Case from "./cases/form-submit/sequential-200.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
+import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
+import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
@@ -66,10 +69,13 @@ const cases = [
   csvImportMixed1k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
+  formSubmitSequential200Case,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
   recordRead10k50Fields10x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
+  recordDuplicateGridBlockDuplicate1kCase,
+  recordDuplicateSingleRecordSequential100Case,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
   recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
@@ -155,6 +161,8 @@ const caseAliases = new Map([
     "csv-import/10k-create-table",
     "csv-import/mixed-10k-20fields-create-table-import",
   ],
+  ["form-submit", "form-submit/sequential-200"],
+  ["form-submit/200", "form-submit/sequential-200"],
   ["selection-clear", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
@@ -167,6 +175,11 @@ const caseAliases = new Map([
   ["record-create", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k-mixed-20fields", "record-create/mixed-1k-20fields-bulk-create"],
+  ["record-duplicate", "record-duplicate/grid-block-duplicate-1k"],
+  ["record-duplicate/grid", "record-duplicate/grid-block-duplicate-1k"],
+  ["duplicate-record/grid", "record-duplicate/grid-block-duplicate-1k"],
+  ["record-duplicate/single", "record-duplicate/single-record-sequential-100"],
+  ["duplicate-record/single", "record-duplicate/single-record-sequential-100"],
   ["record-update", "record-update/mixed-1k-20fields-bulk-update"],
   ["update/1k", "record-update/mixed-1k-20fields-bulk-update"],
   ["update/1k-mixed-20fields", "record-update/mixed-1k-20fields-bulk-update"],

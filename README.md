@@ -198,6 +198,9 @@ workload.
   existing mixed 20-field table through `PATCH /api/import/{baseId}/{tableId}`.
   This covers the product path where a user uploads CSV data and appends it to a
   table whose field types already exist.
+- `form-submit/sequential-200`: Catch regressions in the public form-submission
+  path by submitting 200 records through a Form view one request at a time and
+  measuring per-submit p95 latency.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through
@@ -211,6 +214,13 @@ workload.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
+- `record-duplicate/grid-block-duplicate-1k`: Catch regressions in the grid
+  duplicate selected rows path by duplicating a block of 1,000 rows in a
+  10,000-row mixed table through
+  `GET /api/table/{tableId}/selection/duplicate-stream`.
+- `record-duplicate/single-record-sequential-100`: Catch regressions in the
+  single-record duplicate path by duplicating 100 distinct records one request at
+  a time through `POST /api/table/{tableId}/record/{recordId}/duplicate`.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.

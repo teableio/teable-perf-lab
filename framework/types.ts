@@ -19,6 +19,7 @@ export type PerfRunnerKind =
   | "table-restore"
   | "table-restore-link"
   | "csv-import"
+  | "form-submit"
   | "record-paste"
   | "record-read"
   | "record-create"
@@ -27,7 +28,9 @@ export type PerfRunnerKind =
   | "record-delete"
   | "record-undo"
   | "record-redo"
-  | "selection-clear";
+  | "selection-clear"
+  | "selection-duplicate"
+  | "record-duplicate-single";
 
 export interface PerfCase {
   id: string;
@@ -53,6 +56,7 @@ export interface PerfCase {
     | TableRestoreCaseConfig
     | TableRestoreLinkCaseConfig
     | CsvImportCaseConfig
+    | FormSubmitCaseConfig
     | RecordPasteCaseConfig
     | RecordReadCaseConfig
     | RecordCreateCaseConfig
@@ -61,7 +65,9 @@ export interface PerfCase {
     | RecordDeleteCaseConfig
     | RecordUndoCaseConfig
     | RecordRedoCaseConfig
-    | SelectionClearCaseConfig;
+    | SelectionClearCaseConfig
+    | SelectionDuplicateCaseConfig
+    | RecordDuplicateSingleCaseConfig;
 }
 
 export interface PerfRunContext {
@@ -400,6 +406,27 @@ export interface RecordPasteCaseConfig {
   };
 }
 
+export interface FormSubmitCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "mixed-form-submit";
+    titlePrefix: string;
+    payloadPrefix: string;
+    valuePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "formSubmitP95Ms";
+    maxMs: number;
+  };
+}
+
 export interface DuplicateTableCaseConfig {
   baseId: "seed-base";
   sourceTableNamePrefix: string;
@@ -626,6 +653,47 @@ export interface SelectionClearCaseConfig {
   };
   threshold: {
     metric: "clear1kMs";
+    maxMs: number;
+  };
+}
+
+export interface DuplicateRecordSeedBaseCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  generator: {
+    type: "flat-table-operation";
+    titlePrefix: string;
+    payloadPrefix: string;
+    groups?: string[];
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+}
+
+export interface SelectionDuplicateCaseConfig
+  extends DuplicateRecordSeedBaseCaseConfig {
+  duplicate: {
+    startRowOffset: number;
+    rowCount: number;
+  };
+  threshold: {
+    metric: "duplicateBlock1kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordDuplicateSingleCaseConfig
+  extends DuplicateRecordSeedBaseCaseConfig {
+  duplicate: {
+    sourceRowCount: number;
+  };
+  threshold: {
+    metric: "duplicateSingleP95Ms";
     maxMs: number;
   };
 }
