@@ -173,6 +173,15 @@ const pushTraceRef = (ref: PerfTraceRef) => {
   }
 };
 
+// `traceRefs` is a process-global accumulator and `PERF_LAB_TRACE_MAX_REFS` is a
+// per-case safety cap. The serial spec runs every case in one process, so without
+// resetting between cases the budget is consumed by the earliest cases and every
+// later case captures zero refs (empty Trace_URL). Call this at the start of each
+// case so each case+engine gets its own ref budget.
+export const resetPerfTraceRefs = () => {
+  traceRefs.length = 0;
+};
+
 export const recordPerfTraceRefFromHeaders = ({
   context,
   perfCase,
