@@ -22,7 +22,7 @@ import { seedTableDeleteCase } from "./runners/table-delete.runner";
 import { seedTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { seedTableRestoreCase } from "./runners/table-restore.runner";
 import { seedTableRestoreLinkCase } from "./runners/table-restore-link.runner";
-import { writeTraceArtifacts } from "./trace-collector";
+import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
 
 const seedCaseByKind = async (
@@ -129,6 +129,8 @@ export const seedPerfCase = async (
 ) => {
   const startedAt = new Date();
   const started = performance.now();
+  // Fresh per-case ref budget; see resetPerfTraceRefs in run-perf-case.ts.
+  resetPerfTraceRefs();
   const context: PerfRunContext = {
     ...appContext,
     runId: process.env.PERF_LAB_RUN_ID ?? `local-${Date.now()}`,
