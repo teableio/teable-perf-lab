@@ -27,7 +27,7 @@ import { runTableDeleteCase } from "./runners/table-delete.runner";
 import { runTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { runTableRestoreCase } from "./runners/table-restore.runner";
 import { runTableRestoreLinkCase } from "./runners/table-restore-link.runner";
-import { writeTraceArtifacts } from "./trace-collector";
+import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import { PerfRunDiagnosticError } from "./types";
 import type {
   MetricThreshold,
@@ -149,6 +149,10 @@ export const runPerfCase = async (
   const startedAt = new Date();
   const started = performance.now();
   let payloadWritten = false;
+  // Each case gets a fresh per-case ref budget (see resetPerfTraceRefs); the serial
+  // spec shares one process across all cases, so leftover refs would otherwise let
+  // the earliest cases exhaust PERF_LAB_TRACE_MAX_REFS and starve later ones.
+  resetPerfTraceRefs();
   const context: PerfRunContext = {
     ...appContext,
     runId: process.env.PERF_LAB_RUN_ID ?? `local-${Date.now()}`,
