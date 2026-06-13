@@ -11,9 +11,11 @@ import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { runFieldUpdateCase } from "./runners/field-update.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
+import { runFormSubmitCase } from "./runners/form-submit.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
+import { runRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
 import { runRecordReadCase } from "./runners/record-read.runner";
@@ -22,6 +24,7 @@ import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
 import { runRecordUpdateCase } from "./runners/record-update.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
+import { runSelectionDuplicateCase } from "./runners/selection-duplicate.runner";
 import { runTableCreateCase } from "./runners/table-create.runner";
 import { runTableDeleteCase } from "./runners/table-delete.runner";
 import { runTableDeleteLinkCase } from "./runners/table-delete-link.runner";
@@ -75,6 +78,8 @@ const runCaseByKind = async (
       return runTableRestoreLinkCase(perfCase, context);
     case "csv-import":
       return runCsvImportCase(perfCase, context);
+    case "form-submit":
+      return runFormSubmitCase(perfCase, context);
     case "record-paste":
       return runRecordPasteCase(perfCase, context);
     case "record-read":
@@ -87,12 +92,16 @@ const runCaseByKind = async (
       return runRecordReorderCase(perfCase, context);
     case "record-delete":
       return runRecordDeleteCase(perfCase, context);
+    case "record-duplicate-single":
+      return runRecordDuplicateSingleCase(perfCase, context);
     case "record-undo":
       return runRecordUndoCase(perfCase, context);
     case "record-redo":
       return runRecordRedoCase(perfCase, context);
     case "selection-clear":
       return runSelectionClearCase(perfCase, context);
+    case "selection-duplicate":
+      return runSelectionDuplicateCase(perfCase, context);
     default:
       throw new Error(`Unsupported perf runner: ${perfCase.runner}`);
   }
