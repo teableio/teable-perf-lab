@@ -19,6 +19,8 @@ needs them:
 - [skills/localrun/SKILL.md](skills/localrun/SKILL.md) — local `teable-ee`
   sandbox refresh, perf-lab injection, runtime smoke checks, GitHub Actions
   acceptance, and trace artifact diagnosis.
+- [artifact-content.md](artifact-content.md) — exact files and JSON shapes a run
+  produces, so you can query a result/manifest without unpacking it first.
 
 Case ids quoted anywhere in `.agents/` or `docs/` are illustrative examples
 and may lag behind renames. The authoritative list of runnable cases is

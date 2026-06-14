@@ -120,24 +120,47 @@ a skip.
 ## Artifacts
 
 The seed job uploads `teable-ee-e2e-perf-seed-<run>-<attempt>` and
-`teable-ee-e2e-perf-seed-db-<run>-<attempt>`. The execute jobs upload one
-artifact per engine:
+`teable-ee-e2e-perf-seed-db-<run>-<attempt>`. The execute jobs upload two
+artifacts per engine: a lightweight results artifact for normal checks and a
+full artifact for raw Jaeger trace debugging.
 
-- `teable-ee-e2e-perf-v1-<run>-<attempt>`
-- `teable-ee-e2e-perf-v2-<run>-<attempt>`
+Lightweight results artifacts (default for the report job and routine
+downloads):
 
-Each execute artifact contains:
+- `teable-ee-e2e-perf-results-v1-<run>-<attempt>`
+- `teable-ee-e2e-perf-results-v2-<run>-<attempt>`
+
+Each results artifact contains only the small files the report and Feishu
+scripts consume:
 
 - `<case-id>-<engine>.json`: raw samples/details, aggregate metrics,
   thresholds, and phases, including trace collection manifest details.
 - `summary-<case-id>-<engine>.md`: compact GitHub summary for that result.
 - `traces/<case-id>-<engine>/manifest.json`: trace refs captured from response
   headers and the list of Jaeger snapshots saved for the run.
-- `traces/<case-id>-<engine>/<step>-<trace-id>.json`: raw Jaeger trace snapshots
-  for selected requests.
 
-The report job downloads the execute artifacts, merges their JSON payloads, and
-upserts the result rows to Teable.
+Full artifacts (kept for deep debugging and to preserve old links):
+
+- `teable-ee-e2e-perf-v1-<run>-<attempt>`
+- `teable-ee-e2e-perf-v2-<run>-<attempt>`
+
+Each full artifact contains everything in the results artifact plus the heavy
+raw Jaeger snapshots:
+
+- `traces/<case-id>-<engine>/<step>-<trace-id>.json`: raw Jaeger trace snapshots
+  for selected requests. Download the full artifact only when you need to
+  inspect these raw snapshots; the results artifact is enough for metrics,
+  summaries, and manifest counts.
+
+The report job resolves the lightweight `teable-ee-e2e-perf-results-v*`
+artifacts by default and falls back to the full `teable-ee-e2e-perf-v*`
+artifacts when no results artifact exists for the run (for example, when
+re-running report on an older run). It downloads the resolved artifacts, merges
+their JSON payloads, and upserts the result rows to Teable.
+
+For the exact JSON field shapes of each file (payload, manifest, and raw
+snapshot) plus a "what to read for X" cheat sheet, see
+[../../.agents/artifact-content.md](../../.agents/artifact-content.md).
 
 ## Trace collection
 
@@ -166,10 +189,11 @@ streams can be distinguished even when they share the same HTTP endpoint.
 To verify observability after a run:
 
 1. Open the job summary and check the `Trace Artifact` table.
-2. Download the V1 or V2 execute artifact and inspect
-   `traces/**/manifest.json`.
-3. Confirm `savedTraceCount` is greater than zero and the saved JSON files have
-   Jaeger `data` entries.
+2. Download the V1 or V2 results artifact and inspect
+   `traces/**/manifest.json` for `savedTraceCount` and the saved-trace list.
+3. To confirm the saved snapshots themselves have Jaeger `data` entries,
+   download the full `teable-ee-e2e-perf-v*` artifact, which carries the raw
+   `traces/<case-id>-<engine>/<step>-<trace-id>.json` files.
 
 The Jaeger UI link is durable while the shared service and retention window keep
 the trace. The JSON artifact is also uploaded as durable run evidence.
