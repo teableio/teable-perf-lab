@@ -437,11 +437,7 @@ export const runSelectionDuplicateCase = async (
     });
   } finally {
     const fixture = prepareMeasurement?.result;
-    if (!fixture || isExecuteDbIsolated()) {
-      return;
-    }
-
-    if (fixture.reusableSeed) {
+    if (fixture && !isExecuteDbIsolated() && fixture.reusableSeed) {
       let restored = false;
       try {
         await cleanupDuplicatedRows(
@@ -468,7 +464,7 @@ export const runSelectionDuplicateCase = async (
           );
         }
       }
-    } else {
+    } else if (fixture && !isExecuteDbIsolated()) {
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
       } catch (error) {
