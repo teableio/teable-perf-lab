@@ -216,13 +216,18 @@ gh workflow run teable-ee-e2e-perf.yml \
   -f samples=10
 ```
 
-7. Download execute artifacts and inspect trace manifests:
+7. Download the lightweight `teable-ee-e2e-perf-results-v*` artifact (smaller and
+   faster; the report job resolves it by default) and inspect trace manifests:
 
 ```bash
 traces/<case-id-with-slashes-sanitized>-<engine>/manifest.json
 ```
 
-Report `traceRefCount / savedTraceCount / failedTraceCount` explicitly.
+Report `traceRefCount / savedTraceCount / failedTraceCount` explicitly. Only pull
+the full `teable-ee-e2e-perf-v*` artifact when you need the raw Jaeger snapshot
+JSON files under `traces/**/<step>-<trace-id>.json`. For the exact file list and
+JSON field shapes, see [../../artifact-content.md](../../artifact-content.md) so
+you can query a result without unpacking it to learn its structure first.
 
 ## Injection
 

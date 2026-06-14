@@ -537,6 +537,45 @@ jobs:
           path: perf-lab-artifacts/${{ matrix.engine }}
           if-no-files-found: warn
 
+      - name: Stage lightweight perf results
+        if: always()
+        run: |
+          set -euo pipefail
+
+          src="perf-lab-artifacts/${{ matrix.engine }}"
+          dest="perf-lab-results/${{ matrix.engine }}"
+
+          if [ ! -d "$src" ]; then
+            echo "No perf artifacts at $src; skipping lightweight staging."
+            exit 0
+          fi
+
+          mkdir -p "$dest"
+
+          # Top-level perf payload JSON files; raw trace snapshots live under traces/.
+          find "$src" -maxdepth 1 -type f -name '*.json' -exec cp {} "$dest/" \;
+
+          # Per-result summary markdown.
+          find "$src" -maxdepth 1 -type f -name 'summary-*.md' -exec cp {} "$dest/" \;
+
+          # Trace manifests only; skip the heavy raw Jaeger snapshot JSON files.
+          while IFS= read -r -d '' manifest; do
+            rel="${manifest#"$src/"}"
+            mkdir -p "$dest/$(dirname "$rel")"
+            cp "$manifest" "$dest/$rel"
+          done < <(find "$src" -type f -name 'manifest.json' -print0)
+
+          echo "Staged lightweight perf results:"
+          find "$dest" -type f | sort
+
+      - name: Upload lightweight perf results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teable-ee-e2e-perf-results-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-results/${{ matrix.engine }}
+          if-no-files-found: warn
+
       - name: Publish job summary
         if: always()
         run: |
@@ -590,17 +629,27 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Prefer the lightweight results artifacts (payload JSON, summaries, and
+          # trace manifests). Fall back to the full artifacts so report re-runs on
+          # older runs, or runs where lightweight staging produced nothing, still
+          # resolve. The full artifacts also carry the raw Jaeger trace snapshots.
           selected_attempt=""
           for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
-            pattern="teable-ee-e2e-perf-v*-${GITHUB_RUN_ID}-${attempt}"
-            count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-              --paginate \
-              --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^teable-ee-e2e-perf-v[12]-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
+            for prefix in teable-ee-e2e-perf-results-v teable-ee-e2e-perf-v; do
+              pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
+              count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                --paginate \
+                --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^${prefix}[12]-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
 
-            if [ "${count}" -gt 0 ]; then
-              selected_attempt="${attempt}"
-              echo "Using perf execute artifacts from run attempt ${attempt}."
-              echo "pattern=${pattern}" >> "$GITHUB_OUTPUT"
+              if [ "${count}" -gt 0 ]; then
+                selected_attempt="${attempt}"
+                echo "Using ${prefix%-v} artifacts from run attempt ${attempt}."
+                echo "pattern=${pattern}" >> "$GITHUB_OUTPUT"
+                break
+              fi
+            done
+
+            if [ -n "${selected_attempt}" ]; then
               break
             fi
           done

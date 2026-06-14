@@ -26,10 +26,15 @@ The performance monitor currently flags these trace warning shapes:
   - `framework/trace-collector.ts`
   - `framework/artifacts.ts`
   - `framework/run-perf-case.ts`
+- Artifact field/shape reference (read before unpacking a run):
+  [artifact-content.md](artifact-content.md).
 
 ## Diagnosis Path
 
 1. Inspect the latest artifact `traces/**/manifest.json` for the affected run.
+   The lightweight `teable-ee-e2e-perf-results-v*` artifact already carries these
+   manifests; only download the full `teable-ee-e2e-perf-v*` artifact when this
+   diagnosis needs the raw snapshot JSON files themselves.
 2. For `Failed_Trace_Count > 0`, read `savedTraces[]` entries with
    `status: "missing"` or `status: "error"`.
 3. Check `error`, `attempts`, `durationMs`, `stepId`, `traceId`, `sampled`, and
