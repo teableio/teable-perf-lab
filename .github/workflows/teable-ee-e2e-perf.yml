@@ -152,12 +152,12 @@ jobs:
 
     steps:
       - name: Checkout perf lab
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: perf-lab
 
       - name: Checkout teable-ee
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
           ref: ${{ inputs.teable_ee_ref }}
@@ -166,7 +166,7 @@ jobs:
 
       - name: Restore perf seed database cache
         id: seed-db-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
@@ -189,13 +189,13 @@ jobs:
 
       - name: Setup pnpm
         if: steps.seed-db-cache.outputs.cache-hit != 'true'
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 9.13.0
 
       - name: Setup Node.js
         if: steps.seed-db-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22.18.0
           cache: pnpm
@@ -337,14 +337,14 @@ jobs:
 
       - name: Save perf seed database cache
         if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed artifacts
         if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-seed-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-seed-artifacts
@@ -402,12 +402,12 @@ jobs:
 
     steps:
       - name: Checkout perf lab
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: perf-lab
 
       - name: Checkout teable-ee
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
           ref: ${{ inputs.teable_ee_ref }}
@@ -416,19 +416,19 @@ jobs:
 
       - name: Restore perf seed database cache
         id: seed-db-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           fail-on-cache-miss: true
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 9.13.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22.18.0
           cache: pnpm
@@ -531,7 +531,7 @@ jobs:
 
       - name: Upload perf artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-artifacts/${{ matrix.engine }}
@@ -570,7 +570,7 @@ jobs:
 
       - name: Upload lightweight perf results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-results-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-results/${{ matrix.engine }}
@@ -618,7 +618,7 @@ jobs:
 
     steps:
       - name: Checkout perf lab
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: perf-lab
 
@@ -660,7 +660,7 @@ jobs:
           fi
 
       - name: Download perf artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: ${{ steps.perf_artifacts.outputs.pattern }}
           path: perf-lab-artifacts
