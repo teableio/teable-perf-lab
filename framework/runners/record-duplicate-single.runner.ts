@@ -406,7 +406,7 @@ export const runRecordDuplicateSingleCase = async (
     );
 
     try {
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
+      primaryMeasurement = await measureAsync("duplicateSingleLoop", () =>
         duplicateSingleRecords(
           prepareMeasurement!.result,
           config,

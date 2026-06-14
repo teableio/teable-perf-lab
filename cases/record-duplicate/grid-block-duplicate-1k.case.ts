@@ -99,7 +99,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "duplicateBlock1kMs",
-      maxMs: 120_000,
+      // Guardrail assumption: v1's legacy per-row stream is ~100x slower than
+      // v2 (CI: v1 ~84s vs v2 ~0.8s). Keep ~2.8x headroom over the observed v1
+      // worst case so CI load variance can't false-fail; tighten with history.
+      maxMs: 240_000,
     },
   },
 });
