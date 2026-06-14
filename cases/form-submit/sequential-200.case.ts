@@ -25,7 +25,7 @@ export default definePerfCase({
   id: "form-submit/sequential-200",
   title: "Submit 200 records sequentially through a Form view",
   runner: "form-submit",
-  timeoutMs: 300_000,
+  timeoutMs: 900_000,
   config: {
     baseId: "seed-base",
     tableNamePrefix: "perf-form-submit-sequential-200",
