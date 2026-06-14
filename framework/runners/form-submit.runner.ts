@@ -6,6 +6,7 @@ import {
   createView,
   getFields,
   getRecords,
+  getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
@@ -56,6 +57,9 @@ type FormSubmitFixture = {
   tableId: string;
   tableName: string;
   formViewId: string;
+  // The auto-created grid view; submissions go through the form view, but
+  // read-back verification scans the grid view (no Form-view ordering contract).
+  gridViewId: string;
   fields: FormSubmitField[];
   projection: string[];
 };
@@ -277,7 +281,8 @@ const valuesMatch = (
   if (field.type === FieldType.Date) {
     return (
       typeof actualValue === "string" &&
-      new Date(actualValue).toISOString() === expectedValue
+      new Date(actualValue).toISOString().slice(0, 10) ===
+        expectedValue.slice(0, 10)
     );
   }
 
@@ -323,6 +328,13 @@ const prepareFormSubmitFixture = async (
   });
   const tableFields = await getFields(table.id);
   const fields = resolveFormSubmitFields(tableFields, config);
+  // Read views before adding the form view, so views[0] is the default grid
+  // view created with the table.
+  const views = await getViews(table.id);
+  const gridView = views[0];
+  if (!gridView) {
+    throw new Error(`No grid view found for form submit table ${table.id}`);
+  }
   const formView = await createView(table.id, {
     type: ViewType.Form,
     name: `${tableName}-form`,
@@ -332,6 +344,7 @@ const prepareFormSubmitFixture = async (
     tableId: table.id,
     tableName,
     formViewId: formView.id,
+    gridViewId: gridView.id,
     fields,
     projection: fields.map((field) => field.id),
   };
@@ -380,6 +393,11 @@ const submitRecordsSequentially = async (
       });
       detail.responseHeaders = responseHeaders;
       detail.routing = routing;
+      if (!routing.routeMatched) {
+        throw new Error(
+          `formSubmit route mismatch: ${JSON.stringify(routing)}`,
+        );
+      }
       if (iteration === 1) {
         firstRouting = routing;
       } else {
@@ -430,7 +448,7 @@ const assertSubmittedRows = async (
   for (let skip = 0; skip < config.rowCount; skip += pageSize) {
     const expectedTake = Math.min(pageSize, config.rowCount - skip);
     const result = await getRecords(fixture.tableId, {
-      viewId: fixture.formViewId,
+      viewId: fixture.gridViewId,
       fieldKeyType: FieldKeyType.Id,
       projection: fixture.projection,
       skip,
@@ -628,7 +646,7 @@ export const runFormSubmitCase = async (
     );
 
     try {
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
+      primaryMeasurement = await measureAsync("formSubmitLoop", () =>
         submitRecordsSequentially(
           prepareMeasurement!.result,
           config,

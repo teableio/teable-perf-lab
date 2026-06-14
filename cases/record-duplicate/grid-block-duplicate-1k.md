@@ -75,6 +75,8 @@ post-duplicate value verification, row-count scan, or local cleanup.
 
 ## Notes
 
-The initial 120,000 ms threshold is a wide guardrail for a stream that reads and
-inserts 1,000 mixed rows. It should be tightened after real CI history is
-available.
+The 240,000 ms threshold is a wide guardrail for a stream that reads and inserts
+1,000 mixed rows. The v1 legacy per-row stream is ~100x slower than v2 (CI:
+v1 ~84s vs v2 ~0.8s), so the guardrail keeps ~2.8x headroom over the observed v1
+worst case to avoid CI load false-fails. It should be tightened after more real
+CI history is available.

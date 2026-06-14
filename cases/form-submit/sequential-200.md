@@ -42,9 +42,10 @@ through a Form view one request at a time and measuring per-submit p95 latency.
    `POST /api/table/{tableId}/record/form-submit`.
 3. Send `{ viewId, fields, typecast: true }`, using field IDs in `fields`.
 4. Assert the first and last response route through the requested engine with
-   canary feature `formSubmit`.
+   canary feature `formSubmit`; `routeMatched` (engine **and** feature) must
+   hold or the case fails.
 5. Verify each response carries the submitted deterministic values.
-6. Full scan the Form view with `getRecords` and assert all 200 stored records
+6. Full scan the grid view with `getRecords` and assert all 200 stored records
    match the generator.
 7. Cleanup permanently deletes the temporary table on non-isolated local runs.
 
