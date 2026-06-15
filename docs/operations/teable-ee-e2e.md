@@ -99,10 +99,11 @@ then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
 hash-derived seed tables or build missing/stale fixtures. A successful seed job
 saves a new exact-key `pg_dump -Fc` snapshot.
 
-Execute jobs require the exact cache key, restore the dump into isolated V1/V2
-databases, and then run the measured cases. Runner-level `seedHash` names decide
-whether a table is valid for a specific case; stale tables in the dump are
-ignored unless the hash matches and `seedReady` validation passes.
+The seed job uploads the selected dump as a same-run artifact, and execute jobs
+download that artifact into isolated V1/V2 databases before running the measured
+cases. Runner-level `seedHash` names decide whether a table is valid for a
+specific case; stale tables in the dump are ignored unless the hash matches and
+`seedReady` validation passes.
 
 Formula, conditional lookup, CSV import, record delete, record undo, record
 redo, and selection clear cases currently use this cache. CSV import caches the

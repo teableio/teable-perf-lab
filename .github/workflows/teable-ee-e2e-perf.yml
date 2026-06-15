@@ -342,6 +342,14 @@ jobs:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
+      - name: Upload perf seed database dump
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-seed-cache/e2e_test_teable.dump
+          if-no-files-found: error
+
       - name: Upload perf seed artifacts
         if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v6
@@ -414,13 +422,11 @@ jobs:
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
-      - name: Restore perf seed database cache
-        id: seed-db-cache
-        uses: actions/cache/restore@v5
+      - name: Download perf seed database dump
+        uses: actions/download-artifact@v7
         with:
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
-          fail-on-cache-miss: true
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
