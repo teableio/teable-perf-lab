@@ -2,6 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
+import {
+  hasSavedTraceStepShape,
+  normalizeTraceStepShape,
+} from "./trace-classification";
 import type { PerfCase, PerfRunContext } from "./types";
 
 type HeaderBag = Record<string, unknown> & {
@@ -755,6 +759,17 @@ export const writeTraceArtifacts = async ({
     });
   };
 
+  const markCoveredFailedTraceSkipped = (
+    ref: PerfTraceRef,
+    result: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
+  ) => {
+    const stepShape = normalizeTraceStepShape(ref.stepId);
+    skippedTraceErrors.set(
+      ref.traceId,
+      `Selected trace was not saved because Jaeger fetch failed (${result.error}); saved another trace from step shape ${stepShape}`,
+    );
+  };
+
   const fallbackPattern = getTraceFallbackStepPattern(perfCase);
   const fallbackPatterns = parseTraceStepPatterns(fallbackPattern);
   const maxFallbackAttempts = getPositiveIntegerEnv(
@@ -816,15 +831,34 @@ export const writeTraceArtifacts = async ({
     fetchTraceRef,
   );
 
+  const failedFetchResults: Array<{
+    ref: PerfTraceRef;
+    result: Exclude<JaegerTraceFetchResult, { status: "saved" }>;
+  }> = [];
+
   for (const { ref, result } of fetchResults) {
     if (result.status === "saved") {
       await addSavedTrace(ref, result);
       continue;
     }
 
+    failedFetchResults.push({ ref, result });
+  }
+
+  for (const { ref, result } of failedFetchResults) {
+    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+      markCoveredFailedTraceSkipped(ref, result);
+      continue;
+    }
+
     const fallback = await fetchFallbackTrace(ref, result);
     if (fallback) {
       await addSavedTrace(fallback.ref, fallback.result);
+      continue;
+    }
+
+    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+      markCoveredFailedTraceSkipped(ref, result);
       continue;
     }
 

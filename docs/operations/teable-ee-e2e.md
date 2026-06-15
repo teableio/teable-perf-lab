@@ -190,11 +190,12 @@ sampled but cannot be fetched from Jaeger, cases may set
 sampled fallback refs before recording a failed fetch. Refs with an unsampled
 `traceparent` are kept in the manifest but skipped for Jaeger fetch because
 those traces are not expected to be stored. Sampled refs above the snapshot cap,
-outside a case's include pattern, or replaced by a saved fallback trace are also
-recorded as skipped so the manifest explains any intentional
-`traceRefCount > savedTraceCount` gap. Stream artifacts should also include the
-response routing headers, such as `x-teable-v2`, so V1 legacy streams and V2
-streams can be distinguished even when they share the same HTTP endpoint.
+outside a case's include pattern, replaced by a saved fallback trace, or covered
+by an already saved same-shape trace are also recorded as skipped so the manifest
+explains any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts
+should also include the response routing headers, such as `x-teable-v2`, so V1
+legacy streams and V2 streams can be distinguished even when they share the same
+HTTP endpoint.
 
 To verify observability after a run:
 

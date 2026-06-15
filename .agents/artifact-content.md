@@ -160,7 +160,9 @@ only if you are not already holding the payload.
 
 Count relationships (a healthy run): `savedTraceCount + failedTraceCount +
 skippedTraceCount` accounts for every fetched/skipped ref. `skipped` covers
-unsampled refs and sampled refs above `maxSnapshotCount`; each carries an
+unsampled refs, sampled refs above `maxSnapshotCount`, sampled refs outside a
+case include pattern, and repeated sampled refs whose Jaeger fetch failed after
+a same-shape trace already saved a raw snapshot. Each skipped entry carries an
 `error` string explaining why it was not fetched. `refs[]` lists every captured
 request; `savedTraces[]` lists the fetch outcome per selected trace.
 
