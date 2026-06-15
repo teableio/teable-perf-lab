@@ -6,6 +6,7 @@ import { seedCsvImportCase } from "./runners/csv-import.runner";
 import { seedDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { seedDuplicateTableCase } from "./runners/duplicate-table.runner";
 import { seedFieldConvertCase } from "./runners/field-convert.runner";
+import { seedFieldConvertLinkCase } from "./runners/field-convert-link.runner";
 import { seedFieldCreateCase } from "./runners/field-create.runner";
 import { seedFieldDeleteCase } from "./runners/field-delete.runner";
 import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
@@ -19,6 +20,8 @@ import { seedRecordReadCase } from "./runners/record-read.runner";
 import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
+import { seedRecordUpdateAttachmentCase } from "./runners/record-update-attachment.runner";
+import { seedRecordUpdateLinkCase } from "./runners/record-update-link.runner";
 import { seedSelectionClearCase } from "./runners/selection-clear.runner";
 import { seedSelectionDuplicateCase } from "./runners/selection-duplicate.runner";
 import { seedTableDeleteCase } from "./runners/table-delete.runner";
@@ -43,6 +46,8 @@ const seedCaseByKind = async (
       return seedFieldCreateCase(perfCase, context);
     case "field-convert":
       return seedFieldConvertCase(perfCase, context);
+    case "field-convert-link":
+      return seedFieldConvertLinkCase(perfCase, context);
     case "field-update":
       return seedFieldUpdateCase(perfCase, context);
     case "field-delete":
@@ -71,6 +76,10 @@ const seedCaseByKind = async (
       return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
     case "record-update":
       return seedRecordUpdateCase(perfCase, context);
+    case "record-update-attachment":
+      return seedRecordUpdateAttachmentCase(perfCase, context);
+    case "record-update-link":
+      return seedRecordUpdateLinkCase(perfCase, context);
     case "record-duplicate-single":
       return seedRecordDuplicateSingleCase(perfCase, context);
     case "record-reorder":

@@ -6,6 +6,7 @@ import { runCsvImportCase } from "./runners/csv-import.runner";
 import { runDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { runDuplicateTableCase } from "./runners/duplicate-table.runner";
 import { runFieldConvertCase } from "./runners/field-convert.runner";
+import { runFieldConvertLinkCase } from "./runners/field-convert-link.runner";
 import { runFieldCreateCase } from "./runners/field-create.runner";
 import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
@@ -23,6 +24,8 @@ import { runRecordRedoCase } from "./runners/record-redo.runner";
 import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
 import { runRecordUpdateCase } from "./runners/record-update.runner";
+import { runRecordUpdateAttachmentCase } from "./runners/record-update-attachment.runner";
+import { runRecordUpdateLinkCase } from "./runners/record-update-link.runner";
 import { runSelectionClearCase } from "./runners/selection-clear.runner";
 import { runSelectionDuplicateCase } from "./runners/selection-duplicate.runner";
 import { runTableCreateCase } from "./runners/table-create.runner";
@@ -56,6 +59,8 @@ const runCaseByKind = async (
       return runFieldCreateCase(perfCase, context);
     case "field-convert":
       return runFieldConvertCase(perfCase, context);
+    case "field-convert-link":
+      return runFieldConvertLinkCase(perfCase, context);
     case "field-update":
       return runFieldUpdateCase(perfCase, context);
     case "field-delete":
@@ -88,6 +93,10 @@ const runCaseByKind = async (
       return runRecordCreateCase(perfCase, context);
     case "record-update":
       return runRecordUpdateCase(perfCase, context);
+    case "record-update-attachment":
+      return runRecordUpdateAttachmentCase(perfCase, context);
+    case "record-update-link":
+      return runRecordUpdateLinkCase(perfCase, context);
     case "record-reorder":
       return runRecordReorderCase(perfCase, context);
     case "record-delete":
