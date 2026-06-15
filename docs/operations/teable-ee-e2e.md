@@ -184,14 +184,17 @@ have a short settle window. The workflow saves up to
 with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Cases that generate many
 same-shape request traces may set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` in their
 case runtime env to save representative raw snapshots instead of requiring every
-request trace to survive Jaeger ingestion. Refs with an unsampled `traceparent`
-are kept in the manifest but skipped for Jaeger fetch because those traces are
-not expected to be stored. Sampled refs above the snapshot cap, or outside a
-case's include pattern, are also recorded as skipped so the manifest explains
-any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts should
-also include the response routing headers, such as `x-teable-v2`, so V1 legacy
-streams and V2 streams can be distinguished even when they share the same HTTP
-endpoint.
+request trace to survive Jaeger ingestion. If a selected representative trace is
+sampled but cannot be fetched from Jaeger, cases may set
+`PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
+sampled fallback refs before recording a failed fetch. Refs with an unsampled
+`traceparent` are kept in the manifest but skipped for Jaeger fetch because
+those traces are not expected to be stored. Sampled refs above the snapshot cap,
+outside a case's include pattern, or replaced by a saved fallback trace are also
+recorded as skipped so the manifest explains any intentional
+`traceRefCount > savedTraceCount` gap. Stream artifacts should also include the
+response routing headers, such as `x-teable-v2`, so V1 legacy streams and V2
+streams can be distinguished even when they share the same HTTP endpoint.
 
 To verify observability after a run:
 
