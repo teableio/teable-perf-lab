@@ -12,13 +12,18 @@ proven wrong.
 
 The performance monitor should treat trace warnings with these shapes:
 
-- `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed.
+- `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed
+  and no same-shape saved snapshot or bounded fallback covered that selected
+  trace.
 - `Failed_Trace_Count = 0` and
   `Trace_Ref_Count > Saved_Trace_Count + skippedTraceCount` means trace refs were
   captured, but the manifest does not explain every unsaved raw trace snapshot.
 - `Trace_Ref_Count > Saved_Trace_Count` alone is not a defect when the manifest
   records the difference as `skippedTraceCount`. High-repeat cases can keep all
   trace refs while saving representative raw Jaeger snapshots.
+- Repeated sampled refs with a successful same-shape raw snapshot may be marked
+  `skipped` when a sibling trace 404s in Jaeger. If no same-shape trace saves,
+  the fetch must stay failed so the monitor still alerts.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
