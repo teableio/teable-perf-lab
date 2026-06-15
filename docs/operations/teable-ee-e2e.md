@@ -174,17 +174,24 @@ the endpoint URLs here.
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
 requests that use the perf SSE helper. It then polls Jaeger at
 `/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
-directory. Before polling, the runner asks the Teable OpenTelemetry SDK to flush
-pending spans, then waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter
-and Jaeger query path have a short settle window. The workflow saves up to
+directory. During each case, the runner can call the Teable OpenTelemetry SDK's
+force flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps
+large cases from holding all spans in the batch processor until the end. Before
+polling, the runner also asks the SDK to flush pending spans one final time, then
+waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path
+have a short settle window. The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Refs with an unsampled
-`traceparent` are kept in the manifest but skipped for Jaeger fetch because
-those traces are not expected to be stored. Sampled refs above the snapshot cap
-are also recorded as skipped so the manifest explains any intentional
-`traceRefCount > savedTraceCount` gap. Stream artifacts should also include the
-response routing headers, such as `x-teable-v2`, so V1 legacy streams and V2
-streams can be distinguished even when they share the same HTTP endpoint.
+with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Cases that generate many
+same-shape request traces may set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` in their
+case runtime env to save representative raw snapshots instead of requiring every
+request trace to survive Jaeger ingestion. Refs with an unsampled `traceparent`
+are kept in the manifest but skipped for Jaeger fetch because those traces are
+not expected to be stored. Sampled refs above the snapshot cap, or outside a
+case's include pattern, are also recorded as skipped so the manifest explains
+any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts should
+also include the response routing headers, such as `x-teable-v2`, so V1 legacy
+streams and V2 streams can be distinguished even when they share the same HTTP
+endpoint.
 
 To verify observability after a run:
 

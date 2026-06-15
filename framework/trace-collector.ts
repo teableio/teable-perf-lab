@@ -38,6 +38,10 @@ export interface PerfTraceArtifactSummary {
   skippedTraceCount: number;
   maxSnapshotCount: number;
   fetchConcurrency: number;
+  backgroundFlushIntervalMs?: number;
+  backgroundFlushCount?: number;
+  backgroundFlushErrorCount?: number;
+  backgroundFlushLastError?: string;
   flushDurationMs?: number;
   flushError?: string;
   artifactDir?: string;
@@ -91,10 +95,21 @@ let installed = false;
 let requestInterceptorId: number | undefined;
 let responseInterceptorId: number | undefined;
 let flushBeforeTraceFetch: (() => Promise<void> | void) | undefined;
+let backgroundFlushTimer: ReturnType<typeof setInterval> | undefined;
+let backgroundFlushInFlight: Promise<void> | undefined;
+let traceFlushChain: Promise<void> = Promise.resolve();
+let backgroundFlushCount = 0;
+let backgroundFlushErrorCount = 0;
+let backgroundFlushLastError: string | undefined;
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+
+const getNonNegativeIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,6 +121,74 @@ export const setPerfTraceFlush = (
   flush: (() => Promise<void> | void) | undefined,
 ) => {
   flushBeforeTraceFetch = flush;
+  ensurePerfTraceBackgroundFlush();
+};
+
+const getBackgroundFlushIntervalMs = () =>
+  getNonNegativeIntegerEnv("PERF_LAB_TRACE_BACKGROUND_FLUSH_MS", 0);
+
+const resetPerfTraceBackgroundFlushCounters = () => {
+  backgroundFlushCount = 0;
+  backgroundFlushErrorCount = 0;
+  backgroundFlushLastError = undefined;
+};
+
+const flushTraceProvider = async () => {
+  if (!flushBeforeTraceFetch) {
+    return;
+  }
+
+  const currentFlush = traceFlushChain
+    .then(() => flushBeforeTraceFetch?.())
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      throw error;
+    });
+  traceFlushChain = currentFlush.catch(() => undefined);
+
+  await currentFlush;
+};
+
+const runBackgroundFlush = async () => {
+  if (!flushBeforeTraceFetch || backgroundFlushInFlight) {
+    return;
+  }
+
+  backgroundFlushInFlight = flushTraceProvider();
+  try {
+    await backgroundFlushInFlight;
+    backgroundFlushCount += 1;
+  } catch (error) {
+    backgroundFlushErrorCount += 1;
+    backgroundFlushLastError =
+      error instanceof Error ? error.message : String(error);
+  } finally {
+    backgroundFlushInFlight = undefined;
+  }
+};
+
+const stopPerfTraceBackgroundFlush = () => {
+  if (backgroundFlushTimer) {
+    clearInterval(backgroundFlushTimer);
+  }
+  backgroundFlushTimer = undefined;
+};
+
+const ensurePerfTraceBackgroundFlush = () => {
+  stopPerfTraceBackgroundFlush();
+
+  const intervalMs = getBackgroundFlushIntervalMs();
+  if (!installed || !isTraceCollectionEnabled() || !flushBeforeTraceFetch) {
+    return;
+  }
+  if (intervalMs <= 0) {
+    return;
+  }
+
+  backgroundFlushTimer = setInterval(() => {
+    void runBackgroundFlush();
+  }, intervalMs);
+  backgroundFlushTimer.unref?.();
 };
 
 const getHeaderValue = (headers: unknown, headerName: string) => {
@@ -180,6 +263,7 @@ const pushTraceRef = (ref: PerfTraceRef) => {
 // case so each case+engine gets its own ref budget.
 export const resetPerfTraceRefs = () => {
   traceRefs.length = 0;
+  resetPerfTraceBackgroundFlushCounters();
 };
 
 export const recordPerfTraceRefFromHeaders = ({
@@ -280,6 +364,18 @@ const uniqueTraceRefsForRun = (perfCase: PerfCase, engine: string) =>
     (ref) => ref.caseId === perfCase.id && ref.engine === engine,
   );
 
+const parseTraceStepPatterns = (value: unknown) => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+    .map((pattern) => new RegExp(pattern));
+};
+
 const isPriorityTraceRef = (ref: PerfTraceRef) =>
   /create.*field|formula|lookup/i.test(ref.stepId) ||
   /\/field\//i.test(ref.url ?? "");
@@ -292,11 +388,20 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine).filter(
     (ref) => ref.sampled,
   );
-  const priorityRefs = uniqueRefs.filter(isPriorityTraceRef);
+  const includePatterns = parseTraceStepPatterns(
+    perfCase.runtimeEnv?.PERF_LAB_TRACE_INCLUDE_STEP_PATTERN,
+  );
+  const candidateRefs =
+    includePatterns.length > 0
+      ? uniqueRefs.filter((ref) =>
+          includePatterns.some((pattern) => pattern.test(ref.stepId)),
+        )
+      : uniqueRefs;
+  const priorityRefs = candidateRefs.filter(isPriorityTraceRef);
   const selected = [...priorityRefs];
   const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
 
-  for (const ref of uniqueRefs) {
+  for (const ref of candidateRefs) {
     if (selected.length >= maxSnapshots) {
       break;
     }
@@ -426,12 +531,16 @@ export const installPerfTraceCollector = () => {
 
     return response;
   });
+
+  ensurePerfTraceBackgroundFlush();
 };
 
 export const uninstallPerfTraceCollector = () => {
   if (!installed) {
     return;
   }
+
+  stopPerfTraceBackgroundFlush();
 
   if (requestInterceptorId != null) {
     axios.interceptors.request.eject(requestInterceptorId);
@@ -496,6 +605,10 @@ export const writeTraceArtifacts = async ({
     skippedTraceCount: 0,
     maxSnapshotCount,
     fetchConcurrency,
+    backgroundFlushIntervalMs: getBackgroundFlushIntervalMs(),
+    backgroundFlushCount,
+    backgroundFlushErrorCount,
+    backgroundFlushLastError,
     jaegerApiBaseUrl,
     refs: runRefs,
     savedTraces: [],
@@ -544,7 +657,7 @@ export const writeTraceArtifacts = async ({
   if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
     const flushStartedAt = Date.now();
     try {
-      await flushBeforeTraceFetch();
+      await flushTraceProvider();
       summary.flushDurationMs = Date.now() - flushStartedAt;
     } catch (error) {
       summary.flushDurationMs = Date.now() - flushStartedAt;
