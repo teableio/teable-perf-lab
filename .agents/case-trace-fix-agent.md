@@ -60,6 +60,10 @@ The performance monitor should treat trace warnings with these shapes:
    - High-repeat case only needs representative raw snapshots -> use
      `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
      `skippedTraceCount` explains the unsaved refs.
+   - One selected representative sampled ref is unstable in Jaeger -> use
+     `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` so another same-shape ref can save
+     the representative raw snapshot while the failed selection is skipped with
+     an explicit replacement reason.
    - Unsampled refs -> verify sampling expectation, not case failure.
    - Missing `withPerfTraceStep` around important case op -> wrap operation.
    - Runner generates noisy API refs -> narrow step scope or priority rules.
@@ -73,6 +77,8 @@ The performance monitor should treat trace warnings with these shapes:
 - Do not reduce trace refs only to make counts pass; keep refs useful for
   debugging the performance operation. If raw snapshots are intentionally
   narrowed to representative refs, record the rest as skipped.
+- If using fallback representative refs, keep the fallback scope same-shape and
+  bounded so real Jaeger outages still show as failed trace fetches.
 - Keep V1/V2 behavior comparable.
 - If changing trace collector defaults, explain blast radius.
 - Update the case `.md` when behavior or acceptance changes.
