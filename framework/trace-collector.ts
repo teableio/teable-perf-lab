@@ -376,6 +376,12 @@ const parseTraceStepPatterns = (value: unknown) => {
     .map((pattern) => new RegExp(pattern));
 };
 
+const getTraceIncludeStepPattern = (perfCase: PerfCase) =>
+  perfCase.runtimeEnv?.PERF_LAB_TRACE_INCLUDE_STEP_PATTERN;
+
+const matchesTraceIncludePattern = (patterns: RegExp[], ref: PerfTraceRef) =>
+  patterns.length === 0 || patterns.some((pattern) => pattern.test(ref.stepId));
+
 const isPriorityTraceRef = (ref: PerfTraceRef) =>
   /create.*field|formula|lookup/i.test(ref.stepId) ||
   /\/field\//i.test(ref.url ?? "");
@@ -389,14 +395,11 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
     (ref) => ref.sampled,
   );
   const includePatterns = parseTraceStepPatterns(
-    perfCase.runtimeEnv?.PERF_LAB_TRACE_INCLUDE_STEP_PATTERN,
+    getTraceIncludeStepPattern(perfCase),
   );
-  const candidateRefs =
-    includePatterns.length > 0
-      ? uniqueRefs.filter((ref) =>
-          includePatterns.some((pattern) => pattern.test(ref.stepId)),
-        )
-      : uniqueRefs;
+  const candidateRefs = uniqueRefs.filter((ref) =>
+    matchesTraceIncludePattern(includePatterns, ref),
+  );
   const priorityRefs = candidateRefs.filter(isPriorityTraceRef);
   const selected = [...priorityRefs];
   const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
@@ -639,16 +642,24 @@ export const writeTraceArtifacts = async ({
   }
 
   if (jaegerApiBaseUrl) {
+    const includePattern = getTraceIncludeStepPattern(perfCase);
+    const includePatterns = parseTraceStepPatterns(includePattern);
     for (const ref of runRefs.filter(
       (ref) => ref.sampled && !selectedTraceIds.has(ref.traceId),
     )) {
+      const skippedByIncludePattern = !matchesTraceIncludePattern(
+        includePatterns,
+        ref,
+      );
       summary.skippedTraceCount += 1;
       summary.savedTraces.push({
         traceId: ref.traceId,
         stepId: ref.stepId,
         path: "",
         status: "skipped",
-        error: `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`,
+        error: skippedByIncludePattern
+          ? `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`
+          : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`,
         sampled: ref.sampled,
       });
     }

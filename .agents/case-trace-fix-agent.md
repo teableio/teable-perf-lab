@@ -10,11 +10,15 @@ proven wrong.
 
 ## Trace Warning Types
 
-The performance monitor currently flags these trace warning shapes:
+The performance monitor should treat trace warnings with these shapes:
 
 - `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed.
-- `Failed_Trace_Count = 0` and `Trace_Ref_Count > Saved_Trace_Count` means trace
-  refs were captured, but fewer raw trace JSON files were saved.
+- `Failed_Trace_Count = 0` and
+  `Trace_Ref_Count > Saved_Trace_Count + skippedTraceCount` means trace refs were
+  captured, but the manifest does not explain every unsaved raw trace snapshot.
+- `Trace_Ref_Count > Saved_Trace_Count` alone is not a defect when the manifest
+  records the difference as `skippedTraceCount`. High-repeat cases can keep all
+  trace refs while saving representative raw Jaeger snapshots.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
@@ -44,11 +48,18 @@ The performance monitor currently flags these trace warning shapes:
    - `uniqueTraceCount`
    - `savedTraceCount`
    - `skippedTraceCount`
+   - `failedTraceCount`
    - selected refs from `selectTraceRefsToSave`
+     If `savedTraceCount + failedTraceCount + skippedTraceCount` covers
+     `traceRefCount`, this is an intentional representative-snapshot gap, not a
+     trace-capture failure.
 5. Decide root cause:
    - Jaeger late availability or short timeout -> tune trace fetch timing.
    - Too many captured refs but snapshot cap too low -> adjust
      `PERF_LAB_TRACE_MAX_SNAPSHOTS` or selection priority.
+   - High-repeat case only needs representative raw snapshots -> use
+     `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
+     `skippedTraceCount` explains the unsaved refs.
    - Unsampled refs -> verify sampling expectation, not case failure.
    - Missing `withPerfTraceStep` around important case op -> wrap operation.
    - Runner generates noisy API refs -> narrow step scope or priority rules.
@@ -56,9 +67,12 @@ The performance monitor currently flags these trace warning shapes:
 ## Fix Rules
 
 - Prefer deterministic case/runner changes.
-- Do not hide warnings by changing dashboard labels or filters.
+- Do not hide real failures by changing dashboard labels or filters. Dashboard
+  fixes are appropriate only when the field mapping or warning formula is proven
+  wrong.
 - Do not reduce trace refs only to make counts pass; keep refs useful for
-  debugging the performance operation.
+  debugging the performance operation. If raw snapshots are intentionally
+  narrowed to representative refs, record the rest as skipped.
 - Keep V1/V2 behavior comparable.
 - If changing trace collector defaults, explain blast radius.
 - Update the case `.md` when behavior or acceptance changes.
@@ -80,6 +94,5 @@ pnpm check:cases
 When possible, rerun affected cases for both engines and confirm:
 
 - `Failed_Trace_Count = 0`
-- `Saved_Trace_Count >= Trace_Ref_Count` or documented reason if snapshot cap
-  intentionally saves fewer than captured refs
+- Saved, failed, and skipped trace counts together cover `Trace_Ref_Count`.
 - Trace links open from the monitor
