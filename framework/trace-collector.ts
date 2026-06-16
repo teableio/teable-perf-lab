@@ -2,6 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
+import {
+  hasSavedTraceStepShape,
+  normalizeTraceStepShape,
+} from "./trace-classification";
 import type { PerfCase, PerfRunContext } from "./types";
 
 type HeaderBag = Record<string, unknown> & {
@@ -38,6 +42,10 @@ export interface PerfTraceArtifactSummary {
   skippedTraceCount: number;
   maxSnapshotCount: number;
   fetchConcurrency: number;
+  backgroundFlushIntervalMs?: number;
+  backgroundFlushCount?: number;
+  backgroundFlushErrorCount?: number;
+  backgroundFlushLastError?: string;
   flushDurationMs?: number;
   flushError?: string;
   artifactDir?: string;
@@ -91,10 +99,21 @@ let installed = false;
 let requestInterceptorId: number | undefined;
 let responseInterceptorId: number | undefined;
 let flushBeforeTraceFetch: (() => Promise<void> | void) | undefined;
+let backgroundFlushTimer: ReturnType<typeof setInterval> | undefined;
+let backgroundFlushInFlight: Promise<void> | undefined;
+let traceFlushChain: Promise<void> = Promise.resolve();
+let backgroundFlushCount = 0;
+let backgroundFlushErrorCount = 0;
+let backgroundFlushLastError: string | undefined;
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+
+const getNonNegativeIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,6 +125,74 @@ export const setPerfTraceFlush = (
   flush: (() => Promise<void> | void) | undefined,
 ) => {
   flushBeforeTraceFetch = flush;
+  ensurePerfTraceBackgroundFlush();
+};
+
+const getBackgroundFlushIntervalMs = () =>
+  getNonNegativeIntegerEnv("PERF_LAB_TRACE_BACKGROUND_FLUSH_MS", 0);
+
+const resetPerfTraceBackgroundFlushCounters = () => {
+  backgroundFlushCount = 0;
+  backgroundFlushErrorCount = 0;
+  backgroundFlushLastError = undefined;
+};
+
+const flushTraceProvider = async () => {
+  if (!flushBeforeTraceFetch) {
+    return;
+  }
+
+  const currentFlush = traceFlushChain
+    .then(() => flushBeforeTraceFetch?.())
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      throw error;
+    });
+  traceFlushChain = currentFlush.catch(() => undefined);
+
+  await currentFlush;
+};
+
+const runBackgroundFlush = async () => {
+  if (!flushBeforeTraceFetch || backgroundFlushInFlight) {
+    return;
+  }
+
+  backgroundFlushInFlight = flushTraceProvider();
+  try {
+    await backgroundFlushInFlight;
+    backgroundFlushCount += 1;
+  } catch (error) {
+    backgroundFlushErrorCount += 1;
+    backgroundFlushLastError =
+      error instanceof Error ? error.message : String(error);
+  } finally {
+    backgroundFlushInFlight = undefined;
+  }
+};
+
+const stopPerfTraceBackgroundFlush = () => {
+  if (backgroundFlushTimer) {
+    clearInterval(backgroundFlushTimer);
+  }
+  backgroundFlushTimer = undefined;
+};
+
+const ensurePerfTraceBackgroundFlush = () => {
+  stopPerfTraceBackgroundFlush();
+
+  const intervalMs = getBackgroundFlushIntervalMs();
+  if (!installed || !isTraceCollectionEnabled() || !flushBeforeTraceFetch) {
+    return;
+  }
+  if (intervalMs <= 0) {
+    return;
+  }
+
+  backgroundFlushTimer = setInterval(() => {
+    void runBackgroundFlush();
+  }, intervalMs);
+  backgroundFlushTimer.unref?.();
 };
 
 const getHeaderValue = (headers: unknown, headerName: string) => {
@@ -180,6 +267,7 @@ const pushTraceRef = (ref: PerfTraceRef) => {
 // case so each case+engine gets its own ref budget.
 export const resetPerfTraceRefs = () => {
   traceRefs.length = 0;
+  resetPerfTraceBackgroundFlushCounters();
 };
 
 export const recordPerfTraceRefFromHeaders = ({
@@ -280,6 +368,64 @@ const uniqueTraceRefsForRun = (perfCase: PerfCase, engine: string) =>
     (ref) => ref.caseId === perfCase.id && ref.engine === engine,
   );
 
+const parseTraceStepPatterns = (value: unknown) => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+    .map((pattern) => new RegExp(pattern));
+};
+
+const getTraceIncludeStepPattern = (perfCase: PerfCase) =>
+  perfCase.runtimeEnv?.PERF_LAB_TRACE_INCLUDE_STEP_PATTERN;
+
+const getTraceFallbackStepPattern = (perfCase: PerfCase) =>
+  perfCase.runtimeEnv?.PERF_LAB_TRACE_FALLBACK_STEP_PATTERN;
+
+const matchesTraceIncludePattern = (patterns: RegExp[], ref: PerfTraceRef) =>
+  patterns.length === 0 || patterns.some((pattern) => pattern.test(ref.stepId));
+
+const getStepNumber = (stepId: string) => {
+  const match = stepId.match(/^(.*):(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    prefix: match[1],
+    number: Number(match[2]),
+  };
+};
+
+const sortFallbackRefsForFailedRef = (
+  failedRef: PerfTraceRef,
+  refs: PerfTraceRef[],
+) => {
+  const failedStepNumber = getStepNumber(failedRef.stepId);
+  if (!failedStepNumber) {
+    return refs;
+  }
+
+  return [...refs].sort((left, right) => {
+    const leftStepNumber = getStepNumber(left.stepId);
+    const rightStepNumber = getStepNumber(right.stepId);
+    const leftDistance =
+      leftStepNumber?.prefix === failedStepNumber.prefix
+        ? Math.abs(leftStepNumber.number - failedStepNumber.number)
+        : Number.POSITIVE_INFINITY;
+    const rightDistance =
+      rightStepNumber?.prefix === failedStepNumber.prefix
+        ? Math.abs(rightStepNumber.number - failedStepNumber.number)
+        : Number.POSITIVE_INFINITY;
+
+    return leftDistance - rightDistance;
+  });
+};
+
 const isPriorityTraceRef = (ref: PerfTraceRef) =>
   /create.*field|formula|lookup/i.test(ref.stepId) ||
   /\/field\//i.test(ref.url ?? "");
@@ -292,11 +438,17 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine).filter(
     (ref) => ref.sampled,
   );
-  const priorityRefs = uniqueRefs.filter(isPriorityTraceRef);
+  const includePatterns = parseTraceStepPatterns(
+    getTraceIncludeStepPattern(perfCase),
+  );
+  const candidateRefs = uniqueRefs.filter((ref) =>
+    matchesTraceIncludePattern(includePatterns, ref),
+  );
+  const priorityRefs = candidateRefs.filter(isPriorityTraceRef);
   const selected = [...priorityRefs];
   const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
 
-  for (const ref of uniqueRefs) {
+  for (const ref of candidateRefs) {
     if (selected.length >= maxSnapshots) {
       break;
     }
@@ -426,12 +578,16 @@ export const installPerfTraceCollector = () => {
 
     return response;
   });
+
+  ensurePerfTraceBackgroundFlush();
 };
 
 export const uninstallPerfTraceCollector = () => {
   if (!installed) {
     return;
   }
+
+  stopPerfTraceBackgroundFlush();
 
   if (requestInterceptorId != null) {
     axios.interceptors.request.eject(requestInterceptorId);
@@ -480,10 +636,13 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_FETCH_CONCURRENCY",
     8,
   );
-  const selectedRefs =
-    enabled && jaegerApiBaseUrl ? selectTraceRefsToSave(perfCase, engine) : [];
+  const selectedRefs = enabled ? selectTraceRefsToSave(perfCase, engine) : [];
   const runRefs = uniqueTraceRefsForRun(perfCase, engine);
   const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
+  const savedTraceIds = new Set<string>();
+  const failedTraceIds = new Set<string>();
+  const fallbackTraceIds = new Set<string>();
+  const skippedTraceErrors = new Map<string, string>();
   const summary: PerfTraceArtifactSummary = {
     enabled,
     traceRefCount: traceRefs.filter(
@@ -496,6 +655,10 @@ export const writeTraceArtifacts = async ({
     skippedTraceCount: 0,
     maxSnapshotCount,
     fetchConcurrency,
+    backgroundFlushIntervalMs: getBackgroundFlushIntervalMs(),
+    backgroundFlushCount,
+    backgroundFlushErrorCount,
+    backgroundFlushLastError,
     jaegerApiBaseUrl,
     refs: runRefs,
     savedTraces: [],
@@ -512,39 +675,10 @@ export const writeTraceArtifacts = async ({
   const traceDir = join(artifactDir, traceRelativeDir);
   await mkdir(traceDir, { recursive: true });
 
-  for (const ref of runRefs.filter((ref) => !ref.sampled)) {
-    summary.skippedTraceCount += 1;
-    summary.savedTraces.push({
-      traceId: ref.traceId,
-      stepId: ref.stepId,
-      path: "",
-      status: "skipped",
-      error:
-        "Traceparent is not sampled, so Jaeger is not expected to store it",
-      sampled: ref.sampled,
-    });
-  }
-
-  if (jaegerApiBaseUrl) {
-    for (const ref of runRefs.filter(
-      (ref) => ref.sampled && !selectedTraceIds.has(ref.traceId),
-    )) {
-      summary.skippedTraceCount += 1;
-      summary.savedTraces.push({
-        traceId: ref.traceId,
-        stepId: ref.stepId,
-        path: "",
-        status: "skipped",
-        error: `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`,
-        sampled: ref.sampled,
-      });
-    }
-  }
-
   if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
     const flushStartedAt = Date.now();
     try {
-      await flushBeforeTraceFetch();
+      await flushTraceProvider();
       summary.flushDurationMs = Date.now() - flushStartedAt;
     } catch (error) {
       summary.flushDurationMs = Date.now() - flushStartedAt;
@@ -561,51 +695,57 @@ export const writeTraceArtifacts = async ({
     await delay(settleMs);
   }
 
-  const fetchResults = await runWithConcurrency(
-    selectedRefs,
-    fetchConcurrency,
-    async (ref) => {
-      if (!jaegerApiBaseUrl) {
-        return {
-          ref,
-          result: {
-            status: "missing" as const,
-            traceId: ref.traceId,
-            error:
-              "PERF_LAB_JAEGER_API_BASE_URL or TRACE_LINK_BASE_URL is not set",
-            attempts: 0,
-            durationMs: 0,
-          },
-        };
-      }
-
+  const fetchTraceRef = async (ref: PerfTraceRef) => {
+    if (!jaegerApiBaseUrl) {
       return {
         ref,
-        result: await fetchJaegerTrace(jaegerApiBaseUrl, ref.traceId),
+        result: {
+          status: "missing" as const,
+          traceId: ref.traceId,
+          error:
+            "PERF_LAB_JAEGER_API_BASE_URL or TRACE_LINK_BASE_URL is not set",
+          attempts: 0,
+          durationMs: 0,
+        },
       };
-    },
-  );
+    }
 
-  for (const { ref, result } of fetchResults) {
+    return {
+      ref,
+      result: await fetchJaegerTrace(jaegerApiBaseUrl, ref.traceId),
+    };
+  };
+
+  const addSavedTrace = async (
+    ref: PerfTraceRef,
+    result: Extract<JaegerTraceFetchResult, { status: "saved" }>,
+  ) => {
     const fileName = `${sanitizePathSegment(ref.stepId)}-${ref.traceId}.json`;
     const path = join(traceDir, fileName);
     const relativePath = join(traceRelativeDir, fileName);
 
-    if (result.status === "saved") {
-      await writeFile(path, JSON.stringify(result.data, null, 2));
-      summary.savedTraceCount += 1;
-      summary.savedTraces.push({
-        traceId: ref.traceId,
-        stepId: ref.stepId,
-        path: relativePath,
-        status: "saved",
-        attempts: result.attempts,
-        durationMs: result.durationMs,
-        sampled: ref.sampled,
-      });
-      continue;
-    }
+    await writeFile(path, JSON.stringify(result.data, null, 2));
+    savedTraceIds.add(ref.traceId);
+    summary.savedTraceCount += 1;
+    summary.savedTraces.push({
+      traceId: ref.traceId,
+      stepId: ref.stepId,
+      path: relativePath,
+      status: "saved",
+      attempts: result.attempts,
+      durationMs: result.durationMs,
+      sampled: ref.sampled,
+    });
+  };
 
+  const addFailedTrace = (
+    ref: PerfTraceRef,
+    result: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
+  ) => {
+    const fileName = `${sanitizePathSegment(ref.stepId)}-${ref.traceId}.json`;
+    const relativePath = join(traceRelativeDir, fileName);
+
+    failedTraceIds.add(ref.traceId);
     summary.failedTraceCount += 1;
     summary.savedTraces.push({
       traceId: ref.traceId,
@@ -615,6 +755,146 @@ export const writeTraceArtifacts = async ({
       error: result.error,
       attempts: result.attempts,
       durationMs: result.durationMs,
+      sampled: ref.sampled,
+    });
+  };
+
+  const markCoveredFailedTraceSkipped = (
+    ref: PerfTraceRef,
+    result: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
+  ) => {
+    const stepShape = normalizeTraceStepShape(ref.stepId);
+    skippedTraceErrors.set(
+      ref.traceId,
+      `Selected trace was not saved because Jaeger fetch failed (${result.error}); saved another trace from step shape ${stepShape}`,
+    );
+  };
+
+  const fallbackPattern = getTraceFallbackStepPattern(perfCase);
+  const fallbackPatterns = parseTraceStepPatterns(fallbackPattern);
+  const maxFallbackAttempts = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_FALLBACK_MAX_ATTEMPTS",
+    3,
+  );
+  const fallbackRefs =
+    fallbackPatterns.length > 0
+      ? runRefs.filter(
+          (ref) =>
+            ref.sampled &&
+            !selectedTraceIds.has(ref.traceId) &&
+            matchesTraceIncludePattern(fallbackPatterns, ref),
+        )
+      : [];
+
+  const fetchFallbackTrace = async (
+    failedRef: PerfTraceRef,
+    failedResult: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
+  ) => {
+    // A fallback may only stand in for a ref of the *same* normalized shape:
+    // substituting a different operation would mark a real Jaeger failure as
+    // skipped without any representative coverage for the failed step. The
+    // fallback pattern is a coarse opt-in filter; this is the safety invariant.
+    const failedShape = normalizeTraceStepShape(failedRef.stepId);
+    let attempts = 0;
+    for (const fallbackRef of sortFallbackRefsForFailedRef(
+      failedRef,
+      fallbackRefs,
+    )) {
+      if (attempts >= maxFallbackAttempts) {
+        break;
+      }
+      if (normalizeTraceStepShape(fallbackRef.stepId) !== failedShape) {
+        continue;
+      }
+      if (
+        fallbackTraceIds.has(fallbackRef.traceId) ||
+        savedTraceIds.has(fallbackRef.traceId)
+      ) {
+        continue;
+      }
+
+      attempts += 1;
+      fallbackTraceIds.add(fallbackRef.traceId);
+      const { result } = await fetchTraceRef(fallbackRef);
+      if (result.status === "saved") {
+        skippedTraceErrors.set(
+          failedRef.traceId,
+          `Selected trace was not saved because Jaeger fetch failed (${failedResult.error}); saved fallback trace ${fallbackRef.traceId} from ${fallbackRef.stepId}`,
+        );
+        return { ref: fallbackRef, result };
+      }
+
+      skippedTraceErrors.set(
+        fallbackRef.traceId,
+        `Fallback trace fetch failed while replacing ${failedRef.stepId}: ${result.error}`,
+      );
+    }
+
+    return null;
+  };
+
+  const fetchResults = await runWithConcurrency(
+    selectedRefs,
+    fetchConcurrency,
+    fetchTraceRef,
+  );
+
+  const failedFetchResults: Array<{
+    ref: PerfTraceRef;
+    result: Exclude<JaegerTraceFetchResult, { status: "saved" }>;
+  }> = [];
+
+  for (const { ref, result } of fetchResults) {
+    if (result.status === "saved") {
+      await addSavedTrace(ref, result);
+      continue;
+    }
+
+    failedFetchResults.push({ ref, result });
+  }
+
+  for (const { ref, result } of failedFetchResults) {
+    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+      markCoveredFailedTraceSkipped(ref, result);
+      continue;
+    }
+
+    const fallback = await fetchFallbackTrace(ref, result);
+    if (fallback) {
+      await addSavedTrace(fallback.ref, fallback.result);
+      continue;
+    }
+
+    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+      markCoveredFailedTraceSkipped(ref, result);
+      continue;
+    }
+
+    addFailedTrace(ref, result);
+  }
+
+  const includePattern = getTraceIncludeStepPattern(perfCase);
+  const includePatterns = parseTraceStepPatterns(includePattern);
+  for (const ref of runRefs) {
+    if (savedTraceIds.has(ref.traceId) || failedTraceIds.has(ref.traceId)) {
+      continue;
+    }
+
+    const skippedByIncludePattern =
+      ref.sampled && !matchesTraceIncludePattern(includePatterns, ref);
+    summary.skippedTraceCount += 1;
+    summary.savedTraces.push({
+      traceId: ref.traceId,
+      stepId: ref.stepId,
+      path: "",
+      status: "skipped",
+      error:
+        skippedTraceErrors.get(ref.traceId) ??
+        (!ref.sampled
+          ? "Traceparent is not sampled, so Jaeger is not expected to store it"
+          : skippedByIncludePattern
+            ? `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`
+            : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`),
       sampled: ref.sampled,
     });
   }

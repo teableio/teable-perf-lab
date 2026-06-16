@@ -88,10 +88,11 @@ Actual workflow behavior:
 - Cache miss or restore-key hit: the seed job starts Teable, restores any
   available dump if possible, runs `PERF_LAB_MODE=seed`, lets cache-aware runners
   validate/build their fixtures, then saves a new exact-key dump.
-- Execute jobs restore the exact-key dump into separate V1/V2 Postgres
-  containers, set the target engine, and run measured operations. Cache-aware
-  runners run `seedReady`/`sourceReady` again before execute. Destructive cases
-  may mutate their isolated execute database.
+- The seed job uploads its selected dump as a workflow artifact. Execute jobs
+  download that same-run artifact into separate V1/V2 Postgres containers, set
+  the target engine, and run measured operations. Cache-aware runners run
+  `seedReady`/`sourceReady` again before execute. Destructive cases may mutate
+  their isolated execute database.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload

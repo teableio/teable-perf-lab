@@ -89,6 +89,10 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               skippedTraceCount?: number;
               maxSnapshotCount?: number;
               fetchConcurrency?: number;
+              backgroundFlushIntervalMs?: number;
+              backgroundFlushCount?: number;
+              backgroundFlushErrorCount?: number;
+              backgroundFlushLastError?: string;
               flushDurationMs?: number;
               flushError?: string;
               manifestPath?: string;
@@ -118,7 +122,21 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
       `| skipped trace fetches | ${traces.skippedTraceCount ?? 0} |`,
+      `| background flush interval | ${
+        traces.backgroundFlushIntervalMs ?? 0
+      } ms |`,
+      `| background flushes | ${traces.backgroundFlushCount ?? 0} |`,
     );
+    if (traces.backgroundFlushErrorCount) {
+      lines.push(
+        `| background flush errors | ${traces.backgroundFlushErrorCount} |`,
+      );
+    }
+    if (traces.backgroundFlushLastError) {
+      lines.push(
+        `| background flush last error | \`${traces.backgroundFlushLastError}\` |`,
+      );
+    }
     if (traces.flushError) {
       lines.push(`| OTEL flush error | \`${traces.flushError}\` |`);
     }
