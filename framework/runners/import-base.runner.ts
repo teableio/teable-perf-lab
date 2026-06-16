@@ -1618,14 +1618,16 @@ export const runImportBaseCase = async (
       );
     }
 
-    const cachedNotifyInfo = prepareMeasurement.result.cachedNotifyInfo;
-    if (cachedNotifyInfo) {
-      uploadMeasurement = {
-        name: "prepareImportUpload",
-        durationMs: 0,
-        result: cachedNotifyInfo,
-      };
-    } else if (isTeaFileImportCase(config)) {
+    // The seed→execute boundary only carries the PostgreSQL dump (see the
+    // `seed` and `execute` jobs in .github/workflows/teable-ee-e2e-perf.yml),
+    // never the backend `.assets/uploads` directory. Any import `notify` payload
+    // cached in seed-phase metadata therefore points at an uploaded file that no
+    // longer exists on the execute runner, so reusing it makes `import-stream`
+    // fail with ENOENT and the SSE request then hangs until the case times out.
+    // Always rebuild the upload here so the import reads a file that is present
+    // on this runner. The export/upload cost is a diagnostic phase outside the
+    // `importBaseStreamMs` threshold metric.
+    if (isTeaFileImportCase(config)) {
       uploadMeasurement = await measureAsync("prepareImportUpload", () =>
         buildImportNotifyFromTeaFile(config),
       );
@@ -1658,53 +1660,6 @@ export const runImportBaseCase = async (
           }),
       );
     } catch (error) {
-      if (uploadMeasurement?.result.cacheHit && !primaryMeasurement) {
-        console.warn(
-          "Cached import notify failed; rebuilding upload notify and retrying once",
-          error,
-        );
-        if (isTeaFileImportCase(config)) {
-          uploadMeasurement = await measureAsync(
-            "prepareImportUploadRetry",
-            () => buildImportNotifyFromTeaFile(config),
-          );
-        } else {
-          const cacheSetup = await cacheGeneratedImportNotify(
-            context,
-            perfCase,
-            prepareMeasurement.result,
-            config,
-          );
-          exportMeasurement = cacheSetup.exportMeasurement;
-          uploadMeasurement = cacheSetup.uploadMeasurement;
-        }
-        primaryMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          thresholdMetric,
-          () =>
-            measureImportBaseReady({
-              context,
-              perfCase,
-              spaceId,
-              fixture: prepareMeasurement!.result,
-              config,
-              notifyInfo: uploadMeasurement!.result,
-              exportMeasurement,
-              uploadMeasurement: uploadMeasurement!,
-            }),
-        );
-        return buildImportBaseResult({
-          context,
-          config,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          exportMeasurement,
-          uploadMeasurement,
-          primaryMeasurement,
-        });
-      }
-
       const diagnosticResult =
         error instanceof PerfRunDiagnosticError
           ? (error.result.details?.partialPrimaryMeasurement as
