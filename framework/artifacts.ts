@@ -87,6 +87,8 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               savedTraceCount?: number;
               failedTraceCount?: number;
               skippedTraceCount?: number;
+              missingFetchCount?: number;
+              wastedFetchMs?: number;
               maxSnapshotCount?: number;
               fetchConcurrency?: number;
               backgroundFlushIntervalMs?: number;
@@ -122,6 +124,21 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
       `| skipped trace fetches | ${traces.skippedTraceCount ?? 0} |`,
+    );
+    if (traces.missingFetchCount) {
+      // wastedFetchMs sums poll time across concurrent lanes; divide by the
+      // fetch concurrency to estimate the wall-clock added to the run.
+      const wallWastedSeconds = Math.round(
+        (traces.wastedFetchMs ?? 0) /
+          Math.max(traces.fetchConcurrency ?? 1, 1) /
+          1000,
+      );
+      lines.push(
+        `| traces missing in Jaeger | ${traces.missingFetchCount} |`,
+        `| wall-clock wasted polling (≈) | ${wallWastedSeconds} s |`,
+      );
+    }
+    lines.push(
       `| background flush interval | ${
         traces.backgroundFlushIntervalMs ?? 0
       } ms |`,
