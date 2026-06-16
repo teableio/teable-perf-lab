@@ -46,6 +46,29 @@ try {
     "on:lookup-key-capped-hit:sample-#",
   );
 
+  // A mid-string numeric segment is a distinct operation key, not a repeat
+  // index, so it must survive normalization (these two stay different shapes).
+  assert.equal(
+    normalizeTraceStepShape("host:2024:sample-05"),
+    "host:2024:sample-#",
+  );
+  assert.notEqual(
+    normalizeTraceStepShape("host:2024:sample-05"),
+    normalizeTraceStepShape("host:2025:sample-05"),
+  );
+
+  // Producer contract: structurally distinct steps are named, not indexed, so
+  // they stay distinct shapes (record-read seed fields). A bare `:1`/`:2` would
+  // collapse and let one saved trace falsely cover another field's 404.
+  assert.notEqual(
+    normalizeTraceStepShape("seedBuild:createFormulaField:Formula 1"),
+    normalizeTraceStepShape("seedBuild:createFormulaField:Formula 2"),
+  );
+  assert.equal(
+    normalizeTraceStepShape("seedBuild:createFormulaField:1"),
+    normalizeTraceStepShape("seedBuild:createFormulaField:2"),
+  );
+
   assert.equal(
     hasSavedTraceStepShape(
       { traceId: "bad", stepId: "duplicateTableRequestMs" },

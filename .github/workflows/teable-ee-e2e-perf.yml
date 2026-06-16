@@ -346,9 +346,14 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
+          # Keep the name stable across attempts (no run_attempt) so a partial
+          # "Re-run failed jobs" of the execute matrix can still resolve the seed
+          # dump even when the already-passed seed job does not re-run. overwrite
+          # lets a full re-run (seed re-runs too) replace the stale dump.
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}
           path: perf-lab-seed-cache/e2e_test_teable.dump
           if-no-files-found: error
+          overwrite: true
 
       - name: Upload perf seed artifacts
         if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
@@ -425,7 +430,7 @@ jobs:
       - name: Download perf seed database dump
         uses: actions/download-artifact@v7
         with:
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}-${{ github.run_attempt }}
+          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}
           path: perf-lab-seed-cache
 
       - name: Setup pnpm
