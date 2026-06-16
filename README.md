@@ -88,10 +88,11 @@ Actual workflow behavior:
 - Cache miss or restore-key hit: the seed job starts Teable, restores any
   available dump if possible, runs `PERF_LAB_MODE=seed`, lets cache-aware runners
   validate/build their fixtures, then saves a new exact-key dump.
-- Execute jobs restore the exact-key dump into separate V1/V2 Postgres
-  containers, set the target engine, and run measured operations. Cache-aware
-  runners run `seedReady`/`sourceReady` again before execute. Destructive cases
-  may mutate their isolated execute database.
+- The seed job uploads its selected dump as a workflow artifact. Execute jobs
+  download that same-run artifact into separate V1/V2 Postgres containers, set
+  the target engine, and run measured operations. Cache-aware runners run
+  `seedReady`/`sourceReady` again before execute. Destructive cases may mutate
+  their isolated execute database.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload
@@ -150,6 +151,15 @@ workload.
   complex conversion path that discards old cell values and recomputes the whole
   column (`PUT /table/{tableId}/field/{fieldId}/convert`, canary feature
   `convertField`).
+- `field-convert/10k-link-to-text`: Catch regressions in converting a populated
+  many-one link field into single line text on a 10k-row grid — the conversion
+  that breaks link semantics and freezes the linked display titles into plain
+  text across every row.
+- `field-convert/10k-text-to-link`: Catch regressions in converting a populated
+  text field into a many-one link field on a 10k-row grid — the reverse of
+  `field-convert/10k-link-to-text`. It turns text values that name foreign
+  records into real linked records, stressing text-title matching, link
+  relationship creation, and relationship value rewrite.
 - `field-update/v2-only-10k-select-option-rename-computed-cascade`: Catch
   regressions in the V2 field update path when renaming a populated single-select
   option forces dependent computed fields to recalculate across a 10,000-row
@@ -250,6 +260,15 @@ workload.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
+- `record-update/attachment-insert-100`: Measure bulk insertion of attachment
+  references into 100 existing records. This isolates attachment payload
+  validation and attachment cell serialization from the scalar bulk-update path,
+  matching the product action of attaching files to many records at once.
+- `record-update/1k-link-cells-bulk-update`: Measure bulk editing of 1,000
+  many-one link cells. Updating link cells stresses link-target resolution,
+  relationship writes, and link display-value refresh differently from the scalar
+  bulk-update path, matching the product action of re-pointing linked records
+  across many rows.
 - `record-reorder/10k-move-last-1k-to-front`: Measure block reorder performance
   in a 10,000-row grid by moving the original last 1,000 visible records to the
   front in one operation.

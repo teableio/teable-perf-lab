@@ -10,6 +10,8 @@ import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-crea
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
 import fieldConvert10kMultiSelectToTextCase from "./cases/field-convert/10k-multi-select-to-text.case";
 import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
+import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
+import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
@@ -42,6 +44,8 @@ import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-past
 import selectionPaste10kExpandRowsAndFieldsStreamCase from "./cases/selection-paste/10k-expand-rows-and-fields-stream.case";
 import recordReorder10kMoveLast1kToFrontCase from "./cases/record-reorder/10k-move-last-1k-to-front.case";
 import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mixed-1k-20fields-bulk-update.case";
+import recordUpdateAttachmentInsert100Case from "./cases/record-update/attachment-insert-100.case";
+import recordUpdate1kLinkCellsBulkUpdateCase from "./cases/record-update/1k-link-cells-bulk-update.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
 import recordDeleteLinkTrash1kCase from "./cases/record-delete/link-trash-1k.case";
@@ -62,6 +66,8 @@ const cases = [
   fieldCreateSingleSelect1kOptionsCase,
   fieldConvert10kMultiSelectToTextCase,
   fieldConvert10kTextToFormulaCase,
+  fieldConvert10kLinkToTextCase,
+  fieldConvert10kTextToLinkCase,
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldDuplicateConditionalLookup10kCase,
@@ -92,6 +98,8 @@ const cases = [
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
+  recordUpdateAttachmentInsert100Case,
+  recordUpdate1kLinkCellsBulkUpdateCase,
   recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
   recordRedoDelete1kCase,
@@ -131,6 +139,10 @@ const caseAliases = new Map([
   ["field-convert/text-to-formula", "field-convert/10k-text-to-formula"],
   ["convert/select-to-text", "field-convert/10k-multi-select-to-text"],
   ["convert/text-to-formula", "field-convert/10k-text-to-formula"],
+  ["field-convert/link-to-text", "field-convert/10k-link-to-text"],
+  ["field-convert/text-to-link", "field-convert/10k-text-to-link"],
+  ["convert/link-to-text", "field-convert/10k-link-to-text"],
+  ["convert/text-to-link", "field-convert/10k-text-to-link"],
   [
     "field-update",
     "field-update/v2-only-10k-select-option-rename-computed-cascade",
@@ -222,6 +234,10 @@ const caseAliases = new Map([
   ["record-update", "record-update/mixed-1k-20fields-bulk-update"],
   ["update/1k", "record-update/mixed-1k-20fields-bulk-update"],
   ["update/1k-mixed-20fields", "record-update/mixed-1k-20fields-bulk-update"],
+  ["record-update/attachment", "record-update/attachment-insert-100"],
+  ["update/attachment-100", "record-update/attachment-insert-100"],
+  ["record-update/link", "record-update/1k-link-cells-bulk-update"],
+  ["update/1k-link", "record-update/1k-link-cells-bulk-update"],
   ["record-reorder", "record-reorder/10k-move-last-1k-to-front"],
   ["reorder/10k-last-1k", "record-reorder/10k-move-last-1k-to-front"],
   ["reorder/last-1k-front", "record-reorder/10k-move-last-1k-to-front"],
