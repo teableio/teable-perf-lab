@@ -84,6 +84,12 @@ The performance monitor should treat trace warnings with these shapes:
   narrowed to representative refs, record the rest as skipped.
 - If using fallback representative refs, keep the fallback scope same-shape and
   bounded so real Jaeger outages still show as failed trace fetches.
+- Producer contract for `stepId`: a trailing number or `sample-N` means "an
+  interchangeable repeat of the same operation" (iteration/batch/sample). Steps
+  that do structurally different work MUST be told apart by a name, not a bare
+  positional index (e.g. `createFormulaField:${formulaName(i)}`, not
+  `createFormulaField:${i}`). A bare index collapses to the same normalized
+  shape and lets one saved trace falsely cover another step's 404.
 - Keep V1/V2 behavior comparable.
 - If changing trace collector defaults, explain blast radius.
 - Update the case `.md` when behavior or acceptance changes.

@@ -790,6 +790,11 @@ export const writeTraceArtifacts = async ({
     failedRef: PerfTraceRef,
     failedResult: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
   ) => {
+    // A fallback may only stand in for a ref of the *same* normalized shape:
+    // substituting a different operation would mark a real Jaeger failure as
+    // skipped without any representative coverage for the failed step. The
+    // fallback pattern is a coarse opt-in filter; this is the safety invariant.
+    const failedShape = normalizeTraceStepShape(failedRef.stepId);
     let attempts = 0;
     for (const fallbackRef of sortFallbackRefsForFailedRef(
       failedRef,
@@ -797,6 +802,9 @@ export const writeTraceArtifacts = async ({
     )) {
       if (attempts >= maxFallbackAttempts) {
         break;
+      }
+      if (normalizeTraceStepShape(fallbackRef.stepId) !== failedShape) {
+        continue;
       }
       if (
         fallbackTraceIds.has(fallbackRef.traceId) ||
