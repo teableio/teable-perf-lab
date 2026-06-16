@@ -99,10 +99,11 @@ then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
 hash-derived seed tables or build missing/stale fixtures. A successful seed job
 saves a new exact-key `pg_dump -Fc` snapshot.
 
-Execute jobs require the exact cache key, restore the dump into isolated V1/V2
-databases, and then run the measured cases. Runner-level `seedHash` names decide
-whether a table is valid for a specific case; stale tables in the dump are
-ignored unless the hash matches and `seedReady` validation passes.
+The seed job uploads the selected dump as a same-run artifact, and execute jobs
+download that artifact into isolated V1/V2 databases before running the measured
+cases. Runner-level `seedHash` names decide whether a table is valid for a
+specific case; stale tables in the dump are ignored unless the hash matches and
+`seedReady` validation passes.
 
 Formula, conditional lookup, CSV import, record delete, record undo, record
 redo, and selection clear cases currently use this cache. CSV import caches the
@@ -174,17 +175,28 @@ the endpoint URLs here.
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
 requests that use the perf SSE helper. It then polls Jaeger at
 `/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
-directory. Before polling, the runner asks the Teable OpenTelemetry SDK to flush
-pending spans, then waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter
-and Jaeger query path have a short settle window. The workflow saves up to
+directory. During each case, the runner can call the Teable OpenTelemetry SDK's
+force flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps
+large cases from holding all spans in the batch processor until the end. Before
+polling, the runner also asks the SDK to flush pending spans one final time, then
+waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path
+have a short settle window. The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Refs with an unsampled
+with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Cases that generate many
+same-shape request traces may set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` in their
+case runtime env to save representative raw snapshots instead of requiring every
+request trace to survive Jaeger ingestion. If a selected representative trace is
+sampled but cannot be fetched from Jaeger, cases may set
+`PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
+sampled fallback refs before recording a failed fetch. Refs with an unsampled
 `traceparent` are kept in the manifest but skipped for Jaeger fetch because
-those traces are not expected to be stored. Sampled refs above the snapshot cap
-are also recorded as skipped so the manifest explains any intentional
-`traceRefCount > savedTraceCount` gap. Stream artifacts should also include the
-response routing headers, such as `x-teable-v2`, so V1 legacy streams and V2
-streams can be distinguished even when they share the same HTTP endpoint.
+those traces are not expected to be stored. Sampled refs above the snapshot cap,
+outside a case's include pattern, replaced by a saved fallback trace, or covered
+by an already saved same-shape trace are also recorded as skipped so the manifest
+explains any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts
+should also include the response routing headers, such as `x-teable-v2`, so V1
+legacy streams and V2 streams can be distinguished even when they share the same
+HTTP endpoint.
 
 To verify observability after a run:
 

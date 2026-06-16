@@ -241,8 +241,8 @@ The execute jobs run in parallel when `engine_filter=v1,v2`. Each execute job
 has its own Postgres/Redis containers, so destructive cases can delete or clear
 their restored seed tables without corrupting the other engine's copy.
 
-The workflow uses `actions/cache`, `pg_dump -Fc`, and `pg_restore` in three
-paths:
+The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
+`pg_restore` in three paths:
 
 1. Exact seed DB cache hit: `steps.seed-db-cache.outputs.cache-hit == 'true'`.
    The seed job only asserts that `e2e_test_teable.dump` exists and writes a
@@ -255,9 +255,10 @@ paths:
    `PERF_LAB_MODE=seed`, where cache-aware runners validate existing
    hash-derived seed tables or build missing/stale fixtures. A successful seed
    job saves a new exact-key `pg_dump -Fc`.
-3. Execute jobs require the exact seed DB cache key
-   (`fail-on-cache-miss: true`). Each engine restores the dump into its own
-   database, sets `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs
+3. The seed job uploads the selected dump as a
+   `teable-ee-e2e-perf-seed-db-<run>-<attempt>` artifact. Execute jobs download
+   that artifact, restore it into their own databases, set
+   `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and run
    `PERF_LAB_MODE=execute`. Cache-aware runners run `seedReady`/`sourceReady`
    before measuring execute.
 
