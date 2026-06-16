@@ -172,9 +172,17 @@ workload.
   through the product SSE progress path when the base contains a 10,000-record
   main table, a 1,000-record linked table, a 100-record small table, and 2
   workflows.
-- `import-base/3x1k-3tables-2workflow-stream`: Measure importing a `.tea` base
-  file through the product SSE progress path when the imported base contains
-  three independent 1,000-record tables and workflow metadata.
+- `import-base/v2-only-simple-1x1k-table-stream`: Measure importing a simple
+  `.tea` base file through the V2 product SSE progress path when the imported
+  base contains one independent 1,000-record table.
+- `import-base/v2-only-complex-3x10k-3tables-2workflow-stream`: Measure
+  importing a more complex `.tea` base file through the V2 product SSE progress
+  path when the imported base contains three independent 10,000-record tables and
+  workflow metadata.
+- `import-base/v2-only-user-t2377-tea-stream`: Measure importing the
+  user-provided `T2377.tea` package through the V2 product SSE progress path when
+  the imported base contains many real tables, fields, views, one app package,
+  and workflow metadata.
 - `export-base/10k-3tables-link-2workflow-stream`: Measure exporting a base
   through the product SSE progress path when the base contains a 10,000-record
   main table, a 1,000-record linked table, a 100-record small table, and workflow

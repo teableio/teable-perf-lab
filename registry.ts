@@ -17,7 +17,9 @@ import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
 import duplicateBase10k3TablesLink2WorkflowStreamCase from "./cases/duplicate-base/10k-3tables-link-2workflow-stream.case";
-import importBase3x1k3Tables2WorkflowStreamCase from "./cases/import-base/3x1k-3tables-2workflow-stream.case";
+import importBaseV2OnlySimple1x1kTableStreamCase from "./cases/import-base/v2-only-simple-1x1k-table-stream.case";
+import importBaseV2OnlyComplex3x10k3Tables2WorkflowStreamCase from "./cases/import-base/v2-only-complex-3x10k-3tables-2workflow-stream.case";
+import importBaseV2OnlyUserT2377TeaStreamCase from "./cases/import-base/v2-only-user-t2377-tea-stream.case";
 import exportBase10k3TablesLink2WorkflowStreamCase from "./cases/export-base/10k-3tables-link-2workflow-stream.case";
 import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
 import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-records.case";
@@ -67,7 +69,9 @@ const cases = [
   duplicateTable10k25F5FormulaCase,
   duplicateBase10k3TablesLink2WorkflowCase,
   duplicateBase10k3TablesLink2WorkflowStreamCase,
-  importBase3x1k3Tables2WorkflowStreamCase,
+  importBaseV2OnlySimple1x1kTableStreamCase,
+  importBaseV2OnlyComplex3x10k3Tables2WorkflowStreamCase,
+  importBaseV2OnlyUserT2377TeaStreamCase,
   exportBase10k3TablesLink2WorkflowStreamCase,
   tableCreate10x20FNoRecordsCase,
   tableCreate1x20F1kRecordsCase,
@@ -147,7 +151,17 @@ const caseAliases = new Map([
   ["duplicate-base", "duplicate-base/10k-3tables-link-2workflow"],
   ["duplicate-base/3tables", "duplicate-base/10k-3tables-link-2workflow"],
   ["duplicate-base/stream", "duplicate-base/10k-3tables-link-2workflow-stream"],
-  ["import-base/stream", "import-base/3x1k-3tables-2workflow-stream"],
+  [
+    "import-base/stream",
+    "import-base/v2-only-complex-3x10k-3tables-2workflow-stream",
+  ],
+  ["import-base/simple", "import-base/v2-only-simple-1x1k-table-stream"],
+  [
+    "import-base/complex",
+    "import-base/v2-only-complex-3x10k-3tables-2workflow-stream",
+  ],
+  ["import-base/t2377", "import-base/v2-only-user-t2377-tea-stream"],
+  ["import-base/user-t2377", "import-base/v2-only-user-t2377-tea-stream"],
   ["export-base/stream", "export-base/10k-3tables-link-2workflow-stream"],
   ["table-create", "table-create/10x-20f-no-records"],
   ["table-create/10x", "table-create/10x-20f-no-records"],

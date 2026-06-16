@@ -1,8 +1,9 @@
 import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
-  id: "import-base/3x1k-3tables-2workflow-stream",
-  title: "Import three 1k-record tables through the product stream endpoint",
+  id: "import-base/v2-only-complex-3x10k-3tables-2workflow-stream",
+  title:
+    "V2-only: import three 10k-record tables with workflows through the product stream endpoint",
   runner: "import-base",
   timeoutMs: 1_200_000,
   runtimeEnv: {
@@ -10,11 +11,11 @@ export default definePerfCase({
   },
   config: {
     spaceId: "seed-space",
-    sourceBaseNamePrefix: "perf-import-base-3x1k-3tables",
+    sourceBaseNamePrefix: "perf-import-base-v2-complex-3x10k-3tables",
     tables: [
       {
-        name: "Table A 1k",
-        rowCount: 1_000,
+        name: "Table A 10k",
+        rowCount: 10_000,
         batchSize: 1_000,
         generator: {
           titlePrefix: "Table A Item",
@@ -23,8 +24,8 @@ export default definePerfCase({
         },
       },
       {
-        name: "Table B 1k",
-        rowCount: 1_000,
+        name: "Table B 10k",
+        rowCount: 10_000,
         batchSize: 1_000,
         generator: {
           titlePrefix: "Table B Item",
@@ -33,8 +34,8 @@ export default definePerfCase({
         },
       },
       {
-        name: "Table C 1k",
-        rowCount: 1_000,
+        name: "Table C 10k",
+        rowCount: 10_000,
         batchSize: 1_000,
         generator: {
           titlePrefix: "Table C Item",
@@ -48,7 +49,7 @@ export default definePerfCase({
       namePrefix: "perf-import-base-wf",
     },
     verify: {
-      sampleRows: [0, 499, 999],
+      sampleRows: [0, 4_999, 9_999],
       fullScanPageSize: 1_000,
       timeoutMs: 180_000,
       pollIntervalMs: 2_000,

@@ -27,7 +27,8 @@ Current baseline:
 ### Confirmed To Build
 
 - [x] `duplicate-base/10k-3tables-link-2workflow-stream`
-- [x] `import-base/3x1k-3tables-2workflow-stream`
+- [x] `import-base/v2-only-simple-1x1k-table-stream`
+- [x] `import-base/v2-only-complex-3x10k-3tables-2workflow-stream`
 - [x] `export-base/10k-3tables-link-2workflow-stream`
 - [x] `record-read/10k-50fields-filter-sort-groupby-overhead`
 - [ ] `record-update/attachment-insert-100`
@@ -49,7 +50,8 @@ Claude Code batch:
 Current Codex thread batch:
 
 - [x] `duplicate-base/10k-3tables-link-2workflow-stream`
-- [x] `import-base/3x1k-3tables-2workflow-stream`
+- [x] `import-base/v2-only-simple-1x1k-table-stream`
+- [x] `import-base/v2-only-complex-3x10k-3tables-2workflow-stream`
 - [x] `export-base/10k-3tables-link-2workflow-stream`
 - [x] `record-read/10k-50fields-filter-sort-groupby-overhead`
 - [x] `record-delete/link-trash-1k`
@@ -86,21 +88,20 @@ Parallel-work guardrails:
     `enterprise/backend-ee/src/features/override/controller/base.controller.ts`,
     `community/apps/nestjs-backend/src/features/base/base.service.ts`.
 
-- [x] `import-base/3x1k-3tables-2workflow-stream`
+- [x] `import-base/v2-only-simple-1x1k-table-stream`
+- [x] `import-base/v2-only-complex-3x10k-3tables-2workflow-stream`
   - V2 feature: `importBase`.
   - Product path: `POST /api/base/import-stream`.
   - Why: `importBase` is canary-controlled and has no perf-lab coverage. It is a
     heavy base-level operation, especially with records, links, views, and
     workflows.
-  - Proposed seed: create/export a deterministic base artifact from the same
-    shape as duplicate-base, then run import into the seed space. The import
-    request body is `{ notify, spaceId }`; implementation must prepare the
-    `notify` attachment/file reference the product import service expects.
-  - Proposed execute: import via stream, read to `done`, verify imported table
-    count, field count, row counts, link samples, and workflow count when
-    available.
-  - Runner: new `import-base` stream runner; likely reuse duplicate-base fixture
-    builders plus a small export-artifact setup step.
+  - Built as two V2-only cases: simple imports one 1k-record table; complex
+    imports three independent 10k-record tables plus workflow metadata. The V1
+    import path is no longer maintained and is skipped by the runner.
+  - Execute: export deterministic source base as setup, upload the `.tea`
+    artifact, import via stream, read to `done`, then verify imported table
+    count, field count, row counts, and workflow count when available.
+  - Runner: dedicated `import-base` stream runner.
   - Primary metric: `importBaseStreamMs`.
   - Teable EE files:
     `community/packages/openapi/src/base/import.ts`,
