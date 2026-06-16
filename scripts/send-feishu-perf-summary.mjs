@@ -4,6 +4,7 @@ import { join } from "node:path";
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
   "https://app.teable.ai/base/bselS3I2MeVI6RJhS4g/table/tblwPqrcchUzvyEOqLo/viwobw44IRJAHgtADI0";
+const REGRESSION_RATIO_THRESHOLD = 1.2;
 
 const env = (name, fallback = "") => process.env[name] ?? fallback;
 
@@ -126,7 +127,9 @@ const loadRunInfo = async () => {
     return undefined;
   }
 
-  return githubApi(`/repos/${repository}/actions/runs/${runId}/jobs?per_page=100`);
+  return githubApi(
+    `/repos/${repository}/actions/runs/${runId}/jobs?per_page=100`,
+  );
 };
 
 const jobDurationMs = (job) => {
@@ -163,7 +166,10 @@ const seedCacheStatus = (jobs) => {
     (step) => step.name === "Publish seed database cache hit summary",
   );
   const buildSeed = steps.find((step) => step.name === "Build perf seed DB");
-  if (hitSummary?.conclusion === "success" && buildSeed?.conclusion === "skipped") {
+  if (
+    hitSummary?.conclusion === "success" &&
+    buildSeed?.conclusion === "skipped"
+  ) {
     return "命中";
   }
   if (buildSeed?.conclusion === "success") {
@@ -229,6 +235,8 @@ const compareCaseRows = (a, b) => {
   return a.caseId.localeCompare(b.caseId);
 };
 
+const groupLabel = (caseId) => caseId.split("/")[0] || caseId;
+
 const buildCaseRows = (payloads) => {
   const grouped = new Map();
   for (const payload of payloads) {
@@ -255,8 +263,22 @@ const buildCaseRows = (payloads) => {
             ? payload.thresholds.some((threshold) => threshold.passed === false)
             : payload.result === "fail",
         );
-      const v2NotFaster = hasBaseline && v2Value >= v1Value;
-      const status = thresholdFailed || v2NotFaster ? "attention" : hasBaseline ? "ok" : "neutral";
+      const regressionRatio = hasBaseline ? v2Value / v1Value : undefined;
+      const hasRegression =
+        Number.isFinite(regressionRatio) &&
+        regressionRatio >= REGRESSION_RATIO_THRESHOLD;
+      const status =
+        thresholdFailed || hasRegression
+          ? "attention"
+          : hasBaseline
+            ? "ok"
+            : "neutral";
+      const direction =
+        thresholdFailed || !hasBaseline
+          ? "neutral"
+          : ratio >= 1
+            ? "faster"
+            : "slower";
       let comparison = "无 V1 基线";
       if (hasBaseline) {
         comparison =
@@ -264,14 +286,19 @@ const buildCaseRows = (payloads) => {
             ? `快 ${ratio.toFixed(1)}x`
             : ratio === 1
               ? "相同速度"
-            : `慢 ${(1 / ratio).toFixed(1)}x`;
+              : `慢 ${(1 / ratio).toFixed(1)}x`;
       }
 
       return {
         caseId,
         status,
         comparison,
+        direction,
+        ratio: hasBaseline ? ratio : undefined,
+        regressionRatio,
         slowness: hasBaseline ? v2Value / v1Value : Number.NEGATIVE_INFINITY,
+        thresholdFailed,
+        group: groupLabel(caseId),
         v1: v1?.result === "skipped" ? "skip" : formatMetricSeconds(v1Value),
         v2: v2?.result === "skipped" ? "skip" : formatMetricSeconds(v2Value),
       };
@@ -296,24 +323,66 @@ const resultCounts = (payloads) => {
 const chartUrlForCase = (caseId) =>
   `${env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL)}#${caseId}`;
 
+const collapsiblePanel = ({ title, expanded = false, elements }) => ({
+  tag: "collapsible_panel",
+  expanded,
+  header: {
+    title: {
+      tag: "markdown",
+      content: `**${title}**`,
+    },
+    vertical_align: "center",
+    icon: {
+      tag: "standard_icon",
+      token: "down-small-ccm_outlined",
+      color: "grey",
+      size: "16px 16px",
+    },
+    icon_position: "follow_text",
+    icon_expanded_angle: -180,
+  },
+  vertical_spacing: "8px",
+  elements,
+});
+
 const buildCard = ({ payloads, timings }) => {
   const counts = resultCounts(payloads);
   const rows = buildCaseRows(payloads);
-  const attentionCount = rows.filter((row) => row.status === "attention").length;
+  const regressionRows = rows.filter((row) => row.status === "attention");
+  const regressionCount = regressionRows.length;
+  const executeResult = env("PERF_LAB_JOB_RESULT");
+  const workflowFailed = executeResult && executeResult !== "success";
   const runId = env("GITHUB_RUN_ID", payloads[0]?.runId ?? "");
   const teableRef = env("PERF_LAB_TEABLE_EE_REF") || env("GITHUB_REF_NAME");
-  const sha = env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7);
-  const headerTemplate = counts.fail > 0 ? "red" : attentionCount > 0 ? "orange" : "green";
+  const sha =
+    env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7);
+  const headerTemplate =
+    workflowFailed || counts.fail > 0
+      ? "red"
+      : regressionCount > 0
+        ? "orange"
+        : "green";
   const dot = (status) =>
     status === "attention" ? "🔴" : status === "neutral" ? "⚪" : "🟢";
-  const compareText = (row) =>
-    row.status === "attention" ? `**${row.comparison}**` : row.comparison;
-  const rowsText = rows
-    .map(
-      (row) =>
-        `${dot(row.status)} **${row.caseId}**  V1 ${row.v1} → V2 ${row.v2}  ${compareText(row)}  [查看](${chartUrlForCase(row.caseId)})`,
-    )
-    .join("\n");
+  const formatCaseLine = (row) =>
+    `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId)})**  V1 ${row.v1} → V2 ${row.v2}  **${row.comparison}**`;
+  const regressionText =
+    regressionRows.length > 0
+      ? regressionRows.map(formatCaseLine).join("\n")
+      : "未发现达到阈值的性能退化。";
+  const regressionCaseIds = new Set(regressionRows.map((row) => row.caseId));
+  const remainingRows = rows.filter(
+    (row) => !regressionCaseIds.has(row.caseId),
+  );
+  const remainingText =
+    remainingRows.length > 0
+      ? remainingRows.map(formatCaseLine).join("\n")
+      : "无其余对比项。";
+  const statusText = workflowFailed
+    ? "执行失败"
+    : counts.fail > 0
+      ? "用例失败"
+      : "全量通过";
 
   return {
     msg_type: "interactive",
@@ -323,7 +392,7 @@ const buildCard = ({ payloads, timings }) => {
         template: headerTemplate,
         title: {
           tag: "plain_text",
-          content: `Teable EE 性能回归 · 全量${counts.fail > 0 ? "失败" : "通过"} · ${attentionCount} 项关注`,
+          content: `Teable EE 性能回归 · ${statusText} · ${regressionCount} 项退化`,
         },
       },
       elements: [
@@ -331,7 +400,7 @@ const buildCard = ({ payloads, timings }) => {
           tag: "div",
           text: {
             tag: "lark_md",
-            content: `**目标**: teable-ee ${teableRef}${sha ? ` @ ${sha}` : ""}\n**运行**: ${runId}  |  **结果**: ${counts.pass} 通过 / ${counts.skipped} 跳过 / ${counts.fail} 失败`,
+            content: `**目标**: teable-ee ${teableRef}${sha ? ` @ ${sha}` : ""}\n**运行**: ${runId}  |  **任务**: ${executeResult || "unknown"}  |  **结果**: ${counts.pass} 通过 / ${counts.skipped} 跳过 / ${counts.fail} 失败`,
           },
         },
         {
@@ -387,12 +456,71 @@ const buildCard = ({ payloads, timings }) => {
         },
         { tag: "hr" },
         {
-          tag: "div",
-          text: {
-            tag: "lark_md",
-            content: `**用例耗时对比**\n${rowsText}`,
-          },
+          tag: "column_set",
+          flex_mode: "none",
+          background_style: "grey",
+          columns: [
+            {
+              tag: "column",
+              width: "weighted",
+              weight: 1,
+              elements: [
+                {
+                  tag: "markdown",
+                  content: `**对比项** ${rows.length}`,
+                },
+              ],
+            },
+            {
+              tag: "column",
+              width: "weighted",
+              weight: 1,
+              elements: [
+                {
+                  tag: "markdown",
+                  content: `**退化项** ${regressionCount}`,
+                },
+              ],
+            },
+            {
+              tag: "column",
+              width: "weighted",
+              weight: 1,
+              elements: [
+                {
+                  tag: "markdown",
+                  content: `**跳过** ${counts.skipped}`,
+                },
+              ],
+            },
+          ],
         },
+        collapsiblePanel({
+          title: `性能退化项 ${regressionCount}`,
+          expanded: true,
+          elements: [
+            {
+              tag: "div",
+              text: {
+                tag: "lark_md",
+                content: regressionText,
+              },
+            },
+          ],
+        }),
+        collapsiblePanel({
+          title: `其余对比项 ${remainingRows.length}`,
+          expanded: false,
+          elements: [
+            {
+              tag: "div",
+              text: {
+                tag: "lark_md",
+                content: remainingText,
+              },
+            },
+          ],
+        }),
         { tag: "hr" },
         {
           tag: "action",
@@ -407,7 +535,10 @@ const buildCard = ({ payloads, timings }) => {
               tag: "button",
               text: { tag: "plain_text", content: "查看数据" },
               type: "default",
-              url: env("PERF_LAB_TEABLE_RESULTS_URL", DEFAULT_TEABLE_RESULTS_URL),
+              url: env(
+                "PERF_LAB_TEABLE_RESULTS_URL",
+                DEFAULT_TEABLE_RESULTS_URL,
+              ),
             },
             {
               tag: "button",
@@ -445,7 +576,9 @@ const main = async () => {
   const artifactDir = requiredEnv("PERF_LAB_ARTIFACT_DIR");
   const payloads = await readArtifactPayloads(artifactDir);
   if (payloads.length === 0) {
-    console.warn(`No execute perf payloads found in ${artifactDir}; skipping Feishu summary.`);
+    console.warn(
+      `No execute perf payloads found in ${artifactDir}; skipping Feishu summary.`,
+    );
     return;
   }
 
@@ -458,7 +591,9 @@ const main = async () => {
 
   const webhookUrl = env("FEISHU_PERF_WEBHOOK_URL");
   if (!webhookUrl) {
-    console.warn("FEISHU_PERF_WEBHOOK_URL is not set; skipping Feishu summary.");
+    console.warn(
+      "FEISHU_PERF_WEBHOOK_URL is not set; skipping Feishu summary.",
+    );
     return;
   }
 
