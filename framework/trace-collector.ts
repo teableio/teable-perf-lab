@@ -40,6 +40,12 @@ export interface PerfTraceArtifactSummary {
   savedTraceCount: number;
   failedTraceCount: number;
   skippedTraceCount: number;
+  // Selected traces whose Jaeger fetch never returned data (each polled until
+  // PERF_LAB_TRACE_FETCH_TIMEOUT_MS) and the total wall-clock burned doing so.
+  // Surfaced so a silently slow run is diagnosable without reverse-engineering
+  // caseMs vs durationMs from the logs.
+  missingFetchCount: number;
+  wastedFetchMs: number;
   maxSnapshotCount: number;
   fetchConcurrency: number;
   backgroundFlushIntervalMs?: number;
@@ -653,6 +659,8 @@ export const writeTraceArtifacts = async ({
     savedTraceCount: 0,
     failedTraceCount: 0,
     skippedTraceCount: 0,
+    missingFetchCount: 0,
+    wastedFetchMs: 0,
     maxSnapshotCount,
     fetchConcurrency,
     backgroundFlushIntervalMs: getBackgroundFlushIntervalMs(),
@@ -824,6 +832,9 @@ export const writeTraceArtifacts = async ({
         return { ref: fallbackRef, result };
       }
 
+      // Fallback attempt also polled to timeout without finding a trace.
+      summary.missingFetchCount += 1;
+      summary.wastedFetchMs += result.durationMs;
       skippedTraceErrors.set(
         fallbackRef.traceId,
         `Fallback trace fetch failed while replacing ${failedRef.stepId}: ${result.error}`,
@@ -850,6 +861,11 @@ export const writeTraceArtifacts = async ({
       continue;
     }
 
+    // A non-"saved" result means the trace never showed up in Jaeger, so the
+    // fetch polled until timing out. Record that wasted wall-clock even though
+    // the ref ends up "skipped" (covered by a same-shape trace) or "failed".
+    summary.missingFetchCount += 1;
+    summary.wastedFetchMs += result.durationMs;
     failedFetchResults.push({ ref, result });
   }
 
