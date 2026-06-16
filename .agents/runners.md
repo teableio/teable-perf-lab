@@ -53,7 +53,7 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **field-create**: `tableNamePrefix`, `baseFields[]`, `field`, `verify{optionCount,sampleOptionIndexes}`, `threshold{metric:"singleSelectCreateOptionsMs"}`. Seed creates an empty base table; execute creates the configured field and verifies field metadata.
 - **field-duplicate**: `sourceTableNamePrefix`, `hostTableNamePrefix`, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `duplicate{name}`, `verify`, `threshold{metric:"conditionalLookupDuplicateReadyMs"}`. Seed reuses the conditional lookup 10k table shape; execute creates the source lookup field as setup, duplicates it, then verifies the duplicated lookup values.
 - **duplicate-base**: `spaceId:"seed-space"`, `operation:"duplicate"|"duplicate-stream"|"export-stream"`, source `mainTable` / `linkedTable` / `smallTable`, `workflows`, `duplicate{withRecords}`, `verify{mainSampleRows,linkSampleRows,...}`, `threshold{metric:"duplicateBaseRequestMs"|"duplicateBaseStreamMs"|"exportBaseStreamMs"}`. Seed caches the source base; execute duplicates or exports it and verifies records, link remapping, and workflows where applicable.
-- **import-base**: V2-only runner with `spaceId:"seed-space"`, `sourceBaseNamePrefix`, generated `tables[]` / `workflows` or `teaFile`, `verify{sampleRows,...}`, `threshold{metric:"importBaseStreamMs"}`. Seed caches the generated source base or repo `.tea` fixture and prepares a reusable import `notify` payload; execute reuses that cached import package and measures `POST /base/import-stream`. V2 stream `done` is the primary completion point; post-import full scans are diagnostics.
+- **import-base**: V2-only runner with `spaceId:"seed-space"`, `sourceBaseNamePrefix`, generated `tables[]` / `workflows` or `teaFile`, `verify{sampleRows,...}`, `threshold{metric:"importBaseStreamMs"}`. Seed caches the generated source base (or validates the repo `.tea` fixture); execute **re-uploads** the import package fresh (re-export+upload for generated cases, re-read the repo fixture for tea-file cases) and measures `POST /base/import-stream`. The upload cannot be cached across the seed→execute boundary because that boundary only carries the PostgreSQL dump, not the backend `.assets/uploads` directory (the `seed`/`execute` jobs in `.github/workflows/teable-ee-e2e-perf.yml`). V2 stream `done` is the primary completion point; export/upload and post-import full scans are diagnostics outside the metric.
 - **csv-import**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-csv-import",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"csvInplaceImportReadyMs"}`.
 - **record-paste**: `tableNamePrefix`, `rowCount`, optional `maxPasteCells`, `fields[]`, `generator{type:"flat-copy-paste"|"mixed-copy-paste",titlePrefix,...}`, `verify`, `threshold{metric:"paste10kMs"}`.
 - **record-create**: `tableNamePrefix`, `rowCount`, `fields[]`, `generator{type:"mixed-record-create",titlePrefix,payloadPrefix,valuePrefix}`, `verify`, `threshold{metric:"bulkCreate1kMs"}`. The reusable seed is the empty mixed table plus cached typed create payload; execute creates records fresh.
@@ -61,6 +61,25 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **record-reorder**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `reorder{blockStartOffset,blockSize,anchorOffset,position}`, `verify`, `threshold{metric:"moveLast1kToFrontMs"}`. The reusable seed stores initial order metadata; non-isolated cleanup restores the original order.
 - **selection-clear**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"flat-table-operation",titlePrefix,payloadPrefix}`, `verify`, `threshold{metric:"clear1kMs"}`.
 - **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ only in the threshold metric: `delete1kMs` / `undoReplay1kMs` / `redoReplay1kMs`. The shared mixed-record base config is exported as `undoRedo10kBaseConfig` in `framework/runners/record-undo-redo.shared.ts` — spread it and override `rowCount`, `tableNamePrefix`, `verify`, and `threshold` for the 1k cases.
+
+## Fail-Fast Watchdog (opt-in)
+
+Any case can set a top-level `watchdogMs` (sibling of `timeoutMs`) to fail fast
+when the server stops responding instead of hanging until the hard `timeoutMs`.
+It is an **idle** watchdog (see `framework/watchdog.ts`): the timer trips only
+after `watchdogMs` of no HTTP request or SSE event progress, so a healthy run —
+which keeps issuing requests / receiving stream events — never trips it. On trip
+the case fails with a `perf watchdog: no server activity…` diagnostic and the
+case `AbortSignal` (`context.signal`) is aborted.
+
+- Set `watchdogMs` comfortably above the longest single server round-trip a
+  healthy run expects (a paged scan, a stream gap, a bulk request). Only true
+  silence trips it; it does not need tuning against total run duration.
+- SSE streams honor `context.signal` automatically via the perf SSE helper.
+  Non-SSE runners that want a hung request actually cancelled should forward
+  `context.signal` to axios (e.g. `axios.get(url, { signal: context.signal })`),
+  as `lookup-search-index` does for its measured search request.
+- Leave `watchdogMs` unset to keep the legacy hang-until-`timeoutMs` behavior.
 
 ## Stream-Based Runners
 
