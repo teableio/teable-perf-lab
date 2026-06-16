@@ -8,6 +8,10 @@ duplicate them here.
 - [x] Case suite: formula, lookup, paste, selection-clear, delete, undo, redo
 - [ ] Convert plan milestones (`docs/plan.md` §13) into issues
 - [ ] Durable run history (storage backend per §15)
+- [ ] Observe `duplicate-base/10k-3tables-link-2workflow` vs
+      `duplicate-base/10k-3tables-link-2workflow-stream` after enough runs. If
+      their performance trend is effectively the same, consider removing one to
+      avoid duplicate coverage.
 
 ## V1/V2 Candidate Cases
 
