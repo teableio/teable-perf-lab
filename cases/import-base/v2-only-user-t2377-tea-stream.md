@@ -23,9 +23,10 @@ views, one app package, and workflow metadata.
 
 No generated source base is created. The repo fixture at
 `cases/import-base/fixtures/T2377.tea` is the deterministic source package, and
-the seed phase uploads it through the product attachment flow once. The uploaded
-import `notify` payload is stored in a seed-cache metadata base so execute runs
-can reuse the prepared `.tea` package instead of re-uploading it every time.
+the seed phase uploads it through the product attachment flow once to validate it.
+The seed cache restores only the PostgreSQL database, not the backend
+`.assets/uploads` directory, so the execute job re-uploads the fixture (which is
+checked out in the repo) rather than reusing the seed-phase upload.
 
 The package was inspected as:
 
@@ -37,8 +38,8 @@ The package was inspected as:
 ## Execute Phase
 
 1. Upload `T2377.tea` through the product attachment signature/upload/notify
-   flow outside the primary metric, or reuse the cached import `notify` payload
-   prepared by the seed phase.
+   flow (outside the primary metric) to produce a fresh import `notify` payload
+   whose file exists on this runner.
 2. Call `POST /api/base/import-stream` with `{ spaceId, notify }` and record
    the stream response time as `importBaseStreamMs`.
 3. Read the SSE response until the `done` event and assert no stream error

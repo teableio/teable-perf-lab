@@ -36,6 +36,7 @@ import { runTableDeleteLinkCase } from "./runners/table-delete-link.runner";
 import { runTableRestoreCase } from "./runners/table-restore.runner";
 import { runTableRestoreLinkCase } from "./runners/table-restore-link.runner";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
+import { runWithWatchdog } from "./watchdog";
 import { PerfRunDiagnosticError } from "./types";
 import type {
   MetricThreshold,
@@ -185,7 +186,17 @@ export const runPerfCase = async (
   };
 
   try {
-    const result = await runCaseByKind(perfCase, context);
+    const result = perfCase.watchdogMs
+      ? await runWithWatchdog(
+          {
+            watchdogMs: perfCase.watchdogMs,
+            onAbort: (signal) => {
+              context.signal = signal;
+            },
+          },
+          () => runCaseByKind(perfCase, context),
+        )
+      : await runCaseByKind(perfCase, context);
     const thresholdResults = evaluateThresholds(
       result.metrics,
       result.thresholds,

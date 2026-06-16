@@ -42,6 +42,12 @@ export interface PerfCase {
   title: string;
   runner: PerfRunnerKind;
   timeoutMs: number;
+  // Opt-in idle watchdog (see framework/watchdog.ts). When set, the case fails
+  // fast with a clear diagnostic if the server makes no HTTP/SSE progress for
+  // this many ms, instead of hanging until `timeoutMs`. Set it comfortably above
+  // the longest single server round-trip a healthy run expects; only true
+  // silence trips it. Leave unset to keep the legacy hang-until-timeout behavior.
+  watchdogMs?: number;
   runtimeEnv?: Record<string, string | number | boolean>;
   config:
     | HttpEndpointCaseConfig
@@ -87,6 +93,10 @@ export interface PerfRunContext {
   runId: string;
   engine: string;
   artifactDir?: string;
+  // Present only while a case runs under the watchdog (see framework/watchdog.ts).
+  // Aborted when the watchdog trips so signal-aware requests get cancelled. SSE
+  // streams honor it automatically; non-SSE runners can forward it to axios.
+  signal?: AbortSignal;
 }
 
 export interface MetricThreshold {

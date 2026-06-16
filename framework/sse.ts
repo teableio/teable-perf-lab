@@ -4,6 +4,33 @@ import {
   buildPerfTraceHeaders,
   recordPerfTraceRefFromHeaders,
 } from "./trace-collector";
+import { pokeWatchdogActivity } from "./watchdog";
+
+// Merge the per-case watchdog signal (context.signal) with any caller-supplied
+// signal so a watchdog trip aborts the stream. Returns undefined when neither is
+// present.
+const combineSignals = (
+  ...signals: Array<AbortSignal | undefined>
+): AbortSignal | undefined => {
+  const present = signals.filter((s): s is AbortSignal => Boolean(s));
+  if (present.length <= 1) {
+    return present[0];
+  }
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(present);
+  }
+  const controller = new AbortController();
+  for (const s of present) {
+    if (s.aborted) {
+      controller.abort(s.reason);
+      break;
+    }
+    s.addEventListener("abort", () => controller.abort(s.reason), {
+      once: true,
+    });
+  }
+  return controller.signal;
+};
 
 type HeaderInput = HeadersInit | Record<string, unknown> | undefined;
 
@@ -103,6 +130,9 @@ const readSseEvents = async <T extends PerfSseEvent>(
     if (done) {
       break;
     }
+    // Stream bytes arrived: the server is making progress, so keep the watchdog
+    // from tripping during long-but-healthy streams.
+    pokeWatchdogActivity();
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
@@ -149,7 +179,7 @@ export const perfStreamSse = async <T extends PerfSseEvent>({
   const response = await fetch(url, {
     method,
     credentials: "include",
-    signal,
+    signal: combineSignals(context.signal, signal),
     headers: buildSseRequestHeaders(method, {
       ...buildPerfTraceHeaders(context, perfCase, stepId),
       ...toHeaderRecord(headers),

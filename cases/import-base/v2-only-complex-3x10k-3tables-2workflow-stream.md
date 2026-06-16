@@ -28,13 +28,15 @@ Build a deterministic source base with:
 - workflow definitions when the automation module is available.
 
 The source base is reusable through the seed cache after all three tables pass
-full row-count and sample-value readiness checks. During seed, the runner
-exports the source base to `.tea`, uploads it once through the attachment flow,
-and caches the resulting import `notify` payload for execute runs.
+full row-count and sample-value readiness checks. The seed cache restores only
+the PostgreSQL database, not the backend `.assets/uploads` directory, so the
+uploaded import file does not survive into the execute job.
 
 ## Execute Phase
 
-1. Reuse the cached import `notify` payload prepared by the seed phase.
+1. Re-export the seed source base and upload it through the attachment
+   signature/upload/notify flow (outside the primary metric) to produce a fresh
+   import `notify` payload whose file exists on this runner.
 2. Call `POST /api/base/import-stream` with `{ spaceId, notify }` and record
    the stream response time as `importBaseStreamMs`.
 3. Read the SSE response until the `done` event and assert no stream error

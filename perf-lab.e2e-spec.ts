@@ -11,6 +11,10 @@ import {
   setPerfTraceFlush,
   uninstallPerfTraceCollector,
 } from "./framework/trace-collector";
+import {
+  installWatchdogActivityProbe,
+  uninstallWatchdogActivityProbe,
+} from "./framework/watchdog";
 import { axios } from "@teable/openapi";
 
 const specStarted = performance.now();
@@ -129,9 +133,11 @@ const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
 
 const resetAxiosInterceptors = () => {
   uninstallPerfTraceCollector();
+  uninstallWatchdogActivityProbe();
   axios.interceptors.request.clear?.();
   axios.interceptors.response.clear?.();
   installPerfTraceCollector();
+  installWatchdogActivityProbe();
 };
 
 const getOtelForceFlush = () => {

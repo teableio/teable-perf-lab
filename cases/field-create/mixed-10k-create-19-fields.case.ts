@@ -13,6 +13,10 @@ export default definePerfCase({
   title: "Create 19 mixed fields on a 10k-row table",
   runner: "field-create",
   timeoutMs: 900_000,
+  // Idle watchdog: creating one field on a 10k-row table is the longest single
+  // round-trip here, so 5 minutes of total server silence means the create hung
+  // — fail fast with a diagnostic instead of waiting out the 900s case timeout.
+  watchdogMs: 300_000,
   config: {
     baseId: "seed-base",
     tableNamePrefix: "perf-field-create-mixed-10k-19fields",
