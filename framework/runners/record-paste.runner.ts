@@ -1,5 +1,16 @@
-import { FieldKeyType, FieldType } from "@teable/core";
-import { paste } from "@teable/openapi";
+import {
+  CellValueType,
+  DbFieldType,
+  FieldKeyType,
+  FieldType,
+} from "@teable/core";
+import { axios, paste, X_CANARY_HEADER } from "@teable/openapi";
+import type {
+  IPasteSelectionStreamDoneEvent,
+  IPasteSelectionStreamErrorEvent,
+  IPasteSelectionStreamEvent,
+  IPasteSelectionStreamProgressEvent,
+} from "@teable/openapi";
 import {
   createTable,
   getFields,
@@ -14,6 +25,7 @@ import {
   pickRoutingResponseHeaders,
   type EngineRouting,
 } from "../routing";
+import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -34,6 +46,12 @@ type NamedField = {
   name: string;
 };
 
+type PasteHeaderField = Record<string, unknown> & {
+  id: string;
+  name: string;
+  type: string;
+};
+
 type PasteField = RecordPasteCaseConfig["fields"][number] & {
   id: string;
   name: string;
@@ -48,11 +66,19 @@ type PasteFixture = {
   pasteFields: PasteField[];
   projection: string[];
   content: string;
+  seedRowCount: number;
+  seedFieldCount: number;
+  header: PasteHeaderField[];
 };
 
 type PastePrimaryResult = Awaited<ReturnType<typeof paste>> & {
   responseHeaders: ReturnType<typeof pickRoutingResponseHeaders>;
   routing: EngineRouting;
+  stream?: {
+    done: IPasteSelectionStreamDoneEvent;
+    progressEventCount: number;
+    errors: IPasteSelectionStreamErrorEvent[];
+  };
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
@@ -199,6 +225,18 @@ const buildPasteContent = (config: RecordPasteCaseConfig) =>
       .join("\t");
   }).join("\n");
 
+const buildSeedRows = (config: RecordPasteCaseConfig) =>
+  Array.from({ length: config.seedRowCount ?? 0 }, (_, index) => ({
+    fields: Object.fromEntries(
+      config.fields
+        .slice(0, config.seedFieldCount ?? config.fields.length)
+        .map((field) => [
+          field.name,
+          getExpectedCellValue(field, index + 1, config),
+        ]),
+    ),
+  }));
+
 const resolvePasteFields = (
   fields: NamedField[],
   config: RecordPasteCaseConfig,
@@ -325,6 +363,35 @@ const assertPasteResponseRange = (
   }
 };
 
+const getStreamHeaders = (context: PerfRunContext) => ({
+  "Content-Type": "application/json",
+  ...(context.cookie ? { Cookie: context.cookie } : {}),
+  [X_CANARY_HEADER]: context.engine === "v2" ? "true" : "false",
+});
+
+const assertPasteDoneRange = (
+  done: IPasteSelectionStreamDoneEvent,
+  config: RecordPasteCaseConfig,
+  fieldCount: number,
+) => {
+  if (done.data.ranges == null) {
+    return;
+  }
+
+  const expectedRanges = [
+    [0, 0],
+    [fieldCount - 1, config.rowCount - 1],
+  ];
+  const actualRanges = done.data.ranges;
+  if (JSON.stringify(actualRanges) !== JSON.stringify(expectedRanges)) {
+    throw new Error(
+      `Paste stream done range mismatch: expected ${JSON.stringify(
+        expectedRanges,
+      )}, actual ${JSON.stringify(actualRanges)}`,
+    );
+  }
+};
+
 const assertPastedRows = async (
   tableId: string,
   viewId: string,
@@ -389,15 +456,56 @@ const assertPastedRows = async (
   };
 };
 
+const buildSyntheticHeaderField = (
+  field: RecordPasteCaseConfig["fields"][number],
+  index: number,
+): PasteHeaderField => ({
+  id: `fldPerfPaste${String(index + 1).padStart(8, "0")}`,
+  name: field.name,
+  type: field.type,
+  description: undefined,
+  options: field.options ?? {},
+  meta: undefined,
+  aiConfig: undefined,
+  isLookup: undefined,
+  isConditionalLookup: undefined,
+  lookupOptions: undefined,
+  notNull: undefined,
+  unique: undefined,
+  isPrimary: undefined,
+  isComputed: undefined,
+  isPending: undefined,
+  hasError: undefined,
+  cellValueType: CellValueType.String,
+  isMultipleCellValue: undefined,
+  dbFieldType: DbFieldType.Text,
+  dbFieldName: `perf_paste_${String(index + 1).padStart(3, "0")}`,
+  recordRead: undefined,
+  recordCreate: undefined,
+});
+
+const buildPasteHeader = (
+  tableFields: Array<PasteHeaderField & { name: string }>,
+  config: RecordPasteCaseConfig,
+) => {
+  const fieldByName = new Map(tableFields.map((field) => [field.name, field]));
+  return config.fields.map(
+    (field, index) =>
+      fieldByName.get(field.name) ?? buildSyntheticHeaderField(field, index),
+  );
+};
+
 const preparePasteFixture = async (
   baseId: string,
   tableName: string,
   config: RecordPasteCaseConfig,
 ): Promise<PasteFixture> => {
+  const seedFieldCount = config.seedFieldCount ?? config.fields.length;
+  const seedRowCount = config.seedRowCount ?? 0;
   const table = await createTable(baseId, {
     name: tableName,
-    fields: config.fields,
-    records: [],
+    fields: config.fields.slice(0, seedFieldCount),
+    records: seedRowCount > 0 ? buildSeedRows(config) : [],
   });
   const tableFields = await getFields(table.id);
   const views = await getViews(table.id);
@@ -407,8 +515,20 @@ const preparePasteFixture = async (
     throw new Error(`No grid view found for record paste table ${table.id}`);
   }
 
-  const pasteFields = resolvePasteFields(tableFields, config);
-  const projection = pasteFields.map((field) => field.id);
+  const pasteFields = resolvePasteFields(tableFields, {
+    ...config,
+    fields: config.fields.slice(0, seedFieldCount),
+  }).concat(
+    config.fields.slice(seedFieldCount).map((field) => ({
+      ...field,
+      id: field.id ?? "",
+      name: field.name,
+    })),
+  );
+  const projection = pasteFields
+    .slice(0, seedFieldCount)
+    .map((field) => field.id);
+  const header = buildPasteHeader(tableFields as PasteHeaderField[], config);
 
   return {
     tableId: table.id,
@@ -417,7 +537,143 @@ const preparePasteFixture = async (
     pasteFields,
     projection,
     content: buildPasteContent(config),
+    seedRowCount,
+    seedFieldCount,
+    header,
   };
+};
+
+const resolveFinalPasteFields = async (
+  tableId: string,
+  config: RecordPasteCaseConfig,
+) => {
+  const tableFields = await getFields(tableId);
+  const pasteFields = resolvePasteFields(tableFields, config);
+  return {
+    pasteFields,
+    projection: pasteFields.map((field) => field.id),
+  };
+};
+
+const executePaste = async (
+  prepared: PasteFixture,
+  config: RecordPasteCaseConfig,
+  context: PerfRunContext,
+  perfCase: PerfCase,
+): Promise<PastePrimaryResult> => {
+  if (!config.stream) {
+    const response = await paste(prepared.tableId, {
+      viewId: prepared.viewId,
+      projection: prepared.projection,
+      ranges: [
+        [0, 0],
+        [0, 0],
+      ],
+      content: prepared.content,
+    });
+    expect(response.status).toBe(200);
+    assertPasteResponseRange(
+      response.data.ranges,
+      config,
+      config.fields.length,
+    );
+    const responseHeaders = pickRoutingResponseHeaders(
+      response.headers as Record<string, unknown>,
+    );
+    return {
+      ...response,
+      responseHeaders,
+      routing: assertEngineRouting(context, responseHeaders, {
+        operation: "pasteRecords",
+      }),
+    };
+  }
+
+  const sseResult = await perfStreamSse<IPasteSelectionStreamEvent>({
+    context,
+    perfCase,
+    stepId: config.threshold.metric,
+    url: axios.getUri({
+      baseURL: axios.defaults.baseURL || "/api",
+      url: `/table/${prepared.tableId}/selection/paste-stream`,
+    }),
+    method: "PATCH",
+    headers: getStreamHeaders(context),
+    // Per pasteRoSchema (packages/openapi selection/paste): `projection` lists the
+    // field ids already visible at the paste anchor (here the seeded fields only),
+    // while `header` carries the full clipboard column schema the backend uses to
+    // create the missing fields. So a 2-id projection with a 20-field header is the
+    // intended row+field expansion shape, not a mismatch.
+    body: JSON.stringify({
+      viewId: prepared.viewId,
+      projection: prepared.projection,
+      ranges: [
+        [0, 0],
+        [0, 0],
+      ],
+      header: prepared.header,
+      content: prepared.content,
+    }),
+    errorPrefix: "Paste selection stream failed",
+  });
+  const progressEvents = sseResult.events.filter(
+    (event): event is IPasteSelectionStreamProgressEvent =>
+      event.id === "progress",
+  );
+  const errors = sseResult.events.filter(
+    (event): event is IPasteSelectionStreamErrorEvent => event.id === "error",
+  );
+  const done = sseResult.events.find(
+    (event): event is IPasteSelectionStreamDoneEvent => event.id === "done",
+  );
+  if (!done) {
+    throw new Error(
+      errors.at(-1)?.message ?? "Paste selection stream ended without result",
+    );
+  }
+  expect(errors).toHaveLength(0);
+  // totalCount/processedCount are required fields of the shared paste-stream done
+  // schema, so both engines populate them; asserting the full rowCount is safe for
+  // V1 and V2. The updated/created split is only reliable on V2 (legacy V1 reports
+  // it differently), so it is asserted under the engine guard; the post-paste
+  // assertPastedRows full scan carries data correctness for both engines.
+  expect(done.totalCount).toBe(config.rowCount);
+  expect(done.processedCount).toBe(config.rowCount);
+
+  if (context.engine === "v2") {
+    expect(done.data.updatedCount).toBe(
+      Math.min(prepared.seedRowCount, config.rowCount),
+    );
+    expect(done.data.createdCount).toBe(
+      Math.max(config.rowCount - prepared.seedRowCount, 0),
+    );
+  }
+
+  assertPasteDoneRange(done, config, config.fields.length);
+
+  const responseHeaders = pickRoutingResponseHeaders(sseResult.headers);
+  return {
+    status: sseResult.status,
+    data: {
+      ranges: done.data.ranges ?? [
+        [0, 0],
+        [0, 0],
+      ],
+    },
+    headers: sseResult.headers,
+    config: {},
+    statusText: "OK",
+    responseHeaders,
+    routing: assertEngineRouting(context, responseHeaders, {
+      feature: "paste",
+      operation: "pasteRecordsStream",
+    }),
+    stream: {
+      done,
+      progressEventCount: progressEvents.length,
+      errors,
+    },
+  } as PastePrimaryResult;
 };
 
 const buildRecordPasteCaseResult = ({
@@ -437,7 +693,9 @@ const buildRecordPasteCaseResult = ({
 
   return {
     metrics: {
-      ...(pasteMeasurement ? { paste10kMs: pasteMeasurement.durationMs } : {}),
+      ...(pasteMeasurement
+        ? { [config.threshold.metric]: pasteMeasurement.durationMs }
+        : {}),
     },
     thresholds: pasteMeasurement
       ? [
@@ -479,9 +737,13 @@ const buildRecordPasteCaseResult = ({
       prepare: prepared
         ? {
             durationMs: prepareMeasurement.durationMs,
-            tableShape: `empty ${prepared.pasteFields.length}-field table`,
+            tableShape:
+              prepared.seedRowCount > 0 ||
+              prepared.seedFieldCount < config.fields.length
+                ? `${prepared.seedRowCount}-row ${prepared.seedFieldCount}-field table expanded to ${config.rowCount} rows and ${config.fields.length} fields`
+                : `empty ${prepared.pasteFields.length}-field table`,
             contentRows: config.rowCount,
-            contentCells: config.rowCount * prepared.pasteFields.length,
+            contentCells: config.rowCount * config.fields.length,
             maxPasteCells: config.maxPasteCells,
             preparedBeforeMetric: true,
           }
@@ -492,6 +754,7 @@ const buildRecordPasteCaseResult = ({
             ranges: pasteMeasurement.result.data.ranges,
             responseHeaders: pasteMeasurement.result.responseHeaders,
             routing: pasteMeasurement.result.routing,
+            stream: pasteMeasurement.result.stream,
           }
         : undefined,
       routing: pasteMeasurement?.result.routing,
@@ -535,42 +798,22 @@ export const runRecordPasteCase = async (
       pasteMeasurement = await withPerfTraceStep(
         context,
         perfCase,
-        "paste10k",
+        config.threshold.metric,
         () =>
-          measureAsync("paste10k", async () => {
-            const response = await paste(prepared.tableId, {
-              viewId: prepared.viewId,
-              projection: prepared.projection,
-              ranges: [
-                [0, 0],
-                [0, 0],
-              ],
-              content: prepared.content,
-            });
-            expect(response.status).toBe(200);
-            assertPasteResponseRange(
-              response.data.ranges,
-              config,
-              prepared.projection.length,
-            );
-            const responseHeaders = pickRoutingResponseHeaders(
-              response.headers as Record<string, unknown>,
-            );
-            return {
-              ...response,
-              responseHeaders,
-              routing: assertEngineRouting(context, responseHeaders, {
-                operation: "pasteRecords",
-              }),
-            };
-          }),
+          measureAsync(config.threshold.metric, () =>
+            executePaste(prepared, config, context, perfCase),
+          ),
       );
 
+      const finalFields = await resolveFinalPasteFields(
+        prepared.tableId,
+        config,
+      );
       verifiedRows = await assertPastedRows(
         prepared.tableId,
         prepared.viewId,
-        prepared.pasteFields,
-        prepared.projection,
+        finalFields.pasteFields,
+        finalFields.projection,
         config,
       );
     } catch (error) {

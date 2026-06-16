@@ -16,6 +16,9 @@ import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-u
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
+import duplicateBase10k3TablesLink2WorkflowStreamCase from "./cases/duplicate-base/10k-3tables-link-2workflow-stream.case";
+import importBase3x1k3Tables2WorkflowStreamCase from "./cases/import-base/3x1k-3tables-2workflow-stream.case";
+import exportBase10k3TablesLink2WorkflowStreamCase from "./cases/export-base/10k-3tables-link-2workflow-stream.case";
 import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
 import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-records.case";
 import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
@@ -30,13 +33,16 @@ import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mix
 import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
+import recordRead10k50FieldsFilterSortGroupbyOverheadCase from "./cases/record-read/10k-50fields-filter-sort-groupby-overhead.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
+import selectionPaste10kExpandRowsAndFieldsStreamCase from "./cases/selection-paste/10k-expand-rows-and-fields-stream.case";
 import recordReorder10kMoveLast1kToFrontCase from "./cases/record-reorder/10k-move-last-1k-to-front.case";
 import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mixed-1k-20fields-bulk-update.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
+import recordDeleteLinkTrash1kCase from "./cases/record-delete/link-trash-1k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
 import recordUndoDelete1kCase from "./cases/record-undo/delete-1k.case";
 import type { PerfCase } from "./framework/types";
@@ -60,6 +66,9 @@ const cases = [
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
   duplicateBase10k3TablesLink2WorkflowCase,
+  duplicateBase10k3TablesLink2WorkflowStreamCase,
+  importBase3x1k3Tables2WorkflowStreamCase,
+  exportBase10k3TablesLink2WorkflowStreamCase,
   tableCreate10x20FNoRecordsCase,
   tableCreate1x20F1kRecordsCase,
   tableDelete10k20FCase,
@@ -72,7 +81,9 @@ const cases = [
   formSubmitSequential200Case,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   recordDelete1kCase,
+  recordDeleteLinkTrash1kCase,
   recordRead10k50Fields10x1kPagesCase,
+  recordRead10k50FieldsFilterSortGroupbyOverheadCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
@@ -83,6 +94,7 @@ const cases = [
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,
+  selectionPaste10kExpandRowsAndFieldsStreamCase,
 ] satisfies PerfCase[];
 
 const caseById = new Map(cases.map((perfCase) => [perfCase.id, perfCase]));
@@ -134,6 +146,9 @@ const caseAliases = new Map([
   ["duplicate-table/complex", "duplicate-table/10k-25f-5formula"],
   ["duplicate-base", "duplicate-base/10k-3tables-link-2workflow"],
   ["duplicate-base/3tables", "duplicate-base/10k-3tables-link-2workflow"],
+  ["duplicate-base/stream", "duplicate-base/10k-3tables-link-2workflow-stream"],
+  ["import-base/stream", "import-base/3x1k-3tables-2workflow-stream"],
+  ["export-base/stream", "export-base/10k-3tables-link-2workflow-stream"],
   ["table-create", "table-create/10x-20f-no-records"],
   ["table-create/10x", "table-create/10x-20f-no-records"],
   ["table-create/1k-records", "table-create/1x-20f-1k-records"],
@@ -168,10 +183,20 @@ const caseAliases = new Map([
   ["clear/1k-20fields", "selection-clear/flat-1k-20fields-cell-clear-stream"],
   ["record-delete", "record-delete/delete-1k"],
   ["delete/1k", "record-delete/delete-1k"],
+  ["record-delete/link", "record-delete/link-trash-1k"],
+  ["delete/link-trash", "record-delete/link-trash-1k"],
   ["record-read", "record-read/10k-50fields-10x1k-pages"],
   ["get-records", "record-read/10k-50fields-10x1k-pages"],
   ["get-records/10k", "record-read/10k-50fields-10x1k-pages"],
   ["read/10k-50fields", "record-read/10k-50fields-10x1k-pages"],
+  [
+    "record-read/query-overhead",
+    "record-read/10k-50fields-filter-sort-groupby-overhead",
+  ],
+  [
+    "get-records/query-overhead",
+    "record-read/10k-50fields-filter-sort-groupby-overhead",
+  ],
   ["record-create", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k", "record-create/mixed-1k-20fields-bulk-create"],
   ["create/1k-mixed-20fields", "record-create/mixed-1k-20fields-bulk-create"],
@@ -198,6 +223,11 @@ const caseAliases = new Map([
     "record-paste/mixed-10k-20fields-complex-copy-paste",
   ],
   ["paste/10k-complex", "record-paste/mixed-10k-20fields-complex-copy-paste"],
+  [
+    "selection-paste/expand-stream",
+    "selection-paste/10k-expand-rows-and-fields-stream",
+  ],
+  ["paste/expand-stream", "selection-paste/10k-expand-rows-and-fields-stream"],
 ]);
 
 export const listPerfCaseIds = () => cases.map((perfCase) => perfCase.id);

@@ -108,11 +108,13 @@ type ReadPageResult = {
 type ReadPagedScanResult = {
   pages: ReadPageResult[];
   records: Array<{ id: string; fields: Record<string, unknown> }>;
+  query?: Record<string, unknown>;
 };
 
 type ReadPagedScanVerification = {
   scannedRecords: number;
-  expectedRecords: number;
+  expectedRecords?: number;
+  minimumRecords?: number;
   pageSize: number;
   pageCount: number;
   fieldCount: number;
@@ -196,6 +198,19 @@ const assertConfigShape = (config: RecordReadCaseConfig) => {
     throw new Error(
       `record-read permutation multiplier ${config.generator.permutation.multiplier} must be coprime with rowCount=${config.rowCount}`,
     );
+  }
+  if (config.queryVariant?.groupByFieldName) {
+    const groupByFieldName = config.queryVariant.groupByFieldName;
+    if (
+      groupByFieldName !== "Title" &&
+      groupByFieldName !== HOST_LOOKUP_KEY_FIELD_NAME &&
+      !(BASE_NUMBER_FIELDS as readonly string[]).includes(groupByFieldName) &&
+      !getHostTextNames(config).includes(groupByFieldName)
+    ) {
+      throw new Error(
+        `record-read query variant groupBy field must be a stored host field, got ${groupByFieldName}`,
+      );
+    }
   }
 };
 
@@ -1172,6 +1187,7 @@ const readPage = async (
   context: PerfRunContext,
   config: RecordReadCaseConfig,
   skip: number,
+  query: Record<string, unknown> = {},
 ): Promise<ReadPageResult> => {
   const response = await apiGetRecords(fixture.tableId, {
     viewId: fixture.viewId,
@@ -1179,6 +1195,7 @@ const readPage = async (
     projection: fixture.projection,
     skip,
     take: config.pageSize,
+    ...query,
   });
   expect(response.status).toBe(200);
   const responseHeaders = pickResponseHeaders(
@@ -1198,6 +1215,7 @@ const readPagedScan = async (
   fixture: RecordReadFixture,
   context: PerfRunContext,
   config: RecordReadCaseConfig,
+  query: Record<string, unknown> = {},
 ): Promise<ReadPagedScanResult> => {
   const pages: ReadPageResult[] = [];
 
@@ -1206,12 +1224,60 @@ const readPagedScan = async (
     skip < config.rowCount;
     skip += config.pageSize
   ) {
-    pages.push(await readPage(fixture, context, config, skip));
+    pages.push(await readPage(fixture, context, config, skip, query));
   }
 
   return {
     pages,
     records: pages.flatMap((page) => page.records),
+    query,
+  };
+};
+
+const resolveQueryFieldId = (fixture: RecordReadFixture, fieldName: string) => {
+  const fieldId = fixture.fieldIdByName.get(fieldName);
+  if (!fieldId) {
+    throw new Error(
+      `record-read query variant references missing field ${fieldName}`,
+    );
+  }
+  return fieldId;
+};
+
+const buildQueryVariant = (
+  fixture: RecordReadFixture,
+  config: RecordReadCaseConfig,
+): Record<string, unknown> => {
+  const variant = config.queryVariant;
+  if (!variant) {
+    return {};
+  }
+
+  const filterFieldId = resolveQueryFieldId(fixture, variant.filterFieldName);
+  const orderByFieldId = resolveQueryFieldId(fixture, variant.orderByFieldName);
+  const groupByFieldId = resolveQueryFieldId(fixture, variant.groupByFieldName);
+  // Shapes below match getRecordsRoSchema (packages/openapi record/get-list):
+  // `filter` is IFilter { conjunction, filterSet:[{fieldId, operator, value}] },
+  // `orderBy`/`groupBy` are ISortItem[] { fieldId, order }. The client
+  // JSON-stringifies these objects into the query string, so passing objects
+  // (not strings) is correct. `isNotEmpty` is in operatorsExpectingNull, hence
+  // value:null. The return is intentionally a plain record because the e2e
+  // getRecords util is stubbed as `any` under the standalone type check, so this
+  // shape is validated at runtime (per-page routing is asserted in readPage, so
+  // a V2->V1 fallback on queried reads surfaces as a routing failure).
+  return {
+    filter: {
+      conjunction: "and",
+      filterSet: [
+        {
+          fieldId: filterFieldId,
+          operator: "isNotEmpty",
+          value: null,
+        },
+      ],
+    },
+    orderBy: [{ fieldId: orderByFieldId, order: "asc" }],
+    groupBy: [{ fieldId: groupByFieldId, order: "asc" }],
   };
 };
 
@@ -1220,6 +1286,7 @@ const verifyReadPagedScan = (
   config: RecordReadCaseConfig,
   readResult: ReadPagedScanResult,
 ): ReadPagedScanVerification => {
+  const isQueryVariant = Boolean(config.queryVariant);
   const expectedPageCount = config.rowCount / config.pageSize;
   if (readResult.pages.length !== expectedPageCount) {
     throw new Error(
@@ -1234,23 +1301,77 @@ const verifyReadPagedScan = (
         `Expected getRecords page ${pageIndex + 1} skip=${expectedSkip}, got ${page.skip}`,
       );
     }
-    if (page.records.length !== config.pageSize) {
+    if (!isQueryVariant && page.records.length !== config.pageSize) {
       throw new Error(
         `Expected getRecords page ${pageIndex + 1} to return ${config.pageSize} records, got ${page.records.length}`,
       );
     }
   });
 
+  if (isQueryVariant && readResult.records.length === 0) {
+    throw new Error("Query variant returned no records");
+  }
+
+  // The query variant relaxes the per-page full-page check (filter/sort/groupBy
+  // may reshape pagination), so the count check in verifyRecords becomes a
+  // tautology. Guard completeness here instead: every returned row must resolve
+  // to a distinct row number inside [1, rowCount]. This catches duplicated or
+  // out-of-range rows that the per-record field check alone would miss when the
+  // paged groupBy scan overlaps or skips group boundaries.
+  if (isQueryVariant) {
+    const titleField = fixture.fields.find((field) => field.name === "Title");
+    if (!titleField) {
+      throw new Error("record-read projection is missing Title");
+    }
+    const seenRowNumbers = new Set<number>();
+    for (const record of readResult.records) {
+      const rowNumber = parseRowNumberFromTitle(
+        record.fields[titleField.id],
+        config,
+      );
+      if (rowNumber > config.rowCount) {
+        throw new Error(
+          `Query variant returned row ${rowNumber} beyond rowCount ${config.rowCount}`,
+        );
+      }
+      if (seenRowNumbers.has(rowNumber)) {
+        throw new Error(
+          `Query variant returned duplicate row ${rowNumber} across paged scan`,
+        );
+      }
+      seenRowNumbers.add(rowNumber);
+    }
+  }
+
+  const sampleRows = isQueryVariant
+    ? readResult.records
+        .slice(
+          0,
+          Math.min(readResult.records.length, config.verify.sampleRows.length),
+        )
+        .map((record) => {
+          const titleField = fixture.fields.find(
+            (field) => field.name === "Title",
+          );
+          if (!titleField) {
+            throw new Error("record-read projection is missing Title");
+          }
+          return (
+            parseRowNumberFromTitle(record.fields[titleField.id], config) - 1
+          );
+        })
+    : config.verify.sampleRows;
   const verifiedSamples = verifyRecords(
     readResult.records,
     fixture.fields,
     config,
-    config.rowCount,
-    config.verify.sampleRows,
+    isQueryVariant ? readResult.records.length : config.rowCount,
+    sampleRows,
   );
   return {
     scannedRecords: readResult.records.length,
-    expectedRecords: config.rowCount,
+    expectedRecords: isQueryVariant ? undefined : config.rowCount,
+    minimumRecords: isQueryVariant ? 1 : undefined,
     pageSize: config.pageSize,
     pageCount: readResult.pages.length,
     fieldCount: fixture.fields.length,
@@ -1266,6 +1387,8 @@ const buildRecordReadResult = ({
   seedReadyMeasurement,
   readMeasurement,
   verifyMeasurement,
+  baselineMeasurement,
+  baselineVerifyMeasurement,
   error,
 }: {
   config: RecordReadCaseConfig;
@@ -1274,160 +1397,238 @@ const buildRecordReadResult = ({
   seedReadyMeasurement?: Measurement<ProjectionBoundaryVerification>;
   readMeasurement?: Measurement<ReadPagedScanResult>;
   verifyMeasurement?: Measurement<ReadPagedScanVerification>;
+  baselineMeasurement?: Measurement<ReadPagedScanResult>;
+  baselineVerifyMeasurement?: Measurement<ReadPagedScanVerification>;
   error?: unknown;
-}): PerfRunResult => ({
-  metrics: {
-    ...(prepareMeasurement ? { prepareMs: prepareMeasurement.durationMs } : {}),
-    ...(fixture
-      ? {
-          seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
-          seedCacheHit: fixture.seedCacheHit ? 1 : 0,
-          ...(fixture.seedCacheHit
-            ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
-            : fixture.seedCacheInfo.enabled
-              ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
-              : {}),
-          createTablesMs: fixture.createTablesMeasurement.durationMs,
-          seedSourceRecordsMs: fixture.seedSourceMeasurement.durationMs,
-          seedHostRecordsMs: fixture.seedHostMeasurement.durationMs,
-          maxSeedBatchMs: roundMetric(
-            Math.max(
-              ...fixture.sourceBatchDurations,
-              ...fixture.hostBatchDurations,
-            ),
-          ),
-          createFormulaFieldsMs:
-            fixture.createFormulaFieldsMeasurement.durationMs,
-          createLookupFieldsMs:
-            fixture.createLookupFieldsMeasurement.durationMs,
-          computedReadyMs: fixture.computedReadyMeasurement.durationMs,
-        }
-      : {}),
-    ...(seedReadyMeasurement
-      ? { seedReadyMs: seedReadyMeasurement.durationMs }
-      : {}),
-    ...(readMeasurement
-      ? {
-          [config.threshold.metric]: readMeasurement.durationMs,
-          returnedRecords: readMeasurement.result.records.length,
-          requestCount: readMeasurement.result.pages.length,
-          responseStatus: readMeasurement.result.pages.at(-1)?.status ?? 0,
-        }
-      : {}),
-    ...(verifyMeasurement
-      ? { verifyReadPagesMs: verifyMeasurement.durationMs }
-      : {}),
-  },
-  thresholds: readMeasurement
-    ? [
-        {
-          metric: config.threshold.metric,
-          max: getPrimaryThresholdMs(config.threshold.maxMs),
-          unit: "ms",
-        },
-      ]
-    : [],
-  phases: [
-    ...(prepareMeasurement
-      ? [
-          {
-            name: prepareMeasurement.name,
-            durationMs: prepareMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(seedReadyMeasurement
-      ? [
-          {
-            name: seedReadyMeasurement.name,
-            durationMs: seedReadyMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(readMeasurement
-      ? [
-          {
-            name: readMeasurement.name,
-            durationMs: readMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(verifyMeasurement
-      ? [
-          {
-            name: verifyMeasurement.name,
-            durationMs: verifyMeasurement.durationMs,
-          },
-        ]
-      : []),
-  ],
-  details: {
-    operation: "getRecords",
-    sourceTableId: fixture?.sourceTableId,
-    sourceTableName: fixture?.sourceTableName,
-    tableId: fixture?.tableId,
-    tableName: fixture?.tableName,
-    viewId: fixture?.viewId,
-    rowCount: config.rowCount,
-    request: fixture
-      ? {
-          method: "GET",
-          path: `/api/table/${fixture.tableId}/record`,
-          fieldKeyType: "id",
-          firstSkip: config.skip,
-          lastSkip: config.rowCount - config.pageSize,
-          take: config.pageSize,
-          requestCount: config.rowCount / config.pageSize,
-          projectionFieldCount: fixture.projection.length,
-        }
-      : undefined,
-    fields: fixture?.fields,
-    seed: fixture
-      ? {
-          cache: {
-            enabled: fixture.seedCacheInfo.enabled,
-            cacheHit: fixture.seedCacheHit,
-            reusable: fixture.reusableSeed,
-            seedHash: fixture.seedCacheInfo.seedHash,
-            seedHashShort: fixture.seedCacheInfo.seedHashShort,
-            seedNamePrefix: fixture.seedCacheInfo.seedNamePrefix,
-            sourceTableName: fixture.sourceTableName,
-            tableName: fixture.tableName,
-            schemaSignature: fixture.seedCacheInfo.schemaSignature,
-          },
-          sourceBatchCount: fixture.sourceBatchDurations.length,
-          hostBatchCount: fixture.hostBatchDurations.length,
-          computedFullScan: {
-            scannedRecords:
-              fixture.computedReadyMeasurement.result.scannedRecords,
-            pageSize: fixture.computedReadyMeasurement.result.pageSize,
-            pageCount: fixture.computedReadyMeasurement.result.pageCount,
-          },
-          readyBoundary: seedReadyMeasurement?.result
-            ? {
-                checkedRecords: seedReadyMeasurement.result.checkedRecords,
-                expectedRecords: seedReadyMeasurement.result.expectedRecords,
-                firstRowNumber: seedReadyMeasurement.result.firstRowNumber,
-                lastRowNumber: seedReadyMeasurement.result.lastRowNumber,
-                beyondLastCount: seedReadyMeasurement.result.beyondLastCount,
-              }
-            : undefined,
-        }
-      : undefined,
-    responseHeaders: readMeasurement?.result.pages.map(
-      (page) => page.responseHeaders,
-    ),
-    routing: readMeasurement?.result.pages.map((page) => page.routing),
-    readPages: verifyMeasurement?.result,
-    error:
-      error instanceof Error
+}): PerfRunResult => {
+  const isOverheadCase = Boolean(config.queryVariant);
+  const overheadMs =
+    readMeasurement && baselineMeasurement
+      ? roundMetric(readMeasurement.durationMs - baselineMeasurement.durationMs)
+      : undefined;
+  // The threshold-participating overhead is clamped at 0: when the query variant
+  // runs at or below the baseline, overhead is effectively zero, so a negative
+  // raw delta should not silently satisfy the threshold (every negative value is
+  // <= maxMs and would pass without measuring anything). The signed delta is kept
+  // as the diagnostic getRecordsFilterSortGroupByOverheadSignedMs below, and the
+  // raw baseline/query durations remain reported for full reconstruction.
+  const primaryMetricValue =
+    isOverheadCase && overheadMs != null
+      ? Math.max(overheadMs, 0)
+      : readMeasurement?.durationMs;
+
+  return {
+    metrics: {
+      ...(prepareMeasurement
+        ? { prepareMs: prepareMeasurement.durationMs }
+        : {}),
+      ...(fixture
         ? {
-            name: error.name,
-            message: error.message,
+            seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+            seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+            ...(fixture.seedCacheHit
+              ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
+              : fixture.seedCacheInfo.enabled
+                ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
+                : {}),
+            createTablesMs: fixture.createTablesMeasurement.durationMs,
+            seedSourceRecordsMs: fixture.seedSourceMeasurement.durationMs,
+            seedHostRecordsMs: fixture.seedHostMeasurement.durationMs,
+            maxSeedBatchMs: roundMetric(
+              Math.max(
+                ...fixture.sourceBatchDurations,
+                ...fixture.hostBatchDurations,
+              ),
+            ),
+            createFormulaFieldsMs:
+              fixture.createFormulaFieldsMeasurement.durationMs,
+            createLookupFieldsMs:
+              fixture.createLookupFieldsMeasurement.durationMs,
+            computedReadyMs: fixture.computedReadyMeasurement.durationMs,
+          }
+        : {}),
+      ...(seedReadyMeasurement
+        ? { seedReadyMs: seedReadyMeasurement.durationMs }
+        : {}),
+      ...(baselineMeasurement
+        ? {
+            getRecordsBaselinePagedScanMs: baselineMeasurement.durationMs,
+            baselineReturnedRecords: baselineMeasurement.result.records.length,
+            baselineRequestCount: baselineMeasurement.result.pages.length,
+          }
+        : {}),
+      ...(readMeasurement
+        ? {
+            ...(primaryMetricValue != null
+              ? { [config.threshold.metric]: primaryMetricValue }
+              : {}),
+            getRecordsQueryPagedScanMs: readMeasurement.durationMs,
+            returnedRecords: readMeasurement.result.records.length,
+            requestCount: readMeasurement.result.pages.length,
+            responseStatus: readMeasurement.result.pages.at(-1)?.status ?? 0,
+            ...(baselineMeasurement && overheadMs != null
+              ? {
+                  getRecordsFilterSortGroupByOverheadSignedMs: overheadMs,
+                  getRecordsFilterSortGroupByOverheadRatio: roundMetric(
+                    readMeasurement.durationMs /
+                      Math.max(baselineMeasurement.durationMs, 1),
+                  ),
+                }
+              : {}),
+          }
+        : {}),
+      ...(verifyMeasurement
+        ? { verifyReadPagesMs: verifyMeasurement.durationMs }
+        : {}),
+      ...(baselineVerifyMeasurement
+        ? { verifyBaselineReadPagesMs: baselineVerifyMeasurement.durationMs }
+        : {}),
+    },
+    thresholds:
+      primaryMetricValue != null
+        ? [
+            {
+              metric: config.threshold.metric,
+              max: getPrimaryThresholdMs(config.threshold.maxMs),
+              unit: "ms",
+            },
+          ]
+        : [],
+    phases: [
+      ...(prepareMeasurement
+        ? [
+            {
+              name: prepareMeasurement.name,
+              durationMs: prepareMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(seedReadyMeasurement
+        ? [
+            {
+              name: seedReadyMeasurement.name,
+              durationMs: seedReadyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(baselineMeasurement
+        ? [
+            {
+              name: baselineMeasurement.name,
+              durationMs: baselineMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(readMeasurement
+        ? [
+            {
+              name: readMeasurement.name,
+              durationMs: readMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(baselineVerifyMeasurement
+        ? [
+            {
+              name: baselineVerifyMeasurement.name,
+              durationMs: baselineVerifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(verifyMeasurement
+        ? [
+            {
+              name: verifyMeasurement.name,
+              durationMs: verifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+    ],
+    details: {
+      operation: "getRecords",
+      sourceTableId: fixture?.sourceTableId,
+      sourceTableName: fixture?.sourceTableName,
+      tableId: fixture?.tableId,
+      tableName: fixture?.tableName,
+      viewId: fixture?.viewId,
+      rowCount: config.rowCount,
+      request: fixture
+        ? {
+            method: "GET",
+            path: `/api/table/${fixture.tableId}/record`,
+            fieldKeyType: "id",
+            firstSkip: config.skip,
+            lastSkip: config.rowCount - config.pageSize,
+            take: config.pageSize,
+            requestCount: config.rowCount / config.pageSize,
+            projectionFieldCount: fixture.projection.length,
           }
         : undefined,
-  },
-});
+      fields: fixture?.fields,
+      seed: fixture
+        ? {
+            cache: {
+              enabled: fixture.seedCacheInfo.enabled,
+              cacheHit: fixture.seedCacheHit,
+              reusable: fixture.reusableSeed,
+              seedHash: fixture.seedCacheInfo.seedHash,
+              seedHashShort: fixture.seedCacheInfo.seedHashShort,
+              seedNamePrefix: fixture.seedCacheInfo.seedNamePrefix,
+              sourceTableName: fixture.sourceTableName,
+              tableName: fixture.tableName,
+              schemaSignature: fixture.seedCacheInfo.schemaSignature,
+            },
+            sourceBatchCount: fixture.sourceBatchDurations.length,
+            hostBatchCount: fixture.hostBatchDurations.length,
+            computedFullScan: {
+              scannedRecords:
+                fixture.computedReadyMeasurement.result.scannedRecords,
+              pageSize: fixture.computedReadyMeasurement.result.pageSize,
+              pageCount: fixture.computedReadyMeasurement.result.pageCount,
+            },
+            readyBoundary: seedReadyMeasurement?.result
+              ? {
+                  checkedRecords: seedReadyMeasurement.result.checkedRecords,
+                  expectedRecords: seedReadyMeasurement.result.expectedRecords,
+                  firstRowNumber: seedReadyMeasurement.result.firstRowNumber,
+                  lastRowNumber: seedReadyMeasurement.result.lastRowNumber,
+                  beyondLastCount: seedReadyMeasurement.result.beyondLastCount,
+                }
+              : undefined,
+          }
+        : undefined,
+      queryVariant: config.queryVariant
+        ? {
+            config: config.queryVariant,
+            query: readMeasurement?.result.query,
+            baselineMs: baselineMeasurement?.durationMs,
+            queryMs: readMeasurement?.durationMs,
+            overheadMs,
+            overheadRatio:
+              readMeasurement && baselineMeasurement
+                ? roundMetric(
+                    readMeasurement.durationMs /
+                      Math.max(baselineMeasurement.durationMs, 1),
+                  )
+                : undefined,
+          }
+        : undefined,
+      responseHeaders: readMeasurement?.result.pages.map(
+        (page) => page.responseHeaders,
+      ),
+      routing: readMeasurement?.result.pages.map((page) => page.routing),
+      baselineReadPages: baselineVerifyMeasurement?.result,
+      readPages: verifyMeasurement?.result,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : undefined,
+    },
+  };
+};
 
 export const runRecordReadCase = async (
   perfCase: PerfCase,
@@ -1439,6 +1640,10 @@ export const runRecordReadCase = async (
   let prepareMeasurement: Measurement<RecordReadFixture> | undefined;
   let seedReadyMeasurement:
     | Measurement<ProjectionBoundaryVerification>
+    | undefined;
+  let baselineMeasurement: Measurement<ReadPagedScanResult> | undefined;
+  let baselineVerifyMeasurement:
+    | Measurement<ReadPagedScanVerification>
     | undefined;
   let readMeasurement: Measurement<ReadPagedScanResult> | undefined;
   let verifyMeasurement: Measurement<ReadPagedScanVerification> | undefined;
@@ -1453,13 +1658,41 @@ export const runRecordReadCase = async (
     );
 
     try {
+      if (config.queryVariant) {
+        baselineMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          "getRecordsBaselinePagedScan",
+          () =>
+            measureAsync("getRecordsBaselinePagedScan", () =>
+              readPagedScan(fixture!, context, config),
+            ),
+        );
+        baselineVerifyMeasurement = await measureAsync(
+          "verifyBaselineReadPages",
+          () =>
+            Promise.resolve(
+              verifyReadPagedScan(
+                fixture!,
+                config,
+                baselineMeasurement!.result,
+              ),
+            ),
+        );
+      }
+
       readMeasurement = await withPerfTraceStep(
         context,
         perfCase,
         config.threshold.metric,
         () =>
           measureAsync(config.threshold.metric, () =>
-            readPagedScan(fixture!, context, config),
+            readPagedScan(
+              fixture!,
+              context,
+              config,
+              buildQueryVariant(fixture!, config),
+            ),
           ),
       );
       verifyMeasurement = await measureAsync("verifyReadPages", () =>
@@ -1477,6 +1710,8 @@ export const runRecordReadCase = async (
           seedReadyMeasurement,
           readMeasurement,
           verifyMeasurement,
+          baselineMeasurement,
+          baselineVerifyMeasurement,
           error,
         }),
       );
@@ -1489,6 +1724,8 @@ export const runRecordReadCase = async (
       seedReadyMeasurement,
       readMeasurement,
       verifyMeasurement,
+      baselineMeasurement,
+      baselineVerifyMeasurement,
     });
   } finally {
     if (fixture && !fixture.reusableSeed && !isExecuteDbIsolated()) {
