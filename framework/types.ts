@@ -530,10 +530,17 @@ export interface DuplicateBaseCaseConfig {
 export interface ImportBaseCaseConfig {
   spaceId: "seed-space";
   sourceBaseNamePrefix: string;
+  teaFile?: {
+    path: string;
+    fileName: string;
+    contentType?: string;
+  };
   tables: Array<{
     name: string;
     rowCount: number;
     batchSize: number;
+    expectedFieldCount?: number;
+    expectedViewCount?: number;
     generator: {
       titlePrefix: string;
       payloadPrefix: string;
@@ -549,9 +556,12 @@ export interface ImportBaseCaseConfig {
     fullScanPageSize?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;
+    mode?: "generated-records" | "structure-only";
+    expectedTableCount?: number;
+    expectedAppCount?: number;
   };
   threshold: {
-    metric: "importBaseStreamMs" | "importBaseTotalReadyMs";
+    metric: "importBaseStreamMs";
     maxMs: number;
   };
 }

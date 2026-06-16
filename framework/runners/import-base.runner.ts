@@ -1,4 +1,5 @@
 import { FieldKeyType, FieldType } from "@teable/core";
+import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import {
   axios,
@@ -41,8 +42,10 @@ import type {
 } from "../types";
 import type { Measurement } from "./record-undo-redo.shared";
 
-const IMPORT_BASE_FIXTURE_VERSION = "import-base-v1";
+const IMPORT_BASE_FIXTURE_VERSION = "import-base-v2-only-v2";
 const IMPORT_BASE_METADATA_PREFIX = "perf-lab-import-base:";
+const IMPORT_BASE_SKIPPED_REASON =
+  "import-base is V2-only because the legacy V1 import path is no longer maintained and can report stream done before all imported table data is ready.";
 
 const TITLE_FIELD = "Title";
 const EXTERNAL_ID_FIELD = "External ID";
@@ -63,9 +66,11 @@ type ImportBaseFixture = {
   baseName: string;
   tables: TableRef[];
   workflowCount: number;
-  seedCacheInfo: SeedCacheInfo;
+  seedCacheInfo?: SeedCacheInfo;
   seedCacheHit: boolean;
   reusableSeed: boolean;
+  source: "generated" | "tea-file";
+  cachedNotifyInfo?: ImportNotifyInfo;
 };
 
 type BaseStreamProgressEvent = {
@@ -122,9 +127,19 @@ type WorkflowVerification = {
   expectedCount: number;
 };
 
+type BaseNodeVerification = {
+  available: boolean;
+  expectedAppCount?: number;
+  appCount?: number;
+  expectedWorkflowCount?: number;
+  workflowCount?: number;
+};
+
 type TableScanResult = {
   tableId: string;
   name: string;
+  fieldCount?: number;
+  viewCount?: number;
   scannedRecords: number;
   pageCount: number;
   samples: Array<{
@@ -144,12 +159,28 @@ type ImportedBaseVerification = {
     importedTables: TableScanResult[];
   };
   workflows: WorkflowVerification;
+  baseNodes?: BaseNodeVerification;
 };
 
 type ImportNotifyInfo = {
   notify: unknown;
   bytes: number;
   contentType: string;
+  cacheHit?: boolean;
+  source?: "export" | "export-cache" | "tea-file-upload" | "tea-file-cache";
+};
+
+type CachedImportNotify = {
+  fixtureVersion: string;
+  source: "export" | "tea-file";
+  bytes: number;
+  contentType: string;
+  notify: unknown;
+  teaFilePath?: string;
+  fileName?: string;
+  tableRowCounts?: number[];
+  requestedWorkflowCount?: number;
+  workflowCount?: number;
 };
 
 type ImportBasePrimaryResult = {
@@ -196,11 +227,11 @@ const getStreamHeaders = (context: PerfRunContext) => ({
   [X_CANARY_HEADER]: context.engine === "v2" ? "true" : "false",
 });
 
-const getEffectiveThresholdMetric = (
-  config: ImportBaseCaseConfig,
-  context?: PerfRunContext,
-) =>
-  context?.engine === "v1" ? "importBaseTotalReadyMs" : config.threshold.metric;
+const getEffectiveThresholdMetric = (config: ImportBaseCaseConfig) =>
+  config.threshold.metric;
+
+const isTeaFileImportCase = (config: ImportBaseCaseConfig) =>
+  Boolean(config.teaFile);
 
 const expectedTitle = (rowNumber: number, tableConfig: ImportBaseTableConfig) =>
   `${tableConfig.generator.titlePrefix} ${padRowNumber(rowNumber)}`;
@@ -236,12 +267,6 @@ const buildTableRef = async (
   const fieldIdByName: Record<string, string> = {};
   for (const field of fields) {
     fieldIdByName[field.name] = field.id;
-  }
-
-  for (const fieldName of [TITLE_FIELD, EXTERNAL_ID_FIELD]) {
-    if (!fieldIdByName[fieldName]) {
-      throw new Error(`Table ${tableName} is missing field ${fieldName}`);
-    }
   }
 
   const views = await getViews(tableId);
@@ -430,6 +455,52 @@ const verifyWorkflows = async (
   return { available: true, totalCount, prefixMatchCount, expectedCount };
 };
 
+const verifyBaseNodes = async (
+  baseId: string,
+  config: ImportBaseCaseConfig,
+): Promise<BaseNodeVerification> => {
+  try {
+    const response = await axios.get(`/base/${baseId}/node/list`);
+    const nodes = Array.isArray(response.data)
+      ? (response.data as Array<{ resourceType?: string }>)
+      : [];
+    const appCount = nodes.filter((node) => node.resourceType === "app").length;
+    const workflowCount = nodes.filter(
+      (node) => node.resourceType === "workflow",
+    ).length;
+
+    if (
+      config.verify.expectedAppCount != null &&
+      appCount !== config.verify.expectedAppCount
+    ) {
+      throw new Error(
+        `Expected ${config.verify.expectedAppCount} app nodes in base ${baseId}, found ${appCount}`,
+      );
+    }
+
+    return {
+      available: true,
+      expectedAppCount: config.verify.expectedAppCount,
+      appCount,
+      expectedWorkflowCount: config.workflows.count,
+      workflowCount,
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes("Expected") &&
+      error.message.includes("app nodes")
+    ) {
+      throw error;
+    }
+    return {
+      available: false,
+      expectedAppCount: config.verify.expectedAppCount,
+      expectedWorkflowCount: config.workflows.count,
+    };
+  }
+};
+
 const parseMetadata = (description: string | null | undefined) => {
   if (!description?.startsWith(IMPORT_BASE_METADATA_PREFIX)) {
     return;
@@ -451,9 +522,24 @@ const persistMetadata = async (
   });
 };
 
+const parseCachedImportNotify = (
+  description: string | null | undefined,
+): CachedImportNotify | undefined => {
+  const metadata = parseMetadata(description) as CachedImportNotify | undefined;
+  if (
+    metadata?.fixtureVersion !== IMPORT_BASE_FIXTURE_VERSION ||
+    !metadata.source ||
+    !metadata.notify
+  ) {
+    return;
+  }
+  return metadata;
+};
+
 const getSeedConfig = (config: ImportBaseCaseConfig) => ({
   spaceId: config.spaceId,
   sourceBaseNamePrefix: config.sourceBaseNamePrefix,
+  teaFile: config.teaFile,
   tables: config.tables,
   fields: tableFields(),
   workflows: config.workflows,
@@ -475,6 +561,83 @@ const assertSourceBaseReady = async (
   }
 
   return { tables: tableResults };
+};
+
+const assertTeaFileFixtureReady = async (
+  fixture: Pick<ImportBaseFixture, "cachedNotifyInfo">,
+) => {
+  if (!fixture.cachedNotifyInfo?.notify) {
+    throw new Error("Cached tea file import notify is missing");
+  }
+  return {
+    cachedNotify: {
+      bytes: fixture.cachedNotifyInfo.bytes,
+      contentType: fixture.cachedNotifyInfo.contentType,
+      cacheHit: Boolean(fixture.cachedNotifyInfo.cacheHit),
+      source: fixture.cachedNotifyInfo.source,
+    },
+  };
+};
+
+const assertImportedStructure = async (
+  importedBaseId: string,
+  config: ImportBaseCaseConfig,
+) => {
+  const tableList = (await getTableList(importedBaseId)).data as Array<{
+    id: string;
+    name: string;
+  }>;
+
+  if (
+    config.verify.expectedTableCount != null &&
+    tableList.length !== config.verify.expectedTableCount
+  ) {
+    throw new Error(
+      `Expected ${config.verify.expectedTableCount} imported tables, found ${tableList.length}`,
+    );
+  }
+
+  const tables = await resolveTables(importedBaseId, config);
+  const tableResults = [];
+  for (const [index, tableConfig] of config.tables.entries()) {
+    const tableRef = tables[index];
+    if (!tableRef) {
+      throw new Error(`Imported base is missing table ${tableConfig.name}`);
+    }
+
+    const table = await getTable(importedBaseId, tableRef.id);
+    const fields = await getFields(tableRef.id);
+    const views = await getViews(tableRef.id);
+    if (
+      tableConfig.expectedFieldCount != null &&
+      fields.length !== tableConfig.expectedFieldCount
+    ) {
+      throw new Error(
+        `${tableConfig.name} field count mismatch: expected ${tableConfig.expectedFieldCount}, actual ${fields.length}`,
+      );
+    }
+    if (
+      tableConfig.expectedViewCount != null &&
+      views.length !== tableConfig.expectedViewCount
+    ) {
+      throw new Error(
+        `${tableConfig.name} view count mismatch: expected ${tableConfig.expectedViewCount}, actual ${views.length}`,
+      );
+    }
+
+    tableResults.push({
+      tableId: tableRef.id,
+      name: tableRef.name,
+      fieldCount: fields.length,
+      viewCount: views.length,
+      scannedRecords: 0,
+      pageCount: 0,
+      samples: [],
+      descriptionPresent: Boolean(table.description),
+    });
+  }
+
+  return tableResults;
 };
 
 const seedTable = async (
@@ -568,6 +731,16 @@ const prepareImportBaseFixture = async (
         seedCacheInfo,
         seedCacheHit: true,
         reusableSeed: true,
+        source: "generated",
+        cachedNotifyInfo: metadata.notify
+          ? {
+              notify: metadata.notify,
+              bytes: Number(metadata.bytes ?? 0),
+              contentType: String(metadata.contentType ?? "application/zip"),
+              cacheHit: true,
+              source: "export-cache",
+            }
+          : undefined,
       };
       await assertSourceBaseReady(fixture, config);
       return fixture;
@@ -623,6 +796,7 @@ const prepareImportBaseFixture = async (
       seedCacheInfo,
       seedCacheHit: false,
       reusableSeed: seedCacheInfo.enabled,
+      source: "generated",
     };
     await assertSourceBaseReady(fixture, config);
     return fixture;
@@ -633,6 +807,119 @@ const prepareImportBaseFixture = async (
       } catch (cleanupError) {
         console.warn(
           `Failed to cleanup incomplete import base seed ${createdBaseId}`,
+          cleanupError,
+        );
+      }
+    }
+    throw error;
+  }
+};
+
+const prepareTeaFileImportFixture = async (
+  spaceId: string,
+  config: ImportBaseCaseConfig,
+  perfCase: PerfCase,
+): Promise<ImportBaseFixture> => {
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase,
+    runner: "import-base",
+    fixtureVersion: IMPORT_BASE_FIXTURE_VERSION,
+    seedConfig: getSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+
+  const cachedBase =
+    seedCacheInfo.enabled &&
+    (await findCachedSourceBase(spaceId, seedCacheInfo.seedTableName));
+
+  if (cachedBase) {
+    try {
+      const tableList = (await getTableList(cachedBase.id)).data as Array<{
+        id: string;
+        name: string;
+      }>;
+      const metadataTable = tableList[0];
+      if (!metadataTable) {
+        throw new Error("Cached tea file import base has no metadata table");
+      }
+      const metadata = parseCachedImportNotify(
+        (await getTable(cachedBase.id, metadataTable.id)).description,
+      );
+      if (
+        !metadata ||
+        metadata.source !== "tea-file" ||
+        metadata.teaFilePath !== config.teaFile?.path ||
+        metadata.fileName !== config.teaFile.fileName
+      ) {
+        throw new Error("Cached tea file import metadata mismatch");
+      }
+
+      return createTeaFileFixture(
+        config,
+        seedCacheInfo,
+        {
+          notify: metadata.notify,
+          bytes: metadata.bytes,
+          contentType: metadata.contentType,
+          cacheHit: true,
+          source: "tea-file-cache",
+        },
+        { id: cachedBase.id, name: cachedBase.name },
+        true,
+      );
+    } catch (error) {
+      console.warn(
+        `Invalid cached tea file import seed ${seedCacheInfo.seedTableName}; rebuilding`,
+        error,
+      );
+      try {
+        await permanentDeleteBase(cachedBase.id);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to delete stale tea file import seed ${cachedBase.id}`,
+          cleanupError,
+        );
+      }
+    }
+  }
+
+  const baseName = seedCacheInfo.enabled
+    ? seedCacheInfo.seedTableName
+    : `${config.sourceBaseNamePrefix}-tea-cache-${Date.now()}`;
+  let createdBaseId = "";
+
+  try {
+    const baseResponse = await createBase({ spaceId, name: baseName });
+    expect([200, 201]).toContain(baseResponse.status);
+    createdBaseId = baseResponse.data.id;
+
+    const metadataTable = await createTable(createdBaseId, {
+      name: "Import Tea File Cache",
+      fields: [{ name: TITLE_FIELD, type: FieldType.SingleLineText }],
+      records: [],
+    });
+    const notifyInfo = await buildImportNotifyFromTeaFile(config, {
+      baseId: createdBaseId,
+      tableId: metadataTable.id,
+    });
+
+    return createTeaFileFixture(
+      config,
+      seedCacheInfo,
+      notifyInfo,
+      { id: createdBaseId, name: baseName },
+      false,
+    );
+  } catch (error) {
+    if (createdBaseId) {
+      try {
+        await permanentDeleteBase(createdBaseId);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup incomplete tea file import seed ${createdBaseId}`,
           cleanupError,
         );
       }
@@ -655,21 +942,30 @@ const verifyImportedBase = async (
   while (Date.now() - startedAt <= timeoutMs) {
     attempts += 1;
     try {
-      const tables = await resolveTables(importedBaseId, config);
-      const tableResults = [];
-      for (const [index, tableConfig] of config.tables.entries()) {
-        const tableRef = tables[index];
-        if (!tableRef) {
-          throw new Error(`Imported base is missing table ${tableConfig.name}`);
-        }
-        tableResults.push(await scanTable(tableRef, tableConfig, config));
-      }
+      const tableResults =
+        config.verify.mode === "structure-only"
+          ? await assertImportedStructure(importedBaseId, config)
+          : await (async () => {
+              const tables = await resolveTables(importedBaseId, config);
+              const results = [];
+              for (const [index, tableConfig] of config.tables.entries()) {
+                const tableRef = tables[index];
+                if (!tableRef) {
+                  throw new Error(
+                    `Imported base is missing table ${tableConfig.name}`,
+                  );
+                }
+                results.push(await scanTable(tableRef, tableConfig, config));
+              }
+              return results;
+            })();
 
       const workflows = await verifyWorkflows(
         importedBaseId,
         fixture.workflowCount,
         config.workflows.namePrefix,
       );
+      const baseNodes = await verifyBaseNodes(importedBaseId, config);
 
       return {
         attempts,
@@ -679,6 +975,7 @@ const verifyImportedBase = async (
           importedTables: tableResults,
         },
         workflows,
+        baseNodes,
       };
     } catch (error) {
       lastError = error;
@@ -782,8 +1079,127 @@ const buildImportNotifyFromExport = async (
     notify: notifyResponse.data,
     bytes: buffer.length,
     contentType,
+    cacheHit: false,
+    source: "export",
   };
 };
+
+const buildImportNotifyFromTeaFile = async (
+  config: ImportBaseCaseConfig,
+  persist?: {
+    baseId: string;
+    tableId: string;
+  },
+): Promise<ImportNotifyInfo> => {
+  const teaFile = config.teaFile;
+  if (!teaFile) {
+    throw new Error("Import base teaFile config is required");
+  }
+
+  const fileUrl = new URL(`../../${teaFile.path}`, import.meta.url);
+  const buffer = await readFile(fileUrl);
+  const contentType = teaFile.contentType ?? "application/zip";
+  const signature = await getSignature({
+    contentType,
+    contentLength: buffer.length,
+    type: UploadType.Import,
+  });
+  expect([200, 201]).toContain(signature.status);
+  await uploadFile(
+    signature.data.token,
+    buffer,
+    signature.data.requestHeaders as Record<string, unknown>,
+  );
+  const notifyResponse = await notify(
+    signature.data.token,
+    undefined,
+    teaFile.fileName,
+  );
+  expect([200, 201]).toContain(notifyResponse.status);
+
+  const notifyInfo: ImportNotifyInfo = {
+    notify: notifyResponse.data,
+    bytes: buffer.length,
+    contentType,
+    cacheHit: false,
+    source: "tea-file-upload",
+  };
+
+  if (persist) {
+    await persistMetadata(persist.baseId, persist.tableId, {
+      fixtureVersion: IMPORT_BASE_FIXTURE_VERSION,
+      source: "tea-file",
+      teaFilePath: teaFile.path,
+      fileName: teaFile.fileName,
+      bytes: buffer.length,
+      contentType,
+      notify: notifyResponse.data,
+    });
+  }
+
+  return notifyInfo;
+};
+
+const cacheGeneratedImportNotify = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  fixture: ImportBaseFixture,
+  config: ImportBaseCaseConfig,
+): Promise<{
+  exportMeasurement: Measurement<unknown>;
+  uploadMeasurement: Measurement<ImportNotifyInfo>;
+}> => {
+  if (!fixture.tables[0]?.id) {
+    throw new Error("Generated import base fixture is missing metadata table");
+  }
+
+  const exportSetup = await exportBaseStream(context, perfCase, fixture);
+  const uploadMeasurement = await measureAsync("prepareImportUpload", () =>
+    buildImportNotifyFromExport(context, exportSetup.exportResult),
+  );
+  await persistMetadata(fixture.baseId, fixture.tables[0].id, {
+    fixtureVersion: IMPORT_BASE_FIXTURE_VERSION,
+    tableRowCounts: config.tables.map((table) => table.rowCount),
+    requestedWorkflowCount: config.workflows.count,
+    workflowCount: fixture.workflowCount,
+    source: "export",
+    notify: uploadMeasurement.result.notify,
+    bytes: uploadMeasurement.result.bytes,
+    contentType: uploadMeasurement.result.contentType,
+  });
+  fixture.cachedNotifyInfo = {
+    ...uploadMeasurement.result,
+    cacheHit: false,
+    source: "export",
+  };
+
+  return {
+    exportMeasurement: exportSetup.measurement,
+    uploadMeasurement,
+  };
+};
+
+const createTeaFileFixture = (
+  config: ImportBaseCaseConfig,
+  seedCacheInfo?: SeedCacheInfo,
+  cachedNotifyInfo?: ImportNotifyInfo,
+  base?: {
+    id: string;
+    name: string;
+  },
+  seedCacheHit = false,
+): ImportBaseFixture => ({
+  baseId: base?.id ?? "",
+  baseName:
+    base?.name ?? config.teaFile?.fileName ?? config.sourceBaseNamePrefix,
+  tables: [],
+  workflowCount: config.workflows.count,
+  seedCacheInfo,
+  seedCacheHit,
+  reusableSeed: Boolean(seedCacheInfo?.enabled),
+  source: "tea-file",
+  cachedNotifyInfo,
+});
 
 const importBaseStream = async ({
   context,
@@ -801,14 +1217,14 @@ const importBaseStream = async ({
   fixture: ImportBaseFixture;
   config: ImportBaseCaseConfig;
   notifyInfo: ImportNotifyInfo;
-  exportMeasurement: Measurement<unknown>;
+  exportMeasurement?: Measurement<unknown>;
   uploadMeasurement: Measurement<ImportNotifyInfo>;
 }): Promise<ImportBasePrimaryResult> => {
   const streamMeasurement = await measureAsync("importBaseStream", () =>
     perfStreamSse<ImportBaseStreamEvent>({
       context,
       perfCase,
-      stepId: getEffectiveThresholdMetric(config, context),
+      stepId: getEffectiveThresholdMetric(config),
       url: `${axios.defaults.baseURL || "/api"}/base/import-stream`,
       method: "POST",
       headers: getStreamHeaders(context),
@@ -848,7 +1264,7 @@ const importBaseStream = async ({
     progressEventCount: progressEvents.length,
     doneEvent: {
       ...done,
-      preparedExportMs: exportMeasurement.durationMs,
+      preparedExportMs: exportMeasurement?.durationMs ?? 0,
       uploadMs: uploadMeasurement.durationMs,
       uploadedBytes: notifyInfo.bytes,
     },
@@ -875,7 +1291,7 @@ const measureImportBaseReady = async ({
   fixture: ImportBaseFixture;
   config: ImportBaseCaseConfig;
   notifyInfo: ImportNotifyInfo;
-  exportMeasurement: Measurement<unknown>;
+  exportMeasurement?: Measurement<unknown>;
   uploadMeasurement: Measurement<ImportNotifyInfo>;
 }): Promise<Measurement<ImportBasePrimaryResult>> => {
   const startedAt = performance.now();
@@ -934,9 +1350,7 @@ const buildImportBaseResult = ({
   context?: PerfRunContext;
   config: ImportBaseCaseConfig;
   prepareMeasurement?: Measurement<ImportBaseFixture>;
-  seedReadyMeasurement?: Measurement<
-    Awaited<ReturnType<typeof assertSourceBaseReady>>
-  >;
+  seedReadyMeasurement?: Measurement<unknown>;
   exportMeasurement?: Measurement<unknown>;
   uploadMeasurement?: Measurement<ImportNotifyInfo>;
   primaryMeasurement?: Measurement<ImportBasePrimaryResult>;
@@ -944,8 +1358,7 @@ const buildImportBaseResult = ({
 }): PerfRunResult => {
   const fixture = prepareMeasurement?.result;
   const primaryResult = primaryMeasurement?.result;
-  const primaryMetric = getEffectiveThresholdMetric(config, context);
-  const isTotalReadyMetric = primaryMetric === "importBaseTotalReadyMs";
+  const primaryMetric = getEffectiveThresholdMetric(config);
   const fullScanReadyMs =
     primaryMeasurement && primaryResult?.verification
       ? roundMetric(primaryMeasurement.durationMs - primaryResult.requestMs)
@@ -977,20 +1390,17 @@ const buildImportBaseResult = ({
         ? {
             prepareImportUploadMs: uploadMeasurement.durationMs,
             uploadedBytes: uploadMeasurement.result.bytes,
+            importNotifyCacheHit: uploadMeasurement.result.cacheHit ? 1 : 0,
           }
         : {}),
       ...(primaryMeasurement
         ? {
-            [primaryMetric]: isTotalReadyMetric
-              ? primaryMeasurement.durationMs
-              : (primaryResult?.requestMs ?? 0),
-            ...(isTotalReadyMetric && primaryResult
-              ? { importBaseStreamMs: primaryResult.requestMs }
-              : {}),
+            [primaryMetric]: primaryResult?.requestMs ?? 0,
             ...(primaryResult?.verification
               ? {
                   importBaseFullScanReadyMs: fullScanReadyMs,
-                  importBaseTotalReadyMs: primaryMeasurement.durationMs,
+                  importBaseTotalReadyDiagnosticMs:
+                    primaryMeasurement.durationMs,
                 }
               : {}),
           }
@@ -1042,18 +1452,8 @@ const buildImportBaseResult = ({
         ? [
             {
               name: primaryMetric,
-              durationMs: isTotalReadyMetric
-                ? primaryMeasurement.durationMs
-                : (primaryResult?.requestMs ?? 0),
+              durationMs: primaryResult?.requestMs ?? 0,
             },
-            ...(isTotalReadyMetric && primaryResult
-              ? [
-                  {
-                    name: "importBaseStream",
-                    durationMs: primaryResult.requestMs,
-                  },
-                ]
-              : []),
             ...(primaryResult?.verification
               ? [
                   {
@@ -1074,6 +1474,8 @@ const buildImportBaseResult = ({
         ? {
             baseId: fixture.baseId,
             baseName: fixture.baseName,
+            source: fixture.source,
+            teaFile: config.teaFile,
             tables: fixture.tables.map((tableRef, index) => ({
               tableId: tableRef.id,
               name: tableRef.name,
@@ -1085,15 +1487,25 @@ const buildImportBaseResult = ({
               seeded: fixture.workflowCount,
             },
             seedReady: seedReadyMeasurement?.result,
-            cache: {
-              enabled: fixture.seedCacheInfo.enabled,
-              cacheHit: Boolean(fixture.seedCacheHit),
-              reusable: Boolean(fixture.reusableSeed),
-              seedHash: fixture.seedCacheInfo.seedHash,
-              seedHashShort: fixture.seedCacheInfo.seedHashShort,
-              seedBaseName: fixture.seedCacheInfo.seedTableName,
-              schemaSignature: fixture.seedCacheInfo.schemaSignature,
-            },
+            cachedNotify: fixture.cachedNotifyInfo
+              ? {
+                  bytes: fixture.cachedNotifyInfo.bytes,
+                  contentType: fixture.cachedNotifyInfo.contentType,
+                  cacheHit: Boolean(fixture.cachedNotifyInfo.cacheHit),
+                  source: fixture.cachedNotifyInfo.source,
+                }
+              : undefined,
+            cache: fixture.seedCacheInfo
+              ? {
+                  enabled: fixture.seedCacheInfo.enabled,
+                  cacheHit: Boolean(fixture.seedCacheHit),
+                  reusable: Boolean(fixture.reusableSeed),
+                  seedHash: fixture.seedCacheInfo.seedHash,
+                  seedHashShort: fixture.seedCacheInfo.seedHashShort,
+                  seedBaseName: fixture.seedCacheInfo.seedTableName,
+                  schemaSignature: fixture.seedCacheInfo.schemaSignature,
+                }
+              : undefined,
           }
         : undefined,
       import: primaryResult
@@ -1106,6 +1518,14 @@ const buildImportBaseResult = ({
             doneEvent: primaryResult.doneEvent,
             responseHeaders: primaryResult.responseHeaders,
             routing: primaryResult.routing,
+            upload: uploadMeasurement
+              ? {
+                  bytes: uploadMeasurement.result.bytes,
+                  contentType: uploadMeasurement.result.contentType,
+                  cacheHit: Boolean(uploadMeasurement.result.cacheHit),
+                  source: uploadMeasurement.result.source,
+                }
+              : undefined,
           }
         : undefined,
       routing: primaryResult?.routing,
@@ -1119,14 +1539,18 @@ const buildImportBaseResult = ({
           : undefined
         : undefined,
       workflows: primaryResult?.verification?.workflows,
+      baseNodes: primaryResult?.verification?.baseNodes,
       verification: primaryResult
         ? {
             durationMs: fullScanReadyMs,
             metric: "importBaseFullScanReadyMs",
-            participatesInThreshold: isTotalReadyMetric,
+            participatesInThreshold: false,
             checks: [
               "tableListResolved",
-              "importedTablesFullScanWithSamples",
+              config.verify.mode === "structure-only"
+                ? "importedTablesStructure"
+                : "importedTablesFullScanWithSamples",
+              "baseNodeAppCount(best-effort)",
               "workflowCount(best-effort)",
             ],
           }
@@ -1147,32 +1571,74 @@ export const runImportBaseCase = async (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as ImportBaseCaseConfig;
+  if (context.engine !== "v2") {
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        operation: "import-base",
+        skipped: true,
+        skippedReason: IMPORT_BASE_SKIPPED_REASON,
+        requestedEngine: context.engine,
+        sourceBaseNamePrefix: config.sourceBaseNamePrefix,
+        tableCount: config.tables.length,
+        requestedWorkflowCount: config.workflows.count,
+      },
+    };
+  }
+
   const spaceId = globalThis.testConfig.spaceId;
-  const thresholdMetric = getEffectiveThresholdMetric(config, context);
+  const thresholdMetric = getEffectiveThresholdMetric(config);
   let prepareMeasurement: Measurement<ImportBaseFixture> | undefined;
   let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSourceBaseReady>>>
+    | Measurement<
+        | Awaited<ReturnType<typeof assertSourceBaseReady>>
+        | Awaited<ReturnType<typeof assertTeaFileFixtureReady>>
+      >
     | undefined;
   let exportMeasurement: Measurement<unknown> | undefined;
   let uploadMeasurement: Measurement<ImportNotifyInfo> | undefined;
   let primaryMeasurement: Measurement<ImportBasePrimaryResult> | undefined;
 
   try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareImportBaseFixture(spaceId, config, perfCase),
-    );
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSourceBaseReady(prepareMeasurement!.result, config),
-    );
-    const exportSetup = await exportBaseStream(
-      context,
-      perfCase,
-      prepareMeasurement.result,
-    );
-    exportMeasurement = exportSetup.measurement;
-    uploadMeasurement = await measureAsync("prepareImportUpload", () =>
-      buildImportNotifyFromExport(context, exportSetup.exportResult),
-    );
+    if (isTeaFileImportCase(config)) {
+      prepareMeasurement = await measureAsync("prepare", () =>
+        prepareTeaFileImportFixture(spaceId, config, perfCase),
+      );
+      seedReadyMeasurement = await measureAsync("seedReady", () =>
+        assertTeaFileFixtureReady(prepareMeasurement!.result),
+      );
+    } else {
+      prepareMeasurement = await measureAsync("prepare", () =>
+        prepareImportBaseFixture(spaceId, config, perfCase),
+      );
+      seedReadyMeasurement = await measureAsync("seedReady", () =>
+        assertSourceBaseReady(prepareMeasurement!.result, config),
+      );
+    }
+
+    const cachedNotifyInfo = prepareMeasurement.result.cachedNotifyInfo;
+    if (cachedNotifyInfo) {
+      uploadMeasurement = {
+        name: "prepareImportUpload",
+        durationMs: 0,
+        result: cachedNotifyInfo,
+      };
+    } else if (isTeaFileImportCase(config)) {
+      uploadMeasurement = await measureAsync("prepareImportUpload", () =>
+        buildImportNotifyFromTeaFile(config),
+      );
+    } else {
+      const cacheSetup = await cacheGeneratedImportNotify(
+        context,
+        perfCase,
+        prepareMeasurement.result,
+        config,
+      );
+      exportMeasurement = cacheSetup.exportMeasurement;
+      uploadMeasurement = cacheSetup.uploadMeasurement;
+    }
 
     try {
       primaryMeasurement = await withPerfTraceStep(
@@ -1187,11 +1653,58 @@ export const runImportBaseCase = async (
             fixture: prepareMeasurement!.result,
             config,
             notifyInfo: uploadMeasurement!.result,
-            exportMeasurement: exportMeasurement!,
+            exportMeasurement,
             uploadMeasurement: uploadMeasurement!,
           }),
       );
     } catch (error) {
+      if (uploadMeasurement?.result.cacheHit && !primaryMeasurement) {
+        console.warn(
+          "Cached import notify failed; rebuilding upload notify and retrying once",
+          error,
+        );
+        if (isTeaFileImportCase(config)) {
+          uploadMeasurement = await measureAsync(
+            "prepareImportUploadRetry",
+            () => buildImportNotifyFromTeaFile(config),
+          );
+        } else {
+          const cacheSetup = await cacheGeneratedImportNotify(
+            context,
+            perfCase,
+            prepareMeasurement.result,
+            config,
+          );
+          exportMeasurement = cacheSetup.exportMeasurement;
+          uploadMeasurement = cacheSetup.uploadMeasurement;
+        }
+        primaryMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          thresholdMetric,
+          () =>
+            measureImportBaseReady({
+              context,
+              perfCase,
+              spaceId,
+              fixture: prepareMeasurement!.result,
+              config,
+              notifyInfo: uploadMeasurement!.result,
+              exportMeasurement,
+              uploadMeasurement: uploadMeasurement!,
+            }),
+        );
+        return buildImportBaseResult({
+          context,
+          config,
+          prepareMeasurement,
+          seedReadyMeasurement,
+          exportMeasurement,
+          uploadMeasurement,
+          primaryMeasurement,
+        });
+      }
+
       const diagnosticResult =
         error instanceof PerfRunDiagnosticError
           ? (error.result.details?.partialPrimaryMeasurement as
@@ -1259,9 +1772,25 @@ export const runImportBaseCase = async (
 
 export const seedImportBaseCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
+  context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as ImportBaseCaseConfig;
+  if (isTeaFileImportCase(config)) {
+    const spaceId = globalThis.testConfig.spaceId;
+    const prepareMeasurement = await measureAsync("prepare", () =>
+      prepareTeaFileImportFixture(spaceId, config, perfCase),
+    );
+    const seedReadyMeasurement = await measureAsync("seedReady", () =>
+      assertTeaFileFixtureReady(prepareMeasurement.result),
+    );
+
+    return buildImportBaseResult({
+      config,
+      prepareMeasurement,
+      seedReadyMeasurement,
+    });
+  }
+
   const spaceId = globalThis.testConfig.spaceId;
   const prepareMeasurement = await measureAsync("prepare", () =>
     prepareImportBaseFixture(spaceId, config, perfCase),
@@ -1269,10 +1798,20 @@ export const seedImportBaseCase = async (
   const seedReadyMeasurement = await measureAsync("seedReady", () =>
     assertSourceBaseReady(prepareMeasurement.result, config),
   );
+  const cacheSetup = prepareMeasurement.result.cachedNotifyInfo
+    ? undefined
+    : await cacheGeneratedImportNotify(
+        context,
+        perfCase,
+        prepareMeasurement.result,
+        config,
+      );
 
   return buildImportBaseResult({
     config,
     prepareMeasurement,
     seedReadyMeasurement,
+    exportMeasurement: cacheSetup?.exportMeasurement,
+    uploadMeasurement: cacheSetup?.uploadMeasurement,
   });
 };
