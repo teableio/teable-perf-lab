@@ -5,6 +5,10 @@ export default definePerfCase({
   title: "10k lookup global search with table search index",
   runner: "lookup-search-index",
   timeoutMs: 600_000,
+  // Idle watchdog: a healthy search sample returns in well under a second, so 2
+  // minutes of total server silence means the V2 search path hung — fail fast
+  // with a diagnostic instead of waiting out the 600s case timeout.
+  watchdogMs: 120_000,
   config: {
     baseId: "seed-base",
     sourceTableNamePrefix: "perf-lookup-search-index-source-10k",

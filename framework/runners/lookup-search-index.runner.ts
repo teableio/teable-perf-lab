@@ -975,6 +975,7 @@ const runSearchSample = async (
   tableId: string,
   viewId: string,
   keyword: LookupSearchKeywordConfig,
+  signal?: AbortSignal,
 ) => {
   const response = await axios.get<Array<{
     index: number;
@@ -987,6 +988,7 @@ const runSearchSample = async (
       viewId,
       search: [keyword.value, "", true],
     },
+    signal,
   });
   expect(response.status).toBe(200);
   return response.data ?? [];
@@ -1046,7 +1048,7 @@ const runKeywordSamples = async (
       context,
       perfCase,
       `${tableLabel}:${keyword.name}:sample-${iteration}`,
-      () => runSearchSample(tableId, viewId, keyword),
+      () => runSearchSample(tableId, viewId, keyword, context.signal),
     );
     const durationMs = roundMetric(performance.now() - startedAt);
     if (traceSampleSettleMs > 0) {
