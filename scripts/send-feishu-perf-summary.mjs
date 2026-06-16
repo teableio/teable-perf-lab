@@ -320,6 +320,37 @@ const resultCounts = (payloads) => {
   return counts;
 };
 
+// Aggregate the wall-clock burned polling Jaeger for traces that never showed
+// up (typically v2 reads served from the performance cache emit no sampled
+// span). This is invisible in per-case durationMs, so surface it explicitly.
+const traceWaste = (payloads) => {
+  const byEngine = {};
+  let missingCount = 0;
+  let wastedMs = 0;
+  for (const payload of payloads) {
+    const traces = payload.details?.observability?.traces;
+    const missing = numberOrUndefined(traces?.missingFetchCount) ?? 0;
+    const wastedSum = numberOrUndefined(traces?.wastedFetchMs) ?? 0;
+    if (!missing && !wastedSum) {
+      continue;
+    }
+    // wastedFetchMs sums poll time across concurrent fetch lanes; divide by the
+    // concurrency to estimate the wall-clock this case added. Cases run
+    // serially, so summing the per-case estimates yields the run-level cost.
+    const concurrency = Math.max(
+      numberOrUndefined(traces?.fetchConcurrency) ?? 1,
+      1,
+    );
+    const wasted = wastedSum / concurrency;
+    missingCount += missing;
+    wastedMs += wasted;
+    const bucket = (byEngine[payload.engine] ??= { missing: 0, wastedMs: 0 });
+    bucket.missing += missing;
+    bucket.wastedMs += wasted;
+  }
+  return { missingCount, wastedMs, byEngine };
+};
+
 const chartUrlForCase = (caseId) =>
   `${env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL)}#${caseId}`;
 
@@ -347,6 +378,12 @@ const collapsiblePanel = ({ title, expanded = false, elements }) => ({
 
 const buildCard = ({ payloads, timings }) => {
   const counts = resultCounts(payloads);
+  const waste = traceWaste(payloads);
+  const wasteByEngineText = Object.entries(waste.byEngine)
+    .filter(([, value]) => value.wastedMs > 0)
+    .sort((a, b) => b[1].wastedMs - a[1].wastedMs)
+    .map(([engine, value]) => `${engine} ${formatDuration(value.wastedMs)}`)
+    .join(" · ");
   const rows = buildCaseRows(payloads);
   const regressionRows = rows.filter((row) => row.status === "attention");
   const regressionCount = regressionRows.length;
@@ -403,6 +440,17 @@ const buildCard = ({ payloads, timings }) => {
             content: `**目标**: teable-ee ${teableRef}${sha ? ` @ ${sha}` : ""}\n**运行**: ${runId}  |  **任务**: ${executeResult || "unknown"}  |  **结果**: ${counts.pass} 通过 / ${counts.skipped} 跳过 / ${counts.fail} 失败`,
           },
         },
+        ...(waste.wastedMs >= 30_000
+          ? [
+              {
+                tag: "div",
+                text: {
+                  tag: "lark_md",
+                  content: `⚠️ **Trace 抓取浪费 ${formatDuration(waste.wastedMs)}** · ${waste.missingCount} 个 trace 未命中 Jaeger${wasteByEngineText ? `(${wasteByEngineText})` : ""}\n非引擎性能退化:这些 trace 未到达 Jaeger(上游导出阶段丢弃,根因在引擎侧另行跟进),抓取时空等超时。详见各 case summary 的 \`traces missing in Jaeger\`。`,
+                },
+              },
+            ]
+          : []),
         {
           tag: "column_set",
           flex_mode: "none",
