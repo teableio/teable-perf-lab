@@ -168,6 +168,17 @@ workload.
 - `duplicate-base/10k-3tables-link-2workflow`: Measure duplicating a base that
   contains a 10,000-record mixed 20-field main table, a 1,000-record table linked
   to it, a 100-record small table, and 2 workflows, with records included.
+- `duplicate-base/10k-3tables-link-2workflow-stream`: Measure duplicating a base
+  through the product SSE progress path when the base contains a 10,000-record
+  main table, a 1,000-record linked table, a 100-record small table, and 2
+  workflows.
+- `import-base/3x1k-3tables-2workflow-stream`: Measure importing a `.tea` base
+  file through the product SSE progress path when the imported base contains
+  three independent 1,000-record tables and workflow metadata.
+- `export-base/10k-3tables-link-2workflow-stream`: Measure exporting a base
+  through the product SSE progress path when the base contains a 10,000-record
+  main table, a 1,000-record linked table, a 100-record small table, and workflow
+  metadata.
 - `table-create/10x-20f-no-records`: Measure creating 10 tables, each with 20
   mixed fields and no records, sequentially inside one timed window.
 - `table-create/1x-20f-1k-records`: The data-scaling variant of `createTable`:
@@ -207,10 +218,17 @@ workload.
   `PATCH /api/table/{tableId}/selection/clear-stream`.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
+- `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
+  whose rows contain populated link cells, covering the record-trash path for
+  linked records rather than plain scalar-row deletion.
 - `record-read/10k-50fields-10x1k-pages`: Measure
   `GET /api/table/{tableId}/record` latency for reading a full 10,000-row table
   as ten sequential maximum-size 1,000-record pages with 50 projected fields,
   including stored lookup columns and formula values.
+- `record-read/10k-50fields-filter-sort-groupby-overhead`: Measure the extra
+  cost of adding explicit filter, sort, and groupBy query semantics to the same
+  10,000-row, 50-projected-field read workload used by
+  `record-read/10k-50fields-10x1k-pages`.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
@@ -240,6 +258,9 @@ workload.
 - `record-paste/mixed-10k-20fields-complex-copy-paste`: Measure the grid paste
   API path for inserting 10,000 mixed-type records into an empty 20-field table
   through `PATCH /api/table/{tableId}/selection/paste`.
+- `selection-paste/10k-expand-rows-and-fields-stream`: Measure pasting a large
+  spreadsheet-shaped block into a smaller grid through the product paste stream
+  path, forcing both row expansion and field expansion.
 
 ## Case Registry
 

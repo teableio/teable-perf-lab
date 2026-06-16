@@ -13,8 +13,10 @@ import { runFieldUpdateCase } from "./runners/field-update.runner";
 import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runFormSubmitCase } from "./runners/form-submit.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
+import { runImportBaseCase } from "./runners/import-base.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
+import { runRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { runRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordPasteCase } from "./runners/record-paste.runner";
@@ -66,6 +68,8 @@ const runCaseByKind = async (
       return runDuplicateTableCase(perfCase, context);
     case "duplicate-base":
       return runDuplicateBaseCase(perfCase, context);
+    case "import-base":
+      return runImportBaseCase(perfCase, context);
     case "table-create":
       return runTableCreateCase(perfCase, context);
     case "table-delete":
@@ -92,6 +96,8 @@ const runCaseByKind = async (
       return runRecordReorderCase(perfCase, context);
     case "record-delete":
       return runRecordDeleteCase(perfCase, context);
+    case "record-delete-link":
+      return runRecordDeleteLinkCase(perfCase, context);
     case "record-duplicate-single":
       return runRecordDuplicateSingleCase(perfCase, context);
     case "record-undo":

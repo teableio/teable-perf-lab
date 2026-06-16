@@ -12,9 +12,11 @@ import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { seedFieldUpdateCase } from "./runners/field-update.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
 import { seedFormSubmitCase } from "./runners/form-submit.runner";
+import { seedImportBaseCase } from "./runners/import-base.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
 import { seedRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
+import { seedRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { seedRecordReadCase } from "./runners/record-read.runner";
 import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
@@ -53,6 +55,8 @@ const seedCaseByKind = async (
       return seedDuplicateTableCase(perfCase, context);
     case "duplicate-base":
       return seedDuplicateBaseCase(perfCase, context);
+    case "import-base":
+      return seedImportBaseCase(perfCase, context);
     case "table-delete":
       return seedTableDeleteCase(perfCase, context);
     case "table-delete-link":
@@ -69,6 +73,8 @@ const seedCaseByKind = async (
     case "record-undo":
     case "record-redo":
       return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
+    case "record-delete-link":
+      return seedRecordDeleteLinkCase(perfCase, context);
     case "record-update":
       return seedRecordUpdateCase(perfCase, context);
     case "record-duplicate-single":

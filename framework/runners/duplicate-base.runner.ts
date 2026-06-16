@@ -7,6 +7,7 @@ import {
   getTableList,
   permanentDeleteBase,
   updateTableDescription,
+  X_CANARY_HEADER,
 } from "@teable/openapi";
 import {
   createRecords,
@@ -24,6 +25,7 @@ import {
   type EngineRouting,
 } from "../routing";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
+import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   DuplicateBaseCaseConfig,
@@ -96,14 +98,58 @@ type DuplicateBaseResponse = {
   headers: Record<string, unknown>;
 };
 
+type BaseStreamProgressEvent = {
+  type: "progress";
+  phase: string;
+  detail?: string;
+  tableId?: string;
+  tableName?: string;
+  tableIndex?: number;
+  totalTables?: number;
+  totalRows?: number;
+  processedRows?: number;
+  batchProcessedRows?: number;
+  currentBatch?: number;
+};
+
+type BaseStreamErrorEvent = { type: "error"; message: string };
+
+type DuplicateBaseDoneEvent = {
+  type: "done";
+  data: { id: string; name: string; spaceId: string };
+};
+
+type ExportBaseDoneEvent = {
+  type: "done";
+  data: {
+    previewUrl: string;
+    baseName: string;
+    fileName: string;
+  };
+};
+
+type DuplicateBaseStreamEvent =
+  | BaseStreamProgressEvent
+  | DuplicateBaseDoneEvent
+  | BaseStreamErrorEvent;
+
+type ExportBaseStreamEvent =
+  | BaseStreamProgressEvent
+  | ExportBaseDoneEvent
+  | BaseStreamErrorEvent;
+
 type DuplicateBasePrimaryResult = {
-  duplicateRequestMs: number;
-  duplicateStatus: number;
-  duplicateBaseId: string;
-  duplicateBaseName: string;
+  operation: NonNullable<DuplicateBaseCaseConfig["operation"]>;
+  requestMs: number;
+  status: number;
+  resultBaseId?: string;
+  resultBaseName?: string;
+  exportResult?: ExportBaseDoneEvent["data"];
+  progressEventCount?: number;
+  doneEvent?: unknown;
   responseHeaders: Record<string, string>;
-  routing: EngineRouting;
-  verification: Awaited<ReturnType<typeof verifyDuplicatedBase>>;
+  routing?: EngineRouting;
+  verification?: Awaited<ReturnType<typeof verifyDuplicatedBase>>;
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
@@ -127,6 +173,27 @@ const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2-reason": getRoutingResponseHeader(headers, "x-teable-v2-reason"),
   traceparent: getRoutingResponseHeader(headers, "traceparent"),
 });
+
+const getStreamHeaders = (context: PerfRunContext) => ({
+  "Content-Type": "application/json",
+  ...(context.cookie ? { Cookie: context.cookie } : {}),
+  [X_CANARY_HEADER]: context.engine === "v2" ? "true" : "false",
+});
+
+const getBaseOperation = (config: DuplicateBaseCaseConfig) =>
+  config.operation ?? "duplicate";
+
+const getEffectiveThresholdMetric = (config: DuplicateBaseCaseConfig) =>
+  config.threshold.metric;
+
+const summarizeProgressEvents = (events: BaseStreamProgressEvent[]) => ({
+  count: events.length,
+  phases: [...new Set(events.map((event) => event.phase))],
+  last: events.at(-1),
+});
+
+const firstErrorMessage = (errors: BaseStreamErrorEvent[]) =>
+  errors.at(-1)?.message ?? "SSE stream ended without result";
 
 // The main table reuses the mixed 20-field deterministic generator from the
 // record undo/redo seed machinery.
@@ -226,6 +293,7 @@ const resolveBaseTables = async (
     name: string;
   }>;
   const byName = new Map(tableList.map((table) => [table.name, table]));
+
   const mainTable = byName.get(config.mainTable.name);
   const linkedTable = byName.get(config.linkedTable.name);
   const smallTable = byName.get(config.smallTable.name);
@@ -915,11 +983,139 @@ const verifyDuplicatedBase = async (
   );
 };
 
+const duplicateBaseStreamAndVerify = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  spaceId: string,
+  fixture: DuplicateBaseFixture,
+  config: DuplicateBaseCaseConfig,
+  onResultBaseCreated?: (baseId: string) => void,
+): Promise<DuplicateBasePrimaryResult> => {
+  const duplicateName = `${config.duplicate.namePrefix}-stream-${Date.now()}`;
+  const streamMeasurement = await measureAsync("duplicateBaseStream", () =>
+    perfStreamSse<DuplicateBaseStreamEvent>({
+      context,
+      perfCase,
+      stepId: config.threshold.metric,
+      url: `${axios.defaults.baseURL || "/api"}/base/duplicate-stream`,
+      method: "POST",
+      headers: getStreamHeaders(context),
+      body: JSON.stringify({
+        fromBaseId: fixture.baseId,
+        spaceId,
+        withRecords: config.duplicate.withRecords,
+        name: duplicateName,
+      }),
+      errorPrefix: "Duplicate base stream failed",
+    }),
+  );
+  const sseResult = streamMeasurement.result;
+
+  const progressEvents = sseResult.events.filter(
+    (event): event is BaseStreamProgressEvent => event.type === "progress",
+  );
+  const errors = sseResult.events.filter(
+    (event): event is BaseStreamErrorEvent => event.type === "error",
+  );
+  const done = sseResult.events.find(
+    (event): event is DuplicateBaseDoneEvent => event.type === "done",
+  );
+
+  if (!done) {
+    throw new Error(firstErrorMessage(errors));
+  }
+  expect(errors).toHaveLength(0);
+
+  const routing = assertEngineRouting(context, sseResult.headers, {
+    feature: "duplicateBase",
+    operation: "duplicateBaseStream",
+  });
+  // Report the created base id before verification so the caller can still clean
+  // it up if verifyDuplicatedBase throws (otherwise the duplicated base leaks in
+  // non-isolated runs, since the failed measurement never surfaces resultBaseId).
+  onResultBaseCreated?.(done.data.id);
+  const verification = await verifyDuplicatedBase(
+    done.data.id,
+    fixture,
+    config,
+  );
+
+  return {
+    operation: "duplicate-stream",
+    requestMs: streamMeasurement.durationMs,
+    status: sseResult.status,
+    resultBaseId: done.data.id,
+    resultBaseName: done.data.name,
+    progressEventCount: progressEvents.length,
+    doneEvent: done,
+    responseHeaders: pickResponseHeaders(sseResult.headers),
+    routing,
+    verification,
+  };
+};
+
+const exportBaseStream = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  fixture: DuplicateBaseFixture,
+  config: DuplicateBaseCaseConfig,
+): Promise<DuplicateBasePrimaryResult> => {
+  const url = axios.getUri({
+    baseURL: axios.defaults.baseURL || "/api",
+    url: `/base/${fixture.baseId}/export-stream`,
+    params: { includeData: true },
+  });
+  const streamMeasurement = await measureAsync("exportBaseStream", () =>
+    perfStreamSse<ExportBaseStreamEvent>({
+      context,
+      perfCase,
+      stepId: config.threshold.metric,
+      url,
+      method: "GET",
+      headers: getStreamHeaders(context),
+      errorPrefix: "Export base stream failed",
+    }),
+  );
+  const sseResult = streamMeasurement.result;
+  const progressEvents = sseResult.events.filter(
+    (event): event is BaseStreamProgressEvent => event.type === "progress",
+  );
+  const errors = sseResult.events.filter(
+    (event): event is BaseStreamErrorEvent => event.type === "error",
+  );
+  const done = sseResult.events.find(
+    (event): event is ExportBaseDoneEvent => event.type === "done",
+  );
+
+  if (!done) {
+    throw new Error(firstErrorMessage(errors));
+  }
+  expect(errors).toHaveLength(0);
+  if (!done.data.previewUrl || !done.data.fileName) {
+    throw new Error(
+      `Export base stream returned incomplete result: ${JSON.stringify(
+        done.data,
+      )}`,
+    );
+  }
+
+  return {
+    operation: "export-stream",
+    requestMs: streamMeasurement.durationMs,
+    status: sseResult.status,
+    exportResult: done.data,
+    progressEventCount: progressEvents.length,
+    doneEvent: done,
+    responseHeaders: pickResponseHeaders(sseResult.headers),
+  };
+};
+
 const duplicateBaseAndVerify = async (
   context: PerfRunContext,
   spaceId: string,
   fixture: DuplicateBaseFixture,
   config: DuplicateBaseCaseConfig,
+  onResultBaseCreated?: (baseId: string) => void,
 ): Promise<DuplicateBasePrimaryResult> => {
   const duplicateName = `${config.duplicate.namePrefix}-${Date.now()}`;
   const duplicateMeasurement = await measureAsync(
@@ -944,6 +1140,9 @@ const duplicateBaseAndVerify = async (
   });
 
   const duplicateBaseId = duplicateMeasurement.result.data.id;
+  // See duplicateBaseStreamAndVerify: surface the id before verification so a
+  // verification failure does not leak the duplicated base.
+  onResultBaseCreated?.(duplicateBaseId);
   const verification = await verifyDuplicatedBase(
     duplicateBaseId,
     fixture,
@@ -951,23 +1150,59 @@ const duplicateBaseAndVerify = async (
   );
 
   return {
-    duplicateRequestMs: duplicateMeasurement.durationMs,
-    duplicateStatus: duplicateMeasurement.result.status,
-    duplicateBaseId,
-    duplicateBaseName: duplicateMeasurement.result.data.name,
+    operation: "duplicate",
+    requestMs: duplicateMeasurement.durationMs,
+    status: duplicateMeasurement.result.status,
+    resultBaseId: duplicateBaseId,
+    resultBaseName: duplicateMeasurement.result.data.name,
     responseHeaders,
     routing,
     verification,
   };
 };
 
+const executeBaseOperation = async (
+  context: PerfRunContext,
+  perfCase: PerfCase,
+  spaceId: string,
+  fixture: DuplicateBaseFixture,
+  config: DuplicateBaseCaseConfig,
+  onResultBaseCreated?: (baseId: string) => void,
+): Promise<DuplicateBasePrimaryResult> => {
+  const operation = getBaseOperation(config);
+  switch (operation) {
+    case "duplicate":
+      return duplicateBaseAndVerify(
+        context,
+        spaceId,
+        fixture,
+        config,
+        onResultBaseCreated,
+      );
+    case "duplicate-stream":
+      return duplicateBaseStreamAndVerify(
+        context,
+        perfCase,
+        spaceId,
+        fixture,
+        config,
+        onResultBaseCreated,
+      );
+    case "export-stream":
+      // Export creates no new base, so there is nothing to register for cleanup.
+      return exportBaseStream(context, perfCase, fixture, config);
+  }
+};
+
 const buildDuplicateBaseCaseResult = ({
+  context,
   config,
   prepareMeasurement,
   seedReadyMeasurement,
   primaryMeasurement,
   error,
 }: {
+  context?: PerfRunContext;
   config: DuplicateBaseCaseConfig;
   prepareMeasurement?: Measurement<DuplicateBaseFixture>;
   seedReadyMeasurement?: Measurement<
@@ -979,6 +1214,12 @@ const buildDuplicateBaseCaseResult = ({
   const fixture = prepareMeasurement?.result;
   const primaryResult = primaryMeasurement?.result;
   const routing = primaryResult?.routing;
+  const primaryMetric = getEffectiveThresholdMetric(config);
+  const isTotalReadyMetric = primaryMetric.endsWith("TotalReadyMs");
+  const fullScanReadyMs =
+    primaryMeasurement && primaryResult?.verification
+      ? roundMetric(primaryMeasurement.durationMs - primaryResult.requestMs)
+      : undefined;
 
   return {
     metrics: {
@@ -1001,21 +1242,25 @@ const buildDuplicateBaseCaseResult = ({
         : {}),
       ...(primaryMeasurement
         ? {
-            duplicateBaseRequestMs: primaryResult?.duplicateRequestMs ?? 0,
-            duplicateBaseFullScanReadyMs: primaryResult
-              ? roundMetric(
-                  primaryMeasurement.durationMs -
-                    primaryResult.duplicateRequestMs,
-                )
-              : 0,
-            duplicateBaseTotalReadyMs: primaryMeasurement.durationMs,
+            [primaryMetric]: isTotalReadyMetric
+              ? primaryMeasurement.durationMs
+              : (primaryResult?.requestMs ?? 0),
+            ...(isTotalReadyMetric && primaryResult
+              ? { duplicateBaseStreamMs: primaryResult.requestMs }
+              : {}),
+            ...(primaryResult?.verification
+              ? {
+                  duplicateBaseFullScanReadyMs: fullScanReadyMs,
+                  duplicateBaseTotalReadyMs: primaryMeasurement.durationMs,
+                }
+              : {}),
           }
         : {}),
     },
     thresholds: primaryMeasurement
       ? [
           {
-            metric: config.threshold.metric,
+            metric: primaryMetric,
             max: getPrimaryThresholdMs(config.threshold.maxMs),
             unit: "ms",
           },
@@ -1041,22 +1286,31 @@ const buildDuplicateBaseCaseResult = ({
       ...(primaryMeasurement
         ? [
             {
-              name: "duplicateBaseRequest",
-              durationMs: primaryResult?.duplicateRequestMs ?? 0,
+              name: primaryMetric,
+              durationMs: isTotalReadyMetric
+                ? primaryMeasurement.durationMs
+                : (primaryResult?.requestMs ?? 0),
             },
-            {
-              name: "duplicateBaseFullScanReady",
-              durationMs: primaryResult
-                ? roundMetric(
-                    primaryMeasurement.durationMs -
-                      primaryResult.duplicateRequestMs,
-                  )
-                : 0,
-            },
-            {
-              name: "duplicateBaseTotalReady",
-              durationMs: primaryMeasurement.durationMs,
-            },
+            ...(primaryResult?.verification
+              ? [
+                  ...(isTotalReadyMetric && primaryResult
+                    ? [
+                        {
+                          name: "duplicateBaseStream",
+                          durationMs: primaryResult.requestMs,
+                        },
+                      ]
+                    : []),
+                  {
+                    name: "duplicateBaseFullScanReady",
+                    durationMs: fullScanReadyMs ?? 0,
+                  },
+                  {
+                    name: "duplicateBaseTotalReady",
+                    durationMs: primaryMeasurement.durationMs,
+                  },
+                ]
+              : []),
           ]
         : []),
     ],
@@ -1102,41 +1356,47 @@ const buildDuplicateBaseCaseResult = ({
         : undefined,
       duplicate: primaryResult
         ? {
-            status: primaryResult.duplicateStatus,
-            requestMs: primaryResult.duplicateRequestMs,
-            baseId: primaryResult.duplicateBaseId,
-            baseName: primaryResult.duplicateBaseName,
+            operation: primaryResult.operation,
+            status: primaryResult.status,
+            requestMs: primaryResult.requestMs,
+            baseId: primaryResult.resultBaseId,
+            baseName: primaryResult.resultBaseName,
             withRecords: config.duplicate.withRecords,
-            requestOnlyPrimaryMetric: true,
+            requestOnlyPrimaryMetric: primaryResult.operation === "duplicate",
+            progressEventCount: primaryResult.progressEventCount,
+            doneEvent: primaryResult.doneEvent,
+            exportResult: primaryResult.exportResult,
             responseHeaders: primaryResult.responseHeaders,
             routing,
           }
         : undefined,
       routing,
       fullScan: primaryResult
-        ? {
-            attempts: primaryResult.verification.attempts,
-            waitedMs: primaryResult.verification.waitedMs,
-            tables: primaryResult.verification.tables,
-          }
+        ? primaryResult.verification
+          ? {
+              attempts: primaryResult.verification.attempts,
+              waitedMs: primaryResult.verification.waitedMs,
+              tables: primaryResult.verification.tables,
+            }
+          : undefined
         : undefined,
-      workflows: primaryResult?.verification.workflows,
+      workflows: primaryResult?.verification?.workflows,
       verification: primaryResult
-        ? {
-            durationMs: roundMetric(
-              primaryMeasurement.durationMs - primaryResult.duplicateRequestMs,
-            ),
-            metric: "duplicateBaseFullScanReadyMs",
-            participatesInThreshold: false,
-            checks: [
-              "tableListResolved",
-              "mainFullScanWithSamples",
-              "linkFieldForeignTableRemap",
-              "linkSampleTargetsInDuplicatedMain",
-              "smallTableCountScan",
-              "workflowCount(best-effort)",
-            ],
-          }
+        ? primaryResult.verification
+          ? {
+              durationMs: fullScanReadyMs,
+              metric: "duplicateBaseFullScanReadyMs",
+              participatesInThreshold: isTotalReadyMetric,
+              checks: [
+                "tableListResolved",
+                "mainFullScanWithSamples",
+                "linkFieldForeignTableRemap",
+                "linkSampleTargetsInDuplicatedMain",
+                "smallTableCountScan",
+                "workflowCount(best-effort)",
+              ],
+            }
+          : undefined
         : undefined,
       error:
         error instanceof Error
@@ -1155,11 +1415,16 @@ export const runDuplicateBaseCase = async (
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as DuplicateBaseCaseConfig;
   const spaceId = globalThis.testConfig.spaceId;
+  const thresholdMetric = getEffectiveThresholdMetric(config);
   let prepareMeasurement: Measurement<DuplicateBaseFixture> | undefined;
   let seedReadyMeasurement:
     | Measurement<Awaited<ReturnType<typeof assertSourceBaseReady>>>
     | undefined;
   let primaryMeasurement: Measurement<DuplicateBasePrimaryResult> | undefined;
+  // Captured as soon as a result base is created, so the finally block can clean
+  // it up even when post-create verification throws (primaryMeasurement stays
+  // undefined in that path).
+  let createdResultBaseId: string | undefined;
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
@@ -1173,14 +1438,18 @@ export const runDuplicateBaseCase = async (
       primaryMeasurement = await withPerfTraceStep(
         context,
         perfCase,
-        config.threshold.metric,
+        thresholdMetric,
         () =>
-          measureAsync("duplicateBaseTotalReady", () =>
-            duplicateBaseAndVerify(
+          measureAsync(`${getBaseOperation(config)}Ready`, () =>
+            executeBaseOperation(
               context,
+              perfCase,
               spaceId,
               prepareMeasurement!.result,
               config,
+              (baseId) => {
+                createdResultBaseId = baseId;
+              },
             ),
           ),
       );
@@ -1188,6 +1457,7 @@ export const runDuplicateBaseCase = async (
       throw new PerfRunDiagnosticError(
         error instanceof Error ? error.message : String(error),
         buildDuplicateBaseCaseResult({
+          context,
           config,
           prepareMeasurement,
           seedReadyMeasurement,
@@ -1198,6 +1468,7 @@ export const runDuplicateBaseCase = async (
     }
 
     return buildDuplicateBaseCaseResult({
+      context,
       config,
       prepareMeasurement,
       seedReadyMeasurement,
@@ -1207,12 +1478,18 @@ export const runDuplicateBaseCase = async (
     // CI execute jobs run on an isolated restored copy of the seed dump, so
     // the mutated database is simply discarded after the job.
     if (!isExecuteDbIsolated()) {
-      if (primaryMeasurement?.result.duplicateBaseId) {
+      // For export-stream the only side effect is a transient `.tea` preview file
+      // in object storage (no result base); it is left to storage TTL/GC since no
+      // stable delete handle is exposed here. duplicate/duplicate-stream create a
+      // real base, cleaned up below.
+      const resultBaseId =
+        primaryMeasurement?.result.resultBaseId ?? createdResultBaseId;
+      if (resultBaseId) {
         try {
-          await permanentDeleteBase(primaryMeasurement.result.duplicateBaseId);
+          await permanentDeleteBase(resultBaseId);
         } catch (error) {
           console.warn(
-            `Failed to cleanup duplicated perf base ${primaryMeasurement.result.duplicateBaseId}`,
+            `Failed to cleanup perf result base ${resultBaseId}`,
             error,
           );
         }

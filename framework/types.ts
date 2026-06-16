@@ -13,6 +13,8 @@ export type PerfRunnerKind =
   | "field-duplicate"
   | "duplicate-table"
   | "duplicate-base"
+  | "import-base"
+  | "record-delete-link"
   | "table-create"
   | "table-delete"
   | "table-delete-link"
@@ -50,6 +52,8 @@ export interface PerfCase {
     | FieldDuplicateCaseConfig
     | DuplicateTableCaseConfig
     | DuplicateBaseCaseConfig
+    | ImportBaseCaseConfig
+    | RecordDeleteLinkCaseConfig
     | TableCreateCaseConfig
     | TableDeleteCaseConfig
     | TableDeleteLinkCaseConfig
@@ -387,6 +391,9 @@ export interface RecordPasteCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
   rowCount: number;
+  seedRowCount?: number;
+  seedFieldCount?: number;
+  stream?: boolean;
   maxPasteCells?: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
   generator: {
@@ -401,7 +408,7 @@ export interface RecordPasteCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "paste10kMs";
+    metric: "paste10kMs" | "pasteExpand10kMs";
     maxMs: number;
   };
 }
@@ -467,6 +474,7 @@ export interface DuplicateTableCaseConfig {
 
 export interface DuplicateBaseCaseConfig {
   spaceId: "seed-space";
+  operation?: "duplicate" | "duplicate-stream" | "export-stream";
   sourceBaseNamePrefix: string;
   mainTable: {
     name: string;
@@ -511,7 +519,39 @@ export interface DuplicateBaseCaseConfig {
     pollIntervalMs?: number;
   };
   threshold: {
-    metric: "duplicateBaseRequestMs";
+    metric:
+      | "duplicateBaseRequestMs"
+      | "duplicateBaseStreamMs"
+      | "exportBaseStreamMs";
+    maxMs: number;
+  };
+}
+
+export interface ImportBaseCaseConfig {
+  spaceId: "seed-space";
+  sourceBaseNamePrefix: string;
+  tables: Array<{
+    name: string;
+    rowCount: number;
+    batchSize: number;
+    generator: {
+      titlePrefix: string;
+      payloadPrefix: string;
+      source?: string;
+    };
+  }>;
+  workflows: {
+    count: number;
+    namePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "importBaseStreamMs" | "importBaseTotalReadyMs";
     maxMs: number;
   };
 }
@@ -544,6 +584,11 @@ export interface RecordReadCaseConfig {
   simpleTextFieldCount: number;
   formulaFieldCount: number;
   lookupFieldCount: number;
+  queryVariant?: {
+    filterFieldName: string;
+    orderByFieldName: string;
+    groupByFieldName: string;
+  };
   generator: {
     type: "record-read-lookup-formula";
     titlePrefix: string;
@@ -562,7 +607,9 @@ export interface RecordReadCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "getRecords10kPagedScanMs";
+    metric:
+      | "getRecords10kPagedScanMs"
+      | "getRecordsFilterSortGroupByOverheadMs";
     maxMs: number;
   };
 }
@@ -790,6 +837,15 @@ export interface TableRestoreLinkCaseConfig
 export interface RecordDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
     metric: "delete1kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordDeleteLinkCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  link: TableLifecycleLinkConfig;
+  threshold: {
+    metric: "deleteLinked1kMs";
     maxMs: number;
   };
 }

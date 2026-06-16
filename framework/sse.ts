@@ -7,7 +7,9 @@ import {
 
 type HeaderInput = HeadersInit | Record<string, unknown> | undefined;
 
-export type PerfSseResult<T extends { id: string }> = {
+export type PerfSseEvent = { id: string } | { type: string };
+
+export type PerfSseResult<T extends PerfSseEvent> = {
   events: T[];
   headers: Record<string, string>;
   status: number;
@@ -69,9 +71,7 @@ const buildSseRequestHeaders = (
   };
 };
 
-const parseSseLine = <T extends { id: string }>(
-  line: string,
-): T | undefined => {
+const parseSseLine = <T extends PerfSseEvent>(line: string): T | undefined => {
   if (!line.startsWith("data:")) {
     return undefined;
   }
@@ -84,7 +84,7 @@ const parseSseLine = <T extends { id: string }>(
   return JSON.parse(jsonStr) as T;
 };
 
-const readSseEvents = async <T extends { id: string }>(
+const readSseEvents = async <T extends PerfSseEvent>(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<T[]> => {
   const decoder = new TextDecoder();
@@ -125,7 +125,7 @@ const parseTraceLink = (linkHeader?: string) =>
     .find((part) => /;\s*rel="?trace"?/i.test(part))
     ?.match(/^<([^>]+)>/)?.[1];
 
-export const perfStreamSse = async <T extends { id: string }>({
+export const perfStreamSse = async <T extends PerfSseEvent>({
   context,
   perfCase,
   stepId,

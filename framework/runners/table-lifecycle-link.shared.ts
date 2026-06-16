@@ -380,7 +380,9 @@ export const prepareTableLinkFixture = async (
       new URL("./record-undo-redo.shared.ts", import.meta.url),
       runner === "table-delete-link"
         ? new URL("./table-delete-link.runner.ts", import.meta.url)
-        : new URL("./table-restore-link.runner.ts", import.meta.url),
+        : runner === "table-restore-link"
+          ? new URL("./table-restore-link.runner.ts", import.meta.url)
+          : new URL("./record-delete-link.runner.ts", import.meta.url),
     ],
   });
 
@@ -556,7 +558,10 @@ export const buildLinkFixtureSeedDetails = (
 export const seedTableLinkLifecycleCase = async (
   perfCase: PerfCase,
   _context: PerfRunContext,
-  runner: Extract<PerfRunnerKind, "table-delete-link" | "table-restore-link">,
+  runner: Extract<
+    PerfRunnerKind,
+    "table-delete-link" | "table-restore-link" | "record-delete-link"
+  >,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as TableLinkLifecycleCaseConfig;
   const baseId = globalThis.testConfig.baseId;
