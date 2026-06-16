@@ -8,6 +8,7 @@ export type PerfRunnerKind =
   | "lookup-search-index"
   | "field-create"
   | "field-convert"
+  | "field-convert-link"
   | "field-update"
   | "field-delete"
   | "field-duplicate"
@@ -26,6 +27,8 @@ export type PerfRunnerKind =
   | "record-read"
   | "record-create"
   | "record-update"
+  | "record-update-attachment"
+  | "record-update-link"
   | "record-reorder"
   | "record-delete"
   | "record-undo"
@@ -47,6 +50,7 @@ export interface PerfCase {
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
     | FieldConvertCaseConfig
+    | FieldConvertLinkCaseConfig
     | FieldUpdateCaseConfig
     | FieldDeleteCaseConfig
     | FieldDuplicateCaseConfig
@@ -65,6 +69,8 @@ export interface PerfCase {
     | RecordReadCaseConfig
     | RecordCreateCaseConfig
     | RecordUpdateCaseConfig
+    | RecordUpdateAttachmentCaseConfig
+    | RecordUpdateLinkCaseConfig
     | RecordReorderCaseConfig
     | RecordDeleteCaseConfig
     | RecordUndoCaseConfig
@@ -312,6 +318,55 @@ export interface FieldConvertCaseConfig {
   };
   threshold: {
     metric: "convertSelectToTextReadyMs" | "convertTextToFormulaReadyMs";
+    maxMs: number;
+  };
+}
+
+export type FieldConvertLinkDirection = "link-to-text" | "text-to-link";
+
+// Field convert between a populated many-one link field and single line text.
+// Unlike the single-table field-convert runner, this needs a foreign table the
+// link points at, so it owns a separate runner kind (mirroring the
+// table-delete vs table-delete-link split). `link-to-text` freezes the linked
+// display titles into plain text; `text-to-link` matches text values back to
+// foreign primary titles and rebuilds real links.
+export interface FieldConvertLinkCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  direction: FieldConvertLinkDirection;
+  rowCount: number;
+  batchSize: number;
+  // Name of the field that is converted. For `link-to-text` it is seeded as a
+  // many-one link field; for `text-to-link` it is seeded as single line text
+  // holding the matching foreign primary titles.
+  sourceFieldName: string;
+  foreignTable: {
+    rowCount: number;
+    batchSize: number;
+    // Foreign primary titles are `${keyPrefix}-<paddedRow>`; host source values
+    // map to them through the permutation below.
+    keyPrefix: string;
+  };
+  link: {
+    isOneWay: boolean;
+    // Maps host row i to foreign row ((i - 1) * multiplier + offset) % foreignRowCount + 1.
+    permutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  generator: {
+    type: "field-convert-link";
+    titlePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "convertLinkToTextReadyMs" | "convertTextToLinkReadyMs";
     maxMs: number;
   };
 }
@@ -688,6 +743,86 @@ export interface RecordUpdateCaseConfig {
   };
   threshold: {
     metric: "bulkUpdate1kMs";
+    maxMs: number;
+  };
+}
+
+// Bulk insert attachment references into existing records. Attachment cell
+// values cannot be computed from the row number (each token must reference a
+// real uploaded attachment), so the runner uploads a fixed deterministic file
+// set during execute setup and then bulk-updates the records — its own runner
+// kind rather than an extension of the scalar record-update runner.
+export interface RecordUpdateAttachmentCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  attachmentFieldName: string;
+  // Deterministic files uploaded once during execute setup (not measured) to
+  // obtain valid attachment tokens the bulk update can reference.
+  attachments: Array<{
+    filename: string;
+    content: string;
+    mimetype: string;
+  }>;
+  // How many of the uploaded attachment items are inserted into every record's
+  // cell during the measured bulk update (must be <= attachments.length).
+  attachmentsPerCell: number;
+  // The measured bulk-insert request is sampled this many times after one
+  // warmup; the primary metric is the p95 over the samples. PERF_LAB_SAMPLES
+  // overrides it at run time.
+  samples: number;
+  generator: {
+    type: "attachment-record-update";
+    titlePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "bulkUpdate100AttachmentCellsP95Ms";
+    maxMs: number;
+  };
+}
+
+// Bulk re-point many-one link cells across existing records. Needs a foreign
+// table the link references, so it owns a runner kind (mirroring the
+// table-delete vs table-delete-link split). The seed populates links through
+// `seedPermutation`; the measured update rewrites them to `updatePermutation`.
+export interface RecordUpdateLinkCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  linkFieldName: string;
+  foreignTable: {
+    rowCount: number;
+    batchSize: number;
+    keyPrefix: string;
+  };
+  link: {
+    isOneWay: boolean;
+    // Both map host row i to foreign row ((i - 1) * multiplier + offset) % foreignRowCount + 1.
+    seedPermutation: {
+      multiplier: number;
+      offset: number;
+    };
+    updatePermutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  generator: {
+    type: "link-record-update";
+    titlePrefix: string;
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "bulkUpdate1kLinkCellsMs";
     maxMs: number;
   };
 }

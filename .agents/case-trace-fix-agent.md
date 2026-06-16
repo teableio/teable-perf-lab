@@ -10,11 +10,20 @@ proven wrong.
 
 ## Trace Warning Types
 
-The performance monitor currently flags these trace warning shapes:
+The performance monitor should treat trace warnings with these shapes:
 
-- `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed.
-- `Failed_Trace_Count = 0` and `Trace_Ref_Count > Saved_Trace_Count` means trace
-  refs were captured, but fewer raw trace JSON files were saved.
+- `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed
+  and no same-shape saved snapshot or bounded fallback covered that selected
+  trace.
+- `Failed_Trace_Count = 0` and
+  `Trace_Ref_Count > Saved_Trace_Count + skippedTraceCount` means trace refs were
+  captured, but the manifest does not explain every unsaved raw trace snapshot.
+- `Trace_Ref_Count > Saved_Trace_Count` alone is not a defect when the manifest
+  records the difference as `skippedTraceCount`. High-repeat cases can keep all
+  trace refs while saving representative raw Jaeger snapshots.
+- Repeated sampled refs with a successful same-shape raw snapshot may be marked
+  `skipped` when a sibling trace 404s in Jaeger. If no same-shape trace saves,
+  the fetch must stay failed so the monitor still alerts.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
@@ -44,11 +53,22 @@ The performance monitor currently flags these trace warning shapes:
    - `uniqueTraceCount`
    - `savedTraceCount`
    - `skippedTraceCount`
+   - `failedTraceCount`
    - selected refs from `selectTraceRefsToSave`
+     If `savedTraceCount + failedTraceCount + skippedTraceCount` covers
+     `traceRefCount`, this is an intentional representative-snapshot gap, not a
+     trace-capture failure.
 5. Decide root cause:
    - Jaeger late availability or short timeout -> tune trace fetch timing.
    - Too many captured refs but snapshot cap too low -> adjust
      `PERF_LAB_TRACE_MAX_SNAPSHOTS` or selection priority.
+   - High-repeat case only needs representative raw snapshots -> use
+     `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
+     `skippedTraceCount` explains the unsaved refs.
+   - One selected representative sampled ref is unstable in Jaeger -> use
+     `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` so another same-shape ref can save
+     the representative raw snapshot while the failed selection is skipped with
+     an explicit replacement reason.
    - Unsampled refs -> verify sampling expectation, not case failure.
    - Missing `withPerfTraceStep` around important case op -> wrap operation.
    - Runner generates noisy API refs -> narrow step scope or priority rules.
@@ -56,9 +76,20 @@ The performance monitor currently flags these trace warning shapes:
 ## Fix Rules
 
 - Prefer deterministic case/runner changes.
-- Do not hide warnings by changing dashboard labels or filters.
+- Do not hide real failures by changing dashboard labels or filters. Dashboard
+  fixes are appropriate only when the field mapping or warning formula is proven
+  wrong.
 - Do not reduce trace refs only to make counts pass; keep refs useful for
-  debugging the performance operation.
+  debugging the performance operation. If raw snapshots are intentionally
+  narrowed to representative refs, record the rest as skipped.
+- If using fallback representative refs, keep the fallback scope same-shape and
+  bounded so real Jaeger outages still show as failed trace fetches.
+- Producer contract for `stepId`: a trailing number or `sample-N` means "an
+  interchangeable repeat of the same operation" (iteration/batch/sample). Steps
+  that do structurally different work MUST be told apart by a name, not a bare
+  positional index (e.g. `createFormulaField:${formulaName(i)}`, not
+  `createFormulaField:${i}`). A bare index collapses to the same normalized
+  shape and lets one saved trace falsely cover another step's 404.
 - Keep V1/V2 behavior comparable.
 - If changing trace collector defaults, explain blast radius.
 - Update the case `.md` when behavior or acceptance changes.
@@ -80,6 +111,5 @@ pnpm check:cases
 When possible, rerun affected cases for both engines and confirm:
 
 - `Failed_Trace_Count = 0`
-- `Saved_Trace_Count >= Trace_Ref_Count` or documented reason if snapshot cap
-  intentionally saves fewer than captured refs
+- Saved, failed, and skipped trace counts together cover `Trace_Ref_Count`.
 - Trace links open from the monitor

@@ -634,7 +634,12 @@ const createFormulaFields = async (
       await withPerfTraceStep(
         context,
         perfCase,
-        `seedBuild:createFormulaField:${index}`,
+        // Identify by field name, not positional index: each formula has a
+        // distinct expression, so these steps are NOT interchangeable repeats.
+        // A bare trailing `:${index}` would normalize to the same shape and let
+        // one saved trace falsely "cover" another field's Jaeger 404. Matches
+        // the name-based convention in formula-table.runner.ts.
+        `seedBuild:createFormulaField:${formulaName(index)}`,
         () =>
           createField(tableId, {
             name: formulaName(index),
@@ -664,7 +669,10 @@ const createLookupFields = async (
       await withPerfTraceStep(
         context,
         perfCase,
-        `seedBuild:createLookupField:${index}`,
+        // Identify by field name, not positional index (see createFormulaField):
+        // each lookup targets a different source field, so these are distinct
+        // operations that must not collapse to one normalized shape.
+        `seedBuild:createLookupField:${lookupName(index)}`,
         () =>
           createField(tableId, {
             name: lookupName(index),
