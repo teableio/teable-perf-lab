@@ -209,6 +209,52 @@ const buildMissingPayload = ({ caseId, payloadPath }) => {
 const jsonText = (value) =>
   value == null ? "" : JSON.stringify(value, null, 2);
 
+const compactTraceManifest = (traceManifest) => {
+  if (!traceManifest) {
+    return undefined;
+  }
+
+  const failedOrMissing = Array.isArray(traceManifest.savedTraces)
+    ? traceManifest.savedTraces.filter(
+        (trace) => trace?.status && trace.status !== "saved",
+      )
+    : [];
+  const sampledRefs = Array.isArray(traceManifest.refs)
+    ? traceManifest.refs.slice(0, 20).map((ref) => ({
+        stepId: ref?.stepId,
+        traceId: ref?.traceId,
+        sampled: ref?.sampled,
+        method: ref?.method,
+        url: ref?.url,
+        status: ref?.status,
+        traceLink: ref?.traceLink,
+      }))
+    : undefined;
+
+  return {
+    enabled: traceManifest.enabled,
+    traceRefCount: traceManifest.traceRefCount,
+    uniqueTraceCount: traceManifest.uniqueTraceCount,
+    selectedTraceCount: traceManifest.selectedTraceCount,
+    savedTraceCount: traceManifest.savedTraceCount,
+    failedTraceCount: traceManifest.failedTraceCount,
+    skippedTraceCount: traceManifest.skippedTraceCount,
+    missingFetchCount: traceManifest.missingFetchCount,
+    wastedFetchMs: traceManifest.wastedFetchMs,
+    maxSnapshotCount: traceManifest.maxSnapshotCount,
+    fetchConcurrency: traceManifest.fetchConcurrency,
+    backgroundFlushIntervalMs: traceManifest.backgroundFlushIntervalMs,
+    backgroundFlushCount: traceManifest.backgroundFlushCount,
+    backgroundFlushErrorCount: traceManifest.backgroundFlushErrorCount,
+    flushDurationMs: traceManifest.flushDurationMs,
+    jaegerApiBaseUrl: traceManifest.jaegerApiBaseUrl,
+    artifactDir: traceManifest.artifactDir,
+    manifestPath: traceManifest.manifestPath,
+    refsSample: sampledRefs,
+    nonSavedTracesSample: failedOrMissing.slice(0, 20),
+  };
+};
+
 const isPriorityTraceRef = (ref) =>
   /create.*field|formula|lookup/i.test(ref?.stepId ?? "") ||
   /\/field\//i.test(ref?.url ?? "");
@@ -531,7 +577,7 @@ const buildReportFields = async ({
       "Metrics JSON": jsonText(payload.metrics),
       "Thresholds JSON": jsonText(payload.thresholds),
       "Phases JSON": jsonText(payload.phases),
-      "Trace Manifest JSON": jsonText(traceManifest),
+      "Trace Manifest JSON": jsonText(compactTraceManifest(traceManifest)),
       "Summary Markdown": summaryMarkdown,
       Error: payload.error ? jsonText(payload.error) : undefined,
     }),
