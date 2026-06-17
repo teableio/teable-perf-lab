@@ -14,6 +14,7 @@ import { seedFieldUpdateCase } from "./runners/field-update.runner";
 import { seedFormulaTableCase } from "./runners/formula-table.runner";
 import { seedFormSubmitCase } from "./runners/form-submit.runner";
 import { seedImportBaseCase } from "./runners/import-base.runner";
+import { seedLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
 import { seedRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
@@ -42,6 +43,8 @@ const seedCaseByKind = async (
       return seedFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return seedConditionalLookupCase(perfCase, context);
+    case "link-computed-propagation":
+      return seedLinkComputedPropagationCase(perfCase, context);
     case "lookup-search-index":
       return seedLookupSearchIndexCase(perfCase, context);
     case "field-create":

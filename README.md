@@ -120,6 +120,26 @@ workload.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
+- `lookup/dual-link-computed-first-link-10k`: Measure the V2 async-compute
+  propagation window after a data write on a deep, customer-mirrored dependency
+  graph: how long after the order links are written do every dependent lookup,
+  multi-level formula, and downstream cross-table rollup become readable. This
+  reproduces the customer "orders" scenario where the links (`customer_id_fk`,
+  `gust_email_fk`) had record ids immediately but the lookups (`user_email`,
+  `shipping_first_name`, ...) and the `${first_name} ${last_name}` formula were
+  still null for a window, producing `undefined undefined`. This `first-link`
+  variant is the closest to the customer "new record first association" worst
+  case: orders start with no customer/guest link at all.
+- `lookup/dual-link-computed-repoint-10k`: Measure the V2 async-compute
+  propagation window after a data write on a deep, customer-mirrored dependency
+  graph, when the links already exist and are re-pointed to different records.
+  This is the `A -> B` switch variant of
+  `lookup/dual-link-computed-first-link-10k`: orders are seeded already linked,
+  then every link is re-pointed, forcing all dependent lookups, multi-level
+  formulas, and downstream cross-table rollups to recompute. It reproduces the
+  customer "orders" scenario where the link targets change but the lookups
+  (`user_email`, `shipping_first_name`, ...) and the `${first_name} ${last_name}`
+  formula lag for a window.
 - `search/search-index-off-10k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 10k-row host table whose
   `TableIndex.search` is disabled.
