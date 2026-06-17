@@ -294,6 +294,18 @@ export const resolvePerfCaseIds = (
   return [...new Set(caseIds)];
 };
 
+export const resolvePerfCaseIdsWithExclusions = (
+  caseFilter = "smoke/auth-user",
+  excludeCaseFilter = "",
+): string[] => {
+  const caseIds = resolvePerfCaseIds(caseFilter);
+  const excludeCaseIds = excludeCaseFilter.trim()
+    ? new Set(resolvePerfCaseIds(excludeCaseFilter))
+    : new Set<string>();
+
+  return caseIds.filter((caseId) => !excludeCaseIds.has(caseId));
+};
+
 export const getPerfCase = (caseId: string): PerfCase => {
   const canonicalCaseId = caseAliases.get(caseId) ?? caseId;
   const perfCase = caseById.get(canonicalCaseId);

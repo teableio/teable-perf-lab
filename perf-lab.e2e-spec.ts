@@ -2,7 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { performance } from "node:perf_hooks";
 import otelSDK from "../../src/tracing";
 import { initApp } from "../utils/init-app";
-import { listPerfCases } from "./registry";
+import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
 import { seedPerfCase } from "./framework/run-perf-seed";
 import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
@@ -234,11 +234,13 @@ const withRunEngineEnv = async <T>(
   );
 
 describe("perf-lab serial case runner (e2e)", () => {
-  const perfCases = listPerfCases(
+  const perfCaseIds = resolvePerfCaseIdsWithExclusions(
     process.env.PERF_LAB_CASE_FILTER ??
       process.env.PERF_LAB_CASE_ID ??
       "smoke/auth-user",
+    process.env.PERF_LAB_EXCLUDE_CASE_FILTER,
   );
+  const perfCases = perfCaseIds.map(getPerfCase);
   applyCaseRuntimeEnv(perfCases);
   const engines = parseEngineList(process.env.PERF_LAB_ENGINE_LIST);
   const mode = getMode();
@@ -246,6 +248,7 @@ describe("perf-lab serial case runner (e2e)", () => {
   logPhase("module-loaded", {
     mode,
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
+    excludedCases: process.env.PERF_LAB_EXCLUDE_CASE_FILTER || "(none)",
     engines: engines.join(","),
     computedUpdateMode:
       process.env.PERF_LAB_COMPUTED_UPDATE_MODE || "(default)",
