@@ -174,6 +174,15 @@ artifacts when no results artifact exists for the run (for example, when
 re-running report on an older run). It downloads the resolved artifacts, merges
 their JSON payloads, and upserts the result rows to Teable.
 
+Teable result rows keep trace data queryable without storing the full manifest
+in one cell. The scalar trace columns (`Trace Ref Count`, `Saved Trace Count`,
+`Failed Trace Count`, `Trace URL`, `Manifest Path`, and `Artifact URL`) are the
+primary report surface. `Trace Manifest JSON` stores a bounded summary with
+core counts, fetch/flush settings, artifact pointers, and small samples of
+refs/saved/non-saved trace outcomes. The complete manifest remains in
+`traces/<case-id>-<engine>/manifest.json` inside the GitHub artifact, and raw
+Jaeger snapshots remain only in the full artifact.
+
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see
 [../../.agents/artifact-content.md](../../.agents/artifact-content.md).

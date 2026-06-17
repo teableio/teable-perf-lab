@@ -209,29 +209,91 @@ const buildMissingPayload = ({ caseId, payloadPath }) => {
 const jsonText = (value) =>
   value == null ? "" : JSON.stringify(value, null, 2);
 
+const TRACE_REF_SAMPLE_LIMIT = 20;
+const TRACE_NON_SAVED_SAMPLE_LIMIT = 20;
+const TRACE_SAVED_SAMPLE_LIMIT = 10;
+
+const isSavedTrace = (trace) => trace?.status === "saved";
+
+const compactTraceRef = (ref) => ({
+  stepId: ref?.stepId,
+  traceId: ref?.traceId,
+  sampled: ref?.sampled,
+  method: ref?.method,
+  url: ref?.url,
+  status: ref?.status,
+  traceLink: ref?.traceLink,
+});
+
+const compactSavedTrace = (trace) => ({
+  stepId: trace?.stepId,
+  traceId: trace?.traceId,
+  path: trace?.path,
+  status: trace?.status,
+  error: trace?.error,
+  attempts: trace?.attempts,
+  durationMs: trace?.durationMs,
+  sampled: trace?.sampled,
+});
+
+const traceSummaryStatus = (traceManifest) => {
+  if (!traceManifest.enabled) {
+    return "disabled";
+  }
+  if (numberOrUndefined(traceManifest.failedTraceCount) > 0) {
+    return "failed";
+  }
+  if (numberOrUndefined(traceManifest.missingFetchCount) > 0) {
+    return "partial";
+  }
+  return "ok";
+};
+
 const compactTraceManifest = (traceManifest) => {
   if (!traceManifest) {
     return undefined;
   }
 
-  const failedOrMissing = Array.isArray(traceManifest.savedTraces)
-    ? traceManifest.savedTraces.filter(
-        (trace) => trace?.status && trace.status !== "saved",
-      )
+  const refs = Array.isArray(traceManifest.refs) ? traceManifest.refs : [];
+  const savedTraces = Array.isArray(traceManifest.savedTraces)
+    ? traceManifest.savedTraces
     : [];
-  const sampledRefs = Array.isArray(traceManifest.refs)
-    ? traceManifest.refs.slice(0, 20).map((ref) => ({
-        stepId: ref?.stepId,
-        traceId: ref?.traceId,
-        sampled: ref?.sampled,
-        method: ref?.method,
-        url: ref?.url,
-        status: ref?.status,
-        traceLink: ref?.traceLink,
-      }))
-    : undefined;
+  const nonSavedTraces = savedTraces.filter(
+    (trace) => trace?.status && !isSavedTrace(trace),
+  );
+  const priorityRefs = refs.filter(isPriorityTraceRef);
+  const refSampleTraceIds = new Set();
+  const refsSample = [...priorityRefs, ...refs]
+    .filter((ref) => {
+      if (!ref?.traceId || refSampleTraceIds.has(ref.traceId)) {
+        return false;
+      }
+      refSampleTraceIds.add(ref.traceId);
+      return true;
+    })
+    .slice(0, TRACE_REF_SAMPLE_LIMIT)
+    .map(compactTraceRef);
+  const savedTracesSample = savedTraces
+    .filter(isSavedTrace)
+    .slice(0, TRACE_SAVED_SAMPLE_LIMIT)
+    .map(compactSavedTrace);
+  const nonSavedTracesSample = nonSavedTraces
+    .slice(0, TRACE_NON_SAVED_SAMPLE_LIMIT)
+    .map(compactSavedTrace);
 
   return {
+    schemaVersion: 1,
+    truncated:
+      refs.length > refsSample.length ||
+      savedTraces.filter(isSavedTrace).length > savedTracesSample.length ||
+      nonSavedTraces.length > nonSavedTracesSample.length,
+    fullManifestInArtifact: Boolean(traceManifest.manifestPath),
+    sampleLimits: {
+      refs: TRACE_REF_SAMPLE_LIMIT,
+      savedTraces: TRACE_SAVED_SAMPLE_LIMIT,
+      nonSavedTraces: TRACE_NON_SAVED_SAMPLE_LIMIT,
+    },
+    status: traceSummaryStatus(traceManifest),
     enabled: traceManifest.enabled,
     traceRefCount: traceManifest.traceRefCount,
     uniqueTraceCount: traceManifest.uniqueTraceCount,
@@ -250,8 +312,9 @@ const compactTraceManifest = (traceManifest) => {
     jaegerApiBaseUrl: traceManifest.jaegerApiBaseUrl,
     artifactDir: traceManifest.artifactDir,
     manifestPath: traceManifest.manifestPath,
-    refsSample: sampledRefs,
-    nonSavedTracesSample: failedOrMissing.slice(0, 20),
+    refsSample,
+    savedTracesSample,
+    nonSavedTracesSample,
   };
 };
 
