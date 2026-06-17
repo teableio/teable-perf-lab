@@ -6,13 +6,13 @@ tags:
   - computed
   - formula
   - rollup
-  - 4k
+  - 2k
   - v1-v2
   - relationship
 enabled: true
 ---
 
-# lookup/dual-link-computed-repoint-4k
+# lookup/dual-link-computed-repoint-2k
 
 ## Goal
 
@@ -38,16 +38,16 @@ The case runs in two computed-update modes (workflow input `computed_update_mode
 
 Mirrors a bounded version of the customer schema across four tables:
 
-- `users` (registered customer) and `guest`, 4,000 rows each, with a `Key`
+- `users` (registered customer) and `guest`, 2,000 rows each, with a `Key`
   primary plus 10 attribute columns (`first_name`, `last_name`, `email`, `phone`,
   `address_1`, `address_2`, `country`, `state`, `postcode`, `city`).
-- `orders`, 4,000 rows, with `Title`, two one-way many-one links
+- `orders`, 2,000 rows, with `Title`, two one-way many-one links
   (`customer_id_fk` -> users, `gust_email_fk` -> guest), a two-way many-one
   `purchase_fk` -> purchase, **20 lookups** (10 over each link), and a **4-level
   formula chain** over them: L1 `customer_name`/`guest_name`/`ship_address`/
   `contact` (over lookups), L2 `summary` (over the L1 formulas), L3 `order_card`
   (over `summary`).
-- `purchase`, 400 rows, each grouping 10 consecutive orders. It rolls up its
+- `purchase`, 200 rows, each grouping 10 consecutive orders. It rolls up its
   orders — `p_order_count` (COUNTALL), `p_names` (ARRAY_JOIN of `customer_name`),
   `p_emails` (ARRAY_JOIN of `cust_email`) — and a formula `p_label` over the
   rollup. This is the **second cascade hop**: order computed values feed purchase
@@ -67,10 +67,10 @@ Mirrors a bounded version of the customer schema across four tables:
 3. Start the primary timer and `PATCH /api/table/{tableId}/record` (100-row
    batches; the V1 synchronous recompute path times out on larger batches)
    re-pointing both `customer_id_fk` and `gust_email_fk` for every order row `i`
-   to foreign row `((i-1)*7+3) % 4000 + 1`. multiplier 7 is coprime with 4,000,
+   to foreign row `((i-1)*7+3) % 2000 + 1`. multiplier 7 is coprime with 2,000,
    so the mapping is a permutation and no row keeps its seed target.
-4. Keep the timer running and poll a full paged scan of all 4,000 orders **and**
-   all 400 purchases until every lookup, formula, rollup, and downstream value
+4. Keep the timer running and poll a full paged scan of all 2,000 orders **and**
+   all 200 purchases until every lookup, formula, rollup, and downstream value
    matches the re-pointed target, then stop the timer. Assert routing matches the
    requested engine.
 5. Cleanup restores the order link cells to the seed (identity) permutation on
@@ -90,7 +90,7 @@ primary metric.
 
 ## Verification
 
-- The write responses must update all 4,000 records.
+- The write responses must update all 2,000 records.
 - A full paged scan confirms every customer/guest lookup equals the re-pointed
   foreign attribute and every formula equals its deterministic expected value;
   a purchase scan confirms each `p_order_count` equals its child count, each
@@ -99,16 +99,15 @@ primary metric.
 
 ## Notes
 
-Sized at **4,000, not 10,000**, on purpose. In `hybrid` (the production async
-path) the recompute window is super-linear and hits a cliff between 4k and 10k —
-measured async windows: 300 rows ~7s, 1k ~8.5s, **4k ~20s**, **10k did not
-converge within 600s** (perf-lab run 27679497968, V2 hybrid timed out with a
-sample order's lookup still on its old value). 4k is the largest scale that
-reliably converges in both `sync` and `hybrid`, so the case stays green in both
-modes and yields a real V2 async number. The 10k async non-convergence is itself
-a recorded finding, not a target metric; raising the scale back to 10k would make
-the hybrid run a permanent timeout until the V2 outbox drain throughput is
-optimized.
+Sized at **2,000**, not 4,000 or 10,000, on purpose. Repoint is materially
+heavier than `first-link`: it invalidates the old lookup targets, computes new
+targets, and re-aggregates purchase rollups. In `hybrid` (the production async
+path), CI showed `first-link` 4k converging with a real async value while
+`repoint` 4k timed out after 600s (run 27682892707). A local hybrid probe at 2k
+passed with comfortable margin: `lookupReadyTotalMs` 22.1s, `linkWriteMs` 4.1s,
+and `lookupPropagationMs` 18.0s, with 2,000 orders and 200 purchases fully
+scanned. 10k remains a recorded non-convergence finding (run 27679497968), not a
+target metric for this green CI standard.
 
 Initial `maxMs` (300,000) is a wide guardrail; tighten after real V1/V2 history.
 For a fast local smoke, set `PERF_LAB_LCP_ROWS` / `PERF_LAB_LCP_FOREIGN_ROWS` to

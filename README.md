@@ -130,7 +130,7 @@ workload.
   producing `undefined undefined`. This `first-link` variant is the closest to
   the customer "new record first association" worst case: orders start with no
   customer/guest link at all.
-- `lookup/dual-link-computed-repoint-4k`: Measure how long after a data write
+- `lookup/dual-link-computed-repoint-2k`: Measure how long after a data write
   the V2 dependency graph becomes readable, on a deep, customer-mirrored schema,
   when the links already exist and are re-pointed to different records. This is
   the `A -> B` switch variant of `lookup/dual-link-computed-first-link-4k`:
