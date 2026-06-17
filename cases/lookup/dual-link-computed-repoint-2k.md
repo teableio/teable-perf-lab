@@ -64,29 +64,29 @@ Mirrors a bounded version of the customer schema across four tables:
 
 1. Verify seed order samples resolve to the identity permutation (`seedReady`).
 2. Execute setup (not measured): scan `users` and `guest` to map titles to ids.
-3. Start the primary timer and `PATCH /api/table/{tableId}/record` (100-row
-   batches; the V1 synchronous recompute path times out on larger batches)
+3. `PATCH /api/table/{tableId}/record` (100-row batches; the V1 synchronous
+   recompute path times out on larger batches)
    re-pointing both `customer_id_fk` and `gust_email_fk` for every order row `i`
    to foreign row `((i-1)*7+3) % 2000 + 1`. multiplier 7 is coprime with 2,000,
    so the mapping is a permutation and no row keeps its seed target.
-4. Keep the timer running and poll a full paged scan of all 2,000 orders **and**
-   all 200 purchases until every lookup, formula, rollup, and downstream value
-   matches the re-pointed target, then stop the timer. Assert routing matches the
-   requested engine.
+4. Start the primary timer after the write response and poll a full paged scan of
+   all 2,000 orders **and** all 200 purchases until every lookup, formula,
+   rollup, and downstream value matches the re-pointed target, then stop the
+   timer. Assert routing matches the requested engine.
 5. Cleanup restores the order link cells to the seed (identity) permutation on
    local single-database runs; isolated execute databases are discarded by
    teardown.
 
 ## Primary Metric
 
-- `lookupReadyTotalMs`: elapsed time from the start of the link write until the
+- `lookupPropagationMs`: elapsed time after the link write response until the
   entire dependency graph (orders lookups + formulas + purchase rollups) reflects
-  the re-pointed links — i.e. the write plus the recompute window.
+  the re-pointed links. This isolates the read-after-write computed readiness
+  window that exposes the V2 hybrid outbox lag.
 
-Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupPropagationMs`
-(the window after the write until everything is readable; in hybrid this is the
-async outbox drain). Seeding, the id scans, and seed validation stay out of the
-primary metric.
+Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupReadyTotalMs`
+(write plus propagation). Seeding, the id scans, and seed validation stay out of
+the primary metric.
 
 ## Verification
 
@@ -104,8 +104,8 @@ heavier than `first-link`: it invalidates the old lookup targets, computes new
 targets, and re-aggregates purchase rollups. In `hybrid` (the production async
 path), CI showed `first-link` 4k converging with a real async value while
 `repoint` 4k timed out after 600s (run 27682892707). A local hybrid probe at 2k
-passed with comfortable margin: `lookupReadyTotalMs` 22.1s, `linkWriteMs` 4.1s,
-and `lookupPropagationMs` 18.0s, with 2,000 orders and 200 purchases fully
+passed with comfortable margin: `lookupPropagationMs` 18.0s, `linkWriteMs` 4.1s,
+and `lookupReadyTotalMs` 22.1s, with 2,000 orders and 200 purchases fully
 scanned. 10k remains a recorded non-convergence finding (run 27679497968), not a
 target metric for this green CI standard.
 

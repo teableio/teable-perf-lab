@@ -222,9 +222,10 @@ export interface ConditionalLookupCaseConfig {
 // `purchase` table that rolls up and re-derives the orders' computed values
 // (a second cross-table hop). The measured operation writes BOTH links for every
 // order, then waits until every dependent lookup, formula, rollup, and
-// downstream computed value recomputes, so the primary metric captures the full
-// async-compute propagation window on a data write (not on schema creation). All
-// computed fields live in the seed; the foreign tables share `foreignRowCount`.
+// downstream computed value recomputes. The primary metric is the post-write
+// propagation/readiness window; write time is reported separately so a fast V2
+// write cannot hide a slow hybrid outbox drain. All computed fields live in the
+// seed; the foreign tables share `foreignRowCount`.
 export interface LinkComputedPropagationCaseConfig {
   baseId: "seed-base";
   // first-link: orders seeded with no customer/guest link (closest to the
@@ -268,7 +269,7 @@ export interface LinkComputedPropagationCaseConfig {
     pollIntervalMs?: number;
   };
   threshold: {
-    metric: "lookupReadyTotalMs";
+    metric: "lookupPropagationMs";
     maxMs: number;
   };
 }

@@ -43,7 +43,7 @@ export default definePerfCase({
       pollIntervalMs: 250,
     },
     threshold: {
-      metric: "lookupReadyTotalMs",
+      metric: "lookupPropagationMs",
       maxMs: 300_000,
     },
   },

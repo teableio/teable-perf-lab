@@ -66,26 +66,27 @@ Mirrors a bounded version of the customer schema across four tables:
 
 1. Verify seed order samples are unlinked (`seedReady`).
 2. Execute setup (not measured): scan `users` and `guest` to map titles to ids.
-3. Start the primary timer and `PATCH /api/table/{tableId}/record` (100-row
-   batches; the V1 synchronous recompute path times out on larger batches)
+3. `PATCH /api/table/{tableId}/record` (100-row batches; the V1 synchronous
+   recompute path times out on larger batches)
    writing both `customer_id_fk` and `gust_email_fk` for every order row `i` to
    foreign row `((i-1)*7+3) % 4000 + 1` (the first links these rows get).
-4. Keep the timer running and poll a full paged scan of all 4,000 orders **and**
-   all 400 purchases until every lookup, formula, rollup, and downstream value
-   matches, then stop the timer. Assert routing matches the requested engine.
+4. Start the primary timer after the write response and poll a full paged scan of
+   all 4,000 orders **and** all 400 purchases until every lookup, formula,
+   rollup, and downstream value matches, then stop the timer. Assert routing
+   matches the requested engine.
 5. Cleanup clears the order link cells back to empty on local single-database
    runs; isolated execute databases are discarded by teardown.
 
 ## Primary Metric
 
-- `lookupReadyTotalMs`: elapsed time from the start of the link write until the
+- `lookupPropagationMs`: elapsed time after the link write response until the
   entire dependency graph (orders lookups + formulas + purchase rollups) reflects
-  the new links — i.e. the write plus the recompute window.
+  the new links. This isolates the read-after-write computed readiness window
+  that exposes the V2 hybrid outbox lag.
 
-Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupPropagationMs`
-(the window after the write until everything is readable; in hybrid this is the
-async outbox drain). Seeding, the id scans, and seed validation stay out of the
-primary metric.
+Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupReadyTotalMs`
+(write plus propagation). Seeding, the id scans, and seed validation stay out of
+the primary metric.
 
 ## Verification
 

@@ -1450,7 +1450,7 @@ const buildResult = ({
       : {}),
     ...(totalMeasurement && primary
       ? {
-          [config.threshold.metric]: totalMeasurement.durationMs,
+          lookupReadyTotalMs: totalMeasurement.durationMs,
           linkWriteMs: primary.linkWriteMs,
           lookupPropagationMs: primary.lookupPropagationMs,
         }
