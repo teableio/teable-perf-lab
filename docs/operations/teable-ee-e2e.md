@@ -39,6 +39,15 @@ Manual inputs:
 - `samples`: measured samples for endpoint-style cases.
 - `primary_threshold_ms`: optional override for the case's primary threshold.
   Leave it empty to use the case config default.
+- `computed_update_mode`: optional V2 computed update mode for the execute jobs
+  (`sync` | `hybrid`). Leave empty to keep the e2e default (`sync`). The e2e
+  setup forces `sync` for deterministic computed values; pass `hybrid` to instead
+  exercise the production outbox + polling-worker path (`HybridWithOutboxStrategy`)
+  so a case can measure the real async propagation window after a write. Only run
+  async-tolerant cases (those that poll until computed values settle, e.g.
+  `lookup/dual-link-computed-*`) with `hybrid`, because the mode is per execute
+  job and applies to every selected case in that run. The perf spec applies it
+  after the e2e setup and before `initApp()` builds the V2 container.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on
   that repository and store the private key in this repository as
   `TEABLE_EE_CHECKOUT_SSH_KEY`.

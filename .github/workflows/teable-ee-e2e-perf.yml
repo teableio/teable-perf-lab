@@ -28,6 +28,15 @@ on:
         required: false
         default: v1,v2
         type: string
+      computed_update_mode:
+        description: >-
+          Optional V2 computed update mode for execute jobs (sync | hybrid).
+          Leave empty to keep the e2e default (sync). Use hybrid to exercise the
+          production outbox + polling-worker path; only run async-tolerant cases
+          with it.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -537,6 +546,7 @@ jobs:
           export PERF_LAB_ENGINE_LIST="${{ matrix.engine }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
+          export PERF_LAB_COMPUTED_UPDATE_MODE="${{ inputs.computed_update_mode }}"
           export PERF_LAB_EXECUTE_DB_ISOLATED="true"
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.engine }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"

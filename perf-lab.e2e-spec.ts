@@ -163,9 +163,21 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   const previousForceV2All = process.env.FORCE_V2_ALL;
   const previousEngine = process.env.PERF_LAB_ENGINE;
   const previousOtelServiceName = process.env.OTEL_SERVICE_NAME;
+  // The teable-ee e2e setup file unconditionally forces
+  // V2_COMPUTED_UPDATE_MODE=sync for deterministic tests. When the workflow asks
+  // for a specific mode (e.g. hybrid, the production outbox + polling-worker
+  // path), override it here — this runs after the setup file and before
+  // initApp() builds the V2 container, which reads the env once at creation.
+  // The V2 container only reads it; V1 ignores it. Leave it untouched (sync)
+  // when the override is not set.
+  const previousComputedUpdateMode = process.env.V2_COMPUTED_UPDATE_MODE;
+  const requestedComputedUpdateMode = process.env.PERF_LAB_COMPUTED_UPDATE_MODE;
 
   process.env.FORCE_V2_ALL = getForceV2All(engine);
   process.env.PERF_LAB_ENGINE = engine;
+  if (requestedComputedUpdateMode) {
+    process.env.V2_COMPUTED_UPDATE_MODE = requestedComputedUpdateMode;
+  }
   process.env.OTEL_SERVICE_NAME =
     process.env.PERF_LAB_OTEL_SERVICE_PREFIX != null
       ? `${process.env.PERF_LAB_OTEL_SERVICE_PREFIX}-${engine}`
@@ -190,6 +202,14 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
       delete process.env.OTEL_SERVICE_NAME;
     } else {
       process.env.OTEL_SERVICE_NAME = previousOtelServiceName;
+    }
+
+    if (requestedComputedUpdateMode) {
+      if (previousComputedUpdateMode == null) {
+        delete process.env.V2_COMPUTED_UPDATE_MODE;
+      } else {
+        process.env.V2_COMPUTED_UPDATE_MODE = previousComputedUpdateMode;
+      }
     }
   }
 };
@@ -227,6 +247,8 @@ describe("perf-lab serial case runner (e2e)", () => {
     mode,
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
     engines: engines.join(","),
+    computedUpdateMode:
+      process.env.PERF_LAB_COMPUTED_UPDATE_MODE || "(default)",
     maxPasteCells: process.env.MAX_PASTE_CELLS,
     maxSelectChoices: process.env.TABLE_LIMIT_SELECT_CHOICES_MAX,
   });

@@ -5,7 +5,7 @@ export default definePerfCase({
   title:
     "Re-point 10k orders, await dual-link lookup + formula + cross-table rollup recompute",
   runner: "link-computed-propagation",
-  timeoutMs: 1_200_000,
+  timeoutMs: 1_800_000,
   watchdogMs: 300_000,
   config: {
     baseId: "seed-base",
@@ -36,7 +36,7 @@ export default definePerfCase({
     verify: {
       sampleRows: [0, 4999, 9999],
       fullScanPageSize: 1_000,
-      timeoutMs: 300_000,
+      timeoutMs: 600_000,
       pollIntervalMs: 250,
     },
     threshold: {
