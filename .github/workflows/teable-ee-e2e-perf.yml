@@ -28,6 +28,15 @@ on:
         required: false
         default: v1,v2
         type: string
+      computed_update_mode:
+        description: >-
+          Optional V2 computed update mode for execute jobs (sync | hybrid).
+          Leave empty to keep the e2e default (sync). Use hybrid to exercise the
+          production outbox + polling-worker path; only run async-tolerant cases
+          with it.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -78,6 +87,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       engines: ${{ steps.engines.outputs.engines }}
+      execute_plan: ${{ steps.engines.outputs.execute_plan }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
 
     steps:
@@ -86,11 +96,16 @@ jobs:
         env:
           ENGINE_FILTER: ${{ inputs.engine_filter }}
           CASE_FILTER: ${{ inputs.case_filter }}
+          COMPUTED_UPDATE_MODE: ${{ inputs.computed_update_mode }}
         run: |
           set -euo pipefail
 
           node <<'NODE'
           const fs = require("node:fs");
+          const hybridComputedCases = [
+            "lookup/dual-link-computed-first-link-4k",
+            "lookup/dual-link-computed-repoint-2k",
+          ];
 
           const raw = process.env.ENGINE_FILTER ?? "";
           const engines = [
@@ -138,11 +153,55 @@ jobs:
             .replace(/[^a-zA-Z0-9_.-]+/g, "-")
             .replace(/^-+|-+$/g, "")
             .slice(0, 160);
+          const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
+          const requestedComputedUpdateMode = (process.env.COMPUTED_UPDATE_MODE ?? "").trim();
+          const executePlan = engines.flatMap((engine) => {
+            if (
+              engine !== "v2" ||
+              !caseFilterIsAll ||
+              requestedComputedUpdateMode
+            ) {
+              return [
+                {
+                  name: engine,
+                  engine,
+                  caseFilter: rawCaseFilter,
+                  excludeCaseFilter: "",
+                  computedUpdateMode: requestedComputedUpdateMode,
+                  artifactSuffix: engine,
+                  otelServiceSuffix: engine,
+                },
+              ];
+            }
+
+            return [
+              {
+                name: "v2-sync-default",
+                engine,
+                caseFilter: rawCaseFilter,
+                excludeCaseFilter: hybridComputedCases.join(","),
+                computedUpdateMode: "",
+                artifactSuffix: "v2",
+                otelServiceSuffix: "v2-sync",
+              },
+              {
+                name: "v2-hybrid-computed",
+                engine,
+                caseFilter: hybridComputedCases.join(","),
+                excludeCaseFilter: "",
+                computedUpdateMode: "hybrid",
+                artifactSuffix: "v2-hybrid-computed",
+                otelServiceSuffix: "v2-hybrid",
+              },
+            ];
+          });
 
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `engines=${JSON.stringify(engines)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `execute_plan=${JSON.stringify(executePlan)}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `case_filter_key=${caseFilterKey}\n`);
           console.log(`Resolved engines: ${engines.join(", ")}`);
           console.log(`Resolved case filter cache key: ${caseFilterKey}`);
+          console.log(`Resolved execute plan: ${JSON.stringify(executePlan)}`);
           NODE
 
   seed:
@@ -403,7 +462,7 @@ jobs:
           docker network rm "$NETWORK_MODE" || true
 
   execute:
-    name: Run perf cases (${{ matrix.engine }})
+    name: Run perf cases (${{ matrix.plan.name }})
     needs:
       - resolve_inputs
       - seed
@@ -412,12 +471,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: ${{ fromJSON(needs.resolve_inputs.outputs.engines) }}
+        plan: ${{ fromJSON(needs.resolve_inputs.outputs.execute_plan) }}
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
-      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
-      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.engine }}
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
 
     steps:
       - name: Checkout perf lab
@@ -530,15 +589,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts/${{ matrix.engine }}"
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
           export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           export PERF_LAB_MODE="execute"
-          export PERF_LAB_CASE_FILTER="${{ inputs.case_filter }}"
-          export PERF_LAB_ENGINE_LIST="${{ matrix.engine }}"
+          export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
+          export PERF_LAB_EXCLUDE_CASE_FILTER="${{ matrix.plan.excludeCaseFilter }}"
+          export PERF_LAB_ENGINE_LIST="${{ matrix.plan.engine }}"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
+          export PERF_LAB_COMPUTED_UPDATE_MODE="${{ matrix.plan.computedUpdateMode }}"
           export PERF_LAB_EXECUTE_DB_ISOLATED="true"
-          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.engine }}"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.plan.otelServiceSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
           export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
@@ -552,8 +613,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: teable-ee-e2e-perf-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-lab-artifacts/${{ matrix.engine }}
+          name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
 
       - name: Stage lightweight perf results
@@ -561,8 +622,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          src="perf-lab-artifacts/${{ matrix.engine }}"
-          dest="perf-lab-results/${{ matrix.engine }}"
+          src="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+          dest="perf-lab-results/${{ matrix.plan.artifactSuffix }}"
 
           if [ ! -d "$src" ]; then
             echo "No perf artifacts at $src; skipping lightweight staging."
@@ -591,22 +652,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: teable-ee-e2e-perf-results-${{ matrix.engine }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-lab-results/${{ matrix.engine }}
+          name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-results/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
 
       - name: Publish job summary
         if: always()
         run: |
           shopt -s nullglob
-          summaries=(perf-lab-artifacts/${{ matrix.engine }}/summary-*.md)
+          summaries=(perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}/summary-*.md)
           if [ "${#summaries[@]}" -gt 0 ]; then
             for summary in "${summaries[@]}"; do
               cat "$summary" >> "$GITHUB_STEP_SUMMARY"
               printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
             done
           else
-            echo "No perf summary was generated for ${{ matrix.engine }}." >> "$GITHUB_STEP_SUMMARY"
+            echo "No perf summary was generated for ${{ matrix.plan.name }}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Cleanup teable-ee e2e services
@@ -658,7 +719,7 @@ jobs:
               pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
               count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
                 --paginate \
-                --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^${prefix}[12]-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
+                --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
 
               if [ "${count}" -gt 0 ]; then
                 selected_attempt="${attempt}"
@@ -683,7 +744,7 @@ jobs:
         with:
           pattern: ${{ steps.perf_artifacts.outputs.pattern }}
           path: perf-lab-artifacts
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Report perf results to Teable
         if: env.TEABLE_PERF_LAB_TOKEN != ''
@@ -712,7 +773,7 @@ jobs:
         if: always()
         run: |
           shopt -s nullglob
-          summaries=(perf-lab-artifacts/summary-*.md)
+          summaries=(perf-lab-artifacts/*/summary-*.md)
           if [ "${#summaries[@]}" -gt 0 ]; then
             for summary in "${summaries[@]}"; do
               cat "$summary" >> "$GITHUB_STEP_SUMMARY"

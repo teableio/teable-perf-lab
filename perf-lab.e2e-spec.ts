@@ -2,7 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { performance } from "node:perf_hooks";
 import otelSDK from "../../src/tracing";
 import { initApp } from "../utils/init-app";
-import { listPerfCases } from "./registry";
+import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
 import { seedPerfCase } from "./framework/run-perf-seed";
 import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
@@ -163,9 +163,21 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   const previousForceV2All = process.env.FORCE_V2_ALL;
   const previousEngine = process.env.PERF_LAB_ENGINE;
   const previousOtelServiceName = process.env.OTEL_SERVICE_NAME;
+  // The teable-ee e2e setup file unconditionally forces
+  // V2_COMPUTED_UPDATE_MODE=sync for deterministic tests. When the workflow asks
+  // for a specific mode (e.g. hybrid, the production outbox + polling-worker
+  // path), override it here — this runs after the setup file and before
+  // initApp() builds the V2 container, which reads the env once at creation.
+  // The V2 container only reads it; V1 ignores it. Leave it untouched (sync)
+  // when the override is not set.
+  const previousComputedUpdateMode = process.env.V2_COMPUTED_UPDATE_MODE;
+  const requestedComputedUpdateMode = process.env.PERF_LAB_COMPUTED_UPDATE_MODE;
 
   process.env.FORCE_V2_ALL = getForceV2All(engine);
   process.env.PERF_LAB_ENGINE = engine;
+  if (requestedComputedUpdateMode) {
+    process.env.V2_COMPUTED_UPDATE_MODE = requestedComputedUpdateMode;
+  }
   process.env.OTEL_SERVICE_NAME =
     process.env.PERF_LAB_OTEL_SERVICE_PREFIX != null
       ? `${process.env.PERF_LAB_OTEL_SERVICE_PREFIX}-${engine}`
@@ -191,6 +203,14 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
     } else {
       process.env.OTEL_SERVICE_NAME = previousOtelServiceName;
     }
+
+    if (requestedComputedUpdateMode) {
+      if (previousComputedUpdateMode == null) {
+        delete process.env.V2_COMPUTED_UPDATE_MODE;
+      } else {
+        process.env.V2_COMPUTED_UPDATE_MODE = previousComputedUpdateMode;
+      }
+    }
   }
 };
 
@@ -214,11 +234,13 @@ const withRunEngineEnv = async <T>(
   );
 
 describe("perf-lab serial case runner (e2e)", () => {
-  const perfCases = listPerfCases(
+  const perfCaseIds = resolvePerfCaseIdsWithExclusions(
     process.env.PERF_LAB_CASE_FILTER ??
       process.env.PERF_LAB_CASE_ID ??
       "smoke/auth-user",
+    process.env.PERF_LAB_EXCLUDE_CASE_FILTER,
   );
+  const perfCases = perfCaseIds.map(getPerfCase);
   applyCaseRuntimeEnv(perfCases);
   const engines = parseEngineList(process.env.PERF_LAB_ENGINE_LIST);
   const mode = getMode();
@@ -226,7 +248,10 @@ describe("perf-lab serial case runner (e2e)", () => {
   logPhase("module-loaded", {
     mode,
     cases: perfCases.map((perfCase) => perfCase.id).join(","),
+    excludedCases: process.env.PERF_LAB_EXCLUDE_CASE_FILTER || "(none)",
     engines: engines.join(","),
+    computedUpdateMode:
+      process.env.PERF_LAB_COMPUTED_UPDATE_MODE || "(default)",
     maxPasteCells: process.env.MAX_PASTE_CELLS,
     maxSelectChoices: process.env.TABLE_LIMIT_SELECT_CHOICES_MAX,
   });
