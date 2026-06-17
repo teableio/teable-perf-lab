@@ -2,6 +2,8 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
+import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
 import fieldCreateFormula10kCreate5FieldsCase from "./cases/field-create/10k-create-5-formula-fields.case";
@@ -58,6 +60,8 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  dualLinkComputedFirstLink4kCase,
+  dualLinkComputedRepoint2kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
   fieldCreateSimple10kCreate5FieldsCase,
@@ -119,6 +123,8 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["lookup/dual-link-first-link", "lookup/dual-link-computed-first-link-4k"],
+  ["lookup/dual-link-repoint", "lookup/dual-link-computed-repoint-2k"],
   ["lookup/search-index", "search/search-index-on-10k-20search-fields"],
   ["lookup/search-index/off", "search/search-index-off-10k-20search-fields"],
   ["lookup/search-index/on", "search/search-index-on-10k-20search-fields"],
@@ -286,6 +292,18 @@ export const resolvePerfCaseIds = (
   }
 
   return [...new Set(caseIds)];
+};
+
+export const resolvePerfCaseIdsWithExclusions = (
+  caseFilter = "smoke/auth-user",
+  excludeCaseFilter = "",
+): string[] => {
+  const caseIds = resolvePerfCaseIds(caseFilter);
+  const excludeCaseIds = excludeCaseFilter.trim()
+    ? new Set(resolvePerfCaseIds(excludeCaseFilter))
+    : new Set<string>();
+
+  return caseIds.filter((caseId) => !excludeCaseIds.has(caseId));
 };
 
 export const getPerfCase = (caseId: string): PerfCase => {

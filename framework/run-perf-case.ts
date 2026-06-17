@@ -15,6 +15,7 @@ import { runFormulaTableCase } from "./runners/formula-table.runner";
 import { runFormSubmitCase } from "./runners/form-submit.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runImportBaseCase } from "./runners/import-base.runner";
+import { runLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
 import { runRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
@@ -56,6 +57,8 @@ const runCaseByKind = async (
       return runFormulaTableCase(perfCase, context);
     case "conditional-lookup":
       return runConditionalLookupCase(perfCase, context);
+    case "link-computed-propagation":
+      return runLinkComputedPropagationCase(perfCase, context);
     case "lookup-search-index":
       return runLookupSearchIndexCase(perfCase, context);
     case "field-create":
