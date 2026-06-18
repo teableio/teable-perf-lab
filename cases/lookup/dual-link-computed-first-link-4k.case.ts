@@ -43,8 +43,11 @@ export default definePerfCase({
       pollIntervalMs: 250,
     },
     threshold: {
-      metric: "lookupPropagationMs",
-      maxMs: 300_000,
+      metric: "lookupReadyTotalMs",
+      // Run 27736047791 measured V2 hybrid at ~19.6s end-to-end and V1 sync at
+      // ~50.9s. Keep the initial guardrail above that V1 sync cost while still
+      // catching the 10k-class non-convergence/regression shape.
+      maxMs: 60_000,
     },
   },
 });

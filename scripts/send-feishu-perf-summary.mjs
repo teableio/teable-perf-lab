@@ -188,6 +188,8 @@ const resolveRunTiming = async () => {
       seedCache: seedCacheStatus(jobs),
       v1Ms: findJobDuration(jobs, "Run perf cases (v1)"),
       v2Ms: findJobDuration(jobs, "Run perf cases (v2)"),
+      v2SyncMs: findJobDuration(jobs, "Run perf cases (v2-sync-default)"),
+      v2HybridMs: findJobDuration(jobs, "Run perf cases (v2-hybrid-computed)"),
     };
   } catch (error) {
     console.warn(
@@ -354,6 +356,30 @@ const traceWaste = (payloads) => {
 const chartUrlForCase = (caseId) =>
   `${env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL)}#${caseId}`;
 
+const timingColumn = (label, value, suffix = "", weight = 1) => ({
+  tag: "column",
+  width: "weighted",
+  weight,
+  elements: [
+    {
+      tag: "markdown",
+      content: `**${label}** ${formatDuration(value)}${suffix}`,
+    },
+  ],
+});
+
+const splitV2TimingColumn = (timings) => ({
+  tag: "column",
+  width: "weighted",
+  weight: 2,
+  elements: [
+    {
+      tag: "markdown",
+      content: `**V2** sync ${formatDuration(timings.v2SyncMs)} · hybrid ${formatDuration(timings.v2HybridMs)}`,
+    },
+  ],
+});
+
 const collapsiblePanel = ({ title, expanded = false, elements }) => ({
   tag: "collapsible_panel",
   expanded,
@@ -420,6 +446,10 @@ const buildCard = ({ payloads, timings }) => {
     : counts.fail > 0
       ? "用例失败"
       : "全量通过";
+  const v2TimingColumns =
+    Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
+      ? [splitV2TimingColumn(timings)]
+      : [timingColumn("V2", timings.v2Ms)];
 
   return {
     msg_type: "interactive",
@@ -456,50 +486,14 @@ const buildCard = ({ payloads, timings }) => {
           flex_mode: "none",
           background_style: "grey",
           columns: [
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 1,
-              elements: [
-                {
-                  tag: "markdown",
-                  content: `**总耗时** ${formatDuration(timings.totalMs)}`,
-                },
-              ],
-            },
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 1,
-              elements: [
-                {
-                  tag: "markdown",
-                  content: `**Seed** ${formatDuration(timings.seedMs)}${timings.seedCache ? ` ${timings.seedCache}` : ""}`,
-                },
-              ],
-            },
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 1,
-              elements: [
-                {
-                  tag: "markdown",
-                  content: `**V1** ${formatDuration(timings.v1Ms)}`,
-                },
-              ],
-            },
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 1,
-              elements: [
-                {
-                  tag: "markdown",
-                  content: `**V2** ${formatDuration(timings.v2Ms)}`,
-                },
-              ],
-            },
+            timingColumn("总耗时", timings.totalMs),
+            timingColumn(
+              "Seed",
+              timings.seedMs,
+              timings.seedCache ? ` ${timings.seedCache}` : "",
+            ),
+            timingColumn("V1", timings.v1Ms),
+            ...v2TimingColumns,
           ],
         },
         { tag: "hr" },
