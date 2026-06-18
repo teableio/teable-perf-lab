@@ -29,12 +29,12 @@ association" worst case: orders start with no customer/guest link at all.
 The case runs in two computed-update modes (workflow input `computed_update_mode`):
 
 - **sync** (default e2e behavior): V2 computes the graph inside the write
-  transaction. The metric is the synchronous deep-graph recompute cost; the
-  V1/V2 comparison is a write-throughput comparison.
+  transaction. The primary metric includes that synchronous write cost plus the
+  final readiness check, so V1/V2 compare the same user-visible wait window.
 - **hybrid** (production behavior): V2 enqueues the recompute into the
-  `computed_update_outbox` and drains it with a polling worker. The metric then
-  captures the real async propagation window — the customer's read-after-write
-  lag.
+  `computed_update_outbox` and drains it with a polling worker. The primary
+  metric includes the faster write response plus the real async propagation
+  window, matching the customer's time from write start to correct reads.
 
 ## Seed Phase
 
@@ -70,23 +70,24 @@ Mirrors a bounded version of the customer schema across four tables:
    recompute path times out on larger batches)
    writing both `customer_id_fk` and `gust_email_fk` for every order row `i` to
    foreign row `((i-1)*7+3) % 4000 + 1` (the first links these rows get).
-4. Start the primary timer after the write response and poll a full paged scan of
+4. The primary timer covers the PATCH batches and then polls a full paged scan of
    all 4,000 orders **and** all 400 purchases until every lookup, formula,
-   rollup, and downstream value matches, then stop the timer. Assert routing
-   matches the requested engine.
+   rollup, and downstream value matches. Assert routing matches the requested
+   engine.
 5. Cleanup clears the order link cells back to empty on local single-database
    runs; isolated execute databases are discarded by teardown.
 
 ## Primary Metric
 
-- `lookupPropagationMs`: elapsed time after the link write response until the
+- `lookupReadyTotalMs`: elapsed time from starting the link write until the
   entire dependency graph (orders lookups + formulas + purchase rollups) reflects
-  the new links. This isolates the read-after-write computed readiness window
-  that exposes the V2 hybrid outbox lag.
+  the new links. This is the user-visible end-to-end wait to read correct
+  computed values, and it compares V1's synchronous recompute cost against V2
+  hybrid's write-plus-outbox readiness window.
 
-Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupReadyTotalMs`
-(write plus propagation). Seeding, the id scans, and seed validation stay out of
-the primary metric.
+Diagnostics: `linkWriteMs` (the PATCH batches only) and `lookupPropagationMs`
+(time after the write response until values are readable). Seeding, the id
+scans, and seed validation stay out of the primary metric.
 
 ## Verification
 
@@ -109,6 +110,10 @@ yields a real V2 async number. The 10k async non-convergence is itself a recorde
 finding, not a target metric; raising the scale back to 10k would make the hybrid
 run a permanent timeout until the V2 outbox drain throughput is optimized.
 
-Initial `maxMs` (300,000) is a wide guardrail; tighten after real V1/V2 history.
+Initial `maxMs` (60,000) is based on run 27736047791, where V2 hybrid completed
+the end-to-end window in ~19.6s and V1 synchronous recompute completed in ~50.9s.
+Keep this as a broad first guardrail until more CI history is available; the
+expected V2 hybrid standard is the ~20s band at 4k, not the old 300s
+post-write-propagation ceiling.
 For a fast local smoke, set `PERF_LAB_LCP_ROWS` / `PERF_LAB_LCP_FOREIGN_ROWS` to
 shrink the workload without editing this config.
