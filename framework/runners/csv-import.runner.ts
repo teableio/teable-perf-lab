@@ -35,13 +35,14 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runCsvImportLifecycle,
+  seedCsvImportLifecycle,
+  type CsvImportLifecycleSpec,
+  type CsvImportMeasurement,
+} from "./csv-import-lifecycle";
 
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+type Measurement<T> = CsvImportMeasurement<T>;
 
 type CsvField = CsvImportCaseConfig["fields"][number] & {
   id: string;
@@ -1256,55 +1257,42 @@ const buildCsvImportCaseResult = ({
   };
 };
 
-export const runCsvImportCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as CsvImportCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<CsvFixture> | undefined;
-  const targetMode = getCsvImportTargetMode(config);
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      targetMode === "create-table"
-        ? prepareCsvCreateTableFixture(tableName, config)
-        : prepareCsvImportFixture(baseId, tableName, config, perfCase),
-    );
-    let primaryMeasurement: Measurement<CsvImportPrimaryResult> | undefined;
-
-    try {
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
-        importAndVerifyCsv(
-          baseId,
-          prepareMeasurement.result,
-          config,
-          context,
-          perfCase,
-          config.threshold.metric,
-        ),
-      );
-    } catch (error) {
-      const diagnosticResult = buildCsvImportCaseResult({
-        config,
-        prepareMeasurement,
-        primaryMeasurement,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
-    return buildCsvImportCaseResult({
+const csvImportLifecycleSpec: CsvImportLifecycleSpec<
+  CsvFixture,
+  CsvImportPrimaryResult,
+  Awaited<ReturnType<typeof assertCsvImportTargetEmpty>>
+> = {
+  hasReusableSeed: (config) =>
+    getCsvImportTargetMode(config) !== "create-table",
+  seedlessResult: (perfCase) => ({
+    result: "skipped",
+    metrics: {},
+    thresholds: [],
+    details: {
+      skipped: true,
+      reason: "create-table has no reusable seed",
+      runner: perfCase.runner,
+    },
+  }),
+  prepareExecute: ({ perfCase, config, baseId, tableName }) =>
+    getCsvImportTargetMode(config) === "create-table"
+      ? prepareCsvCreateTableFixture(tableName, config)
+      : prepareCsvImportFixture(baseId, tableName, config, perfCase),
+  prepareSeed: ({ perfCase, config, baseId, tableName }) =>
+    prepareCsvImportFixture(baseId, tableName, config, perfCase),
+  execute: ({ perfCase, context, config, baseId, fixture }) =>
+    importAndVerifyCsv(
+      baseId,
+      fixture,
       config,
-      prepareMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
+      context,
+      perfCase,
+      config.threshold.metric,
+    ),
+  seedReady: ({ baseId, fixture }) =>
+    assertCsvImportTargetEmpty(baseId, fixture),
+  buildResult: buildCsvImportCaseResult,
+  cleanup: async ({ baseId, prepareMeasurement }) => {
     // CI execute jobs run on a disposable restored DB copy, so the imported
     // (mutated) table is discarded with the database. Locally the table is
     // deleted: inplace import mutates the cached seed and create-table mode
@@ -1319,42 +1307,17 @@ export const runCsvImportCase = async (
         );
       }
     }
-  }
+  },
 };
 
-export const seedCsvImportCase = async (
+export const runCsvImportCase = (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as CsvImportCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const targetMode = getCsvImportTargetMode(config);
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runCsvImportLifecycle(perfCase, context, csvImportLifecycleSpec);
 
-  if (targetMode === "create-table") {
-    return {
-      result: "skipped",
-      metrics: {},
-      thresholds: [],
-      details: {
-        skipped: true,
-        reason: "create-table has no reusable seed",
-        runner: perfCase.runner,
-      },
-    };
-  }
-
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareCsvImportFixture(baseId, tableName, config, perfCase),
-  );
-  const fixture = prepareMeasurement.result;
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertCsvImportTargetEmpty(baseId, fixture),
-  );
-
-  return buildCsvImportCaseResult({
-    config,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+export const seedCsvImportCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedCsvImportLifecycle(perfCase, context, csvImportLifecycleSpec);
