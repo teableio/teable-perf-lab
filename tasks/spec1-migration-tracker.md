@@ -8,13 +8,9 @@ the artifacts — see `tasks/spec1-review-guide.md`).
 
 Status as of 2026-06-18 on `refactor/runner-lifecycle-driver` (based on `main`).
 
-**Migrated: 3 / 34 runner kinds · 3 / 53 cases.**
-
-> Heads-up: this lineage is based on `main`. The in-flight `link-computed-propagation`
-> runner and its 2 cases (`lookup/dual-link-computed-first-link-4k`,
-> `lookup/dual-link-computed-repoint-2k`) live on branch
-> `codex/lookup-ready-total-primary`, **not yet on `main`**. When that merges it
-> becomes a 35th kind / +2 cases — add a row then.
+**Migrated: 3 / 34 runner kinds · 3 / 53 cases** (on the `main` lineage). One
+further kind (`link-computed-propagation`, +2 cases) is in flight on another
+branch, not yet on `main` — tracked in its own section below.
 
 ## Migrated (✅ on the driver)
 
@@ -59,6 +55,15 @@ Status as of 2026-06-18 on `refactor/runner-lifecycle-driver` (based on `main`).
 | table-delete-link        | 1   | table-delete/10k-20f-link-detach                                                                                                                                                           |
 | table-restore            | 1   | table-restore/10k-20f                                                                                                                                                                      |
 | table-restore-link       | 1   | table-restore/10k-20f-link-1k                                                                                                                                                              |
+
+## Not on `main` yet (in-flight on another branch)
+
+Exists on `codex/lookup-ready-total-primary` but not on `main`, so it is **not**
+part of the 34 / 53 counts above. Migrate it (and re-count) once it merges.
+
+| Runner kind               | #   | Cases                                                                         | Where                                   |
+| ------------------------- | --- | ----------------------------------------------------------------------------- | --------------------------------------- |
+| link-computed-propagation | 2   | lookup/dual-link-computed-first-link-4k, lookup/dual-link-computed-repoint-2k | branch codex/lookup-ready-total-primary |
 
 ## How migration proceeds
 
