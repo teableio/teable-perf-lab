@@ -49,6 +49,21 @@ const maskReplaySetupValues = (replaySetup) =>
       ]),
   );
 
+const GENERATED_ID_KEYS = new Set([
+  "createdTableId",
+  "fieldId",
+  "foreignTableId",
+  "linkFieldId",
+  "linkTargetId",
+  "mainTableId",
+  "recordId",
+  "tableId",
+  "trashId",
+  "viewId",
+]);
+
+const GENERATED_NAME_KEYS = new Set(["foreignTableName", "tableName"]);
+
 const shouldMaskKey = (path, key) => {
   if (
     path.length === 0 &&
@@ -61,7 +76,23 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  if (typeof key === "string" && key.endsWith("Ms") && key !== "maxMs") {
+    return true;
+  }
+
   if (key === "traceparent") {
+    return true;
+  }
+
+  if (GENERATED_ID_KEYS.has(key)) {
+    return true;
+  }
+
+  if (path[0] === "details" && GENERATED_NAME_KEYS.has(key)) {
+    return true;
+  }
+
+  if (key === "deletedTime") {
     return true;
   }
 

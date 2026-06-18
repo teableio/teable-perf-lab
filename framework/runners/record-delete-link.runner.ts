@@ -1,31 +1,23 @@
 import { FieldKeyType } from "@teable/core";
 import { getRecords } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
-import { withPerfTraceStep } from "../trace-collector";
+import { getPrimaryThresholdMs } from "../env";
 import type {
   PerfCase,
   PerfRunContext,
   PerfRunResult,
   RecordDeleteLinkCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   assertDeleted,
   buildRecordReplayResult,
-  buildRecordWindowId,
-  cleanupRecordUndoRedoFixture,
   deleteAllRowsViaSelectionDelete,
-  waitForRowsRestored,
-  withRecordWindowId,
   type Measurement,
   type RecordReplayVerification,
 } from "./record-undo-redo.shared";
+import { runRecordDeleteLinkLifecycle } from "./table-link-lifecycle";
 import {
   assertLinkCellSamples,
   buildLinkFixtureSeedDetails,
-  permanentDeleteLinkFixture,
-  prepareTableLinkFixture,
   seedTableLinkLifecycleCase,
   type TableLinkFixture,
 } from "./table-lifecycle-link.shared";
@@ -186,114 +178,15 @@ const buildDeleteLinkResult = ({
 export const runRecordDeleteLinkCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordDeleteLinkCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<TableLinkFixture> | undefined;
-  let seedReadyMeasurement: Measurement<RecordReplayVerification> | undefined;
-  let linkReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertLinkCellSamples>>>
-    | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareTableLinkFixture(
-        baseId,
-        tableName,
-        config,
-        perfCase,
-        "record-delete-link",
-      ),
-    );
-    const fixture = prepareMeasurement.result;
-    let operationMeasurement:
-      | Measurement<Awaited<ReturnType<typeof deleteAllRowsViaSelectionDelete>>>
-      | undefined;
-    let verifyMeasurement: Measurement<LinkDeleteVerification> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        waitForRowsRestored(fixture, config),
-      );
-      linkReadyMeasurement = await measureAsync("linkReady", () =>
-        assertLinkCellSamples(fixture, config),
-      );
-
-      await withRecordWindowId(windowId, async () => {
-        operationMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          config.threshold.metric,
-          () =>
-            measureAsync(config.threshold.metric, () =>
-              deleteAllRowsViaSelectionDelete(fixture, context),
-            ),
-        );
-      });
-
-      verifyMeasurement = await measureAsync("verifyDeletedLinkedRows", () =>
-        verifyLinkedDelete(fixture, config),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildDeleteLinkResult({
-          config,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          linkReadyMeasurement,
-          operationMeasurement,
-          verifyMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildDeleteLinkResult({
-      config,
-      fixture,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      linkReadyMeasurement,
-      operationMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    if (
-      !isExecuteDbIsolated() &&
-      prepareMeasurement?.result &&
-      !prepareMeasurement.result.reusableSeed
-    ) {
-      await permanentDeleteLinkFixture(baseId, prepareMeasurement.result);
-    } else {
-      await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
-        config,
-        context,
-        perfCase,
-        windowId,
-      });
-    }
-    if (
-      !isExecuteDbIsolated() &&
-      prepareMeasurement?.result &&
-      prepareMeasurement.result.reusableSeed
-    ) {
-      try {
-        await waitForRowsRestored(prepareMeasurement.result, config);
-        await assertLinkCellSamples(prepareMeasurement.result, config);
-      } catch (error) {
-        console.warn(
-          `Deleting unrecoverable linked record-delete fixture ${prepareMeasurement.result.tableId}`,
-          error,
-        );
-        await permanentDeleteLinkFixture(baseId, prepareMeasurement.result);
-      }
-    }
-  }
-};
+): Promise<PerfRunResult> =>
+  runRecordDeleteLinkLifecycle(perfCase, context, {
+    runner: "record-delete-link",
+    measuredOperation: ({ fixture, context }) =>
+      deleteAllRowsViaSelectionDelete(fixture, context),
+    verifyPhaseName: "verifyDeletedLinkedRows",
+    verify: ({ fixture, config }) => verifyLinkedDelete(fixture, config),
+    buildResult: buildDeleteLinkResult,
+  });
 
 export const seedRecordDeleteLinkCase = async (
   perfCase: PerfCase,
