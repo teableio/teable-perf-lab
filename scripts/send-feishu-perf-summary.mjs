@@ -356,14 +356,26 @@ const traceWaste = (payloads) => {
 const chartUrlForCase = (caseId) =>
   `${env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL)}#${caseId}`;
 
-const timingColumn = (label, value, suffix = "") => ({
+const timingColumn = (label, value, suffix = "", weight = 1) => ({
   tag: "column",
   width: "weighted",
-  weight: 1,
+  weight,
   elements: [
     {
       tag: "markdown",
       content: `**${label}** ${formatDuration(value)}${suffix}`,
+    },
+  ],
+});
+
+const splitV2TimingColumn = (timings) => ({
+  tag: "column",
+  width: "weighted",
+  weight: 2,
+  elements: [
+    {
+      tag: "markdown",
+      content: `**V2** sync ${formatDuration(timings.v2SyncMs)} · hybrid ${formatDuration(timings.v2HybridMs)}`,
     },
   ],
 });
@@ -436,10 +448,7 @@ const buildCard = ({ payloads, timings }) => {
       : "全量通过";
   const v2TimingColumns =
     Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
-      ? [
-          timingColumn("V2 sync", timings.v2SyncMs),
-          timingColumn("V2 hybrid", timings.v2HybridMs),
-        ]
+      ? [splitV2TimingColumn(timings)]
       : [timingColumn("V2", timings.v2Ms)];
 
   return {
