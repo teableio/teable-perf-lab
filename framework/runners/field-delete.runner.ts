@@ -1,7 +1,6 @@
 import { deleteFields as apiDeleteFields } from "@teable/openapi";
 import { getFields, permanentDeleteTable } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -14,16 +13,17 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   assertRowsRestored,
-  buildRecordWindowId,
-  prepareRecordUndoRedoFixture,
-  withRecordWindowId,
   type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";
+import {
+  runFieldDeleteLifecycle,
+  seedFieldDeleteLifecycle,
+  type FieldDeleteLifecycleSpec,
+} from "./field-delete-lifecycle";
 
 type NamedField = {
   id: string;
@@ -321,107 +321,29 @@ const buildFieldDeleteResult = ({
   };
 };
 
+const fieldDeleteLifecycleSpec: FieldDeleteLifecycleSpec<
+  FieldDeletePrimaryResult,
+  FieldDeleteVerification,
+  string[]
+> = {
+  seedCodeFile: new URL(import.meta.url),
+  resolveOperationInput: ({ fixture, config }) =>
+    resolveDeleteFieldIds(fixture, config),
+  runOperation: ({ perfCase, context, fixture, config, operationInput }) =>
+    runFieldDeletePrimary(perfCase, context, fixture, config, operationInput),
+  verify: ({ fixture, config }) => assertFieldsDeleted(fixture, config),
+  buildResult: buildFieldDeleteResult,
+  cleanup: cleanupFieldDeleteFixture,
+};
+
 export const seedFieldDeleteCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldDeleteCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareRecordUndoRedoFixture(baseId, tableName, config, {
-      perfCase,
-      runner: "field-delete",
-      seedCodeFiles: [new URL(import.meta.url)],
-    }),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertRowsRestored(prepareMeasurement.result, config),
-  );
-
-  return buildFieldDeleteResult({
-    config,
-    windowId: `seed-${context.runId}-${perfCase.id}`,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+): Promise<PerfRunResult> =>
+  seedFieldDeleteLifecycle(perfCase, context, fieldDeleteLifecycleSpec);
 
 export const runFieldDeleteCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldDeleteCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<RecordUndoRedoFixture> | undefined;
-  let deleteAttempted = false;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config, {
-        perfCase,
-        runner: "field-delete",
-        seedCodeFiles: [new URL(import.meta.url)],
-      }),
-    );
-    const fixture = prepareMeasurement.result;
-    let seedReadyMeasurement: Measurement<RecordReplayVerification> | undefined;
-    let operationMeasurement: Measurement<FieldDeletePrimaryResult> | undefined;
-    let verifyMeasurement: Measurement<FieldDeleteVerification> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertRowsRestored(fixture, config),
-      );
-      const deleteFieldIds = resolveDeleteFieldIds(fixture, config);
-
-      await withRecordWindowId(windowId, async () => {
-        deleteAttempted = true;
-        operationMeasurement = await measureAsync(config.threshold.metric, () =>
-          runFieldDeletePrimary(
-            perfCase,
-            context,
-            fixture,
-            config,
-            deleteFieldIds,
-          ),
-        );
-      });
-
-      verifyMeasurement = await measureAsync("verifyDeleted", () =>
-        assertFieldsDeleted(fixture, config),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildFieldDeleteResult({
-          config,
-          windowId,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          operationMeasurement,
-          verifyMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildFieldDeleteResult({
-      config,
-      windowId,
-      fixture,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      operationMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    await cleanupFieldDeleteFixture(baseId, prepareMeasurement?.result, {
-      deleteAttempted,
-    });
-  }
-};
+): Promise<PerfRunResult> =>
+  runFieldDeleteLifecycle(perfCase, context, fieldDeleteLifecycleSpec);
