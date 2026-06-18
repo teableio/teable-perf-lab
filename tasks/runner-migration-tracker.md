@@ -6,12 +6,13 @@ that uses it, because migrating a runner means re-verifying all of its cases.
 
 Status as of 2026-06-18 on `main`.
 
-**Migrated: 3 / 35 runner kinds · 3 / 55 cases.**
+**Migrated: 4 / 35 runner kinds · 6 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
 | Runner kind   | Driver / where                                   | Cases                   | Verified              |
 | ------------- | ------------------------------------------------ | ----------------------- | --------------------- |
+| csv-import    | `csv-import-lifecycle.ts`                        | 3 csv-import cases      | ✅ v1+v2 pass (local) |
 | record-delete | `record-replay-lifecycle.ts` (no setup)          | record-delete/delete-1k | ✅ v1+v2 pass (local) |
 | record-undo   | `record-replay-lifecycle.ts` (delete setup)      | record-undo/delete-1k   | ✅ v1+v2 pass (local) |
 | record-redo   | `record-replay-lifecycle.ts` (delete+undo setup) | record-redo/delete-1k   | ✅ v1+v2 pass (local) |
@@ -21,7 +22,6 @@ Status as of 2026-06-18 on `main`.
 | Runner kind               | #   | Cases                                                                                                                                                                                      |
 | ------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | conditional-lookup        | 1   | lookup/conditional-10k                                                                                                                                                                     |
-| csv-import                | 3   | csv-import/mixed-1k-20fields-create-table-import, csv-import/mixed-10k-20fields-create-table-import, csv-import/mixed-10k-20fields-inplace-import                                          |
 | duplicate-base            | 3   | duplicate-base/10k-3tables-link-2workflow, duplicate-base/10k-3tables-link-2workflow-stream, export-base/10k-3tables-link-2workflow-stream                                                 |
 | duplicate-table           | 2   | duplicate-table/10k-20f, duplicate-table/10k-25f-5formula                                                                                                                                  |
 | field-convert             | 2   | field-convert/10k-multi-select-to-text, field-convert/10k-text-to-formula                                                                                                                  |
