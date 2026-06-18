@@ -6,16 +6,17 @@ that uses it, because migrating a runner means re-verifying all of its cases.
 
 Status as of 2026-06-18 on `main`.
 
-**Migrated: 4 / 35 runner kinds · 6 / 55 cases.**
+**Migrated: 5 / 35 runner kinds · 7 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
-| Runner kind   | Driver / where                                   | Cases                   | Verified              |
-| ------------- | ------------------------------------------------ | ----------------------- | --------------------- |
-| csv-import    | `csv-import-lifecycle.ts`                        | 3 csv-import cases      | ✅ v1+v2 pass (local) |
-| record-delete | `record-replay-lifecycle.ts` (no setup)          | record-delete/delete-1k | ✅ v1+v2 pass (local) |
-| record-undo   | `record-replay-lifecycle.ts` (delete setup)      | record-undo/delete-1k   | ✅ v1+v2 pass (local) |
-| record-redo   | `record-replay-lifecycle.ts` (delete+undo setup) | record-redo/delete-1k   | ✅ v1+v2 pass (local) |
+| Runner kind   | Driver / where                                   | Cases                                   | Verified              |
+| ------------- | ------------------------------------------------ | --------------------------------------- | --------------------- |
+| csv-import    | `csv-import-lifecycle.ts`                        | 3 csv-import cases                      | ✅ v1+v2 pass (local) |
+| field-delete  | `field-delete-lifecycle.ts`                      | field-delete/mixed-10k-delete-19-fields | ✅ v1+v2 pass (local) |
+| record-delete | `record-replay-lifecycle.ts` (no setup)          | record-delete/delete-1k                 | ✅ v1+v2 pass (local) |
+| record-undo   | `record-replay-lifecycle.ts` (delete setup)      | record-undo/delete-1k                   | ✅ v1+v2 pass (local) |
+| record-redo   | `record-replay-lifecycle.ts` (delete+undo setup) | record-redo/delete-1k                   | ✅ v1+v2 pass (local) |
 
 ## Not migrated (⬜ legacy `*.runner.ts`)
 
@@ -27,7 +28,6 @@ Status as of 2026-06-18 on `main`.
 | field-convert             | 2   | field-convert/10k-multi-select-to-text, field-convert/10k-text-to-formula                                                                                                                  |
 | field-convert-link        | 2   | field-convert/10k-link-to-text, field-convert/10k-text-to-link                                                                                                                             |
 | field-create              | 4   | field-create/10k-create-5-simple-fields, field-create/10k-create-5-formula-fields, field-create/mixed-10k-create-19-fields, field-create/single-select-1k-options                          |
-| field-delete              | 1   | field-delete/mixed-10k-delete-19-fields                                                                                                                                                    |
 | field-duplicate           | 1   | field-duplicate/conditional-lookup-10k                                                                                                                                                     |
 | field-update              | 1   | field-update/v2-only-10k-select-option-rename-computed-cascade                                                                                                                             |
 | form-submit               | 1   | form-submit/sequential-200                                                                                                                                                                 |
