@@ -61,6 +61,10 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  if (key === "traceparent") {
+    return true;
+  }
+
   if (pathEquals(path, ["thresholds"]) && isArrayIndex(key)) {
     return false;
   }
@@ -76,7 +80,21 @@ const shouldMaskKey = (path, key) => {
 
   if (
     pathEquals(path, ["details"]) &&
-    ["windowId", "tableId", "tableName", "viewId"].includes(key)
+    ["windowId", "tableId", "tableName", "dbTableName", "viewId"].includes(key)
+  ) {
+    return true;
+  }
+
+  if (
+    pathEquals(path, ["details", "import"]) &&
+    ["createdTableId", "requestMs"].includes(key)
+  ) {
+    return true;
+  }
+
+  if (
+    pathEquals(path, ["details", "import", "completion"]) &&
+    ["pollCount", "tableId"].includes(key)
   ) {
     return true;
   }
@@ -101,7 +119,7 @@ const shouldMaskKey = (path, key) => {
   }
 
   if (
-    pathEquals(path, ["details", "seed", "cache"]) &&
+    path.at(-1) === "cache" &&
     ["seedHash", "seedHashShort", "seedTableName"].includes(key)
   ) {
     return true;
