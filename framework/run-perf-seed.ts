@@ -1,35 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
-import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
-import { seedCsvImportCase } from "./runners/csv-import.runner";
-import { seedDuplicateBaseCase } from "./runners/duplicate-base.runner";
-import { seedDuplicateTableCase } from "./runners/duplicate-table.runner";
-import { seedFieldConvertCase } from "./runners/field-convert.runner";
-import { seedFieldConvertLinkCase } from "./runners/field-convert-link.runner";
-import { seedFieldCreateCase } from "./runners/field-create.runner";
-import { seedFieldDeleteCase } from "./runners/field-delete.runner";
-import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
-import { seedFieldUpdateCase } from "./runners/field-update.runner";
-import { seedFormulaTableCase } from "./runners/formula-table.runner";
-import { seedFormSubmitCase } from "./runners/form-submit.runner";
-import { seedImportBaseCase } from "./runners/import-base.runner";
-import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
-import { seedRecordCreateCase } from "./runners/record-create.runner";
-import { seedRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
-import { seedRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
-import { seedRecordReadCase } from "./runners/record-read.runner";
-import { seedRecordReorderCase } from "./runners/record-reorder.runner";
-import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
-import { seedRecordUpdateCase } from "./runners/record-update.runner";
-import { seedRecordUpdateAttachmentCase } from "./runners/record-update-attachment.runner";
-import { seedRecordUpdateLinkCase } from "./runners/record-update-link.runner";
-import { seedSelectionClearCase } from "./runners/selection-clear.runner";
-import { seedSelectionDuplicateCase } from "./runners/selection-duplicate.runner";
-import { seedTableDeleteCase } from "./runners/table-delete.runner";
-import { seedTableDeleteLinkCase } from "./runners/table-delete-link.runner";
-import { seedTableRestoreCase } from "./runners/table-restore.runner";
-import { seedTableRestoreLinkCase } from "./runners/table-restore-link.runner";
+import { runnerRegistry } from "./runner-registry";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
 
@@ -37,83 +9,11 @@ const seedCaseByKind = async (
   perfCase: PerfCase,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  switch (perfCase.runner) {
-    case "formula-table":
-      return seedFormulaTableCase(perfCase, context);
-    case "conditional-lookup":
-      return seedConditionalLookupCase(perfCase, context);
-    case "lookup-search-index":
-      return seedLookupSearchIndexCase(perfCase, context);
-    case "field-create":
-      return seedFieldCreateCase(perfCase, context);
-    case "field-convert":
-      return seedFieldConvertCase(perfCase, context);
-    case "field-convert-link":
-      return seedFieldConvertLinkCase(perfCase, context);
-    case "field-update":
-      return seedFieldUpdateCase(perfCase, context);
-    case "field-delete":
-      return seedFieldDeleteCase(perfCase, context);
-    case "field-duplicate":
-      return seedFieldDuplicateCase(perfCase, context);
-    case "duplicate-table":
-      return seedDuplicateTableCase(perfCase, context);
-    case "duplicate-base":
-      return seedDuplicateBaseCase(perfCase, context);
-    case "import-base":
-      return seedImportBaseCase(perfCase, context);
-    case "table-delete":
-      return seedTableDeleteCase(perfCase, context);
-    case "table-delete-link":
-      return seedTableDeleteLinkCase(perfCase, context);
-    case "table-restore":
-      return seedTableRestoreCase(perfCase, context);
-    case "table-restore-link":
-      return seedTableRestoreLinkCase(perfCase, context);
-    case "csv-import":
-      return seedCsvImportCase(perfCase, context);
-    case "form-submit":
-      return seedFormSubmitCase(perfCase, context);
-    case "record-delete":
-    case "record-undo":
-    case "record-redo":
-      return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
-    case "record-delete-link":
-      return seedRecordDeleteLinkCase(perfCase, context);
-    case "record-update":
-      return seedRecordUpdateCase(perfCase, context);
-    case "record-update-attachment":
-      return seedRecordUpdateAttachmentCase(perfCase, context);
-    case "record-update-link":
-      return seedRecordUpdateLinkCase(perfCase, context);
-    case "record-duplicate-single":
-      return seedRecordDuplicateSingleCase(perfCase, context);
-    case "record-reorder":
-      return seedRecordReorderCase(perfCase, context);
-    case "selection-clear":
-      return seedSelectionClearCase(perfCase, context);
-    case "selection-duplicate":
-      return seedSelectionDuplicateCase(perfCase, context);
-    case "record-create":
-      return seedRecordCreateCase(perfCase, context);
-    case "record-read":
-      return seedRecordReadCase(perfCase, context);
-    case "http-endpoint":
-    case "record-paste":
-    case "table-create":
-      return {
-        result: "skipped",
-        metrics: {},
-        thresholds: [],
-        details: {
-          skipped: true,
-          reason: "This runner does not have a reusable seed phase.",
-          runner: perfCase.runner,
-        },
-      };
-    default:
-      throw new Error(`Unsupported perf seed runner: ${perfCase.runner}`);
+  const entry = runnerRegistry[perfCase.runner];
+  if (!entry) {
+    throw new Error(`Unsupported perf seed runner: ${perfCase.runner}`);
   }
+  return entry.seed(perfCase, context);
 };
 
 const normalizeError = (error: unknown) => {
