@@ -1,5 +1,9 @@
 # Spec 1 review guide — reviewing codex's Part A + Part C + G1 results
 
+> Status: completed. Kept as a reference template for future review runbooks.
+> Use `tasks/runner-framework.md` for the current framework plan and
+> `tasks/runner-migration-tracker.md` for current migration status.
+>
 > **Read this top to bottom and execute it.** You are a fresh agent with no prior
 > context on this work — everything you need is in this file plus the repo.
 >
