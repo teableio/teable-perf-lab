@@ -1,5 +1,9 @@
 # Spec 1 — Runner registry + lifecycle driver (skeleton) + G1 artifact-diff guardrail
 
+> Status: completed. Kept as a reference template for future runner-framework
+> specs. Use `tasks/runner-framework.md` for the current framework plan and
+> `tasks/runner-migration-tracker.md` for current migration status.
+>
 > Self-contained task spec. The implementing agent can start cold from this file.
 > This is **phase 1 of 4** in an incremental deepening of the perf-case runner
 > framework. Do **not** attempt the whole refactor — implement exactly this slice.
