@@ -2,195 +2,177 @@ import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
-import type {
-  PerfCase,
-  PerfRunContext,
-  PerfRunResult,
-  TableDeleteCaseConfig,
-} from "../types";
-import { PerfRunDiagnosticError } from "../types";
-import {
-  waitForRowsRestored,
-  type Measurement,
-  type RecordReplayVerification,
-} from "./record-undo-redo.shared";
+import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import { waitForRowsRestored } from "./record-undo-redo.shared";
+import { runTableSamplesLifecycle } from "./table-lifecycle";
 import {
   archiveTable,
   assertTableNotListed,
   buildTableLifecycleSampleResult,
-  buildTableLifecycleSamplesResult,
   findTableTrashId,
   formatTableLifecycleSample,
-  prepareTableLifecycleFixtures,
   restoreTableTrash,
   seedTableLifecycleCase,
+  type TableLifecycleCaseConfig,
   type TableLifecycleCleanupSample,
   type TableLifecycleFixtureSample,
-  type TableLifecycleRequestSample,
-  type TableLifecycleVerifySample,
+  type TableTrashLookup,
 } from "./table-lifecycle.shared";
+
+// Restore the archived table and confirm its full row count, so a reusable seed
+// stays intact for the next run; the restore is recorded as a cleanup sample.
+const restoreDeletedSample = async ({
+  context,
+  perfCase,
+  config,
+  sample,
+  trashId,
+  cleanupSamples,
+}: {
+  context: PerfRunContext;
+  perfCase: PerfCase;
+  config: TableLifecycleCaseConfig;
+  sample: TableLifecycleFixtureSample;
+  trashId: string;
+  cleanupSamples: TableLifecycleCleanupSample[];
+}) => {
+  const sampleLabel = formatTableLifecycleSample(sample.iteration);
+  const restoreMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    `cleanupRestoreTable-${sampleLabel}`,
+    () =>
+      measureAsync(`cleanupRestoreTable-${sampleLabel}`, () =>
+        restoreTableTrash(trashId),
+      ),
+  );
+  const verifyMeasurement = await measureAsync(
+    `cleanupFullScan-${sampleLabel}`,
+    () => waitForRowsRestored(sample.fixture, config),
+  );
+  cleanupSamples.push({
+    iteration: sample.iteration,
+    restoreMeasurement,
+    verifyMeasurement,
+  });
+};
 
 export const runTableDeleteCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as TableDeleteCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  let fixtureSamples: TableLifecycleFixtureSample[] = [];
-  const requestSamples: TableLifecycleRequestSample[] = [];
-  const verifySamples: TableLifecycleVerifySample[] = [];
-  const cleanupSamples: TableLifecycleCleanupSample[] = [];
-
-  const restoreDeletedSample = async (
-    sample: TableLifecycleFixtureSample,
-    trashId: string,
-  ) => {
-    const sampleLabel = formatTableLifecycleSample(sample.iteration);
-    const restoreMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      `cleanupRestoreTable-${sampleLabel}`,
-      () =>
-        measureAsync(`cleanupRestoreTable-${sampleLabel}`, () =>
-          restoreTableTrash(trashId),
-        ),
-    );
-    const verifyMeasurement = await measureAsync(
-      `cleanupFullScan-${sampleLabel}`,
-      () => waitForRowsRestored(sample.fixture, config),
-    );
-    cleanupSamples.push({
-      iteration: sample.iteration,
-      restoreMeasurement,
-      verifyMeasurement,
-    });
-    return verifyMeasurement;
-  };
-
-  try {
-    fixtureSamples = await prepareTableLifecycleFixtures(
-      baseId,
-      config,
-      perfCase,
-      "table-delete",
-    );
-
-    try {
-      for (const sample of fixtureSamples) {
-        const sampleLabel = formatTableLifecycleSample(sample.iteration);
-        const requestMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          `deleteTable-${sampleLabel}`,
-          () =>
-            measureAsync(`deleteTable-${sampleLabel}`, () =>
-              archiveTable(baseId, sample.fixture.tableId),
-            ),
-        );
-
-        const verifyMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          `deleteTableVerify-${sampleLabel}`,
-          () =>
-            measureAsync(`deleteTableVerify-${sampleLabel}`, async () => {
-              const listing = await assertTableNotListed(
-                baseId,
-                sample.fixture.tableId,
-              );
-              const trashLookup = await findTableTrashId(
-                baseId,
-                sample.fixture.tableId,
-              );
-              return { ...listing, trashLookup };
-            }),
-        );
-        const { trashLookup } = verifyMeasurement.result as {
-          trashLookup: Awaited<ReturnType<typeof findTableTrashId>>;
-        };
-        requestSamples.push(
-          buildTableLifecycleSampleResult(
-            sample.iteration,
-            sample.fixture,
-            requestMeasurement,
-            "deleteTable",
-            context,
-            trashLookup,
+): Promise<PerfRunResult> =>
+  runTableSamplesLifecycle(perfCase, context, {
+    runner: "table-delete",
+    includeCleanupSamples: true,
+    buildDetails: ({ config, state, error }): Record<string, unknown> =>
+      error
+        ? {}
+        : {
+            cleanup: {
+              restoredSamples: state.cleanupSamples.filter(
+                (sample) =>
+                  sample.verifyMeasurement?.result.scannedRecords ===
+                  config.rowCount,
+              ).length,
+              fullScans: state.cleanupSamples.map((sample) => ({
+                iteration: sample.iteration,
+                restoreStatus: sample.restoreMeasurement?.result.status,
+                restoreRequestMs: sample.restoreMeasurement?.durationMs,
+                fullScan: sample.verifyMeasurement?.result,
+              })),
+            },
+            verification: {
+              metric: "verifyMs",
+              checks: [
+                "tableAbsentFromBaseTableList",
+                "trashItemPresent",
+                "cleanupRestoreFullRowCountScan",
+              ],
+              participatesInThreshold: false,
+            },
+          },
+    runSample: async ({ perfCase, context, config, baseId, sample, state }) => {
+      const sampleLabel = formatTableLifecycleSample(sample.iteration);
+      const requestMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        `deleteTable-${sampleLabel}`,
+        () =>
+          measureAsync(`deleteTable-${sampleLabel}`, () =>
+            archiveTable(baseId, sample.fixture.tableId),
           ),
-        );
-        verifySamples.push({
-          iteration: sample.iteration,
-          measurement: verifyMeasurement,
-        });
-
-        if (!isExecuteDbIsolated()) {
-          await restoreDeletedSample(sample, trashLookup.trashId);
-        }
-      }
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildTableLifecycleSamplesResult({
-          config,
-          runner: "table-delete",
-          fixtureSamples,
-          requestSamples,
-          verifySamples,
-          cleanupSamples,
-          error,
-        }),
       );
-    }
 
-    return buildTableLifecycleSamplesResult({
-      config,
-      runner: "table-delete",
-      fixtureSamples,
-      requestSamples,
-      verifySamples,
-      cleanupSamples,
-      details: {
-        cleanup: {
-          restoredSamples: cleanupSamples.filter(
-            (sample) =>
-              sample.verifyMeasurement?.result.scannedRecords ===
-              config.rowCount,
-          ).length,
-          fullScans: cleanupSamples.map((sample) => ({
-            iteration: sample.iteration,
-            restoreStatus: sample.restoreMeasurement?.result.status,
-            restoreRequestMs: sample.restoreMeasurement?.durationMs,
-            fullScan: sample.verifyMeasurement?.result,
-          })),
-        },
-        verification: {
-          metric: "verifyMs",
-          checks: [
-            "tableAbsentFromBaseTableList",
-            "trashItemPresent",
-            "cleanupRestoreFullRowCountScan",
-          ],
-          participatesInThreshold: false,
-        },
-      },
-    });
-  } finally {
-    if (!isExecuteDbIsolated()) {
-      for (const sample of fixtureSamples) {
-        const requestSample = requestSamples.find(
+      const verifyMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        `deleteTableVerify-${sampleLabel}`,
+        () =>
+          measureAsync(`deleteTableVerify-${sampleLabel}`, async () => {
+            const listing = await assertTableNotListed(
+              baseId,
+              sample.fixture.tableId,
+            );
+            const trashLookup = await findTableTrashId(
+              baseId,
+              sample.fixture.tableId,
+            );
+            return { ...listing, trashLookup };
+          }),
+      );
+      const { trashLookup } = verifyMeasurement.result as {
+        trashLookup: TableTrashLookup;
+      };
+      state.requestSamples.push(
+        buildTableLifecycleSampleResult(
+          sample.iteration,
+          sample.fixture,
+          requestMeasurement,
+          "deleteTable",
+          context,
+          trashLookup,
+        ),
+      );
+      state.verifySamples.push({
+        iteration: sample.iteration,
+        measurement: verifyMeasurement,
+      });
+
+      if (!isExecuteDbIsolated()) {
+        await restoreDeletedSample({
+          context,
+          perfCase,
+          config,
+          sample,
+          trashId: trashLookup.trashId,
+          cleanupSamples: state.cleanupSamples,
+        });
+      }
+    },
+    cleanup: async ({ perfCase, context, config, baseId, state }) => {
+      if (isExecuteDbIsolated()) {
+        return;
+      }
+
+      for (const sample of state.fixtureSamples) {
+        const requestSample = state.requestSamples.find(
           (item) => item.iteration === sample.iteration,
         );
-        const cleanupSample = cleanupSamples.find(
+        const cleanupSample = state.cleanupSamples.find(
           (item) => item.iteration === sample.iteration,
         );
         let restored = Boolean(cleanupSample?.verifyMeasurement);
 
         if (!restored && requestSample?.trashLookup) {
           try {
-            await restoreDeletedSample(
+            await restoreDeletedSample({
+              context,
+              perfCase,
+              config,
               sample,
-              requestSample.trashLookup.trashId,
-            );
+              trashId: requestSample.trashLookup.trashId,
+              cleanupSamples: state.cleanupSamples,
+            });
             restored = true;
           } catch (error) {
             console.warn(
@@ -211,9 +193,8 @@ export const runTableDeleteCase = async (
           }
         }
       }
-    }
-  }
-};
+    },
+  });
 
 export const seedTableDeleteCase = async (
   perfCase: PerfCase,
