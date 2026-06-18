@@ -92,6 +92,13 @@ const fileExists = async (path) => {
 
 const readJsonFile = async (path) => JSON.parse(await readFile(path, "utf8"));
 
+const artifactNameFromPayloadPath = (fileName) => {
+  const [firstSegment] = fileName.split(/[\\/]/);
+  return firstSegment?.startsWith("teable-ee-e2e-perf-")
+    ? firstSegment
+    : undefined;
+};
+
 const readTextFileIfExists = async (path) =>
   (await fileExists(path)) ? readFile(path, "utf8") : "";
 
@@ -108,7 +115,11 @@ const readArtifactPayloads = async ({ artifactDir, fallbackCaseId }) => {
         await walk(path);
         continue;
       }
-      if (entry.isFile() && entry.name.endsWith(".json") && entry.name !== "manifest.json") {
+      if (
+        entry.isFile() &&
+        entry.name.endsWith(".json") &&
+        entry.name !== "manifest.json"
+      ) {
         payloadFiles.push(path);
       }
     }
@@ -120,10 +131,12 @@ const readArtifactPayloads = async ({ artifactDir, fallbackCaseId }) => {
   for (const payloadPath of payloadFiles) {
     const payload = await readJsonFile(payloadPath);
     if (payload?.caseId && payload?.engine) {
+      const fileName = relative(artifactDir, payloadPath);
       payloads.push({
         payload,
         payloadPath,
-        fileName: relative(artifactDir, payloadPath),
+        fileName,
+        artifactName: artifactNameFromPayloadPath(fileName),
       });
     }
   }
@@ -196,6 +209,52 @@ const buildMissingPayload = ({ caseId, payloadPath }) => {
 const jsonText = (value) =>
   value == null ? "" : JSON.stringify(value, null, 2);
 
+const compactTraceManifest = (traceManifest) => {
+  if (!traceManifest) {
+    return undefined;
+  }
+
+  const failedOrMissing = Array.isArray(traceManifest.savedTraces)
+    ? traceManifest.savedTraces.filter(
+        (trace) => trace?.status && trace.status !== "saved",
+      )
+    : [];
+  const sampledRefs = Array.isArray(traceManifest.refs)
+    ? traceManifest.refs.slice(0, 20).map((ref) => ({
+        stepId: ref?.stepId,
+        traceId: ref?.traceId,
+        sampled: ref?.sampled,
+        method: ref?.method,
+        url: ref?.url,
+        status: ref?.status,
+        traceLink: ref?.traceLink,
+      }))
+    : undefined;
+
+  return {
+    enabled: traceManifest.enabled,
+    traceRefCount: traceManifest.traceRefCount,
+    uniqueTraceCount: traceManifest.uniqueTraceCount,
+    selectedTraceCount: traceManifest.selectedTraceCount,
+    savedTraceCount: traceManifest.savedTraceCount,
+    failedTraceCount: traceManifest.failedTraceCount,
+    skippedTraceCount: traceManifest.skippedTraceCount,
+    missingFetchCount: traceManifest.missingFetchCount,
+    wastedFetchMs: traceManifest.wastedFetchMs,
+    maxSnapshotCount: traceManifest.maxSnapshotCount,
+    fetchConcurrency: traceManifest.fetchConcurrency,
+    backgroundFlushIntervalMs: traceManifest.backgroundFlushIntervalMs,
+    backgroundFlushCount: traceManifest.backgroundFlushCount,
+    backgroundFlushErrorCount: traceManifest.backgroundFlushErrorCount,
+    flushDurationMs: traceManifest.flushDurationMs,
+    jaegerApiBaseUrl: traceManifest.jaegerApiBaseUrl,
+    artifactDir: traceManifest.artifactDir,
+    manifestPath: traceManifest.manifestPath,
+    refsSample: sampledRefs,
+    nonSavedTracesSample: failedOrMissing.slice(0, 20),
+  };
+};
+
 const isPriorityTraceRef = (ref) =>
   /create.*field|formula|lookup/i.test(ref?.stepId ?? "") ||
   /\/field\//i.test(ref?.url ?? "");
@@ -219,7 +278,7 @@ const resolvePrimaryTraceUrl = ({ payload, traceManifest }) => {
   const savedTraceIds = new Set(
     (Array.isArray(traceManifest?.savedTraces)
       ? traceManifest.savedTraces
-      : payload.details?.observability?.traces?.savedTraces ?? []
+      : (payload.details?.observability?.traces?.savedTraces ?? [])
     )
       .filter((trace) => trace?.status === "saved" && trace?.traceId)
       .map((trace) => trace.traceId),
@@ -518,7 +577,7 @@ const buildReportFields = async ({
       "Metrics JSON": jsonText(payload.metrics),
       "Thresholds JSON": jsonText(payload.thresholds),
       "Phases JSON": jsonText(payload.phases),
-      "Trace Manifest JSON": jsonText(traceManifest),
+      "Trace Manifest JSON": jsonText(compactTraceManifest(traceManifest)),
       "Summary Markdown": summaryMarkdown,
       Error: payload.error ? jsonText(payload.error) : undefined,
     }),
@@ -548,11 +607,13 @@ const main = async () => {
   );
 
   if (reportPayloads.length === 0) {
-    console.warn(`No execute perf payloads found in ${artifactDir}; skipping report.`);
+    console.warn(
+      `No execute perf payloads found in ${artifactDir}; skipping report.`,
+    );
     return;
   }
 
-  for (const { payload, payloadPath } of reportPayloads) {
+  for (const { payload, payloadPath, artifactName } of reportPayloads) {
     const caseId = payload.caseId;
     const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
     const summaryMarkdown =
@@ -562,7 +623,9 @@ const main = async () => {
     const traceManifestPath =
       payload.details?.observability?.traces?.manifestPath;
     const traceManifest = traceManifestPath
-      ? await readJsonFileIfExists(join(dirname(payloadPath), traceManifestPath))
+      ? await readJsonFileIfExists(
+          join(dirname(payloadPath), traceManifestPath),
+        )
       : undefined;
 
     const { runKey, fields } = await buildReportFields({
@@ -570,7 +633,7 @@ const main = async () => {
       payload,
       traceManifest,
       summaryMarkdown,
-      artifactName: env("PERF_LAB_ARTIFACT_NAME"),
+      artifactName: env("PERF_LAB_ARTIFACT_NAME") || artifactName,
     });
 
     const result = await upsertRecord({

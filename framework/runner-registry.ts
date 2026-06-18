@@ -25,6 +25,8 @@ import { seedFormSubmitCase } from "./runners/form-submit.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runImportBaseCase } from "./runners/import-base.runner";
 import { seedImportBaseCase } from "./runners/import-base.runner";
+import { runLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
+import { seedLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
@@ -128,6 +130,12 @@ export const runnerRegistry: Record<PerfRunnerKind, RunnerRegistryEntry> = {
   "conditional-lookup": {
     execute: (perfCase, context) => runConditionalLookupCase(perfCase, context),
     seed: (perfCase, context) => seedConditionalLookupCase(perfCase, context),
+  },
+  "link-computed-propagation": {
+    execute: (perfCase, context) =>
+      runLinkComputedPropagationCase(perfCase, context),
+    seed: (perfCase, context) =>
+      seedLinkComputedPropagationCase(perfCase, context),
   },
   "lookup-search-index": {
     execute: (perfCase, context) => runLookupSearchIndexCase(perfCase, context),
