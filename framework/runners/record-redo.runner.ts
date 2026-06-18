@@ -1,150 +1,55 @@
 import { measureAsync } from "../metrics";
-import { withPerfTraceStep } from "../trace-collector";
-import { PerfRunDiagnosticError } from "../types";
-import type {
-  PerfCase,
-  PerfRunContext,
-  PerfRunResult,
-  RecordRedoCaseConfig,
-} from "../types";
+import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import { runRecordReplayLifecycle } from "./record-replay-lifecycle";
 import {
   assertDeleted,
-  assertRowsRestored,
-  buildRecordReplayResult,
   buildRecordReplayPhaseName,
-  buildRecordWindowId,
-  cleanupRecordUndoRedoFixture,
   deleteAllRowsViaSelectionDelete,
-  prepareRecordUndoRedoFixture,
   redoLastOperation,
   undoLastOperation,
   waitForRowsRestored,
-  withRecordWindowId,
-  type Measurement,
-  type RecordReplaySetupMeasurements,
-  type RecordReplayVerification,
-  type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";
 
-export const runRecordRedoCase = async (
+// Setup (not measured): delete all rows, undo that delete (rows restored), so a
+// redo has something to replay. Measured operation: redo via the redo-stream.
+// Verify the rows are deleted again.
+export const runRecordRedoCase = (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordRedoCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<RecordUndoRedoFixture> | undefined;
-  let seedReadyMeasurement: Measurement<RecordReplayVerification> | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config, {
-        perfCase,
-        runner: "record-redo",
-        seedCodeFiles: [new URL(import.meta.url)],
-      }),
-    );
-    const fixture = prepareMeasurement.result;
-    let setupMeasurements: RecordReplaySetupMeasurements = {};
-    let operationMeasurement: Measurement<unknown> | undefined;
-    let verifyMeasurement: Measurement<RecordReplayVerification> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertRowsRestored(fixture, config),
+): Promise<PerfRunResult> =>
+  runRecordReplayLifecycle(perfCase, context, {
+    runner: "record-redo",
+    operation: "redo",
+    seedCodeFile: new URL(import.meta.url),
+    runSetup: async ({ fixture, context, perfCase, config }) => {
+      const deleteSetupMeasurement = await measureAsync(
+        buildRecordReplayPhaseName("deleteSetup", config.rowCount),
+        () => deleteAllRowsViaSelectionDelete(fixture, context),
       );
-
-      await withRecordWindowId(windowId, async () => {
-        setupMeasurements = {
-          ...setupMeasurements,
-          deleteSetupMeasurement: await measureAsync(
-            buildRecordReplayPhaseName("deleteSetup", config.rowCount),
-            () => deleteAllRowsViaSelectionDelete(fixture, context),
-          ),
-        };
-        setupMeasurements = {
-          ...setupMeasurements,
-          deleteSetupVerifyMeasurement: await measureAsync(
-            "deleteSetupVerify",
-            () => assertDeleted(fixture),
-          ),
-        };
-        setupMeasurements = {
-          ...setupMeasurements,
-          undoSetupMeasurement: await measureAsync(
-            buildRecordReplayPhaseName("undoSetup", config.rowCount),
-            () =>
-              undoLastOperation(
-                fixture,
-                context,
-                perfCase,
-                buildRecordReplayPhaseName("undoSetup", config.rowCount),
-              ),
-          ),
-        };
-        setupMeasurements = {
-          ...setupMeasurements,
-          undoSetupVerifyMeasurement: await measureAsync(
-            "undoSetupVerify",
-            () => waitForRowsRestored(fixture, config),
-          ),
-        };
-
-        operationMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          config.threshold.metric,
-          () =>
-            measureAsync(config.threshold.metric, () =>
-              redoLastOperation(
-                fixture,
-                context,
-                perfCase,
-                config.threshold.metric,
-              ),
-            ),
-        );
-      });
-
-      verifyMeasurement = await measureAsync("verifyDeleted", () =>
-        assertDeleted(fixture),
+      const deleteSetupVerifyMeasurement = await measureAsync(
+        "deleteSetupVerify",
+        () => assertDeleted(fixture),
       );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildRecordReplayResult({
-          config,
-          operation: "redo",
-          windowId,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          setupMeasurements,
-          operationMeasurement,
-          verifyMeasurement,
-          error,
-        }),
+      const undoSetupPhaseName = buildRecordReplayPhaseName(
+        "undoSetup",
+        config.rowCount,
       );
-    }
-
-    return buildRecordReplayResult({
-      config,
-      operation: "redo",
-      windowId,
-      fixture,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      setupMeasurements,
-      operationMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
-      config,
-      context,
-      perfCase,
-      windowId,
-    });
-  }
-};
+      const undoSetupMeasurement = await measureAsync(undoSetupPhaseName, () =>
+        undoLastOperation(fixture, context, perfCase, undoSetupPhaseName),
+      );
+      const undoSetupVerifyMeasurement = await measureAsync(
+        "undoSetupVerify",
+        () => waitForRowsRestored(fixture, config),
+      );
+      return {
+        deleteSetupMeasurement,
+        deleteSetupVerifyMeasurement,
+        undoSetupMeasurement,
+        undoSetupVerifyMeasurement,
+      };
+    },
+    measuredOperation: ({ fixture, context, perfCase, config }) =>
+      redoLastOperation(fixture, context, perfCase, config.threshold.metric),
+    verifyPhaseName: "verifyDeleted",
+    verify: ({ fixture }) => assertDeleted(fixture),
+  });
