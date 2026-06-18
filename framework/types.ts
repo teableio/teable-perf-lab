@@ -5,6 +5,7 @@ export type PerfRunnerKind =
   | "http-endpoint"
   | "formula-table"
   | "conditional-lookup"
+  | "link-computed-propagation"
   | "lookup-search-index"
   | "field-create"
   | "field-convert"
@@ -53,6 +54,7 @@ export interface PerfCase {
     | HttpEndpointCaseConfig
     | FormulaTableCaseConfig
     | ConditionalLookupCaseConfig
+    | LinkComputedPropagationCaseConfig
     | LookupSearchIndexCaseConfig
     | FieldCreateCaseConfig
     | FieldConvertCaseConfig
@@ -208,6 +210,67 @@ export interface ConditionalLookupCaseConfig {
   };
   threshold: {
     metric: "conditionalLookupReadyMs";
+    maxMs: number;
+  };
+}
+
+// Mirrors (a bounded version of) the customer "orders" schema to stress the V2
+// async-compute pipeline on a data write. The orders host table has two many-one
+// links (registered `customer_id_fk` -> users, guest `gust_email_fk` -> guest),
+// each fanning out into a full attribute set of lookups, a multi-level formula
+// chain over those lookups, and a many-one `purchase_fk` into a downstream
+// `purchase` table that rolls up and re-derives the orders' computed values
+// (a second cross-table hop). The measured operation writes BOTH links for every
+// order, then waits until every dependent lookup, formula, rollup, and
+// downstream computed value recomputes. Cases can gate either the end-to-end
+// write-to-readable window or the post-write propagation window; both
+// `linkWriteMs` and the non-primary readiness metric are still reported as
+// diagnostics. All computed fields live in the seed; the foreign tables share
+// `foreignRowCount`.
+export interface LinkComputedPropagationCaseConfig {
+  baseId: "seed-base";
+  // first-link: orders seeded with no customer/guest link (closest to the
+  // customer "new record first association" worst case). repoint: orders seeded
+  // already linked, then re-pointed (every cell changes).
+  mode: "first-link" | "repoint";
+  ordersTableNamePrefix: string;
+  rowCount: number;
+  batchSize: number;
+  // Batch size for the measured link write. Kept smaller than `batchSize`
+  // because the V1 synchronous path recomputes the whole dependency graph inside
+  // the write request, and a large batch can exceed the server request timeout.
+  writeBatchSize: number;
+  foreignRowCount: number;
+  foreignBatchSize: number;
+  // Downstream purchase table: each purchase groups `groupSize` consecutive
+  // orders and rolls up their computed values, forming the second cascade hop.
+  purchase: {
+    groupSize: number;
+  };
+  link: {
+    isOneWay: boolean;
+    // Both map order row i to foreign row
+    // ((i - 1) * multiplier + offset) % foreignRowCount + 1. Customer and guest
+    // links use the same permutation. seedPermutation is the re-point seed
+    // mapping (ignored in first-link mode); updatePermutation is the measured
+    // write target mapping.
+    seedPermutation: {
+      multiplier: number;
+      offset: number;
+    };
+    updatePermutation: {
+      multiplier: number;
+      offset: number;
+    };
+  };
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  threshold: {
+    metric: "lookupReadyTotalMs" | "lookupPropagationMs";
     maxMs: number;
   };
 }
