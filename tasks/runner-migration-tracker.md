@@ -4,9 +4,9 @@ Tracks which runner kinds have been moved onto lifecycle drivers and which are
 still legacy. Migration is **per runner kind**; a kind's row covers every case
 that uses it, because migrating a runner means re-verifying all of its cases.
 
-Status as of 2026-06-18 on `main`.
+Status as of 2026-06-19 on `main`.
 
-**Migrated: 8 / 35 runner kinds · 10 / 55 cases.**
+**Migrated: 10 / 35 runner kinds · 12 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
@@ -18,6 +18,8 @@ Status as of 2026-06-18 on `main`.
 | record-delete-link | `table-link-lifecycle.ts` (single fixture)               | record-delete/link-trash-1k             | ✅ v1+v2 pass (local) |
 | record-undo        | `record-replay-lifecycle.ts` (delete setup)              | record-undo/delete-1k                   | ✅ v1+v2 pass (local) |
 | record-redo        | `record-replay-lifecycle.ts` (delete+undo setup)         | record-redo/delete-1k                   | ✅ v1+v2 pass (local) |
+| table-delete       | `table-lifecycle.ts` (sampled archive + restore-back)    | table-delete/10k-20f                    | ✅ v1+v2 pass (local) |
+| table-restore      | `table-lifecycle.ts` (archive setup + sampled restore)   | table-restore/10k-20f                   | ✅ v1+v2 pass (local) |
 | table-delete-link  | `table-link-lifecycle.ts` (sampled foreign-table delete) | table-delete/10k-20f-link-detach        | ✅ v1+v2 pass (local) |
 | table-restore-link | `table-link-lifecycle.ts` (sampled table restore)        | table-restore/10k-20f-link-1k           | ✅ v1+v2 pass (local) |
 
@@ -50,8 +52,6 @@ Status as of 2026-06-18 on `main`.
 | selection-clear           | 1   | selection-clear/flat-1k-20fields-cell-clear-stream                                                                                                                                         |
 | selection-duplicate       | 1   | record-duplicate/grid-block-duplicate-1k                                                                                                                                                   |
 | table-create              | 2   | table-create/10x-20f-no-records, table-create/1x-20f-1k-records                                                                                                                            |
-| table-delete              | 1   | table-delete/10k-20f                                                                                                                                                                       |
-| table-restore             | 1   | table-restore/10k-20f                                                                                                                                                                      |
 
 ## How migration proceeds
 
