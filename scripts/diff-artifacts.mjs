@@ -85,6 +85,10 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  if (pathEquals(path, ["details"]) && key === "deletedFieldIds") {
+    return true;
+  }
+
   if (
     pathEquals(path, ["details", "import"]) &&
     ["createdTableId", "requestMs"].includes(key)
