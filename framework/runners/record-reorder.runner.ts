@@ -22,7 +22,6 @@ import {
   type SeedCacheInfo,
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
-import { PerfRunDiagnosticError } from "../types";
 import type {
   MetricThreshold,
   PerfCase,
@@ -33,16 +32,15 @@ import type {
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
 import {
-  buildRecordWindowId,
   undoRedoMixed20Fields,
   withRecordWindowId,
+  type Measurement,
 } from "./record-undo-redo.shared";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 type ReorderField = RecordReorderCaseConfig["fields"][number] & {
   id: string;
@@ -1083,138 +1081,121 @@ const buildResult = ({
   },
 });
 
-export const runRecordReorderCase = async (
+// The single measured operation, run inside the driver's record window:
+// trace-wrapped block reorder -> routing assertion -> post-reorder position
+// verification, all bundled into one reorder measurement whose duration is the
+// primary metric.
+const runReorderMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordReorderCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<ReorderFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSeedReady>>>
-    | undefined;
+  config: RecordReorderCaseConfig,
+  fixture: ReorderFixture,
+): Promise<Measurement<ReorderOperationResult>> => {
+  const requestMeasurement = await measureAsync(config.threshold.metric, () =>
+    executeReorder(context, perfCase, fixture, config),
+  );
+  let reorderMeasurement: Measurement<ReorderOperationResult> = {
+    ...requestMeasurement,
+    result: {
+      ...requestMeasurement.result,
+      requestMs: requestMeasurement.durationMs,
+      routing: assertEngineRouting(
+        context,
+        requestMeasurement.result.responseHeaders,
+        {
+          operation: "updateRecordOrders",
+        },
+      ),
+    },
+  };
+  const verification = await verifyReorder(fixture, config);
+  reorderMeasurement = {
+    ...reorderMeasurement,
+    result: {
+      ...reorderMeasurement.result,
+      ...verification,
+    },
+  };
+  return reorderMeasurement;
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareFixture(baseId, tableName, config, perfCase),
-    );
-    const fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSeedReady(fixture, config),
-    );
-    let reorderMeasurement: Measurement<ReorderOperationResult> | undefined;
-
+// The measured reorder moves the reusable seed rows, so a shared (non-isolated)
+// execute DB is restored to the original order inside the same record window —
+// or the table dropped if restore fails. The non-reusable case just drops the
+// table. Isolated CI execute DBs are discarded after the job.
+const cleanupReorderFixture = async ({
+  baseId,
+  fixture,
+  config,
+  windowId,
+}: {
+  baseId: string;
+  fixture: ReorderFixture | undefined;
+  config: RecordReorderCaseConfig;
+  windowId: string;
+}) => {
+  if (fixture?.tableId && fixture.reusableSeed && !isExecuteDbIsolated()) {
     try {
-      await withRecordWindowId(windowId, async () => {
-        const requestMeasurement = await measureAsync(
-          config.threshold.metric,
-          () => executeReorder(context, perfCase, fixture, config),
-        );
-        reorderMeasurement = {
-          ...requestMeasurement,
-          result: {
-            ...requestMeasurement.result,
-            requestMs: requestMeasurement.durationMs,
-            routing: assertEngineRouting(
-              context,
-              requestMeasurement.result.responseHeaders,
-              {
-                operation: "updateRecordOrders",
-              },
-            ),
-          },
-        };
-        const verification = await verifyReorder(fixture, config);
-        reorderMeasurement = {
-          ...reorderMeasurement,
-          result: {
-            ...reorderMeasurement.result,
-            ...verification,
-          },
-        };
-      });
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult({
-          config,
-          windowId,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          reorderMeasurement,
-          error,
-        }),
+      await withRecordWindowId(windowId, () =>
+        restoreOriginalOrder(fixture, config),
       );
-    }
-
-    return buildResult({
-      config,
-      windowId,
-      fixture,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      reorderMeasurement,
-    });
-  } finally {
-    const fixture = prepareMeasurement?.result;
-    if (fixture?.tableId && fixture.reusableSeed && !isExecuteDbIsolated()) {
-      try {
-        await withRecordWindowId(windowId, () =>
-          restoreOriginalOrder(fixture, config),
-        );
-      } catch (error) {
-        console.warn(
-          `Failed to restore cached record reorder seed ${fixture.tableId}; deleting it`,
-          error,
-        );
-        try {
-          await permanentDeleteTable(baseId, fixture.tableId);
-        } catch (cleanupError) {
-          console.warn(
-            `Failed to cleanup perf table ${fixture.tableId}`,
-            cleanupError,
-          );
-        }
-      }
-    } else if (
-      fixture?.tableId &&
-      !fixture.reusableSeed &&
-      !isExecuteDbIsolated()
-    ) {
+    } catch (error) {
+      console.warn(
+        `Failed to restore cached record reorder seed ${fixture.tableId}; deleting it`,
+        error,
+      );
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup perf table ${fixture.tableId}`,
+          cleanupError,
+        );
       }
+    }
+  } else if (
+    fixture?.tableId &&
+    !fixture.reusableSeed &&
+    !isExecuteDbIsolated()
+  ) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
     }
   }
 };
 
+const recordReorderLifecycleSpec: RecordMutationLifecycleSpec<
+  RecordReorderCaseConfig,
+  ReorderFixture,
+  Awaited<ReturnType<typeof assertSeedReady>>,
+  ReorderOperationResult
+> = {
+  // Group the reorder write under one record window id (mirrors the legacy
+  // runner; the same window scopes the restore in cleanup).
+  useRecordWindow: true,
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
+    prepareFixture(baseId, tableName, config, perfCase),
+  assertSeedReady: ({ fixture, config }) => assertSeedReady(fixture, config),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runReorderMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: ({ primaryMeasurement, ...rest }) =>
+    buildResult({ ...rest, reorderMeasurement: primaryMeasurement }),
+  cleanup: cleanupReorderFixture,
+};
+
+export const runRecordReorderCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, recordReorderLifecycleSpec);
+
 export const seedRecordReorderCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordReorderCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(prepareMeasurement.result, config),
-  );
-
-  return buildResult({
-    config,
-    windowId: `seed-${_context.runId}-${perfCase.id}`,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(perfCase, context, recordReorderLifecycleSpec);
 
 export const recordReorderMixed10kBaseConfig = {
   baseId: "seed-base" as const,
