@@ -28,17 +28,15 @@ import type {
   PerfRunResult,
   RecordUpdateCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
-  buildRecordWindowId,
   withRecordWindowId,
+  type Measurement,
 } from "./record-undo-redo.shared";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import {
+  runRecordUpdateLifecycle,
+  seedRecordUpdateLifecycle,
+  type RecordUpdateLifecycleSpec,
+} from "./record-update-lifecycle";
 
 type UpdateField = RecordUpdateCaseConfig["fields"][number] & {
   id: string;
@@ -769,143 +767,127 @@ const buildRecordUpdateResult = ({
   },
 });
 
-export const runRecordUpdateCase = async (
+// The single measured window: trace-wrapped bulk update -> routing assertion ->
+// post-update verification, all bundled into one primary measurement whose
+// duration is the primary metric. Runs inside the driver's window, so it must
+// not re-open one here.
+const runRecordUpdateMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<RecordUpdateFixture> | undefined;
-  let seedReadyMeasurement: Measurement<SampleVerification> | undefined;
-  let fixture: RecordUpdateFixture | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUpdateFixture(baseId, tableName, config, perfCase),
-    );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSampleRecordsState(fixture!, config, "seed"),
-    );
-    let primaryMeasurement: Measurement<RecordUpdatePrimaryResult> | undefined;
-
-    try {
-      await withRecordWindowId(windowId, async () => {
-        const updateMeasurement = await withPerfTraceStep(
+  config: RecordUpdateCaseConfig,
+  fixture: RecordUpdateFixture,
+): Promise<Measurement<RecordUpdatePrimaryResult>> => {
+  const updateMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      measureAsync(config.threshold.metric, () =>
+        updateAllRecords(fixture, config, "updated"),
+      ),
+  );
+  let primaryMeasurement: Measurement<RecordUpdatePrimaryResult> = {
+    ...updateMeasurement,
+    result: {
+      updateRequestMs: updateMeasurement.durationMs,
+      update: {
+        ...updateMeasurement.result,
+        routing: assertEngineRouting(
           context,
-          perfCase,
-          config.threshold.metric,
-          () =>
-            measureAsync(config.threshold.metric, () =>
-              updateAllRecords(fixture!, config, "updated"),
-            ),
-        );
-        primaryMeasurement = {
-          ...updateMeasurement,
-          result: {
-            updateRequestMs: updateMeasurement.durationMs,
-            update: {
-              ...updateMeasurement.result,
-              routing: assertEngineRouting(
-                context,
-                updateMeasurement.result.responseHeaders,
-                {
-                  operation: "updateRecords",
-                },
-              ),
-            },
+          updateMeasurement.result.responseHeaders,
+          {
+            operation: "updateRecords",
           },
-        };
-        const verification = await verifyUpdatedRecords(fixture!, config);
-        primaryMeasurement = {
-          ...primaryMeasurement,
-          result: {
-            ...primaryMeasurement.result,
-            ...verification,
-          },
-        };
-      });
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildRecordUpdateResult({
-          config,
-          fixture,
-          windowId,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
-      );
-    }
+        ),
+      },
+    },
+  };
+  const verification = await verifyUpdatedRecords(fixture, config);
+  primaryMeasurement = {
+    ...primaryMeasurement,
+    result: {
+      ...primaryMeasurement.result,
+      ...verification,
+    },
+  };
+  return primaryMeasurement;
+};
 
-    return buildRecordUpdateResult({
-      config,
-      fixture,
-      windowId,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
-    if (fixture?.reusableSeed) {
-      if (!isExecuteDbIsolated()) {
-        let restored = false;
+// The measured bulk update overwrites the reusable seed values, so a shared
+// (non-isolated) execute DB must be restored to the seed state — or the table
+// dropped if restore fails — before the next run reuses it. Isolated CI execute
+// DBs are discarded after the job, so no cleanup is needed there.
+const cleanupRecordUpdateFixture = async ({
+  baseId,
+  fixture,
+  config,
+  windowId,
+}: {
+  baseId: string;
+  fixture: RecordUpdateFixture | undefined;
+  config: RecordUpdateCaseConfig;
+  windowId: string;
+}) => {
+  if (fixture?.reusableSeed) {
+    if (!isExecuteDbIsolated()) {
+      let restored = false;
+      try {
+        await withRecordWindowId(windowId, async () => {
+          await updateAllRecords(fixture, config, "seed");
+        });
+        await assertSampleRecordsState(fixture, config, "seed");
+        restored = true;
+      } catch (error) {
+        console.warn(
+          `Failed to restore cached record update seed ${fixture.tableId}; deleting it`,
+          error,
+        );
+      }
+
+      if (!restored && fixture?.tableId) {
         try {
-          await withRecordWindowId(windowId, async () => {
-            await updateAllRecords(fixture!, config, "seed");
-          });
-          await assertSampleRecordsState(fixture, config, "seed");
-          restored = true;
+          await permanentDeleteTable(baseId, fixture.tableId);
         } catch (error) {
           console.warn(
-            `Failed to restore cached record update seed ${fixture.tableId}; deleting it`,
+            `Failed to cleanup perf table ${fixture.tableId}`,
             error,
           );
         }
-
-        if (!restored && fixture?.tableId) {
-          try {
-            await permanentDeleteTable(baseId, fixture.tableId);
-          } catch (error) {
-            console.warn(
-              `Failed to cleanup perf table ${fixture.tableId}`,
-              error,
-            );
-          }
-        }
       }
-    } else if (fixture?.tableId && !isExecuteDbIsolated()) {
-      try {
-        await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
-      }
+    }
+  } else if (fixture?.tableId && !isExecuteDbIsolated()) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
     }
   }
 };
 
+const recordUpdateLifecycleSpec: RecordUpdateLifecycleSpec<
+  RecordUpdateCaseConfig,
+  RecordUpdateFixture,
+  SampleVerification,
+  RecordUpdatePrimaryResult
+> = {
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
+    prepareRecordUpdateFixture(baseId, tableName, config, perfCase),
+  assertSeedReady: ({ fixture, config }) =>
+    assertSampleRecordsState(fixture, config, "seed"),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runRecordUpdateMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: buildRecordUpdateResult,
+  cleanup: cleanupRecordUpdateFixture,
+};
+
+export const runRecordUpdateCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordUpdateLifecycle(perfCase, context, recordUpdateLifecycleSpec);
+
 export const seedRecordUpdateCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareRecordUpdateFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSampleRecordsState(prepareMeasurement.result, config, "seed"),
-  );
-
-  return buildRecordUpdateResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordUpdateLifecycle(perfCase, context, recordUpdateLifecycleSpec);
