@@ -30,13 +30,11 @@ import type {
   PerfRunResult,
   SelectionClearCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import {
+  runRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 
 type NamedField = {
   id: string;
@@ -806,112 +804,145 @@ const buildSelectionClearResult = ({
   },
 });
 
-export const runSelectionClearCase = async (
+type SelectionClearPrimaryResult = {
+  clear: Awaited<ReturnType<typeof clearAllCells>>;
+  verify: Measurement<Awaited<ReturnType<typeof assertCellsCleared>>>;
+};
+
+// The single measured operation: trace-wrapped clear-stream -> routing
+// assertion (inside clearAllCells) -> post-clear full-scan verification. The
+// clear duration is the primary metric (clear1kMs); verify is bundled into the
+// primary result so buildResult can still emit it as the separate `verify`
+// phase the legacy artifact had. selection-clear has no record window, so the
+// driver invokes this directly.
+const runSelectionClearMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as SelectionClearCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<ClearFixture> | undefined;
-  let restoreMeasurement:
-    | Measurement<Awaited<ReturnType<typeof restoreClearedCells>>>
-    | undefined;
+  config: SelectionClearCaseConfig,
+  fixture: ClearFixture,
+): Promise<Measurement<SelectionClearPrimaryResult>> => {
+  const clearMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    "clear",
+    () =>
+      measureAsync("clear", () => clearAllCells(fixture, perfCase, context)),
+  );
+  const verifyMeasurement = await measureAsync("verify", () =>
+    assertCellsCleared(fixture, config),
+  );
+  return {
+    name: clearMeasurement.name,
+    durationMs: clearMeasurement.durationMs,
+    result: {
+      clear: clearMeasurement.result,
+      verify: verifyMeasurement,
+    },
+  };
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareClearFixture(baseId, tableName, config, perfCase),
-    );
-    const fixture = prepareMeasurement.result;
-    let clearMeasurement:
-      | Measurement<Awaited<ReturnType<typeof clearAllCells>>>
-      | undefined;
-    let verifyMeasurement:
-      | Measurement<Awaited<ReturnType<typeof assertCellsCleared>>>
-      | undefined;
-
+// The measured clear empties the reusable seed's cells, so a shared
+// (non-isolated) execute DB must be restored to the seed values — or the table
+// dropped if restore fails — before the next run reuses it. Isolated CI execute
+// DBs are discarded after the job, so no cleanup is needed there.
+const cleanupSelectionClearFixture = async ({
+  baseId,
+  fixture,
+  config,
+}: {
+  baseId: string;
+  fixture: ClearFixture | undefined;
+  config: SelectionClearCaseConfig;
+}) => {
+  if (!fixture || isExecuteDbIsolated()) {
+    return;
+  }
+  if (fixture.reusableSeed) {
     try {
-      clearMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "clear",
-        () =>
-          measureAsync("clear", () =>
-            clearAllCells(fixture, perfCase, context),
-          ),
+      const restoreMeasurement = await measureAsync("restoreSeed", () =>
+        restoreClearedCells(fixture, config),
       );
-
-      verifyMeasurement = await measureAsync("verify", () =>
-        assertCellsCleared(fixture, config),
-      );
-    } catch (error) {
-      const diagnosticResult = buildSelectionClearResult({
-        config,
-        fixture,
-        prepareMeasurement,
-        clearMeasurement,
-        verifyMeasurement,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
-    return buildSelectionClearResult({
-      config,
-      fixture,
-      prepareMeasurement,
-      clearMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    if (prepareMeasurement?.result.reusableSeed && !isExecuteDbIsolated()) {
-      try {
-        restoreMeasurement = await measureAsync("restoreSeed", () =>
-          restoreClearedCells(prepareMeasurement!.result, config),
-        );
-      } catch (error) {
-        console.warn(
-          `Failed to restore cached selection clear seed ${prepareMeasurement.result.tableId}; deleting it`,
-          error,
-        );
-        try {
-          await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
-        } catch (cleanupError) {
-          console.warn(
-            `Failed to cleanup perf table ${prepareMeasurement.result.tableId}`,
-            cleanupError,
-          );
-        }
-      }
-    } else if (
-      prepareMeasurement?.result.tableId &&
-      !prepareMeasurement.result.reusableSeed &&
-      !isExecuteDbIsolated()
-    ) {
-      try {
-        await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
-      } catch (error) {
-        console.warn(
-          `Failed to cleanup perf table ${prepareMeasurement.result.tableId}`,
-          error,
-        );
-      }
-    }
-
-    if (restoreMeasurement) {
       console.log(
-        `[perf-lab] restored selection clear seed table=${prepareMeasurement?.result.tableId} durationMs=${Math.round(
+        `[perf-lab] restored selection clear seed table=${fixture.tableId} durationMs=${Math.round(
           restoreMeasurement.durationMs,
         )}`,
       );
+    } catch (error) {
+      console.warn(
+        `Failed to restore cached selection clear seed ${fixture.tableId}; deleting it`,
+        error,
+      );
+      try {
+        await permanentDeleteTable(baseId, fixture.tableId);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup perf table ${fixture.tableId}`,
+          cleanupError,
+        );
+      }
+    }
+  } else if (fixture.tableId) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
     }
   }
 };
 
+// selection-clear rides the record-mutation lifecycle: single seeded table, one
+// measured clear, post-op verify, restore-or-delete. It omits assertSeedReady
+// (seed readiness is confirmed inside prepareClearFixture, which re-verifies a
+// cached seed before reuse) so the driver emits no seedReady phase, preserving
+// the legacy [prepare, clear, verify] artifact. No record window.
+const selectionClearLifecycleSpec: RecordMutationLifecycleSpec<
+  SelectionClearCaseConfig,
+  ClearFixture,
+  never,
+  SelectionClearPrimaryResult
+> = {
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
+    prepareClearFixture(baseId, tableName, config, perfCase),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runSelectionClearMeasuredOperation(perfCase, context, config, fixture),
+  // Adapter: the driver hands back one primary measurement; split it back into
+  // the legacy clear + verify measurements so buildSelectionClearResult — and
+  // therefore the artifact shape — is unchanged.
+  buildResult: ({
+    config,
+    fixture,
+    prepareMeasurement,
+    primaryMeasurement,
+    error,
+  }) =>
+    buildSelectionClearResult({
+      config,
+      fixture,
+      prepareMeasurement,
+      clearMeasurement: primaryMeasurement
+        ? {
+            name: primaryMeasurement.name,
+            durationMs: primaryMeasurement.durationMs,
+            result: primaryMeasurement.result.clear,
+          }
+        : undefined,
+      verifyMeasurement: primaryMeasurement?.result.verify,
+      error,
+    }),
+  cleanup: cleanupSelectionClearFixture,
+};
+
+export const runSelectionClearCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, selectionClearLifecycleSpec);
+
+// Seed mode stays bespoke (not on seedRecordMutationLifecycle): unlike the
+// execute path, the seed artifact intentionally carries a `seedReady` phase
+// (the assertCellsRestored full scan), which is exactly the seedReady hook the
+// execute path omits. Routing both modes through one shared spec would force
+// that asymmetry into the driver, so seed keeps its own thin orchestration here.
 export const seedSelectionClearCase = async (
   perfCase: PerfCase,
   _context: PerfRunContext,
