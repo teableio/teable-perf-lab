@@ -30,13 +30,12 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import {
+  runFieldAddLifecycle,
+  seedFieldAddLifecycle,
+  type FieldAddLifecycleSpec,
+} from "./field-add-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 
 type FieldCreateFixture = {
   tableId: string;
@@ -1176,59 +1175,59 @@ const buildSeedCache = (perfCase: PerfCase, config: FieldCreateCaseConfig) =>
     ],
   });
 
-export const seedFieldCreateCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldCreateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const seedCacheInfo = await buildSeedCache(perfCase, config);
-  const fixture = await buildFieldCreateFixture(
-    perfCase,
-    context,
-    baseId,
-    tableName,
-    config,
-    seedCacheInfo,
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(fixture, config),
-  );
-
-  return buildFieldCreateResult({
-    config,
-    prepareMeasurement: {
-      name: fixture.seedCacheHit ? "seedRestore" : "seedBuild",
-      durationMs: 0,
-      result: fixture,
-    },
-    seedReadyMeasurement,
-  });
+type FieldCreateLifecycleFixture = FieldCreateFixture & {
+  // The prepare phase the driver does not emit: in the execute path it is the
+  // measured "prepareFieldCreate" phase; in the seed path it is a synthetic
+  // zero-duration "seedBuild"/"seedRestore" marker. Carried on the (mutable)
+  // fixture so buildResult can rebuild the prepare measurement from the live
+  // object, after seedReady/backfill have mutated it in place.
+  prepareName: string;
+  prepareDurationMs: number;
 };
 
-export const runFieldCreateCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldCreateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const seedCacheInfo = await buildSeedCache(perfCase, config);
-  let fixture: FieldCreateFixture | undefined;
-  let createdFieldIds: string[] = [];
-  let prepareMeasurement: Measurement<FieldCreateFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSeedReady>>>
-    | undefined;
-  let primaryMeasurement: Measurement<FieldCreatePrimaryResult> | undefined;
-  let readyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof waitForComputedFieldsReady>>>
-    | undefined;
-  let verification: FieldCreateVerification | undefined;
+type FieldCreateSeedReadyResult = Awaited<ReturnType<typeof assertSeedReady>>;
 
-  try {
-    prepareMeasurement = await measureAsync("prepareFieldCreate", () =>
+type FieldCreatePrimary = {
+  primaryMeasurement: Measurement<FieldCreatePrimaryResult>;
+  readyMeasurement?: Measurement<
+    Awaited<ReturnType<typeof waitForComputedFieldsReady>>
+  >;
+  verification: FieldCreateVerification;
+};
+
+// field-create rides the field-add lifecycle as the third member, with the
+// widest variation: it seeds an empty (base-fields-only) table, adds N fields in
+// one measured trace step (per-field routing), optionally polls until the
+// formula columns finish their computed backfill, verifies the created fields
+// (and single-select options), then restores the seed by deleting the added
+// (non-base) fields. Unlike the prior two members its prepare is a single
+// measured phase, so prepareFixture owns that measurement and parks it on the
+// fixture; the driver itself is unchanged.
+const fieldCreateFieldAddSpec: FieldAddLifecycleSpec<
+  FieldCreateCaseConfig,
+  FieldCreateLifecycleFixture,
+  FieldCreateSeedReadyResult,
+  FieldCreatePrimary
+> = {
+  prepareFixture: async ({ perfCase, context, baseId, config, seedMode }) => {
+    const seedCacheInfo = await buildSeedCache(perfCase, config);
+    if (seedMode) {
+      const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
+      const fixture = await buildFieldCreateFixture(
+        perfCase,
+        context,
+        baseId,
+        tableName,
+        config,
+        seedCacheInfo,
+      );
+      return Object.assign(fixture, {
+        prepareName: fixture.seedCacheHit ? "seedRestore" : "seedBuild",
+        prepareDurationMs: 0,
+      });
+    }
+    const tableName = `${config.tableNamePrefix}-${Date.now()}`;
+    const prepareMeasurement = await measureAsync("prepareFieldCreate", () =>
       buildFieldCreateFixture(
         perfCase,
         context,
@@ -1238,83 +1237,109 @@ export const runFieldCreateCase = async (
         seedCacheInfo,
       ),
     );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSeedReady(prepareMeasurement.result, config),
-    );
-    const fieldsToCreate = await buildCreateFieldsForTable(
-      prepareMeasurement.result,
-      config,
-    );
-    primaryMeasurement = await runFieldCreatePrimary(
+    return Object.assign(prepareMeasurement.result, {
+      prepareName: prepareMeasurement.name,
+      prepareDurationMs: prepareMeasurement.durationMs,
+    });
+  },
+  assertSeedReady: ({ fixture, config }) => assertSeedReady(fixture, config),
+  runPrimary: async ({ perfCase, context, baseId, fixture, config }) => {
+    const fieldsToCreate = await buildCreateFieldsForTable(fixture, config);
+    const primaryMeasurement = await runFieldCreatePrimary(
       perfCase,
       context,
-      prepareMeasurement.result,
+      fixture,
       config,
       fieldsToCreate,
     );
-    createdFieldIds = primaryMeasurement.result.fieldIds;
+    let readyMeasurement:
+      | Measurement<Awaited<ReturnType<typeof waitForComputedFieldsReady>>>
+      | undefined;
     if (config.ready) {
       readyMeasurement = await measureAsync(config.ready.metric, () =>
         waitForComputedFieldsReady(
           baseId,
           context,
-          prepareMeasurement.result,
+          fixture,
           config,
           primaryMeasurement.result,
         ),
       );
     }
-    verification = await verifyCreatedFields(
-      prepareMeasurement.result,
+    const verification = await verifyCreatedFields(
+      fixture,
       config,
       fieldsToCreate,
     );
-
+    return { primaryMeasurement, readyMeasurement, verification };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    const prepareMeasurement = fixture
+      ? {
+          name: fixture.prepareName,
+          durationMs: fixture.prepareDurationMs,
+          result: fixture,
+        }
+      : undefined;
     return buildFieldCreateResult({
       config,
       prepareMeasurement,
       seedReadyMeasurement,
-      primaryMeasurement,
-      readyMeasurement,
-      verification,
+      primaryMeasurement: primary?.primaryMeasurement,
+      readyMeasurement: primary?.readyMeasurement,
+      verification: primary?.verification,
+      error,
     });
-  } catch (error) {
-    throw new PerfRunDiagnosticError(
-      error instanceof Error ? error.message : String(error),
-      buildFieldCreateResult({
-        config,
-        prepareMeasurement,
-        seedReadyMeasurement,
-        primaryMeasurement,
-        readyMeasurement,
-        verification,
-        error,
-      }),
-    );
-  } finally {
-    if (fixture?.reusableSeed) {
-      if (!isExecuteDbIsolated() && createdFieldIds.length > 0) {
-        try {
-          for (const fieldId of createdFieldIds) {
-            await deleteField(fixture.tableId, fieldId);
-          }
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup perf field create fields ${createdFieldIds.join(", ")}`,
-            error,
-          );
-        }
-      }
-    } else if (fixture?.tableId && !isExecuteDbIsolated()) {
+  },
+  cleanup: async ({ baseId, fixture, config }) => {
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    if (fixture.reusableSeed) {
+      // Restore the reusable seed by deleting the created (non-base) fields —
+      // the same "base fields only" invariant assertSeedReady enforces before
+      // the measured create. Re-resolve by name; idempotent, and a no-op when
+      // the create made nothing.
       try {
-        await permanentDeleteTable(baseId, fixture.tableId);
+        const baseFieldNames = new Set(
+          config.baseFields.map((field) => field.name),
+        );
+        const fields = (await getFields(fixture.tableId)) as Array<{
+          id: string;
+          name: string;
+        }>;
+        for (const field of fields) {
+          if (!baseFieldNames.has(field.name)) {
+            await deleteField(fixture.tableId, field.id);
+          }
+        }
       } catch (error) {
         console.warn(
-          `Failed to cleanup perf field create table ${fixture.tableId}`,
+          `Failed to cleanup perf field create fields on ${fixture.tableId}`,
           error,
         );
       }
+      return;
     }
-  }
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(
+        `Failed to cleanup perf field create table ${fixture.tableId}`,
+        error,
+      );
+    }
+  },
 };
+
+export const seedFieldCreateCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedFieldAddLifecycle(perfCase, context, fieldCreateFieldAddSpec);
+
+export const runFieldCreateCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runFieldAddLifecycle(perfCase, context, fieldCreateFieldAddSpec);
