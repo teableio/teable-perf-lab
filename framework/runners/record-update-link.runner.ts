@@ -29,7 +29,12 @@ import type {
   PerfRunResult,
   RecordUpdateLinkCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 import {
   expectedForeignTitle,
   fetchForeignIdByTitle,
@@ -43,12 +48,6 @@ const RECORD_UPDATE_LINK_FIXTURE_VERSION = "record-update-link-v1";
 const RECORD_UPDATE_LINK_METADATA_PREFIX = "perf-lab-record-update-link:";
 
 type Phase = "seed" | "updated";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = { id: string; name: string; type?: string };
 
@@ -711,143 +710,150 @@ const buildResult = ({
   },
 });
 
-export const runRecordUpdateLinkCase = async (
+// The single measured operation: resolve foreign ids (unmeasured setup) ->
+// trace-wrapped bulk link-cell update -> routing assertion -> post-update
+// sample + full-scan verification, bundled into one primary measurement whose
+// duration is the primary metric. record-update-link has no record window, so
+// the driver invokes this directly (no withRecordWindowId).
+const runLinkUpdateMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateLinkCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<RecordUpdateLinkFixture> | undefined;
-  let seedReadyMeasurement: Measurement<{ checkedRecords: number }> | undefined;
-  let fixture: RecordUpdateLinkFixture | undefined;
-  let foreignIdByTitle: Map<string, string> | undefined;
+  config: RecordUpdateLinkCaseConfig,
+  fixture: RecordUpdateLinkFixture,
+): Promise<Measurement<LinkUpdatePrimaryResult>> => {
+  // Execute setup (not measured): resolve foreign titles -> record ids.
+  const foreignIdByTitle = await fetchForeignIdByTitle(
+    fixture.foreignTableId,
+    fixture.foreignKeyFieldId,
+    config.foreignTable.rowCount,
+  );
+  const updateMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      measureAsync(config.threshold.metric, () =>
+        updateAllLinks(fixture, config, "updated", foreignIdByTitle),
+      ),
+  );
+  const routing = assertEngineRouting(
+    context,
+    updateMeasurement.result.responseHeaders,
+    { operation: "updateRecords" },
+  );
+  const verifyMeasurement = await measureAsync("verifyUpdated", () =>
+    assertLinkSamples(fixture, config, "updated"),
+  );
+  const fullScan = await assertLinkFullScan(fixture, config, "updated");
+  return {
+    ...updateMeasurement,
+    result: {
+      updateRequestMs: updateMeasurement.durationMs,
+      requestedRecords: updateMeasurement.result.requestedRecords,
+      updatedRecords: updateMeasurement.result.updatedRecords,
+      responseHeaders: updateMeasurement.result.responseHeaders,
+      routing,
+      verified: { checkedRecords: verifyMeasurement.result.checkedRecords },
+      verifyUpdatedMs: verifyMeasurement.durationMs,
+      fullScan,
+    },
+  };
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareLinkFixture(baseId, tableName, config, perfCase),
-    );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertLinkSamples(fixture!, config, "seed"),
-    );
-    // Execute setup (not measured): resolve foreign titles -> record ids.
-    foreignIdByTitle = await fetchForeignIdByTitle(
-      fixture.foreignTableId,
-      fixture.foreignKeyFieldId,
-      config.foreignTable.rowCount,
-    );
-
-    let primaryMeasurement: Measurement<LinkUpdatePrimaryResult> | undefined;
+// Class C cleanup: the measured update repoints the reusable seed's link cells
+// to the update permutation, so a shared (non-isolated) execute DB must be
+// restored to the seed permutation — or both fixture tables dropped if restore
+// fails — before the next run reuses it. foreignIdByTitle is re-resolved here
+// (cleanup is unmeasured) instead of being threaded from the measured op.
+// Isolated CI execute DBs are discarded after the job, so cleanup is skipped.
+const cleanupRecordUpdateLinkFixture = async ({
+  baseId,
+  fixture,
+  config,
+}: {
+  baseId: string;
+  fixture: RecordUpdateLinkFixture | undefined;
+  config: RecordUpdateLinkCaseConfig;
+}) => {
+  if (!fixture || isExecuteDbIsolated()) {
+    return;
+  }
+  if (fixture.reusableSeed) {
+    let restored = false;
     try {
-      const updateMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, () =>
-            updateAllLinks(fixture!, config, "updated", foreignIdByTitle!),
-          ),
+      const foreignIdByTitle = await fetchForeignIdByTitle(
+        fixture.foreignTableId,
+        fixture.foreignKeyFieldId,
+        config.foreignTable.rowCount,
       );
-      const routing = assertEngineRouting(
-        context,
-        updateMeasurement.result.responseHeaders,
-        { operation: "updateRecords" },
-      );
-      const verifyMeasurement = await measureAsync("verifyUpdated", () =>
-        assertLinkSamples(fixture!, config, "updated"),
-      );
-      const fullScan = await assertLinkFullScan(fixture!, config, "updated");
-      primaryMeasurement = {
-        ...updateMeasurement,
-        result: {
-          updateRequestMs: updateMeasurement.durationMs,
-          requestedRecords: updateMeasurement.result.requestedRecords,
-          updatedRecords: updateMeasurement.result.updatedRecords,
-          responseHeaders: updateMeasurement.result.responseHeaders,
-          routing,
-          verified: { checkedRecords: verifyMeasurement.result.checkedRecords },
-          verifyUpdatedMs: verifyMeasurement.durationMs,
-          fullScan,
-        },
-      };
+      await updateAllLinks(fixture, config, "seed", foreignIdByTitle);
+      await assertLinkSamples(fixture, config, "seed");
+      restored = true;
     } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult({
-          config,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
+      console.warn(
+        `Failed to restore cached link seed ${fixture.tableId}; deleting it`,
+        error,
       );
     }
+    if (restored) {
+      return;
+    }
+  }
+  for (const tableId of [fixture.tableId, fixture.foreignTableId]) {
+    try {
+      await permanentDeleteTable(baseId, tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup link table ${tableId}`, error);
+    }
+  }
+};
 
-    return buildResult({
+// record-update-link rides the record-mutation lifecycle: seed a host + linked
+// foreign fixture, run one measured bulk link-cell update inside the family's
+// prepare -> seedReady -> measured op -> restore-or-delete skeleton. It is the
+// first member whose fixture spans more than one table; the driver treats the
+// fixture opaquely, so no driver code changes — only the scope note. No window.
+const recordUpdateLinkLifecycleSpec: RecordMutationLifecycleSpec<
+  RecordUpdateLinkCaseConfig,
+  RecordUpdateLinkFixture,
+  Awaited<ReturnType<typeof assertLinkSamples>>,
+  LinkUpdatePrimaryResult
+> = {
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
+    prepareLinkFixture(baseId, tableName, config, perfCase),
+  assertSeedReady: ({ fixture, config }) =>
+    assertLinkSamples(fixture, config, "seed"),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runLinkUpdateMeasuredOperation(perfCase, context, config, fixture),
+  // buildResult already matches the driver arg shape; drop the unused windowId
+  // (no record window) and delegate to the existing assembler unchanged.
+  buildResult: ({
+    config,
+    fixture,
+    prepareMeasurement,
+    seedReadyMeasurement,
+    primaryMeasurement,
+    error,
+  }) =>
+    buildResult({
       config,
       fixture,
       prepareMeasurement,
       seedReadyMeasurement,
       primaryMeasurement,
-    });
-  } finally {
-    // Class C cleanup: restore link cells to the seed permutation so the
-    // cached fixture is seed-ready for the next run; if restore fails, delete
-    // both fixture tables. Isolated CI execute DBs are discarded, skip all.
-    if (!isExecuteDbIsolated()) {
-      if (fixture?.reusableSeed && foreignIdByTitle) {
-        let restored = false;
-        try {
-          await updateAllLinks(fixture, config, "seed", foreignIdByTitle);
-          await assertLinkSamples(fixture, config, "seed");
-          restored = true;
-        } catch (error) {
-          console.warn(
-            `Failed to restore cached link seed ${fixture.tableId}; deleting it`,
-            error,
-          );
-        }
-        if (!restored) {
-          for (const tableId of [fixture.tableId, fixture.foreignTableId]) {
-            try {
-              await permanentDeleteTable(baseId, tableId);
-            } catch (error) {
-              console.warn(`Failed to cleanup link table ${tableId}`, error);
-            }
-          }
-        }
-      } else if (fixture && !fixture.reusableSeed) {
-        for (const tableId of [fixture.tableId, fixture.foreignTableId]) {
-          try {
-            await permanentDeleteTable(baseId, tableId);
-          } catch (error) {
-            console.warn(`Failed to cleanup link table ${tableId}`, error);
-          }
-        }
-      }
-    }
-  }
+      error,
+    }),
+  cleanup: cleanupRecordUpdateLinkFixture,
 };
+
+export const runRecordUpdateLinkCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, recordUpdateLinkLifecycleSpec);
 
 export const seedRecordUpdateLinkCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateLinkCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareLinkFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertLinkSamples(prepareMeasurement.result, config, "seed"),
-  );
-  return buildResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(perfCase, context, recordUpdateLinkLifecycleSpec);
