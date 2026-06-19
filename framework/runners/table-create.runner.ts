@@ -16,7 +16,10 @@ import type {
   PerfRunResult,
   TableCreateCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runTableCreateLifecycle,
+  type TableCreateLifecycleSpec,
+} from "./table-create-lifecycle";
 import { pickTableLifecycleHeaders } from "./table-lifecycle.shared";
 
 type Measurement<T> = {
@@ -208,197 +211,233 @@ const verifyCreatedTable = async (
   };
 };
 
-export const runTableCreateCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as TableCreateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const runTag = `${context.engine}-${Date.now()}`;
-  const createdTables: CreatedTable[] = [];
-  let primaryMeasurement: Measurement<unknown> | undefined;
-  let verifyMeasurement: Measurement<TableVerification[]> | undefined;
+// The mutable run accumulator. table-create has no seed and no reusable
+// fixture, so "prepare" only allocates this object: the created-table list plus
+// the primary/verify measurements. runPrimary fills it in place, and both
+// buildResult and cleanup read it — even when the measured loop throws part-way,
+// so the diagnostic artifact still carries the partially-created tables.
+type TableCreateFixture = {
+  runTag: string;
+  createdTables: CreatedTable[];
+  primaryMeasurement?: Measurement<unknown>;
+  verifyMeasurement?: Measurement<TableVerification[]>;
+};
 
-  const buildResult = (error?: unknown): PerfRunResult => {
-    const durations = createdTables.map((table) => table.durationMs);
-    const requestSummary = durations.length
-      ? summarizeDurations(durations)
-      : undefined;
-    const v2Headers = [
-      ...new Set(
-        createdTables.map((table) => table.responseHeaders["x-teable-v2"]),
-      ),
-    ];
+// Unchanged result-assembly logic, lifted verbatim out of the old runner and
+// re-pointed at the fixture so the artifact stays byte-for-byte equivalent. The
+// driver calls it once on success and once inside the diagnostic-error path.
+const buildTableCreateResult = (
+  config: TableCreateCaseConfig,
+  fixture: TableCreateFixture,
+  error?: unknown,
+): PerfRunResult => {
+  const { createdTables, primaryMeasurement, verifyMeasurement } = fixture;
+  const durations = createdTables.map((table) => table.durationMs);
+  const requestSummary = durations.length
+    ? summarizeDurations(durations)
+    : undefined;
+  const v2Headers = [
+    ...new Set(
+      createdTables.map((table) => table.responseHeaders["x-teable-v2"]),
+    ),
+  ];
 
-    return {
-      metrics: {
-        ...(primaryMeasurement
-          ? { [config.threshold.metric]: primaryMeasurement.durationMs }
-          : {}),
-        ...(requestSummary
-          ? {
-              createTableMinMs: requestSummary.minMs,
-              createTableP50Ms: requestSummary.p50Ms,
-              createTableP95Ms: requestSummary.p95Ms,
-              createTableMaxMs: requestSummary.maxMs,
-            }
-          : {}),
-        ...(verifyMeasurement
-          ? { createTablesVerifyMs: verifyMeasurement.durationMs }
-          : {}),
-      },
-      thresholds: primaryMeasurement
+  return {
+    metrics: {
+      ...(primaryMeasurement
+        ? { [config.threshold.metric]: primaryMeasurement.durationMs }
+        : {}),
+      ...(requestSummary
+        ? {
+            createTableMinMs: requestSummary.minMs,
+            createTableP50Ms: requestSummary.p50Ms,
+            createTableP95Ms: requestSummary.p95Ms,
+            createTableMaxMs: requestSummary.maxMs,
+          }
+        : {}),
+      ...(verifyMeasurement
+        ? { createTablesVerifyMs: verifyMeasurement.durationMs }
+        : {}),
+    },
+    thresholds: primaryMeasurement
+      ? [
+          {
+            metric: config.threshold.metric,
+            max: getPrimaryThresholdMs(config.threshold.maxMs),
+            unit: "ms",
+          },
+        ]
+      : [],
+    phases: [
+      ...(primaryMeasurement
         ? [
             {
-              metric: config.threshold.metric,
-              max: getPrimaryThresholdMs(config.threshold.maxMs),
-              unit: "ms",
+              name: primaryMeasurement.name,
+              durationMs: primaryMeasurement.durationMs,
             },
           ]
-        : [],
-      phases: [
-        ...(primaryMeasurement
-          ? [
-              {
-                name: primaryMeasurement.name,
-                durationMs: primaryMeasurement.durationMs,
-              },
-            ]
-          : []),
-        ...(verifyMeasurement
-          ? [
-              {
-                name: verifyMeasurement.name,
-                durationMs: verifyMeasurement.durationMs,
-              },
-            ]
-          : []),
-      ],
-      details: {
-        tableCount: config.tableCount,
-        fieldCount: config.fields.length,
-        emptyRecordsPayload: !config.inlineRecords,
-        inlineRecordCount: config.inlineRecords?.count ?? 0,
-        createdTables: createdTables.map((table) => ({
-          index: table.index,
-          tableId: table.tableId,
-          tableName: table.tableName,
-          status: table.status,
-          durationMs: table.durationMs,
-          responseHeaders: table.responseHeaders,
-          routing: table.routing,
-        })),
-        routing: createdTables.length
+        : []),
+      ...(verifyMeasurement
+        ? [
+            {
+              name: verifyMeasurement.name,
+              durationMs: verifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+    ],
+    details: {
+      tableCount: config.tableCount,
+      fieldCount: config.fields.length,
+      emptyRecordsPayload: !config.inlineRecords,
+      inlineRecordCount: config.inlineRecords?.count ?? 0,
+      createdTables: createdTables.map((table) => ({
+        index: table.index,
+        tableId: table.tableId,
+        tableName: table.tableName,
+        status: table.status,
+        durationMs: table.durationMs,
+        responseHeaders: table.responseHeaders,
+        routing: table.routing,
+      })),
+      routing: createdTables.length
+        ? {
+            routeMatched: createdTables.every(
+              (table) => table.routing.routeMatched === true,
+            ),
+            consistentEngine: v2Headers.length === 1,
+            requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
+            actualV2Header: v2Headers.length === 1 ? v2Headers[0] : undefined,
+            actualV2Headers: v2Headers,
+            feature: createdTables[0]?.responseHeaders["x-teable-v2-feature"],
+            reason: createdTables[0]?.responseHeaders["x-teable-v2-reason"],
+          }
+        : undefined,
+      verification: verifyMeasurement
+        ? {
+            metric: "createTablesVerifyMs",
+            participatesInThreshold: false,
+            tables: verifyMeasurement.result,
+          }
+        : undefined,
+      error:
+        error instanceof Error
           ? {
-              routeMatched: createdTables.every(
-                (table) => table.routing.routeMatched === true,
-              ),
-              consistentEngine: v2Headers.length === 1,
-              requestedEngine: process.env.PERF_LAB_ENGINE ?? "local",
-              actualV2Header: v2Headers.length === 1 ? v2Headers[0] : undefined,
-              actualV2Headers: v2Headers,
-              feature: createdTables[0]?.responseHeaders["x-teable-v2-feature"],
-              reason: createdTables[0]?.responseHeaders["x-teable-v2-reason"],
+              name: error.name,
+              message: error.message,
             }
           : undefined,
-        verification: verifyMeasurement
-          ? {
-              metric: "createTablesVerifyMs",
-              participatesInThreshold: false,
-              tables: verifyMeasurement.result,
-            }
-          : undefined,
-        error:
-          error instanceof Error
-            ? {
-                name: error.name,
-                message: error.message,
-              }
-            : undefined,
-      },
-    };
+    },
   };
+};
 
-  try {
-    try {
-      primaryMeasurement = await measureAsync("createTablesTotal", async () => {
-        for (let index = 1; index <= config.tableCount; index += 1) {
-          const tableName = `${config.tableNamePrefix}-${runTag}-${padIndex(
-            index,
-          )}`;
-          const requestMeasurement = await withPerfTraceStep(
-            context,
-            perfCase,
-            `createTable-${padIndex(index)}`,
-            () =>
-              measureAsync(`createTable-${padIndex(index)}`, () =>
-                createOneTable(baseId, tableName, config),
-              ),
-          );
-          const responseHeaders = pickTableLifecycleHeaders(
-            requestMeasurement.result.headers as Record<string, unknown>,
-          );
-          createdTables.push({
-            index,
-            tableId: requestMeasurement.result.data.id,
-            tableName,
-            status: requestMeasurement.result.status,
-            durationMs: requestMeasurement.durationMs,
-            responseHeaders,
-            routing: assertEngineRouting(context, responseHeaders, {
-              feature: "createTable",
-              operation: "createTable",
-            }),
-          });
-        }
-      });
-
-      verifyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "createTablesVerify",
-        () =>
-          measureAsync("createTablesVerify", async () => {
-            const verifications: TableVerification[] = [];
-            for (const created of createdTables) {
-              verifications.push(await verifyCreatedTable(created, config));
-            }
-            return verifications;
-          }),
-      );
-
-      const engines = new Set(
-        createdTables.map((table) => table.responseHeaders["x-teable-v2"]),
-      );
-      if (engines.size > 1) {
-        throw new Error(
-          `createTable requests routed to mixed engines: ${[...engines].join(
-            ", ",
-          )}`,
+const runTableCreatePrimary = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  fixture: TableCreateFixture,
+  config: TableCreateCaseConfig,
+): Promise<void> => {
+  fixture.primaryMeasurement = await measureAsync(
+    "createTablesTotal",
+    async () => {
+      for (let index = 1; index <= config.tableCount; index += 1) {
+        const tableName = `${config.tableNamePrefix}-${fixture.runTag}-${padIndex(
+          index,
+        )}`;
+        const requestMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          `createTable-${padIndex(index)}`,
+          () =>
+            measureAsync(`createTable-${padIndex(index)}`, () =>
+              createOneTable(baseId, tableName, config),
+            ),
         );
+        const responseHeaders = pickTableLifecycleHeaders(
+          requestMeasurement.result.headers as Record<string, unknown>,
+        );
+        fixture.createdTables.push({
+          index,
+          tableId: requestMeasurement.result.data.id,
+          tableName,
+          status: requestMeasurement.result.status,
+          durationMs: requestMeasurement.durationMs,
+          responseHeaders,
+          routing: assertEngineRouting(context, responseHeaders, {
+            feature: "createTable",
+            operation: "createTable",
+          }),
+        });
       }
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult(error),
-      );
-    }
+    },
+  );
 
-    return buildResult();
-  } finally {
-    // CI execute jobs run on an isolated restored copy of the seed dump, so
-    // the mutated database is simply discarded after the job.
-    if (!isExecuteDbIsolated()) {
-      for (const created of createdTables) {
-        try {
-          await permanentDeleteTable(baseId, created.tableId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup created perf table ${created.tableId}`,
-            error,
-          );
+  fixture.verifyMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    "createTablesVerify",
+    () =>
+      measureAsync("createTablesVerify", async () => {
+        const verifications: TableVerification[] = [];
+        for (const created of fixture.createdTables) {
+          verifications.push(await verifyCreatedTable(created, config));
         }
-      }
-    }
+        return verifications;
+      }),
+  );
+
+  const engines = new Set(
+    fixture.createdTables.map((table) => table.responseHeaders["x-teable-v2"]),
+  );
+  if (engines.size > 1) {
+    throw new Error(
+      `createTable requests routed to mixed engines: ${[...engines].join(", ")}`,
+    );
   }
 };
+
+// table-create rides the table-create lifecycle as its first (and so far only)
+// member: it allocates a fresh run accumulator, creates N tables in one measured
+// `createTablesTotal` window (each table trace-wrapped with its own per-request
+// routing assertion), verifies every created table, asserts a single routing
+// engine across the batch, then drops the created tables on cleanup. There is no
+// seed, so prepareFixture does no I/O and the family carries no seedHash.
+const tableCreateSpec: TableCreateLifecycleSpec<
+  TableCreateCaseConfig,
+  TableCreateFixture,
+  void
+> = {
+  prepareFixture: ({ context }) =>
+    Promise.resolve({
+      runTag: `${context.engine}-${Date.now()}`,
+      createdTables: [],
+    }),
+  runPrimary: ({ perfCase, context, baseId, fixture, config }) =>
+    runTableCreatePrimary(perfCase, context, baseId, fixture, config),
+  buildResult: ({ config, fixture, error }) =>
+    buildTableCreateResult(config, fixture as TableCreateFixture, error),
+  cleanup: async ({ baseId, fixture }) => {
+    // CI execute jobs run on an isolated restored copy of the seed dump, so
+    // the mutated database is simply discarded after the job.
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    for (const created of fixture.createdTables) {
+      try {
+        await permanentDeleteTable(baseId, created.tableId);
+      } catch (error) {
+        console.warn(
+          `Failed to cleanup created perf table ${created.tableId}`,
+          error,
+        );
+      }
+    }
+  },
+};
+
+export const runTableCreateCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runTableCreateLifecycle(perfCase, context, tableCreateSpec);
