@@ -69,6 +69,16 @@ const GENERATED_ID_KEYS = new Set([
   "duplicatedRecordIds",
   "sourceRecordId",
   "duplicatedRecordId",
+  // Generated record ids in the record-reorder verification evidence. Each run
+  // seeds a fresh table, so the moved block's record ids and the
+  // first/anchor record id differ between two runs of unchanged code (confirmed
+  // by the record-reorder baseline A vs B diff). The semantic reorder proof —
+  // checkedPositions[].expectedOriginalRowNumber / viewOffset and
+  // verifiedSamples[].expected — stays visible; only the opaque id strings are
+  // masked, like the existing `recordId`.
+  "firstRecordId",
+  "anchorRecordId",
+  "movedRecordIds",
 ]);
 
 const GENERATED_NAME_KEYS = new Set(["foreignTableName", "tableName"]);
@@ -182,6 +192,17 @@ const shouldMaskKey = (path, key) => {
   }
 
   if (pathEquals(path, ["details", "seed"]) && key === "maxSeedBatchMs") {
+    return true;
+  }
+
+  // record-reorder serializes its raw per-batch seed timings as an array under
+  // details.prepare. Like every other *Ms / maxSeedBatchMs duration, these vary
+  // run-to-run on unchanged code (confirmed by the record-reorder baseline A vs
+  // B diff); the batch count stays visible elsewhere.
+  if (
+    pathEquals(path, ["details", "prepare"]) &&
+    key === "seedBatchDurations"
+  ) {
     return true;
   }
 
