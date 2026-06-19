@@ -7,26 +7,28 @@ import {
   type Measurement,
 } from "./record-undo-redo.shared";
 
-// The lifecycle skeleton shared by the record-update mutation family: seed a
-// record table, run one measured bulk mutation inside a window, verify the
-// final state, then restore-or-delete the reusable fixture. Before this driver
-// the runner hand-wrote the identical control flow:
-// prepare(seed) -> seedReady -> withRecordWindowId(measured op) -> build result
-// (twice: diagnostic catch + success) -> finally cleanup. Only the
-// case-specific pieces vary, declared by `RecordUpdateLifecycleSpec`; the
-// protocol lives here once.
+// The lifecycle skeleton shared by the record-mutation family: seed a record
+// table, run one measured bulk mutation, verify the final state, then
+// restore-or-delete the reusable fixture. Two runner kinds now ride it —
+// record-update (bulk update over seeded rows, runs inside a record window)
+// and record-create (bulk insert into an empty seeded table, no window) — so
+// the shared shape is a proven seam, not a guess. The driver owns generic
+// protocol only:
+//   prepare(seed) -> seedReady -> [window?] measured op -> build result
+//   (twice: diagnostic catch + success) -> finally cleanup.
+// Each runner declares the case semantics it varies: the seed-cache fixture,
+// the seed-ready assertion, the bundled measured window (operation + routing +
+// verification), the result assembly, and the restore-or-delete cleanup.
 //
-// Scope note: this driver is intentionally record-update-family-shaped, not a
-// universal runner driver. It owns generic protocol only; the measured-window
-// body (operation + routing + verification bundling), the seed-cache fixture,
-// the result assembly, and the restore-or-delete cleanup stay in the runner as
-// case semantics. A truly generic record-mutation driver should emerge only
-// after a second mutation family migrates and proves the shared shape (two
-// examples = a real seam, one = a guess).
+// Scope note: this is record-mutation-family-shaped, not a universal runner
+// driver. It still assumes a single seeded table, one primary measured
+// operation, and a restore-or-delete fixture. A broader abstraction should wait
+// for a family that breaks one of those assumptions.
 
-export type RecordUpdateLifecycleConfig = { tableNamePrefix: string };
+export type RecordMutationLifecycleConfig = { tableNamePrefix: string };
 
-export type RecordUpdateLifecycleRunArgs<TConfig, TFixture> = {
+export type RecordMutationLifecycleRunArgs<TConfig, TFixture> = {
+  baseId: string;
   perfCase: PerfCase;
   context: PerfRunContext;
   config: TConfig;
@@ -34,7 +36,7 @@ export type RecordUpdateLifecycleRunArgs<TConfig, TFixture> = {
   windowId: string;
 };
 
-export type RecordUpdateLifecycleBuildResultArgs<
+export type RecordMutationLifecycleBuildResultArgs<
   TConfig,
   TFixture,
   TSeedReady,
@@ -49,12 +51,16 @@ export type RecordUpdateLifecycleBuildResultArgs<
   error?: unknown;
 };
 
-export type RecordUpdateLifecycleSpec<
-  TConfig extends RecordUpdateLifecycleConfig,
+export type RecordMutationLifecycleSpec<
+  TConfig extends RecordMutationLifecycleConfig,
   TFixture,
   TSeedReady,
   TPrimary,
 > = {
+  // When true the measured operation runs inside withRecordWindowId so the
+  // mutation is grouped under one record window id (record-update). Omit for
+  // runners that have no window (record-create).
+  useRecordWindow?: boolean;
   // Build (or restore from the seed cache) the table + records the measured
   // mutation runs against. The migrated runner owns its own cache shape.
   prepareFixture: (args: {
@@ -66,20 +72,20 @@ export type RecordUpdateLifecycleSpec<
   }) => Promise<TFixture>;
   // Assert the seeded state is readable before the measured operation runs.
   assertSeedReady: (args: {
+    baseId: string;
     fixture: TFixture;
     config: TConfig;
   }) => Promise<TSeedReady>;
-  // The measured operation, run INSIDE the window. It owns its own trace step,
-  // measurement, routing assertion, and post-operation verification, returning
-  // the bundled primary measurement whose duration is the primary metric.
+  // The measured operation. It owns its own trace step, measurement, routing
+  // assertion, and post-operation verification, returning the bundled primary
+  // measurement whose duration is the primary metric.
   runMeasuredOperation: (
-    args: RecordUpdateLifecycleRunArgs<TConfig, TFixture>,
+    args: RecordMutationLifecycleRunArgs<TConfig, TFixture>,
   ) => Promise<Measurement<TPrimary>>;
   // Assemble the artifact result. Called once on success and once inside the
-  // diagnostic-error path; both pass the same measurement bag (with `error` set
-  // on the failure path).
+  // diagnostic-error path (with `error` set).
   buildResult: (
-    args: RecordUpdateLifecycleBuildResultArgs<
+    args: RecordMutationLifecycleBuildResultArgs<
       TConfig,
       TFixture,
       TSeedReady,
@@ -87,24 +93,27 @@ export type RecordUpdateLifecycleSpec<
     >,
   ) => PerfRunResult;
   // Restore the reusable seed or drop the table; runs in `finally`, so it must
-  // tolerate an undefined fixture (prepare failed).
+  // tolerate an undefined fixture (prepare failed). `primaryMeasurement` is
+  // available so a runner can undo exactly what the operation produced (e.g.
+  // delete the records record-create inserted).
   cleanup: (args: {
     baseId: string;
     fixture: TFixture | undefined;
     config: TConfig;
     windowId: string;
+    primaryMeasurement?: Measurement<TPrimary>;
   }) => Promise<void>;
 };
 
-export const seedRecordUpdateLifecycle = async <
-  TConfig extends RecordUpdateLifecycleConfig,
+export const seedRecordMutationLifecycle = async <
+  TConfig extends RecordMutationLifecycleConfig,
   TFixture,
   TSeedReady,
   TPrimary,
 >(
   perfCase: PerfCase,
   context: PerfRunContext,
-  spec: RecordUpdateLifecycleSpec<TConfig, TFixture, TSeedReady, TPrimary>,
+  spec: RecordMutationLifecycleSpec<TConfig, TFixture, TSeedReady, TPrimary>,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as unknown as TConfig;
   const baseId = globalThis.testConfig.baseId;
@@ -113,7 +122,11 @@ export const seedRecordUpdateLifecycle = async <
     spec.prepareFixture({ baseId, tableName, config, perfCase, context }),
   );
   const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    spec.assertSeedReady({ fixture: prepareMeasurement.result, config }),
+    spec.assertSeedReady({
+      baseId,
+      fixture: prepareMeasurement.result,
+      config,
+    }),
   );
 
   return spec.buildResult({
@@ -124,15 +137,15 @@ export const seedRecordUpdateLifecycle = async <
   });
 };
 
-export const runRecordUpdateLifecycle = async <
-  TConfig extends RecordUpdateLifecycleConfig,
+export const runRecordMutationLifecycle = async <
+  TConfig extends RecordMutationLifecycleConfig,
   TFixture,
   TSeedReady,
   TPrimary,
 >(
   perfCase: PerfCase,
   context: PerfRunContext,
-  spec: RecordUpdateLifecycleSpec<TConfig, TFixture, TSeedReady, TPrimary>,
+  spec: RecordMutationLifecycleSpec<TConfig, TFixture, TSeedReady, TPrimary>,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as unknown as TConfig;
   const baseId = globalThis.testConfig.baseId;
@@ -140,6 +153,7 @@ export const runRecordUpdateLifecycle = async <
   const windowId = buildRecordWindowId(context, perfCase);
   let prepareMeasurement: Measurement<TFixture> | undefined;
   let seedReadyMeasurement: Measurement<TSeedReady> | undefined;
+  let primaryMeasurement: Measurement<TPrimary> | undefined;
   let fixture: TFixture | undefined;
 
   try {
@@ -148,20 +162,25 @@ export const runRecordUpdateLifecycle = async <
     );
     fixture = prepareMeasurement.result;
     seedReadyMeasurement = await measureAsync("seedReady", () =>
-      spec.assertSeedReady({ fixture: fixture as TFixture, config }),
+      spec.assertSeedReady({ baseId, fixture: fixture as TFixture, config }),
     );
-    let primaryMeasurement: Measurement<TPrimary> | undefined;
 
     try {
-      await withRecordWindowId(windowId, async () => {
+      const invokeMeasured = async () => {
         primaryMeasurement = await spec.runMeasuredOperation({
+          baseId,
           perfCase,
           context,
           config,
           fixture: fixture as TFixture,
           windowId,
         });
-      });
+      };
+      if (spec.useRecordWindow) {
+        await withRecordWindowId(windowId, invokeMeasured);
+      } else {
+        await invokeMeasured();
+      }
     } catch (error) {
       throw new PerfRunDiagnosticError(
         error instanceof Error ? error.message : String(error),
@@ -186,6 +205,12 @@ export const runRecordUpdateLifecycle = async <
       primaryMeasurement,
     });
   } finally {
-    await spec.cleanup({ baseId, fixture, config, windowId });
+    await spec.cleanup({
+      baseId,
+      fixture,
+      config,
+      windowId,
+      primaryMeasurement,
+    });
   }
 };
