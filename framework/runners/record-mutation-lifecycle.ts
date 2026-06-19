@@ -9,13 +9,14 @@ import {
 
 // The lifecycle skeleton shared by the record-mutation family: seed a record
 // table, run one measured bulk mutation, verify the final state, then
-// restore-or-delete the reusable fixture. Four runner kinds now ride it —
+// restore-or-delete the reusable fixture. Five runner kinds now ride it —
 // record-update (bulk update over seeded rows, runs inside a record window),
 // record-create (bulk insert into an empty seeded table, no window),
-// record-reorder (block reorder over seeded rows, record window), and
+// record-reorder (block reorder over seeded rows, record window),
 // selection-clear (clear-stream over seeded rows, no window, no seedReady
-// phase) — so the shared shape is a proven seam, not a guess. The driver owns
-// generic protocol only:
+// phase), and record-update-link (bulk link-cell update over a host + linked
+// foreign fixture, no window) — so the shared shape is a proven seam, not a
+// guess. The driver owns generic protocol only:
 //   prepare(seed) -> [seedReady?] -> [window?] measured op -> build result
 //   (twice: diagnostic catch + success) -> finally cleanup.
 // Each runner declares the case semantics it varies: the seed-cache fixture,
@@ -26,9 +27,11 @@ import {
 // hook and the driver produces no seedReady phase.
 //
 // Scope note: this is record-mutation-family-shaped, not a universal runner
-// driver. It still assumes a single seeded table, one primary measured
-// operation, and a restore-or-delete fixture. A broader abstraction should wait
-// for a family that breaks one of those assumptions.
+// driver. The fixture is opaque to the driver, so it may span more than one
+// table — record-update-link seeds a host + linked foreign pair and rides this
+// unchanged. It still assumes one primary measured operation against a reusable
+// fixture cleaned up by restore-or-delete. A broader abstraction should wait
+// for a family that breaks one of those remaining assumptions.
 
 export type RecordMutationLifecycleConfig = { tableNamePrefix: string };
 

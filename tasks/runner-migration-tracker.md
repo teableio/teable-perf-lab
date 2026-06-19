@@ -6,7 +6,7 @@ that uses it, because migrating a runner means re-verifying all of its cases.
 
 Status as of 2026-06-19 on `main`.
 
-**Migrated: 18 / 35 runner kinds · 22 / 55 cases.**
+**Migrated: 19 / 35 runner kinds · 23 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
@@ -30,6 +30,7 @@ Status as of 2026-06-19 on `main`.
 | field-convert           | `field-convert-lifecycle.ts` (convert + readiness, keep-or-delete)                                           | field-convert/10k-multi-select-to-text, field-convert/10k-text-to-formula | ✅ v1+v2 pass (local) |
 | field-convert-link      | `field-convert-lifecycle.ts` (link convert + readiness, delete host+foreign)                                 | field-convert/10k-link-to-text, field-convert/10k-text-to-link            | ✅ v1+v2 pass (local) |
 | selection-clear         | `record-mutation-lifecycle.ts` (clear-stream over seeded rows, no window, post-op verify, restore-or-delete) | selection-clear/flat-1k-20fields-cell-clear-stream                        | ✅ v1+v2 pass (local) |
+| record-update-link      | `record-mutation-lifecycle.ts` (bulk link-cell update over host + linked foreign fixture, no window)         | record-update/1k-link-cells-bulk-update                                   | ✅ v1+v2 pass (local) |
 
 ## Not migrated (⬜ legacy `*.runner.ts`)
 
@@ -50,7 +51,6 @@ Status as of 2026-06-19 on `main`.
 | record-paste              | 4   | record-paste/flat-10k-4fields-copy-paste, record-paste/flat-10k-20fields-copy-paste, record-paste/mixed-10k-20fields-complex-copy-paste, selection-paste/10k-expand-rows-and-fields-stream |
 | record-read               | 2   | record-read/10k-50fields-10x1k-pages, record-read/10k-50fields-filter-sort-groupby-overhead                                                                                                |
 | record-update-attachment  | 1   | record-update/attachment-insert-100                                                                                                                                                        |
-| record-update-link        | 1   | record-update/1k-link-cells-bulk-update                                                                                                                                                    |
 | table-create              | 2   | table-create/10x-20f-no-records, table-create/1x-20f-1k-records                                                                                                                            |
 
 ## How migration proceeds
