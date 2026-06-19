@@ -280,6 +280,67 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // field-create generated field ids. Each run seeds a fresh table, so every
+  // created / computed / dependency field gets a new id between two runs of
+  // unchanged code (confirmed by the field-create baseline A vs B diff). The
+  // semantic identity stays visible via field names (details.fieldNames,
+  // createdFields[].name, verifiedFields[].name) and, for formulas,
+  // details.ready.computedFields[].expectedKind. The ids surface in four shapes:
+  //
+  //   * details.createdFields[].id, details.ready.computedFields[].id, and
+  //     details.ready.dependencyFields[].id — the field descriptor arrays.
+  if (
+    isArrayIndex(path.at(-1)) &&
+    ["createdFields", "computedFields", "dependencyFields"].includes(
+      path.at(-2),
+    ) &&
+    key === "id"
+  ) {
+    return true;
+  }
+
+  //   * details.fieldIds — the flat list of generated created-field ids (masked
+  //     whole; the count is redundant with details.fieldNames / createdFields).
+  if (pathEquals(path, ["details"]) && key === "fieldIds") {
+    return true;
+  }
+
+  //   * details.verifiedFields[].expression — the compiled formula embeds the
+  //     generated A/B/C field ids; the formula identity stays visible via
+  //     details.ready.computedFields[].expectedKind.
+  if (
+    path.length === 3 &&
+    path[0] === "details" &&
+    path[1] === "verifiedFields" &&
+    isArrayIndex(path[2]) &&
+    key === "expression"
+  ) {
+    return true;
+  }
+
+  // field-create resolves the seeded table's physical name for its computed
+  // backfill SQL; details.ready.dbTableName embeds the generated table id and
+  // differs run-to-run on unchanged code (field-create baseline A vs B).
+  if (pathEquals(path, ["details", "ready"]) && key === "dbTableName") {
+    return true;
+  }
+
+  // field-create emits its seed-cache key under details.prepare (seedHash, and
+  // seedTableName whose suffix is the hash), where the other migrated runners
+  // nest it under a `cache` object masked above. Same content address: stable
+  // run-to-run on unchanged code (field-create baseline A vs B), but it moves
+  // when the runner is refactored — so masking it lets a behavior-preserving
+  // migration pass the G1 diff, like the cache.seedHash / details.seed.seedHash
+  // rules. The seed config that also feeds the hash is frozen by the case
+  // definition (cases/** is not edited in a migration), and the live seed
+  // identity stays visible via details.tableName / fieldNames / seedRecordCount.
+  if (
+    pathEquals(path, ["details", "prepare"]) &&
+    ["seedHash", "seedTableName"].includes(key)
+  ) {
+    return true;
+  }
+
   return false;
 };
 
