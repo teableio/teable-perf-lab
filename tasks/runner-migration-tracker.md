@@ -6,24 +6,25 @@ that uses it, because migrating a runner means re-verifying all of its cases.
 
 Status as of 2026-06-19 on `main`.
 
-**Migrated: 12 / 35 runner kinds · 14 / 55 cases.**
+**Migrated: 13 / 35 runner kinds · 15 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
-| Runner kind             | Driver / where                                           | Cases                                         | Verified              |
-| ----------------------- | -------------------------------------------------------- | --------------------------------------------- | --------------------- |
-| csv-import              | `csv-import-lifecycle.ts`                                | 3 csv-import cases                            | ✅ v1+v2 pass (local) |
-| field-delete            | `field-delete-lifecycle.ts`                              | field-delete/mixed-10k-delete-19-fields       | ✅ v1+v2 pass (local) |
-| record-delete           | `record-replay-lifecycle.ts` (no setup)                  | record-delete/delete-1k                       | ✅ v1+v2 pass (local) |
-| record-delete-link      | `table-link-lifecycle.ts` (single fixture)               | record-delete/link-trash-1k                   | ✅ v1+v2 pass (local) |
-| record-undo             | `record-replay-lifecycle.ts` (delete setup)              | record-undo/delete-1k                         | ✅ v1+v2 pass (local) |
-| record-redo             | `record-replay-lifecycle.ts` (delete+undo setup)         | record-redo/delete-1k                         | ✅ v1+v2 pass (local) |
-| table-delete            | `table-lifecycle.ts` (sampled archive + restore-back)    | table-delete/10k-20f                          | ✅ v1+v2 pass (local) |
-| table-restore           | `table-lifecycle.ts` (archive setup + sampled restore)   | table-restore/10k-20f                         | ✅ v1+v2 pass (local) |
-| table-delete-link       | `table-link-lifecycle.ts` (sampled foreign-table delete) | table-delete/10k-20f-link-detach              | ✅ v1+v2 pass (local) |
-| table-restore-link      | `table-link-lifecycle.ts` (sampled table restore)        | table-restore/10k-20f-link-1k                 | ✅ v1+v2 pass (local) |
-| selection-duplicate     | `record-duplicate-lifecycle.ts` (stream block duplicate) | record-duplicate/grid-block-duplicate-1k      | ✅ v1+v2 pass (local) |
-| record-duplicate-single | `record-duplicate-lifecycle.ts` (sequential single dup)  | record-duplicate/single-record-sequential-100 | ✅ v1+v2 pass (local) |
+| Runner kind             | Driver / where                                                 | Cases                                         | Verified              |
+| ----------------------- | -------------------------------------------------------------- | --------------------------------------------- | --------------------- |
+| csv-import              | `csv-import-lifecycle.ts`                                      | 3 csv-import cases                            | ✅ v1+v2 pass (local) |
+| field-delete            | `field-delete-lifecycle.ts`                                    | field-delete/mixed-10k-delete-19-fields       | ✅ v1+v2 pass (local) |
+| record-delete           | `record-replay-lifecycle.ts` (no setup)                        | record-delete/delete-1k                       | ✅ v1+v2 pass (local) |
+| record-delete-link      | `table-link-lifecycle.ts` (single fixture)                     | record-delete/link-trash-1k                   | ✅ v1+v2 pass (local) |
+| record-undo             | `record-replay-lifecycle.ts` (delete setup)                    | record-undo/delete-1k                         | ✅ v1+v2 pass (local) |
+| record-redo             | `record-replay-lifecycle.ts` (delete+undo setup)               | record-redo/delete-1k                         | ✅ v1+v2 pass (local) |
+| table-delete            | `table-lifecycle.ts` (sampled archive + restore-back)          | table-delete/10k-20f                          | ✅ v1+v2 pass (local) |
+| table-restore           | `table-lifecycle.ts` (archive setup + sampled restore)         | table-restore/10k-20f                         | ✅ v1+v2 pass (local) |
+| table-delete-link       | `table-link-lifecycle.ts` (sampled foreign-table delete)       | table-delete/10k-20f-link-detach              | ✅ v1+v2 pass (local) |
+| table-restore-link      | `table-link-lifecycle.ts` (sampled table restore)              | table-restore/10k-20f-link-1k                 | ✅ v1+v2 pass (local) |
+| selection-duplicate     | `record-duplicate-lifecycle.ts` (stream block duplicate)       | record-duplicate/grid-block-duplicate-1k      | ✅ v1+v2 pass (local) |
+| record-duplicate-single | `record-duplicate-lifecycle.ts` (sequential single dup)        | record-duplicate/single-record-sequential-100 | ✅ v1+v2 pass (local) |
+| record-update           | `record-update-lifecycle.ts` (bulk update + restore-or-delete) | record-update/mixed-1k-20fields-bulk-update   | ✅ v1+v2 pass (local) |
 
 ## Not migrated (⬜ legacy `*.runner.ts`)
 
@@ -47,7 +48,6 @@ Status as of 2026-06-19 on `main`.
 | record-paste              | 4   | record-paste/flat-10k-4fields-copy-paste, record-paste/flat-10k-20fields-copy-paste, record-paste/mixed-10k-20fields-complex-copy-paste, selection-paste/10k-expand-rows-and-fields-stream |
 | record-read               | 2   | record-read/10k-50fields-10x1k-pages, record-read/10k-50fields-filter-sort-groupby-overhead                                                                                                |
 | record-reorder            | 1   | record-reorder/10k-move-last-1k-to-front                                                                                                                                                   |
-| record-update             | 1   | record-update/mixed-1k-20fields-bulk-update                                                                                                                                                |
 | record-update-attachment  | 1   | record-update/attachment-insert-100                                                                                                                                                        |
 | record-update-link        | 1   | record-update/1k-link-cells-bulk-update                                                                                                                                                    |
 | selection-clear           | 1   | selection-clear/flat-1k-20fields-cell-clear-stream                                                                                                                                         |
