@@ -60,6 +60,15 @@ const GENERATED_ID_KEYS = new Set([
   "tableId",
   "trashId",
   "viewId",
+  // Generated record ids produced by the duplicate runners. Each run seeds a
+  // fresh table, so the duplicated/source record ids differ between two runs of
+  // unchanged code (confirmed by the record-duplicate baseline A vs B diff).
+  // Counts (requestCount/duplicatedCount/totalCount) stay visible; only the
+  // opaque id strings are masked, like the existing `recordId`.
+  "createdRecordIds",
+  "duplicatedRecordIds",
+  "sourceRecordId",
+  "duplicatedRecordId",
 ]);
 
 const GENERATED_NAME_KEYS = new Set(["foreignTableName", "tableName"]);
@@ -123,6 +132,18 @@ const shouldMaskKey = (path, key) => {
   if (
     pathEquals(path, ["details", "import"]) &&
     ["createdTableId", "requestMs"].includes(key)
+  ) {
+    return true;
+  }
+
+  // The duplicate runners echo the live request back in details.request: `path`
+  // embeds the freshly-seeded table id and `projection` is the list of generated
+  // field ids. Both differ between two runs of unchanged code (record-duplicate
+  // baseline A vs B). details.operation + details.request.method keep the
+  // endpoint identity visible.
+  if (
+    pathEquals(path, ["details", "request"]) &&
+    ["path", "projection"].includes(key)
   ) {
     return true;
   }

@@ -1,6 +1,5 @@
 import { duplicateRecord } from "@teable/openapi";
-import { permanentDeleteTable } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
 import {
   assertEngineRouting,
@@ -14,18 +13,20 @@ import type {
   PerfRunResult,
   RecordDuplicateSingleCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   assertDuplicatedRecordsMatchSource,
   assertDuplicateResponseMatchesSource,
   assertDuplicateSourceReady,
   assertRecordCount,
-  deleteRecordsInBatches,
   getSourceRecords,
   type DuplicateRecordFixture,
   type Measurement,
-  prepareDuplicateSourceFixture,
 } from "./record-duplicate.shared";
+import {
+  runRecordDuplicateLifecycle,
+  seedRecordDuplicateLifecycle,
+  type RecordDuplicateSpec,
+} from "./record-duplicate-lifecycle";
 
 type SingleDuplicateSample = {
   iteration: number;
@@ -196,21 +197,6 @@ const verifySingleDuplicates = async (
   };
 };
 
-const cleanupDuplicatedRows = async (
-  fixture: DuplicateRecordFixture,
-  config: RecordDuplicateSingleCaseConfig,
-  createdRecordIds: string[],
-) => {
-  if (createdRecordIds.length > 0) {
-    await deleteRecordsInBatches(fixture.tableId, createdRecordIds);
-  }
-  return assertRecordCount(
-    fixture,
-    config.rowCount,
-    config.verify.fullScanPageSize ?? 1_000,
-  );
-};
-
 const buildRecordDuplicateSingleResult = ({
   config,
   fixture,
@@ -376,137 +362,34 @@ const buildRecordDuplicateSingleResult = ({
   },
 });
 
+const recordDuplicateSingleSpec: RecordDuplicateSpec<
+  RecordDuplicateSingleCaseConfig,
+  SingleDuplicatePrimaryResult,
+  SingleDuplicateVerification
+> = {
+  runner: "record-duplicate-single",
+  fixtureVersion: RECORD_DUPLICATE_SINGLE_FIXTURE_VERSION,
+  seedLabel: "single duplicate",
+  // No top-level trace wrap: duplicateSingleRecords opens one trace step per
+  // sequential duplicate request, so the primary phase is just the loop timer.
+  runPrimary: ({ fixture, config, perfCase, context }) =>
+    measureAsync("duplicateSingleLoop", () =>
+      duplicateSingleRecords(fixture, config, perfCase, context),
+    ),
+  verify: ({ fixture, config, primaryResult }) =>
+    verifySingleDuplicates(fixture, config, primaryResult.createdRecordIds),
+  getCreatedRecordIds: (primaryResult) => primaryResult?.createdRecordIds ?? [],
+  buildResult: buildRecordDuplicateSingleResult,
+};
+
 export const runRecordDuplicateSingleCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordDuplicateSingleCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<DuplicateRecordFixture> | undefined;
-  let sourceReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertDuplicateSourceReady>>>
-    | undefined;
-  let primaryMeasurement: Measurement<SingleDuplicatePrimaryResult> | undefined;
-  let verifyMeasurement: Measurement<SingleDuplicateVerification> | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareDuplicateSourceFixture({
-        baseId,
-        tableName,
-        config,
-        perfCase,
-        runner: "record-duplicate-single",
-        fixtureVersion: RECORD_DUPLICATE_SINGLE_FIXTURE_VERSION,
-      }),
-    );
-    sourceReadyMeasurement = await measureAsync("seedReady", () =>
-      assertDuplicateSourceReady(prepareMeasurement!.result, config),
-    );
-
-    try {
-      primaryMeasurement = await measureAsync("duplicateSingleLoop", () =>
-        duplicateSingleRecords(
-          prepareMeasurement!.result,
-          config,
-          perfCase,
-          context,
-        ),
-      );
-      verifyMeasurement = await measureAsync("verify", () =>
-        verifySingleDuplicates(
-          prepareMeasurement!.result,
-          config,
-          primaryMeasurement!.result.createdRecordIds,
-        ),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildRecordDuplicateSingleResult({
-          config,
-          fixture: prepareMeasurement.result,
-          prepareMeasurement,
-          sourceReadyMeasurement,
-          primaryMeasurement,
-          verifyMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildRecordDuplicateSingleResult({
-      config,
-      fixture: prepareMeasurement.result,
-      prepareMeasurement,
-      sourceReadyMeasurement,
-      primaryMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    const fixture = prepareMeasurement?.result;
-    if (fixture && !isExecuteDbIsolated() && fixture.reusableSeed) {
-      let restored = false;
-      try {
-        await cleanupDuplicatedRows(
-          fixture,
-          config,
-          primaryMeasurement?.result.createdRecordIds ?? [],
-        );
-        restored = true;
-      } catch (error) {
-        console.warn(
-          `Failed to restore cached single duplicate seed ${fixture.tableId}; deleting it`,
-          error,
-        );
-      }
-
-      if (!restored) {
-        try {
-          await permanentDeleteTable(baseId, fixture.tableId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup perf table ${fixture.tableId}`,
-            error,
-          );
-        }
-      }
-    } else if (fixture && !isExecuteDbIsolated()) {
-      try {
-        await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
-      }
-    }
-  }
-};
+): Promise<PerfRunResult> =>
+  runRecordDuplicateLifecycle(perfCase, context, recordDuplicateSingleSpec);
 
 export const seedRecordDuplicateSingleCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordDuplicateSingleCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareDuplicateSourceFixture({
-      baseId,
-      tableName,
-      config,
-      perfCase,
-      runner: "record-duplicate-single",
-      fixtureVersion: RECORD_DUPLICATE_SINGLE_FIXTURE_VERSION,
-    }),
-  );
-  const sourceReadyMeasurement = await measureAsync("seedReady", () =>
-    assertDuplicateSourceReady(prepareMeasurement.result, config),
-  );
-
-  return buildRecordDuplicateSingleResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    sourceReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordDuplicateLifecycle(perfCase, context, recordDuplicateSingleSpec);
