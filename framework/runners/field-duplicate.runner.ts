@@ -23,7 +23,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   assertConditionalLookupSeedReady,
   buildConditionalLookupSeedFixture,
@@ -31,12 +30,12 @@ import {
   waitForConditionalLookupFullScan,
   type ConditionalLookupSeedFixture,
 } from "./conditional-lookup.runner";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import {
+  runFieldAddLifecycle,
+  seedFieldAddLifecycle,
+  type FieldAddLifecycleSpec,
+} from "./field-add-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 
 const FIELD_DUPLICATE_FIXTURE_VERSION = "field-duplicate-v1";
 
@@ -349,150 +348,144 @@ const buildFieldDuplicateResult = ({
   },
 });
 
-export const seedFieldDuplicateCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldDuplicateCaseConfig;
-  const seedCacheInfo = await buildFieldDuplicateSeedCacheInfo(perfCase);
-  const seedFixture = await createSeedFixture(perfCase, context, seedCacheInfo);
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
+type FieldDuplicateSeedReadyResult = Awaited<
+  ReturnType<typeof assertConditionalLookupSeedReady>
+>;
+
+type FieldDuplicatePrimary = {
+  duplicateFieldMeasurement: Measurement<FieldDuplicatePrimaryResult>;
+  duplicatedLookupScanReadyMeasurement: Measurement<
+    Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
+  >;
+};
+
+// field-duplicate rides the field-add lifecycle as the second member: its prepare
+// builds the conditional-lookup source + host seed AND adds the source lookup
+// field that will be duplicated (all seed-build phases), its measured op
+// duplicates that field and waits for the copy to backfill, and its cleanup
+// removes only the duplicated field — the source lookup field stays as part of
+// the reusable seed. The driver owns the seedReady phase, the diagnostic
+// wrapping, and the cleanup invocation.
+const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
+  FieldDuplicateCaseConfig,
+  FieldDuplicateSeedFixture,
+  FieldDuplicateSeedReadyResult,
+  FieldDuplicatePrimary
+> = {
+  prepareFixture: async ({ perfCase, context }) => {
+    const seedCacheInfo = await buildFieldDuplicateSeedCacheInfo(perfCase);
+    return createSeedFixture(perfCase, context, seedCacheInfo);
+  },
+  assertSeedReady: ({ fixture, config }) =>
     assertConditionalLookupSeedReady(
-      seedFixture.sourceTableId,
-      seedFixture.hostTableId,
-      seedFixture.sourceFields,
-      seedFixture.hostFields,
+      fixture.sourceTableId,
+      fixture.hostTableId,
+      fixture.sourceFields,
+      fixture.hostFields,
       config,
-      seedFixture.sampleRecords,
+      fixture.sampleRecords,
     ),
-  );
-
-  return buildFieldDuplicateResult({
-    config,
-    seedFixture,
-    seedReadyMeasurement,
-    seedCacheInfo,
-  });
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    const duplicateFieldMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      "duplicateField",
+      () =>
+        measureAsync("duplicateField", async () => {
+          const response = await duplicateField(
+            fixture.hostTableId,
+            fixture.sourceLookupFieldId,
+            {
+              name: config.duplicate.name,
+            },
+          );
+          const responseHeaders = pickResponseHeaders(response.headers);
+          return {
+            field: response.data,
+            responseHeaders,
+            routing: assertExpectedRouting(context, responseHeaders),
+          };
+        }),
+    );
+    const duplicatedLookupScanReadyMeasurement = await measureAsync(
+      "duplicatedLookupScanReady",
+      () =>
+        waitForConditionalLookupFullScan(
+          fixture.hostTableId,
+          duplicateFieldMeasurement.result.field.id,
+          config,
+          fixture.hostFields,
+        ),
+    );
+    return { duplicateFieldMeasurement, duplicatedLookupScanReadyMeasurement };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    if (!fixture) {
+      throw new Error(
+        "field-duplicate buildResult invoked without a fixture; the driver only calls it after prepare succeeds",
+      );
+    }
+    return buildFieldDuplicateResult({
+      config,
+      seedFixture: fixture,
+      seedReadyMeasurement,
+      duplicateFieldMeasurement: primary?.duplicateFieldMeasurement,
+      duplicatedLookupScanReadyMeasurement:
+        primary?.duplicatedLookupScanReadyMeasurement,
+      seedCacheInfo: fixture.seedCacheInfo,
+      error,
+    });
+  },
+  cleanup: async ({ baseId, fixture, config }) => {
+    // CI execute jobs run on a disposable restored DB copy; cleanup that only
+    // tidies the durable database is skipped there. A missing fixture means
+    // prepare failed before any table existed (it self-cleans on the way out).
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    if (fixture.reusable) {
+      // Restore the reusable seed by removing ONLY the duplicated field
+      // (config.duplicate.name). The source lookup field it was duplicated from
+      // is part of the seed and must stay. Re-resolve by name — idempotent, and
+      // a no-op when the duplicate failed before creating anything.
+      try {
+        const duplicatedField = (
+          (await getFields(fixture.hostTableId)) as Array<{
+            id: string;
+            name: string;
+          }>
+        ).find((field) => field.name === config.duplicate.name);
+        if (duplicatedField) {
+          await deleteField(fixture.hostTableId, duplicatedField.id);
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to cleanup duplicated lookup field on ${fixture.hostTableId}`,
+          error,
+        );
+      }
+      return;
+    }
+    for (const tableId of [fixture.hostTableId, fixture.sourceTableId]) {
+      if (tableId) {
+        try {
+          await permanentDeleteTable(baseId, tableId);
+        } catch (error) {
+          console.warn(`Failed to cleanup perf table ${tableId}`, error);
+        }
+      }
+    }
+  },
 };
 
-export const runFieldDuplicateCase = async (
+export const seedFieldDuplicateCase = (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldDuplicateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const seedCacheInfo = await buildFieldDuplicateSeedCacheInfo(perfCase);
-  let seedFixture: FieldDuplicateSeedFixture | undefined;
-  let duplicatedFieldId = "";
+): Promise<PerfRunResult> =>
+  seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 
-  try {
-    seedFixture = await createSeedFixture(perfCase, context, seedCacheInfo);
-
-    let seedReadyMeasurement:
-      | Measurement<
-          Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
-        >
-      | undefined;
-    let duplicateFieldMeasurement:
-      | Measurement<FieldDuplicatePrimaryResult>
-      | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertConditionalLookupSeedReady(
-          seedFixture.sourceTableId,
-          seedFixture.hostTableId,
-          seedFixture.sourceFields,
-          seedFixture.hostFields,
-          config,
-          seedFixture.sampleRecords,
-        ),
-      );
-
-      duplicateFieldMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "duplicateField",
-        () =>
-          measureAsync("duplicateField", async () => {
-            const response = await duplicateField(
-              seedFixture.hostTableId,
-              seedFixture.sourceLookupFieldId,
-              {
-                name: config.duplicate.name,
-              },
-            );
-            const responseHeaders = pickResponseHeaders(response.headers);
-            return {
-              field: response.data,
-              responseHeaders,
-              routing: assertExpectedRouting(context, responseHeaders),
-            };
-          }),
-      );
-      duplicatedFieldId = duplicateFieldMeasurement.result.field.id;
-
-      const duplicatedLookupScanReadyMeasurement = await measureAsync(
-        "duplicatedLookupScanReady",
-        () =>
-          waitForConditionalLookupFullScan(
-            seedFixture.hostTableId,
-            duplicatedFieldId,
-            config,
-            seedFixture.hostFields,
-          ),
-      );
-
-      return buildFieldDuplicateResult({
-        config,
-        seedFixture,
-        seedReadyMeasurement,
-        duplicateFieldMeasurement,
-        duplicatedLookupScanReadyMeasurement,
-        seedCacheInfo,
-      });
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildFieldDuplicateResult({
-          config,
-          seedFixture,
-          seedReadyMeasurement,
-          duplicateFieldMeasurement,
-          seedCacheInfo,
-          error,
-        }),
-      );
-    }
-  } finally {
-    // CI execute jobs run on a disposable restored DB copy; cleanup that only
-    // tidies the durable database is skipped there.
-    if (isExecuteDbIsolated()) {
-      // discarded with the database
-    } else if (seedFixture?.reusable) {
-      if (duplicatedFieldId) {
-        try {
-          await deleteField(seedFixture.hostTableId, duplicatedFieldId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup duplicated lookup field ${duplicatedFieldId}`,
-            error,
-          );
-        }
-      }
-    } else if (seedFixture) {
-      for (const tableId of [
-        seedFixture.hostTableId,
-        seedFixture.sourceTableId,
-      ]) {
-        if (tableId) {
-          try {
-            await permanentDeleteTable(baseId, tableId);
-          } catch (error) {
-            console.warn(`Failed to cleanup perf table ${tableId}`, error);
-          }
-        }
-      }
-    }
-  }
-};
+export const runFieldDuplicateCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
