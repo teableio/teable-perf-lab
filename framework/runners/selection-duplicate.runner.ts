@@ -5,8 +5,7 @@ import type {
   IDuplicateSelectionStreamEvent,
   IDuplicateSelectionStreamProgressEvent,
 } from "@teable/openapi";
-import { permanentDeleteTable } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync } from "../metrics";
 import { assertEngineRouting } from "../routing";
 import { perfStreamSse } from "../sse";
@@ -17,16 +16,18 @@ import type {
   PerfRunResult,
   SelectionDuplicateCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   assertDuplicatedRecordsMatchSource,
   assertDuplicateSourceReady,
   assertRecordCount,
-  deleteRecordsInBatches,
   type DuplicateRecordFixture,
   type Measurement,
-  prepareDuplicateSourceFixture,
 } from "./record-duplicate.shared";
+import {
+  runRecordDuplicateLifecycle,
+  seedRecordDuplicateLifecycle,
+  type RecordDuplicateSpec,
+} from "./record-duplicate-lifecycle";
 
 type SelectionDuplicateStreamResult = {
   totalCount: number;
@@ -178,28 +179,12 @@ const verifySelectionDuplicate = async (
   };
 };
 
-const cleanupDuplicatedRows = async (
-  baseId: string,
-  fixture: DuplicateRecordFixture,
-  config: SelectionDuplicateCaseConfig,
-  duplicatedRecordIds: string[],
-) => {
-  if (duplicatedRecordIds.length > 0) {
-    await deleteRecordsInBatches(fixture.tableId, duplicatedRecordIds);
-  }
-  return assertRecordCount(
-    fixture,
-    config.rowCount,
-    config.verify.fullScanPageSize ?? 1_000,
-  );
-};
-
 const buildSelectionDuplicateResult = ({
   config,
   fixture,
   prepareMeasurement,
   sourceReadyMeasurement,
-  duplicateMeasurement,
+  primaryMeasurement,
   verifyMeasurement,
   error,
 }: {
@@ -209,7 +194,7 @@ const buildSelectionDuplicateResult = ({
   sourceReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof assertDuplicateSourceReady>>
   >;
-  duplicateMeasurement?: Measurement<SelectionDuplicateStreamResult>;
+  primaryMeasurement?: Measurement<SelectionDuplicateStreamResult>;
   verifyMeasurement?: Measurement<SelectionDuplicateVerification>;
   error?: unknown;
 }): PerfRunResult => ({
@@ -229,12 +214,12 @@ const buildSelectionDuplicateResult = ({
             : {}),
         }
       : {}),
-    ...(duplicateMeasurement
-      ? { [config.threshold.metric]: duplicateMeasurement.durationMs }
+    ...(primaryMeasurement
+      ? { [config.threshold.metric]: primaryMeasurement.durationMs }
       : {}),
     ...(verifyMeasurement ? { verifyMs: verifyMeasurement.durationMs } : {}),
   },
-  thresholds: duplicateMeasurement
+  thresholds: primaryMeasurement
     ? [
         {
           metric: config.threshold.metric,
@@ -260,11 +245,11 @@ const buildSelectionDuplicateResult = ({
           },
         ]
       : []),
-    ...(duplicateMeasurement
+    ...(primaryMeasurement
       ? [
           {
-            name: duplicateMeasurement.name,
-            durationMs: duplicateMeasurement.durationMs,
+            name: primaryMeasurement.name,
+            durationMs: primaryMeasurement.durationMs,
           },
         ]
       : []),
@@ -321,17 +306,17 @@ const buildSelectionDuplicateResult = ({
             : undefined,
         }
       : undefined,
-    duplicate: duplicateMeasurement?.result
+    duplicate: primaryMeasurement?.result
       ? {
-          totalCount: duplicateMeasurement.result.totalCount,
-          duplicatedCount: duplicateMeasurement.result.duplicatedCount,
-          duplicatedRecordIds: duplicateMeasurement.result.duplicatedRecordIds,
-          progressEventCount: duplicateMeasurement.result.progressEventCount,
-          status: duplicateMeasurement.result.status,
-          trace: duplicateMeasurement.result.trace,
+          totalCount: primaryMeasurement.result.totalCount,
+          duplicatedCount: primaryMeasurement.result.duplicatedCount,
+          duplicatedRecordIds: primaryMeasurement.result.duplicatedRecordIds,
+          progressEventCount: primaryMeasurement.result.progressEventCount,
+          status: primaryMeasurement.result.status,
+          trace: primaryMeasurement.result.trace,
         }
       : undefined,
-    routing: duplicateMeasurement?.result.routing,
+    routing: primaryMeasurement?.result.routing,
     verification: verifyMeasurement?.result
       ? {
           duplicatedIds: {
@@ -356,149 +341,40 @@ const buildSelectionDuplicateResult = ({
   },
 });
 
+const selectionDuplicateSpec: RecordDuplicateSpec<
+  SelectionDuplicateCaseConfig,
+  SelectionDuplicateStreamResult,
+  SelectionDuplicateVerification
+> = {
+  runner: "selection-duplicate",
+  fixtureVersion: SELECTION_DUPLICATE_FIXTURE_VERSION,
+  seedLabel: "selection duplicate",
+  // One top-level trace step wraps the whole duplicate-selection stream.
+  runPrimary: ({ fixture, config, perfCase, context }) =>
+    withPerfTraceStep(context, perfCase, config.threshold.metric, () =>
+      measureAsync(config.threshold.metric, () =>
+        duplicateSelectionRange(fixture, config, perfCase, context),
+      ),
+    ),
+  verify: ({ fixture, config, primaryResult }) =>
+    verifySelectionDuplicate(
+      fixture,
+      config,
+      primaryResult.duplicatedRecordIds,
+    ),
+  getCreatedRecordIds: (primaryResult) =>
+    primaryResult?.duplicatedRecordIds ?? [],
+  buildResult: buildSelectionDuplicateResult,
+};
+
 export const runSelectionDuplicateCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as SelectionDuplicateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<DuplicateRecordFixture> | undefined;
-  let sourceReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertDuplicateSourceReady>>>
-    | undefined;
-  let duplicateMeasurement:
-    | Measurement<SelectionDuplicateStreamResult>
-    | undefined;
-  let verifyMeasurement:
-    | Measurement<SelectionDuplicateVerification>
-    | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareDuplicateSourceFixture({
-        baseId,
-        tableName,
-        config,
-        perfCase,
-        runner: "selection-duplicate",
-        fixtureVersion: SELECTION_DUPLICATE_FIXTURE_VERSION,
-      }),
-    );
-    sourceReadyMeasurement = await measureAsync("seedReady", () =>
-      assertDuplicateSourceReady(prepareMeasurement!.result, config),
-    );
-
-    try {
-      duplicateMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, () =>
-            duplicateSelectionRange(
-              prepareMeasurement!.result,
-              config,
-              perfCase,
-              context,
-            ),
-          ),
-      );
-
-      verifyMeasurement = await measureAsync("verify", () =>
-        verifySelectionDuplicate(
-          prepareMeasurement!.result,
-          config,
-          duplicateMeasurement!.result.duplicatedRecordIds,
-        ),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildSelectionDuplicateResult({
-          config,
-          fixture: prepareMeasurement.result,
-          prepareMeasurement,
-          sourceReadyMeasurement,
-          duplicateMeasurement,
-          verifyMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildSelectionDuplicateResult({
-      config,
-      fixture: prepareMeasurement.result,
-      prepareMeasurement,
-      sourceReadyMeasurement,
-      duplicateMeasurement,
-      verifyMeasurement,
-    });
-  } finally {
-    const fixture = prepareMeasurement?.result;
-    if (fixture && !isExecuteDbIsolated() && fixture.reusableSeed) {
-      let restored = false;
-      try {
-        await cleanupDuplicatedRows(
-          baseId,
-          fixture,
-          config,
-          duplicateMeasurement?.result.duplicatedRecordIds ?? [],
-        );
-        restored = true;
-      } catch (error) {
-        console.warn(
-          `Failed to restore cached selection duplicate seed ${fixture.tableId}; deleting it`,
-          error,
-        );
-      }
-
-      if (!restored) {
-        try {
-          await permanentDeleteTable(baseId, fixture.tableId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup perf table ${fixture.tableId}`,
-            error,
-          );
-        }
-      }
-    } else if (fixture && !isExecuteDbIsolated()) {
-      try {
-        await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
-      }
-    }
-  }
-};
+): Promise<PerfRunResult> =>
+  runRecordDuplicateLifecycle(perfCase, context, selectionDuplicateSpec);
 
 export const seedSelectionDuplicateCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as SelectionDuplicateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareDuplicateSourceFixture({
-      baseId,
-      tableName,
-      config,
-      perfCase,
-      runner: "selection-duplicate",
-      fixtureVersion: SELECTION_DUPLICATE_FIXTURE_VERSION,
-    }),
-  );
-  const sourceReadyMeasurement = await measureAsync("seedReady", () =>
-    assertDuplicateSourceReady(prepareMeasurement.result, config),
-  );
-
-  return buildSelectionDuplicateResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    sourceReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordDuplicateLifecycle(perfCase, context, selectionDuplicateSpec);
