@@ -4,39 +4,39 @@ Tracks which runner kinds have been moved onto lifecycle drivers and which are
 still legacy. Migration is **per runner kind**; a kind's row covers every case
 that uses it, because migrating a runner means re-verifying all of its cases.
 
-Status as of 2026-06-19 on `main`.
+Status as of 2026-06-20 on `main`.
 
-**Migrated: 19 / 35 runner kinds · 23 / 55 cases.**
+**Migrated: 20 / 35 runner kinds · 24 / 55 cases.**
 
 ## Migrated (✅ on the driver)
 
-| Runner kind             | Driver / where                                                                                               | Cases                                                                     | Verified              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | --------------------- |
-| csv-import              | `csv-import-lifecycle.ts`                                                                                    | 3 csv-import cases                                                        | ✅ v1+v2 pass (local) |
-| field-delete            | `field-delete-lifecycle.ts`                                                                                  | field-delete/mixed-10k-delete-19-fields                                   | ✅ v1+v2 pass (local) |
-| record-delete           | `record-replay-lifecycle.ts` (no setup)                                                                      | record-delete/delete-1k                                                   | ✅ v1+v2 pass (local) |
-| record-delete-link      | `table-link-lifecycle.ts` (single fixture)                                                                   | record-delete/link-trash-1k                                               | ✅ v1+v2 pass (local) |
-| record-undo             | `record-replay-lifecycle.ts` (delete setup)                                                                  | record-undo/delete-1k                                                     | ✅ v1+v2 pass (local) |
-| record-redo             | `record-replay-lifecycle.ts` (delete+undo setup)                                                             | record-redo/delete-1k                                                     | ✅ v1+v2 pass (local) |
-| table-delete            | `table-lifecycle.ts` (sampled archive + restore-back)                                                        | table-delete/10k-20f                                                      | ✅ v1+v2 pass (local) |
-| table-restore           | `table-lifecycle.ts` (archive setup + sampled restore)                                                       | table-restore/10k-20f                                                     | ✅ v1+v2 pass (local) |
-| table-delete-link       | `table-link-lifecycle.ts` (sampled foreign-table delete)                                                     | table-delete/10k-20f-link-detach                                          | ✅ v1+v2 pass (local) |
-| table-restore-link      | `table-link-lifecycle.ts` (sampled table restore)                                                            | table-restore/10k-20f-link-1k                                             | ✅ v1+v2 pass (local) |
-| selection-duplicate     | `record-duplicate-lifecycle.ts` (stream block duplicate)                                                     | record-duplicate/grid-block-duplicate-1k                                  | ✅ v1+v2 pass (local) |
-| record-duplicate-single | `record-duplicate-lifecycle.ts` (sequential single dup)                                                      | record-duplicate/single-record-sequential-100                             | ✅ v1+v2 pass (local) |
-| record-update           | `record-mutation-lifecycle.ts` (bulk update over seeded rows, record window + restore-or-delete)             | record-update/mixed-1k-20fields-bulk-update                               | ✅ v1+v2 pass (local) |
-| record-create           | `record-mutation-lifecycle.ts` (bulk insert into empty seed, no window + delete-created-or-drop)             | record-create/mixed-1k-20fields-bulk-create                               | ✅ v1+v2 pass (local) |
-| record-reorder          | `record-mutation-lifecycle.ts` (block reorder over seeded rows, record window + restore-order-or-drop)       | record-reorder/10k-move-last-1k-to-front                                  | ✅ v1+v2 pass (local) |
-| field-convert           | `field-convert-lifecycle.ts` (convert + readiness, keep-or-delete)                                           | field-convert/10k-multi-select-to-text, field-convert/10k-text-to-formula | ✅ v1+v2 pass (local) |
-| field-convert-link      | `field-convert-lifecycle.ts` (link convert + readiness, delete host+foreign)                                 | field-convert/10k-link-to-text, field-convert/10k-text-to-link            | ✅ v1+v2 pass (local) |
-| selection-clear         | `record-mutation-lifecycle.ts` (clear-stream over seeded rows, no window, post-op verify, restore-or-delete) | selection-clear/flat-1k-20fields-cell-clear-stream                        | ✅ v1+v2 pass (local) |
-| record-update-link      | `record-mutation-lifecycle.ts` (bulk link-cell update over host + linked foreign fixture, no window)         | record-update/1k-link-cells-bulk-update                                   | ✅ v1+v2 pass (local) |
+| Runner kind             | Driver / where                                                                                                                     | Cases                                                                     | Verified              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------- |
+| csv-import              | `csv-import-lifecycle.ts`                                                                                                          | 3 csv-import cases                                                        | ✅ v1+v2 pass (local) |
+| field-delete            | `field-delete-lifecycle.ts`                                                                                                        | field-delete/mixed-10k-delete-19-fields                                   | ✅ v1+v2 pass (local) |
+| record-delete           | `record-replay-lifecycle.ts` (no setup)                                                                                            | record-delete/delete-1k                                                   | ✅ v1+v2 pass (local) |
+| record-delete-link      | `table-link-lifecycle.ts` (single fixture)                                                                                         | record-delete/link-trash-1k                                               | ✅ v1+v2 pass (local) |
+| record-undo             | `record-replay-lifecycle.ts` (delete setup)                                                                                        | record-undo/delete-1k                                                     | ✅ v1+v2 pass (local) |
+| record-redo             | `record-replay-lifecycle.ts` (delete+undo setup)                                                                                   | record-redo/delete-1k                                                     | ✅ v1+v2 pass (local) |
+| table-delete            | `table-lifecycle.ts` (sampled archive + restore-back)                                                                              | table-delete/10k-20f                                                      | ✅ v1+v2 pass (local) |
+| table-restore           | `table-lifecycle.ts` (archive setup + sampled restore)                                                                             | table-restore/10k-20f                                                     | ✅ v1+v2 pass (local) |
+| table-delete-link       | `table-link-lifecycle.ts` (sampled foreign-table delete)                                                                           | table-delete/10k-20f-link-detach                                          | ✅ v1+v2 pass (local) |
+| table-restore-link      | `table-link-lifecycle.ts` (sampled table restore)                                                                                  | table-restore/10k-20f-link-1k                                             | ✅ v1+v2 pass (local) |
+| selection-duplicate     | `record-duplicate-lifecycle.ts` (stream block duplicate)                                                                           | record-duplicate/grid-block-duplicate-1k                                  | ✅ v1+v2 pass (local) |
+| record-duplicate-single | `record-duplicate-lifecycle.ts` (sequential single dup)                                                                            | record-duplicate/single-record-sequential-100                             | ✅ v1+v2 pass (local) |
+| record-update           | `record-mutation-lifecycle.ts` (bulk update over seeded rows, record window + restore-or-delete)                                   | record-update/mixed-1k-20fields-bulk-update                               | ✅ v1+v2 pass (local) |
+| record-create           | `record-mutation-lifecycle.ts` (bulk insert into empty seed, no window + delete-created-or-drop)                                   | record-create/mixed-1k-20fields-bulk-create                               | ✅ v1+v2 pass (local) |
+| record-reorder          | `record-mutation-lifecycle.ts` (block reorder over seeded rows, record window + restore-order-or-drop)                             | record-reorder/10k-move-last-1k-to-front                                  | ✅ v1+v2 pass (local) |
+| field-convert           | `field-convert-lifecycle.ts` (convert + readiness, keep-or-delete)                                                                 | field-convert/10k-multi-select-to-text, field-convert/10k-text-to-formula | ✅ v1+v2 pass (local) |
+| field-convert-link      | `field-convert-lifecycle.ts` (link convert + readiness, delete host+foreign)                                                       | field-convert/10k-link-to-text, field-convert/10k-text-to-link            | ✅ v1+v2 pass (local) |
+| selection-clear         | `record-mutation-lifecycle.ts` (clear-stream over seeded rows, no window, post-op verify, restore-or-delete)                       | selection-clear/flat-1k-20fields-cell-clear-stream                        | ✅ v1+v2 pass (local) |
+| record-update-link      | `record-mutation-lifecycle.ts` (bulk link-cell update over host + linked foreign fixture, no window)                               | record-update/1k-link-cells-bulk-update                                   | ✅ v1+v2 pass (local) |
+| conditional-lookup      | `field-add-lifecycle.ts` (add a conditional lookup field over a seeded source + host pair, full-scan readiness, restore-or-delete) | lookup/conditional-10k                                                    | ✅ v1+v2 pass (local) |
 
 ## Not migrated (⬜ legacy `*.runner.ts`)
 
 | Runner kind               | #   | Cases                                                                                                                                                                                      |
 | ------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| conditional-lookup        | 1   | lookup/conditional-10k                                                                                                                                                                     |
 | duplicate-base            | 3   | duplicate-base/10k-3tables-link-2workflow, duplicate-base/10k-3tables-link-2workflow-stream, export-base/10k-3tables-link-2workflow-stream                                                 |
 | duplicate-table           | 2   | duplicate-table/10k-20f, duplicate-table/10k-25f-5formula                                                                                                                                  |
 | field-create              | 4   | field-create/10k-create-5-simple-fields, field-create/10k-create-5-formula-fields, field-create/mixed-10k-create-19-fields, field-create/single-select-1k-options                          |
