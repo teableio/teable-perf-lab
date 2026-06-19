@@ -25,7 +25,12 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runFieldAddLifecycle,
+  seedFieldAddLifecycle,
+  type FieldAddLifecycleSpec,
+} from "./field-add-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -47,12 +52,6 @@ type SeededSampleRecord = {
   rowOffset: number;
   rowNumber: number;
   recordId: string;
-};
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
 };
 
 export type ConditionalLookupSourceFields = {
@@ -1231,104 +1230,52 @@ const buildConditionalLookupCaseResult = ({
   },
 });
 
-export const seedConditionalLookupCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as ConditionalLookupCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const timestamp = Date.now();
-  const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
-    runner: "conditional-lookup",
-    fixtureVersion: "conditional-lookup-v1",
-    seedConfig: getConditionalLookupSeedConfig(config),
-    seedCodeFiles: [
-      new URL(import.meta.url),
-      new URL("../seed-cache.ts", import.meta.url),
-    ],
-  });
-  const sourceTableName = seedCacheInfo.enabled
-    ? buildSeedTableName(seedCacheInfo, "source")
-    : `${config.sourceTableNamePrefix}-seed-${timestamp}`;
-  const hostTableName = seedCacheInfo.enabled
-    ? buildSeedTableName(seedCacheInfo, "host")
-    : `${config.hostTableNamePrefix}-seed-${timestamp}`;
+type ConditionalLookupSeedReadyResult = Awaited<
+  ReturnType<typeof assertConditionalLookupSeedReady>
+>;
 
-  assertPermutationConfig(config);
-  const seedFixture = await buildConditionalLookupSeedFixture(
-    perfCase,
-    context,
-    baseId,
-    sourceTableName,
-    hostTableName,
-    config,
-    seedCacheInfo,
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertConditionalLookupSeedReady(
-      seedFixture.sourceTableId,
-      seedFixture.hostTableId,
-      seedFixture.sourceFields,
-      seedFixture.hostFields,
-      config,
-      seedFixture.sampleRecords,
-    ),
-  );
-
-  return buildConditionalLookupCaseResult({
-    config,
-    sourceTableId: seedFixture.sourceTableId,
-    sourceTableName: seedFixture.sourceTableName,
-    hostTableId: seedFixture.hostTableId,
-    hostTableName: seedFixture.hostTableName,
-    sourceBatchDurations: seedFixture.sourceBatchDurations,
-    hostBatchDurations: seedFixture.hostBatchDurations,
-    sampleRecords: seedFixture.sampleRecords,
-    createTablesMeasurement: seedFixture.createTablesMeasurement,
-    seedSourceMeasurement: seedFixture.seedSourceMeasurement,
-    seedHostMeasurement: seedFixture.seedHostMeasurement,
-    seedReadyMeasurement,
-    seedCacheInfo,
-    seedCacheHit: seedFixture.seedCacheHit,
-    reusableSeed: seedFixture.reusable,
-    sourceFields: seedFixture.sourceFields,
-    hostFields: seedFixture.hostFields,
-  });
+type ConditionalLookupPrimary = {
+  createLookupFieldMeasurement: Measurement<{ id: string }>;
+  fullLookupScanReadyMeasurement: Measurement<
+    Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
+  >;
+  lookupField: { id: string };
 };
 
-export const runConditionalLookupCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as ConditionalLookupCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const timestamp = Date.now();
-  const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
-    runner: "conditional-lookup",
-    fixtureVersion: "conditional-lookup-v1",
-    seedConfig: getConditionalLookupSeedConfig(config),
-    seedCodeFiles: [
-      new URL(import.meta.url),
-      new URL("../seed-cache.ts", import.meta.url),
-    ],
-  });
-  const sourceTableName = seedCacheInfo.enabled
-    ? buildSeedTableName(seedCacheInfo, "source")
-    : `${config.sourceTableNamePrefix}-${timestamp}`;
-  const hostTableName = seedCacheInfo.enabled
-    ? buildSeedTableName(seedCacheInfo, "host")
-    : `${config.hostTableNamePrefix}-${timestamp}`;
-  let sourceTableId = "";
-  let hostTableId = "";
-  let reusableSeed = false;
-  let createdLookupFieldId = "";
+// conditional-lookup rides the field-add lifecycle: seed a source + host table
+// pair, assert the seed, add one conditional lookup field on the host and wait
+// for it to backfill across all rows, then restore the seed by deleting that
+// lookup field (or drop both tables when the fixture is not reusable). The
+// driver owns the seedReady phase, the diagnostic wrapping, and the cleanup
+// invocation; everything below is the conditional-lookup-specific difference.
+const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
+  ConditionalLookupCaseConfig,
+  ConditionalLookupSeedFixture,
+  ConditionalLookupSeedReadyResult,
+  ConditionalLookupPrimary
+> = {
+  prepareFixture: async ({ perfCase, context, baseId, config, seedMode }) => {
+    const timestamp = Date.now();
+    const seedCacheInfo = await buildSeedCacheInfo({
+      perfCase,
+      runner: "conditional-lookup",
+      fixtureVersion: "conditional-lookup-v1",
+      seedConfig: getConditionalLookupSeedConfig(config),
+      seedCodeFiles: [
+        new URL(import.meta.url),
+        new URL("../seed-cache.ts", import.meta.url),
+      ],
+    });
+    const suffix = seedMode ? "-seed-" : "-";
+    const sourceTableName = seedCacheInfo.enabled
+      ? buildSeedTableName(seedCacheInfo, "source")
+      : `${config.sourceTableNamePrefix}${suffix}${timestamp}`;
+    const hostTableName = seedCacheInfo.enabled
+      ? buildSeedTableName(seedCacheInfo, "host")
+      : `${config.hostTableNamePrefix}${suffix}${timestamp}`;
 
-  try {
     assertPermutationConfig(config);
-
-    const seedFixture = await buildConditionalLookupSeedFixture(
+    return buildConditionalLookupSeedFixture(
       perfCase,
       context,
       baseId,
@@ -1337,163 +1284,128 @@ export const runConditionalLookupCase = async (
       config,
       seedCacheInfo,
     );
-    sourceTableId = seedFixture.sourceTableId;
-    hostTableId = seedFixture.hostTableId;
-    reusableSeed = seedFixture.reusable;
-    const {
-      sourceTableName: actualSourceTableName,
-      hostTableName: actualHostTableName,
-      sourceFields,
-      hostFields,
-      sampleRecords,
-      sourceBatchDurations,
-      hostBatchDurations,
-      createTablesMeasurement,
-      seedSourceMeasurement,
-      seedHostMeasurement,
-      seedCacheHit,
-    } = seedFixture;
-    let createdLookupField: { id: string } | undefined;
-    let seedReadyMeasurement:
-      | Measurement<
-          Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
-        >
-      | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertConditionalLookupSeedReady(
-          sourceTableId,
-          hostTableId,
-          sourceFields,
-          hostFields,
-          config,
-          sampleRecords,
-        ),
-      );
-
-      const createLookupFieldMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "createLookupField",
-        () =>
-          measureAsync("createLookupField", () =>
-            createField(hostTableId, {
-              name: config.lookup.name,
-              type: FieldType.SingleLineText,
-              isLookup: true,
-              isConditionalLookup: true,
-              lookupOptions: {
-                foreignTableId: sourceTableId,
-                lookupFieldId: sourceFields.valueFieldId,
-                filter: {
-                  conjunction: "and",
-                  filterSet: [
-                    {
-                      fieldId: sourceFields.keyFieldId,
-                      operator: "is",
-                      value: {
-                        type: "field",
-                        fieldId: hostFields.lookupKeyFieldId,
-                      },
-                    },
-                  ],
-                },
-                limit: config.lookup.limit,
-              },
-            }),
-          ),
-      );
-      createdLookupField = createLookupFieldMeasurement.result;
-      createdLookupFieldId = createdLookupField.id;
-
-      const fullLookupScanReadyMeasurement = await measureAsync(
-        "fullLookupScanReady",
-        () =>
-          waitForConditionalLookupFullScan(
-            hostTableId,
-            createLookupFieldMeasurement.result.id,
+  },
+  assertSeedReady: ({ fixture, config }) =>
+    assertConditionalLookupSeedReady(
+      fixture.sourceTableId,
+      fixture.hostTableId,
+      fixture.sourceFields,
+      fixture.hostFields,
+      config,
+      fixture.sampleRecords,
+    ),
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    const createLookupFieldMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      "createLookupField",
+      () =>
+        measureAsync("createLookupField", () =>
+          createConditionalLookupField(
+            fixture.hostTableId,
+            fixture.sourceTableId,
+            fixture.sourceFields,
+            fixture.hostFields,
             config,
-            hostFields,
           ),
-      );
-
-      return buildConditionalLookupCaseResult({
-        config,
-        sourceTableId,
-        sourceTableName: actualSourceTableName,
-        hostTableId,
-        hostTableName: actualHostTableName,
-        sourceBatchDurations,
-        hostBatchDurations,
-        sampleRecords,
-        createTablesMeasurement,
-        seedSourceMeasurement,
-        seedHostMeasurement,
-        seedReadyMeasurement,
-        createLookupFieldMeasurement,
-        fullLookupScanReadyMeasurement,
-        lookupField: createdLookupField,
-        seedCacheInfo,
-        seedCacheHit,
-        reusableSeed,
-        sourceFields,
-        hostFields,
-      });
-    } catch (error) {
-      const diagnosticResult = buildConditionalLookupCaseResult({
-        config,
-        sourceTableId,
-        sourceTableName: actualSourceTableName,
-        hostTableId,
-        hostTableName: actualHostTableName,
-        sourceBatchDurations,
-        hostBatchDurations,
-        sampleRecords,
-        createTablesMeasurement,
-        seedSourceMeasurement,
-        seedHostMeasurement,
-        seedReadyMeasurement,
-        lookupField: createdLookupField,
-        seedCacheInfo,
-        seedCacheHit,
-        reusableSeed,
-        sourceFields,
-        hostFields,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-  } finally {
+        ),
+    );
+    const fullLookupScanReadyMeasurement = await measureAsync(
+      "fullLookupScanReady",
+      () =>
+        waitForConditionalLookupFullScan(
+          fixture.hostTableId,
+          createLookupFieldMeasurement.result.id,
+          config,
+          fixture.hostFields,
+        ),
+    );
+    return {
+      createLookupFieldMeasurement,
+      fullLookupScanReadyMeasurement,
+      lookupField: createLookupFieldMeasurement.result,
+    };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) =>
+    buildConditionalLookupCaseResult({
+      config,
+      sourceTableId: fixture?.sourceTableId ?? "",
+      sourceTableName: fixture?.sourceTableName ?? "",
+      hostTableId: fixture?.hostTableId ?? "",
+      hostTableName: fixture?.hostTableName ?? "",
+      sourceBatchDurations: fixture?.sourceBatchDurations ?? [0],
+      hostBatchDurations: fixture?.hostBatchDurations ?? [0],
+      sampleRecords: fixture?.sampleRecords ?? [],
+      createTablesMeasurement:
+        fixture?.createTablesMeasurement ??
+        createEmptyMeasurement("seedBuildSkipped", undefined),
+      seedSourceMeasurement:
+        fixture?.seedSourceMeasurement ??
+        createEmptyMeasurement("seedSourceBuildSkipped", undefined),
+      seedHostMeasurement:
+        fixture?.seedHostMeasurement ??
+        createEmptyMeasurement("seedHostBuildSkipped", undefined),
+      seedReadyMeasurement,
+      createLookupFieldMeasurement: primary?.createLookupFieldMeasurement,
+      fullLookupScanReadyMeasurement: primary?.fullLookupScanReadyMeasurement,
+      lookupField: primary?.lookupField,
+      seedCacheInfo: fixture?.seedCacheInfo,
+      seedCacheHit: fixture?.seedCacheHit,
+      reusableSeed: fixture?.reusable,
+      sourceFields: fixture?.sourceFields ?? {
+        keyFieldId: "",
+        valueFieldId: "",
+      },
+      hostFields: fixture?.hostFields ?? {
+        keyFieldId: "",
+        lookupKeyFieldId: "",
+      },
+      error,
+    }),
+  cleanup: async ({ baseId, fixture }) => {
     // CI execute jobs run on a disposable restored DB copy; cleanup that only
-    // tidies the durable database is skipped there.
-    if (isExecuteDbIsolated()) {
-      // discarded with the database
-    } else if (reusableSeed) {
-      if (createdLookupFieldId) {
-        try {
-          await deleteField(hostTableId, createdLookupFieldId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup perf lookup field ${createdLookupFieldId}`,
-            error,
-          );
-        }
+    // tidies the durable database is skipped there. A missing fixture means
+    // prepare failed before any table existed (it self-cleans on the way out).
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    if (fixture.reusable) {
+      // Restore the reusable seed by removing the added lookup field. Re-resolve
+      // the host fields and drop every non-seed field — idempotent, and a no-op
+      // when the field-add failed before creating anything.
+      try {
+        await cleanupHostLookupFields(
+          fixture.hostTableId,
+          await getFields(fixture.hostTableId),
+        );
+      } catch (error) {
+        console.warn(
+          `Failed to cleanup perf lookup field on ${fixture.hostTableId}`,
+          error,
+        );
       }
-    } else {
-      for (const tableId of [hostTableId, sourceTableId]) {
-        if (tableId) {
-          try {
-            await permanentDeleteTable(baseId, tableId);
-          } catch (error) {
-            console.warn(`Failed to cleanup perf table ${tableId}`, error);
-          }
+      return;
+    }
+    for (const tableId of [fixture.hostTableId, fixture.sourceTableId]) {
+      if (tableId) {
+        try {
+          await permanentDeleteTable(baseId, tableId);
+        } catch (error) {
+          console.warn(`Failed to cleanup perf table ${tableId}`, error);
         }
       }
     }
-  }
+  },
 };
+
+export const seedConditionalLookupCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedFieldAddLifecycle(perfCase, context, conditionalLookupFieldAddSpec);
+
+export const runConditionalLookupCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runFieldAddLifecycle(perfCase, context, conditionalLookupFieldAddSpec);
