@@ -9,16 +9,21 @@ import {
 
 // The lifecycle skeleton shared by the record-mutation family: seed a record
 // table, run one measured bulk mutation, verify the final state, then
-// restore-or-delete the reusable fixture. Two runner kinds now ride it —
-// record-update (bulk update over seeded rows, runs inside a record window)
-// and record-create (bulk insert into an empty seeded table, no window) — so
-// the shared shape is a proven seam, not a guess. The driver owns generic
-// protocol only:
-//   prepare(seed) -> seedReady -> [window?] measured op -> build result
+// restore-or-delete the reusable fixture. Four runner kinds now ride it —
+// record-update (bulk update over seeded rows, runs inside a record window),
+// record-create (bulk insert into an empty seeded table, no window),
+// record-reorder (block reorder over seeded rows, record window), and
+// selection-clear (clear-stream over seeded rows, no window, no seedReady
+// phase) — so the shared shape is a proven seam, not a guess. The driver owns
+// generic protocol only:
+//   prepare(seed) -> [seedReady?] -> [window?] measured op -> build result
 //   (twice: diagnostic catch + success) -> finally cleanup.
 // Each runner declares the case semantics it varies: the seed-cache fixture,
-// the seed-ready assertion, the bundled measured window (operation + routing +
-// verification), the result assembly, and the restore-or-delete cleanup.
+// the (optional) seed-ready assertion, the bundled measured window (operation +
+// routing + verification), the result assembly, and the restore-or-delete
+// cleanup. assertSeedReady is optional: selection-clear confirms seed readiness
+// inside prepareFixture and emits only a post-op verify phase, so it omits the
+// hook and the driver produces no seedReady phase.
 //
 // Scope note: this is record-mutation-family-shaped, not a universal runner
 // driver. It still assumes a single seeded table, one primary measured
@@ -70,8 +75,12 @@ export type RecordMutationLifecycleSpec<
     perfCase: PerfCase;
     context: PerfRunContext;
   }) => Promise<TFixture>;
-  // Assert the seeded state is readable before the measured operation runs.
-  assertSeedReady: (args: {
+  // Assert the seeded state is readable before the measured operation runs,
+  // emitted as the `seedReady` phase. Optional: a family member whose seed
+  // readiness is confirmed inside prepareFixture (and whose only post-op check
+  // is a separate verify phase) omits it, so no `seedReady` phase is produced —
+  // selection-clear rides the driver this way.
+  assertSeedReady?: (args: {
     baseId: string;
     fixture: TFixture;
     config: TConfig;
@@ -121,13 +130,16 @@ export const seedRecordMutationLifecycle = async <
   const prepareMeasurement = await measureAsync("prepare", () =>
     spec.prepareFixture({ baseId, tableName, config, perfCase, context }),
   );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    spec.assertSeedReady({
-      baseId,
-      fixture: prepareMeasurement.result,
-      config,
-    }),
-  );
+  const assertSeedReady = spec.assertSeedReady;
+  const seedReadyMeasurement = assertSeedReady
+    ? await measureAsync("seedReady", () =>
+        assertSeedReady({
+          baseId,
+          fixture: prepareMeasurement.result,
+          config,
+        }),
+      )
+    : undefined;
 
   return spec.buildResult({
     config,
@@ -161,9 +173,12 @@ export const runRecordMutationLifecycle = async <
       spec.prepareFixture({ baseId, tableName, config, perfCase, context }),
     );
     fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      spec.assertSeedReady({ baseId, fixture: fixture as TFixture, config }),
-    );
+    const assertSeedReady = spec.assertSeedReady;
+    if (assertSeedReady) {
+      seedReadyMeasurement = await measureAsync("seedReady", () =>
+        assertSeedReady({ baseId, fixture: fixture as TFixture, config }),
+      );
+    }
 
     try {
       const invokeMeasured = async () => {
