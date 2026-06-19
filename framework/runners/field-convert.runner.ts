@@ -8,7 +8,7 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   assertEngineRouting,
@@ -28,7 +28,12 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import type { Measurement } from "./record-undo-redo.shared";
+import {
+  runFieldConvertLifecycle,
+  seedFieldConvertLifecycle,
+  type FieldConvertLifecycleSpec,
+} from "./field-convert-lifecycle";
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -50,12 +55,6 @@ type SeededSampleRecord = {
   rowOffset: number;
   rowNumber: number;
   recordId: string;
-};
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
 };
 
 type FieldConvertFixture = {
@@ -903,99 +902,46 @@ const buildFieldConvertResult = ({
   };
 };
 
+const cleanupFieldConvertFixture = async ({
+  baseId,
+  fixture,
+}: {
+  baseId: string;
+  fixture: FieldConvertFixture;
+}) => {
+  try {
+    await permanentDeleteTable(baseId, fixture.tableId);
+  } catch (error) {
+    console.warn(
+      `Failed to cleanup perf field convert table ${fixture.tableId}`,
+      error,
+    );
+  }
+};
+
+const fieldConvertLifecycleSpec: FieldConvertLifecycleSpec<
+  FieldConvertCaseConfig,
+  FieldConvertFixture,
+  Awaited<ReturnType<typeof assertSeedSamples>>,
+  ConvertPrimaryResult
+> = {
+  prepareFixture: ({ perfCase, context, baseId, tableName, config }) =>
+    prepareFieldConvertFixture(perfCase, context, baseId, tableName, config),
+  assertSeedReady: ({ fixture, config }) => assertSeedSamples(fixture, config),
+  runPrimary: ({ perfCase, context, fixture, config }) =>
+    runFieldConvertPrimary(perfCase, context, fixture, config),
+  buildResult: buildFieldConvertResult,
+  cleanupConvertedFixture: cleanupFieldConvertFixture,
+};
+
 export const seedFieldConvertCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldConvertCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const fixture = await prepareFieldConvertFixture(
-    perfCase,
-    context,
-    baseId,
-    tableName,
-    config,
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedSamples(fixture, config),
-  );
-
-  return buildFieldConvertResult({
-    config,
-    fixture,
-    seedReadyMeasurement,
-  });
-};
+): Promise<PerfRunResult> =>
+  seedFieldConvertLifecycle(perfCase, context, fieldConvertLifecycleSpec);
 
 export const runFieldConvertCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldConvertCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let fixture: FieldConvertFixture | undefined;
-  let convertAttempted = false;
-
-  try {
-    fixture = await prepareFieldConvertFixture(
-      perfCase,
-      context,
-      baseId,
-      tableName,
-      config,
-    );
-    let seedReadyMeasurement:
-      | Measurement<Awaited<ReturnType<typeof assertSeedSamples>>>
-      | undefined;
-    let primaryMeasurement: Measurement<ConvertPrimaryResult> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertSeedSamples(fixture!, config),
-      );
-      convertAttempted = true;
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
-        runFieldConvertPrimary(perfCase, context, fixture!, config),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildFieldConvertResult({
-          config,
-          fixture,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildFieldConvertResult({
-      config,
-      fixture,
-      seedReadyMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
-    // CI execute jobs run on an isolated restored copy of the seed dump, so
-    // the converted (mutated) cached seed is simply discarded with the
-    // database. A reusable seed that was never mutated can also stay. In all
-    // other cases the conversion changed the seed column in place; restoring
-    // it would cost as much as reseeding, so delete the table and let the
-    // next run (or the seed job) rebuild it.
-    const keepFixture =
-      isExecuteDbIsolated() || (fixture?.reusableSeed && !convertAttempted);
-    if (fixture?.tableId && !keepFixture) {
-      try {
-        await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(
-          `Failed to cleanup perf field convert table ${fixture.tableId}`,
-          error,
-        );
-      }
-    }
-  }
-};
+): Promise<PerfRunResult> =>
+  runFieldConvertLifecycle(perfCase, context, fieldConvertLifecycleSpec);

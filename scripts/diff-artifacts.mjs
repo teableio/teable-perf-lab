@@ -79,6 +79,12 @@ const GENERATED_ID_KEYS = new Set([
   "firstRecordId",
   "anchorRecordId",
   "movedRecordIds",
+  // Generated source field id in the field-convert family details.convert.
+  // Each run seeds a fresh table, so the converted column's field id differs
+  // between two runs of unchanged code (confirmed by the field-convert baseline
+  // A vs B diff). The semantic source identity stays visible via
+  // details.convert.sourceFieldName.
+  "sourceFieldId",
 ]);
 
 const GENERATED_NAME_KEYS = new Set(["foreignTableName", "tableName"]);
@@ -202,6 +208,29 @@ const shouldMaskKey = (path, key) => {
   if (
     pathEquals(path, ["details", "prepare"]) &&
     key === "seedBatchDurations"
+  ) {
+    return true;
+  }
+
+  // The field-convert family echoes the converted field as details.convertedField.
+  // Its id is a generated field id that differs between two runs of unchanged
+  // code (confirmed by the field-convert baseline A vs B diff); convertedField
+  // name and type stay visible as the semantic conversion result.
+  if (pathEquals(path, ["details", "convertedField"]) && key === "id") {
+    return true;
+  }
+
+  // text-to-link converts cells into link objects, so verifiedSamples[].actual
+  // is `{ id, title }`. The linked foreign record id is generated and differs
+  // run-to-run; the semantic proof is actual.title (the expected foreign title),
+  // which stays visible.
+  if (
+    path.length === 4 &&
+    path[0] === "details" &&
+    path[1] === "verifiedSamples" &&
+    isArrayIndex(path[2]) &&
+    path[3] === "actual" &&
+    key === "id"
   ) {
     return true;
   }
