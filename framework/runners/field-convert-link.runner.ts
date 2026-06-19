@@ -7,7 +7,7 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   assertEngineRouting,
@@ -27,7 +27,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   expectedForeignTitle,
   fetchForeignIdByTitle,
@@ -35,6 +34,12 @@ import {
   resolveForeignKeyFieldId,
   seedForeignTable,
 } from "./link-fixture.shared";
+import type { Measurement } from "./record-undo-redo.shared";
+import {
+  runFieldConvertLifecycle,
+  seedFieldConvertLifecycle,
+  type FieldConvertLifecycleSpec,
+} from "./field-convert-lifecycle";
 
 const FIELD_CONVERT_LINK_FIXTURE_VERSION = "field-convert-link-v1";
 
@@ -49,12 +54,6 @@ const chunk = <T>(items: T[], size: number) => {
 };
 
 type NamedField = { id: string; name: string; type?: string };
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type FieldConvertLinkFixture = {
   tableId: string;
@@ -822,94 +821,57 @@ const buildResult = ({
   },
 });
 
-export const seedFieldConvertLinkCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldConvertLinkCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const fixture = await prepareFieldConvertLinkFixture(
-    perfCase,
-    context,
-    baseId,
-    tableName,
-    config,
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedSamples(fixture, config),
-  );
-  return buildResult({ config, fixture, seedReadyMeasurement });
+// Class D cleanup: the conversion rewrites the source column in place
+// (link <-> text), so a cached seed cannot be cheaply restored. Delete both the
+// host and foreign fixture tables so the next run reseeds.
+const cleanupFieldConvertLinkFixture = async ({
+  baseId,
+  fixture,
+}: {
+  baseId: string;
+  fixture: FieldConvertLinkFixture;
+}) => {
+  for (const tableId of [fixture.tableId, fixture.foreignTableId]) {
+    try {
+      await permanentDeleteTable(baseId, tableId);
+    } catch (error) {
+      console.warn(
+        `Failed to cleanup field-convert-link table ${tableId}`,
+        error,
+      );
+    }
+  }
 };
 
-export const runFieldConvertLinkCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldConvertLinkCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let fixture: FieldConvertLinkFixture | undefined;
-  let convertAttempted = false;
-
-  try {
-    fixture = await prepareFieldConvertLinkFixture(
+const fieldConvertLinkLifecycleSpec: FieldConvertLifecycleSpec<
+  FieldConvertLinkCaseConfig,
+  FieldConvertLinkFixture,
+  Awaited<ReturnType<typeof assertSeedSamples>>,
+  ConvertLinkPrimaryResult
+> = {
+  prepareFixture: ({ perfCase, context, baseId, tableName, config }) =>
+    prepareFieldConvertLinkFixture(
       perfCase,
       context,
       baseId,
       tableName,
       config,
-    );
-    let seedReadyMeasurement:
-      | Measurement<Awaited<ReturnType<typeof assertSeedSamples>>>
-      | undefined;
-    let primaryMeasurement: Measurement<ConvertLinkPrimaryResult> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertSeedSamples(fixture!, config),
-      );
-      convertAttempted = true;
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
-        runConvertLinkPrimary(perfCase, context, fixture!, config),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult({
-          config,
-          fixture,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildResult({
-      config,
-      fixture,
-      seedReadyMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
-    // Class D cleanup: the conversion rewrites the source column in place
-    // (link <-> text), so a cached seed cannot be cheaply restored. On CI the
-    // isolated restored DB copy is discarded; locally delete both fixture
-    // tables so the next run reseeds. An untouched reusable seed can stay.
-    const keepFixture =
-      isExecuteDbIsolated() || (fixture?.reusableSeed && !convertAttempted);
-    if (fixture && !keepFixture) {
-      for (const tableId of [fixture.tableId, fixture.foreignTableId]) {
-        try {
-          await permanentDeleteTable(baseId, tableId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup field-convert-link table ${tableId}`,
-            error,
-          );
-        }
-      }
-    }
-  }
+    ),
+  assertSeedReady: ({ fixture, config }) => assertSeedSamples(fixture, config),
+  runPrimary: ({ perfCase, context, fixture, config }) =>
+    runConvertLinkPrimary(perfCase, context, fixture, config),
+  buildResult: buildResult,
+  cleanupConvertedFixture: cleanupFieldConvertLinkFixture,
 };
+
+export const seedFieldConvertLinkCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedFieldConvertLifecycle(perfCase, context, fieldConvertLinkLifecycleSpec);
+
+export const runFieldConvertLinkCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runFieldConvertLifecycle(perfCase, context, fieldConvertLinkLifecycleSpec);
