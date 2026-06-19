@@ -33,10 +33,10 @@ import {
   type Measurement,
 } from "./record-undo-redo.shared";
 import {
-  runRecordUpdateLifecycle,
-  seedRecordUpdateLifecycle,
-  type RecordUpdateLifecycleSpec,
-} from "./record-update-lifecycle";
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 type UpdateField = RecordUpdateCaseConfig["fields"][number] & {
   id: string;
@@ -864,12 +864,15 @@ const cleanupRecordUpdateFixture = async ({
   }
 };
 
-const recordUpdateLifecycleSpec: RecordUpdateLifecycleSpec<
+const recordUpdateLifecycleSpec: RecordMutationLifecycleSpec<
   RecordUpdateCaseConfig,
   RecordUpdateFixture,
   SampleVerification,
   RecordUpdatePrimaryResult
 > = {
+  // Group the bulk update under one record window id (mirrors the legacy
+  // runner; record-create has no window and omits this).
+  useRecordWindow: true,
   prepareFixture: ({ baseId, tableName, config, perfCase }) =>
     prepareRecordUpdateFixture(baseId, tableName, config, perfCase),
   assertSeedReady: ({ fixture, config }) =>
@@ -884,10 +887,10 @@ export const runRecordUpdateCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
-  runRecordUpdateLifecycle(perfCase, context, recordUpdateLifecycleSpec);
+  runRecordMutationLifecycle(perfCase, context, recordUpdateLifecycleSpec);
 
 export const seedRecordUpdateCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
-  seedRecordUpdateLifecycle(perfCase, context, recordUpdateLifecycleSpec);
+  seedRecordMutationLifecycle(perfCase, context, recordUpdateLifecycleSpec);
