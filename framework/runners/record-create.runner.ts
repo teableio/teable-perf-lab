@@ -30,13 +30,13 @@ import type {
   PerfRunContext,
   RecordCreateCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError, type PerfRunResult } from "../types";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import type { PerfRunResult } from "../types";
+import { type Measurement } from "./record-undo-redo.shared";
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 type NamedField = {
   id: string;
@@ -670,140 +670,130 @@ const buildRecordCreateCaseResult = ({
   };
 };
 
-export const runRecordCreateCase = async (
+// The single measured operation: trace-wrapped bulk create -> routing
+// assertion -> post-create row-count verification, all bundled into one primary
+// measurement whose duration is the primary metric. record-create has no record
+// window, so the driver invokes this directly (no withRecordWindowId).
+const runRecordCreateMeasuredOperation = async (
+  baseId: string,
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordCreateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<RecordCreateFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSeedReady>>>
-    | undefined;
-  let primaryMeasurement: Measurement<RecordCreatePrimaryResult> | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordCreateFixture(baseId, tableName, config, perfCase),
-    );
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSeedReady(baseId, prepareMeasurement!.result),
-    );
-
-    try {
-      const createMeasurement = await withPerfTraceStep(
+  config: RecordCreateCaseConfig,
+  fixture: RecordCreateFixture,
+): Promise<Measurement<RecordCreatePrimaryResult>> => {
+  const createMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      measureAsync(config.threshold.metric, () =>
+        createRecordsForCase(fixture),
+      ),
+  );
+  let primaryMeasurement: Measurement<RecordCreatePrimaryResult> = {
+    ...createMeasurement,
+    result: {
+      ...createMeasurement.result,
+      createRequestMs: createMeasurement.durationMs,
+      routing: assertEngineRouting(
         context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, () =>
-            createRecordsForCase(prepareMeasurement.result),
-          ),
-      );
-      primaryMeasurement = {
-        ...createMeasurement,
-        result: {
-          ...createMeasurement.result,
-          createRequestMs: createMeasurement.durationMs,
-          routing: assertEngineRouting(
-            context,
-            createMeasurement.result.responseHeaders,
-            {
-              operation: "createRecords",
-            },
-          ),
+        createMeasurement.result.responseHeaders,
+        {
+          operation: "createRecords",
         },
-      };
-      const verification = await verifyCreatedRecords(
-        baseId,
-        prepareMeasurement.result,
-        config,
-      );
-      primaryMeasurement = {
-        ...primaryMeasurement,
-        result: {
-          ...primaryMeasurement.result,
-          createRequestMs: primaryMeasurement.durationMs,
-          ...verification,
-        },
-      };
-    } catch (error) {
-      const diagnosticResult = buildRecordCreateCaseResult({
-        config,
-        prepareMeasurement,
-        seedReadyMeasurement,
-        primaryMeasurement,
-        error,
-      });
+      ),
+    },
+  };
+  const verification = await verifyCreatedRecords(baseId, fixture, config);
+  primaryMeasurement = {
+    ...primaryMeasurement,
+    result: {
+      ...primaryMeasurement.result,
+      createRequestMs: primaryMeasurement.durationMs,
+      ...verification,
+    },
+  };
+  return primaryMeasurement;
+};
 
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
-    return buildRecordCreateCaseResult({
-      config,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
-    const fixture = prepareMeasurement?.result;
-    if (fixture?.tableId && fixture.reusableSeed && !isExecuteDbIsolated()) {
-      try {
-        const createdRecordIds =
-          primaryMeasurement?.result.createdRecordIds ?? [];
-        if (createdRecordIds.length > 0) {
-          await deleteRecords(fixture.tableId, createdRecordIds);
-        }
-        await assertSeedReady(baseId, fixture);
-      } catch (error) {
-        console.warn(
-          `Failed to restore cached record create seed ${fixture.tableId}; deleting it`,
-          error,
-        );
-        try {
-          await permanentDeleteTable(baseId, fixture.tableId);
-        } catch (cleanupError) {
-          console.warn(
-            `Failed to cleanup perf table ${fixture.tableId}`,
-            cleanupError,
-          );
-        }
+// The measured create inserts rows into the reusable empty seed table, so a
+// shared (non-isolated) execute DB must be restored by deleting exactly the
+// records the operation created — or the table dropped if restore fails. The
+// non-reusable case just drops the table. Isolated CI execute DBs are discarded
+// after the job, so no cleanup is needed there.
+const cleanupRecordCreateFixture = async ({
+  baseId,
+  fixture,
+  primaryMeasurement,
+}: {
+  baseId: string;
+  fixture: RecordCreateFixture | undefined;
+  primaryMeasurement?: Measurement<RecordCreatePrimaryResult>;
+}) => {
+  if (fixture?.tableId && fixture.reusableSeed && !isExecuteDbIsolated()) {
+    try {
+      const createdRecordIds =
+        primaryMeasurement?.result.createdRecordIds ?? [];
+      if (createdRecordIds.length > 0) {
+        await deleteRecords(fixture.tableId, createdRecordIds);
       }
-    } else if (
-      fixture?.tableId &&
-      !fixture.reusableSeed &&
-      !isExecuteDbIsolated()
-    ) {
+      await assertSeedReady(baseId, fixture);
+    } catch (error) {
+      console.warn(
+        `Failed to restore cached record create seed ${fixture.tableId}; deleting it`,
+        error,
+      );
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
+      } catch (cleanupError) {
+        console.warn(
+          `Failed to cleanup perf table ${fixture.tableId}`,
+          cleanupError,
+        );
       }
+    }
+  } else if (
+    fixture?.tableId &&
+    !fixture.reusableSeed &&
+    !isExecuteDbIsolated()
+  ) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
     }
   }
 };
 
+const recordCreateLifecycleSpec: RecordMutationLifecycleSpec<
+  RecordCreateCaseConfig,
+  RecordCreateFixture,
+  Awaited<ReturnType<typeof assertSeedReady>>,
+  RecordCreatePrimaryResult
+> = {
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
+    prepareRecordCreateFixture(baseId, tableName, config, perfCase),
+  assertSeedReady: ({ baseId, fixture }) => assertSeedReady(baseId, fixture),
+  runMeasuredOperation: ({ baseId, perfCase, context, config, fixture }) =>
+    runRecordCreateMeasuredOperation(
+      baseId,
+      perfCase,
+      context,
+      config,
+      fixture,
+    ),
+  buildResult: buildRecordCreateCaseResult,
+  cleanup: cleanupRecordCreateFixture,
+};
+
+export const runRecordCreateCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, recordCreateLifecycleSpec);
+
 export const seedRecordCreateCase = async (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordCreateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareRecordCreateFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(baseId, prepareMeasurement.result),
-  );
-
-  return buildRecordCreateCaseResult({
-    config,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(perfCase, context, recordCreateLifecycleSpec);
