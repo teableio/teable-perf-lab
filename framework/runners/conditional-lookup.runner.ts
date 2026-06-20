@@ -14,6 +14,10 @@ import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
+import {
   buildSeedCacheInfo,
   buildSeedTableName,
   findSeedTable,
@@ -45,12 +49,6 @@ type SeedRecordInput = {
   rowOffset: number;
   rowNumber: number;
   fields: Record<string, string>;
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 export type ConditionalLookupSourceFields = {
@@ -766,16 +764,12 @@ const seedHostTable = async (
         );
         hostBatchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            seededSampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          seededSampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     },
   );

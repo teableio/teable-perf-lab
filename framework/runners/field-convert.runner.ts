@@ -22,6 +22,10 @@ import {
 } from "../seed-cache";
 import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertCaseConfig,
@@ -49,12 +53,6 @@ const TAG_CHOICES = ["Alpha", "Beta", "Gamma", "Delta"];
 const FIELD_CONVERT_FIXTURE_VERSION = "field-convert-v1";
 
 type NamedField = { id: string; name: string; type?: string };
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
-};
 
 type FieldConvertFixture = {
   tableId: string;
@@ -415,16 +413,12 @@ const prepareFieldConvertFixture = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     });
 

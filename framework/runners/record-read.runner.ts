@@ -17,6 +17,10 @@ import {
   type EngineRouting,
 } from "../routing";
 import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
+import {
   buildSeedCacheInfo,
   buildSeedTableName,
   findSeedTable,
@@ -39,12 +43,6 @@ type ResolvedField = {
   id: string;
   name: string;
   type?: string;
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 type RecordReadFixture = {
@@ -594,16 +592,12 @@ const seedHostRecords = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     },
   );

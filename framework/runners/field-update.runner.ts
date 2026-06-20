@@ -20,6 +20,10 @@ import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
+import {
   buildSeedCacheInfo,
   findSeedTable,
   type SeedCacheInfo,
@@ -89,12 +93,6 @@ type NamedField = {
   name: string;
   type?: string;
   options?: { choices?: SelectChoice[] };
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 type ComputedField = {
@@ -665,16 +663,12 @@ const prepareFieldUpdateFixture = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     });
 
