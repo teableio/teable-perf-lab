@@ -33,13 +33,11 @@ import type {
   PerfRunResult,
   RecordPasteCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import { type Measurement } from "./record-undo-redo.shared";
+import {
+  runRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 type NamedField = {
   id: string;
@@ -79,6 +77,15 @@ type PastePrimaryResult = Awaited<ReturnType<typeof paste>> & {
     progressEventCount: number;
     errors: IPasteSelectionStreamErrorEvent[];
   };
+};
+
+// The single measured window bundles the trace-wrapped paste with the
+// post-paste full-scan verification, so the record-mutation lifecycle driver
+// can drive record-paste without owning paste-specific verification. The
+// driver's primary measurement keeps the paste duration (= the primary metric);
+// the verified rows ride along on its result for buildResult to surface.
+type RecordPastePrimaryResult = PastePrimaryResult & {
+  verifiedRows: Awaited<ReturnType<typeof assertPastedRows>>;
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
@@ -777,78 +784,83 @@ const buildRecordPasteCaseResult = ({
   };
 };
 
-export const runRecordPasteCase = async (
+// The single measured window: trace-wrapped paste -> routing assertion (inside
+// executePaste) -> post-paste full-scan verification, bundled into one primary
+// measurement whose duration is the primary metric. The driver does not wrap
+// this in a record window (paste has none) or re-measure it.
+const runRecordPasteMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordPasteCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<PasteFixture> | undefined;
+  config: RecordPasteCaseConfig,
+  fixture: PasteFixture,
+): Promise<Measurement<RecordPastePrimaryResult>> => {
+  const pasteMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      measureAsync(config.threshold.metric, () =>
+        executePaste(fixture, config, context, perfCase),
+      ),
+  );
+  const finalFields = await resolveFinalPasteFields(fixture.tableId, config);
+  const verifiedRows = await assertPastedRows(
+    fixture.tableId,
+    fixture.viewId,
+    finalFields.pasteFields,
+    finalFields.projection,
+    config,
+  );
+  return {
+    ...pasteMeasurement,
+    result: { ...pasteMeasurement.result, verifiedRows },
+  };
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      preparePasteFixture(baseId, tableName, config),
-    );
-    const prepared = prepareMeasurement.result;
-    let pasteMeasurement: Measurement<PastePrimaryResult> | undefined;
-    let verifiedRows: Awaited<ReturnType<typeof assertPastedRows>> | undefined;
-
+// The pasted table is single-use scratch (no reusable seed cache), so cleanup
+// just drops it on a shared DB; isolated CI execute DBs are discarded wholesale.
+const cleanupRecordPasteFixture = async ({
+  baseId,
+  fixture,
+}: {
+  baseId: string;
+  fixture: PasteFixture | undefined;
+}) => {
+  if (fixture?.tableId && !isExecuteDbIsolated()) {
     try {
-      pasteMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, () =>
-            executePaste(prepared, config, context, perfCase),
-          ),
-      );
-
-      const finalFields = await resolveFinalPasteFields(
-        prepared.tableId,
-        config,
-      );
-      verifiedRows = await assertPastedRows(
-        prepared.tableId,
-        prepared.viewId,
-        finalFields.pasteFields,
-        finalFields.projection,
-        config,
-      );
+      await permanentDeleteTable(baseId, fixture.tableId);
     } catch (error) {
-      const diagnosticResult = buildRecordPasteCaseResult({
-        config,
-        prepareMeasurement,
-        pasteMeasurement,
-        verifiedRows,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
-    return buildRecordPasteCaseResult({
-      config,
-      prepareMeasurement,
-      pasteMeasurement,
-      verifiedRows,
-    });
-  } finally {
-    // CI execute jobs run on a disposable restored DB copy; the pasted table
-    // is discarded with the database, so only local runs delete it.
-    if (prepareMeasurement?.result.tableId && !isExecuteDbIsolated()) {
-      try {
-        await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
-      } catch (error) {
-        console.warn(
-          `Failed to cleanup perf table ${prepareMeasurement.result.tableId}`,
-          error,
-        );
-      }
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
     }
   }
 };
+
+const recordPasteLifecycleSpec: RecordMutationLifecycleSpec<
+  RecordPasteCaseConfig,
+  PasteFixture,
+  never,
+  RecordPastePrimaryResult
+> = {
+  // record-paste builds a fresh single-use table per run and verifies after the
+  // paste, so it omits useRecordWindow and assertSeedReady; the driver emits no
+  // seedReady phase, matching the legacy runner's prepare -> paste phases.
+  prepareFixture: ({ baseId, tableName, config }) =>
+    preparePasteFixture(baseId, tableName, config),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runRecordPasteMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: ({ config, prepareMeasurement, primaryMeasurement, error }) =>
+    buildRecordPasteCaseResult({
+      config,
+      prepareMeasurement,
+      pasteMeasurement: primaryMeasurement,
+      verifiedRows: primaryMeasurement?.result.verifiedRows,
+      error,
+    }),
+  cleanup: cleanupRecordPasteFixture,
+};
+
+export const runRecordPasteCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, recordPasteLifecycleSpec);
