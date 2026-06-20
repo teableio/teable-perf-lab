@@ -370,6 +370,24 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // duplicate-table generated field ids. Each run seeds a fresh source table, so
+  // every source field (details.sourceFields[].id), source formula field
+  // (details.sourceFormulas[].id), and duplicated formula field
+  // (details.duplicate.duplicatedFormulaFields[].id) gets a new id between two
+  // runs of unchanged code (confirmed by the duplicate-table baseline A vs B
+  // diff). The semantic identity stays visible via the field names in those same
+  // arrays and the verifiedSamples expected values; only the opaque id strings
+  // are masked, mirroring the field-create createdFields[].id rule above.
+  if (
+    isArrayIndex(path.at(-1)) &&
+    ["sourceFields", "sourceFormulas", "duplicatedFormulaFields"].includes(
+      path.at(-2),
+    ) &&
+    key === "id"
+  ) {
+    return true;
+  }
+
   return false;
 };
 
