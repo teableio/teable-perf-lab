@@ -27,6 +27,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady, sleep } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   LookupSearchIndexCaseConfig,
@@ -132,8 +133,6 @@ const hostLookupFieldNames = [
 ];
 
 const hostSearchFieldNames = [...hostBaseFieldNames, ...hostLookupFieldNames];
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getSearchTraceSampleSettleMs = () => {
   if (process.env.PERF_LAB_TRACE_ENABLED === "false") {
@@ -516,13 +515,13 @@ const waitForLookupSamples = async (
   fieldIds: FieldIds,
   config: LookupSearchIndexCaseConfig,
 ) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 120_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
+  return pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 120_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "lookup samples",
+    },
+    async () => {
       const verified = [];
       for (const rowOffset of config.verify.sampleRows) {
         const rowNumber = rowOffset + 1;
@@ -549,16 +548,7 @@ const waitForLookupSamples = async (
         verified.push({ rowOffset, rowNumber, sourceRow, expected, actual });
       }
       return verified;
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for lookup samples: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+    },
   );
 };
 

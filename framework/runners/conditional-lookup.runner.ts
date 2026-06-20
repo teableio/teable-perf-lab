@@ -11,6 +11,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -38,8 +39,6 @@ const chunk = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type SeedRecordInput = {
   rowOffset: number;
@@ -403,37 +402,20 @@ const assertLookupSamples = async (
   return verifiedSamples;
 };
 
-const waitForLookupSamples = async (
+const waitForLookupSamples = (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupSharedConfig,
   sampleRecords: SeededSampleRecord[],
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertLookupSamples(
-        tableId,
-        lookupFieldId,
-        config,
-        sampleRecords,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for conditional lookup samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "conditional lookup samples",
+    },
+    () => assertLookupSamples(tableId, lookupFieldId, config, sampleRecords),
   );
-};
 
 const assertLookupFullScan = async (
   tableId: string,
@@ -542,37 +524,20 @@ const assertLookupFullScan = async (
   };
 };
 
-export const waitForConditionalLookupFullScan = async (
+export const waitForConditionalLookupFullScan = (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupSharedConfig,
   hostFields: ConditionalLookupHostFields,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertLookupFullScan(
-        tableId,
-        lookupFieldId,
-        config,
-        hostFields,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for full conditional lookup scan after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "full conditional lookup scan",
+    },
+    () => assertLookupFullScan(tableId, lookupFieldId, config, hostFields),
   );
-};
 
 export const assertConditionalLookupSeedReady = async (
   sourceTableId: string,

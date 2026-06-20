@@ -26,6 +26,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady, sleep } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   LinkComputedPropagationCaseConfig,
@@ -226,8 +227,6 @@ type PrimaryResult = {
   ordersScan: { scannedRecords: number; pageSize: number; pageCount: number };
   purchaseScan: { scannedRecords: number; pageSize: number; pageCount: number };
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -1002,30 +1001,20 @@ const assertOrderSamples = async (
   return { checkedRecords };
 };
 
-const waitForOrderSamples = async (
+const waitForOrderSamples = (
   fixture: Fixture,
   config: LinkComputedPropagationCaseConfig,
   phase: Phase,
   linked: boolean,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 300_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 250;
-  let lastError: unknown;
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertOrderSamples(fixture, config, phase, linked);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-  throw new Error(
-    `Timed out waiting for seed order samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 300_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 250,
+      description: "seed order samples",
+    },
+    () => assertOrderSamples(fixture, config, phase, linked),
   );
-};
 
 const seededOrdersAreLinked = (config: LinkComputedPropagationCaseConfig) =>
   config.mode === "repoint";

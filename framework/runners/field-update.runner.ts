@@ -17,6 +17,7 @@ import { V2ContainerService } from "../../../../src/features/v2/v2-container.ser
 import { V2ExecutionContextFactory } from "../../../../src/features/v2/v2-execution-context.factory";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -46,8 +47,6 @@ const chunk = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const FIELD_UPDATE_FIXTURE_VERSION = "field-update-v1";
 
@@ -509,31 +508,19 @@ const assertFullScan = async (
   return { scannedRecords, pageSize, pageCount };
 };
 
-const waitFor = async <T>(
+const waitFor = <T>(
   config: FieldUpdateCaseConfig,
   description: string,
   assertFn: () => Promise<T>,
-): Promise<T> => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertFn();
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for ${description} after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+): Promise<T> =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description,
+    },
+    assertFn,
   );
-};
 
 const createEmptyMeasurement = <T>(
   name: string,
