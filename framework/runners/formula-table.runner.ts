@@ -25,7 +25,11 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runFieldAddLifecycle,
+  seedFieldAddLifecycle,
+  type FieldAddLifecycleSpec,
+} from "./field-add-lifecycle";
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -1039,14 +1043,11 @@ const buildFormulaSeedFixture = async (
   }
 };
 
-export const seedFormulaTableCase = async (
+const buildFormulaSeedCache = (
   perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FormulaTableCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const seedCacheInfo = await buildSeedCacheInfo({
+  config: FormulaTableCaseConfig,
+) =>
+  buildSeedCacheInfo({
     perfCase,
     runner: "formula-table",
     fixtureVersion: "formula-table-v1",
@@ -1056,66 +1057,58 @@ export const seedFormulaTableCase = async (
       new URL("../seed-cache.ts", import.meta.url),
     ],
   });
-  const seedFixture = await buildFormulaSeedFixture(
-    perfCase,
-    context,
-    baseId,
-    tableName,
-    config,
-    seedCacheInfo,
-  );
-  const sourceReadyMeasurement = await measureAsync("seedReady", () =>
-    waitForSourceSamples(
-      seedFixture.tableId,
-      seedFixture.sourceFields,
-      config,
-      seedFixture.sampleRecords,
-    ),
-  );
 
-  return buildFormulaCaseResult({
-    config,
-    tableId: seedFixture.tableId,
-    tableName: seedFixture.tableName,
-    batches: seedFixture.batches,
-    batchDurations: seedFixture.batchDurations,
-    sampleRecords: seedFixture.sampleRecords,
-    createTableMeasurement: seedFixture.createTableMeasurement,
-    seedMeasurement: seedFixture.seedMeasurement,
-    sourceReadyMeasurement,
-    seedCacheInfo,
-    seedCacheHit: seedFixture.seedCacheHit,
-    reusableSeed: seedFixture.reusable,
-    sourceFields: seedFixture.sourceFields,
-    formulas: buildCompiledFormulas(
-      config,
-      await getFields(seedFixture.tableId),
-    ),
-  });
+const sourceFieldsArray = (sourceFields: SourceFields) =>
+  sourceFieldNames.map((fieldName) => sourceFields[fieldName]);
+
+type FormulaLifecycleFixture = FormulaSeedFixture & {
+  // The source-readiness phase the legacy runner names differently per mode:
+  // "seedReady" on the seed (prepare-DB) path, "sourceReady" on the measured
+  // execute path. The driver always measures it as "seedReady"; the runner
+  // relabels the emitted phase from this, keeping the shared driver byte-stable.
+  sourceReadyName: string;
+  // Compiled (no-id) formulas for the seed / diagnostic details.formulas, where
+  // the formula fields have not been created yet. Compiled from the source
+  // Title/A/B/C ids, which is exactly what the formula expressions reference, so
+  // it matches the legacy seed path's buildCompiledFormulas(getFields()) output.
+  compiledFormulas: CompiledFormula[];
+  // Created formula field ids, pushed as runPrimary creates each field and read
+  // by cleanup to restore a reusable seed (delete the added formula fields).
+  createdFormulaFieldIds: string[];
 };
 
-export const runFormulaTableCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FormulaTableCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
-    runner: "formula-table",
-    fixtureVersion: "formula-table-v1",
-    seedConfig: getFormulaSeedConfig(config),
-    seedCodeFiles: [
-      new URL(import.meta.url),
-      new URL("../seed-cache.ts", import.meta.url),
-    ],
-  });
-  let tableId = "";
-  let reusableSeed = false;
-  const createdFormulaFieldIds: string[] = [];
+type FormulaSourceReadyResult = Awaited<
+  ReturnType<typeof waitForSourceSamples>
+>;
 
-  try {
+type FormulaPrimary = {
+  formulasReadyMeasurement: Measurement<FormulaRunResult[]>;
+  fullFormulaScanReadyMeasurement: Measurement<
+    Awaited<ReturnType<typeof waitForFormulaFullScan>>
+  >;
+};
+
+// formula-table rides the field-add lifecycle as the fourth member, with the
+// widest primary in the family: seed a numeric source table, wait for the source
+// rows to be readable, create N formula fields (each its own trace step) and
+// wait for each to backfill its sampled values, full-scan every computed value,
+// then restore the seed by deleting the added formula fields. Like field-create,
+// its prepare carries its own createTable/seedRecords measurements so the driver
+// emits no "prepare" phase. Its source-readiness phase is named "sourceReady" on
+// execute vs "seedReady" on the seed path, and its primary metric is a computed
+// sum (formulasReady + fullScan) with a trailing appended formulaReady phase —
+// all expressed in the spec, leaving field-add-lifecycle byte-stable.
+const formulaTableFieldAddSpec: FieldAddLifecycleSpec<
+  FormulaTableCaseConfig,
+  FormulaLifecycleFixture,
+  FormulaSourceReadyResult,
+  FormulaPrimary
+> = {
+  prepareFixture: async ({ perfCase, context, baseId, config, seedMode }) => {
+    const seedCacheInfo = await buildFormulaSeedCache(perfCase, config);
+    const tableName = seedMode
+      ? `${config.tableNamePrefix}-seed-${Date.now()}`
+      : `${config.tableNamePrefix}-${Date.now()}`;
     const seedFixture = await buildFormulaSeedFixture(
       perfCase,
       context,
@@ -1124,159 +1117,128 @@ export const runFormulaTableCase = async (
       config,
       seedCacheInfo,
     );
-    tableId = seedFixture.tableId;
-    reusableSeed = seedFixture.reusable;
-    const {
-      tableName: seedTableName,
-      sourceFields,
-      sampleRecords,
-      batches,
-      batchDurations,
-      createTableMeasurement,
-      seedMeasurement,
-      seedCacheHit,
-    } = seedFixture;
-    const tableFields = await getFields(tableId);
-    const formulas = buildCompiledFormulas(config, tableFields);
-    let sourceReadyMeasurement: Awaited<
-      ReturnType<
-        typeof measureAsync<Awaited<ReturnType<typeof waitForSourceSamples>>>
-      >
-    >;
-
-    try {
-      sourceReadyMeasurement = await measureAsync("sourceReady", () =>
-        waitForSourceSamples(tableId, sourceFields, config, sampleRecords),
-      );
-    } catch (error) {
-      const diagnosticResult = buildFormulaCaseResult({
+    return Object.assign(seedFixture, {
+      sourceReadyName: seedMode ? "seedReady" : "sourceReady",
+      compiledFormulas: buildCompiledFormulas(
         config,
-        tableId,
-        tableName: seedTableName,
-        batches,
-        batchDurations,
-        sampleRecords,
-        createTableMeasurement,
-        seedMeasurement,
-        seedCacheInfo,
-        seedCacheHit,
-        reusableSeed,
-        sourceFields,
-        formulas,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
-    let formulasReadyMeasurement: Measurement<FormulaRunResult[]>;
-    let fullFormulaScanReadyMeasurement: Measurement<
-      Awaited<ReturnType<typeof waitForFormulaFullScan>>
-    >;
-    const createdFormulaFields = new Map<
-      string,
-      FormulaFieldCaseConfig & { id: string; compiledExpression: string }
-    >();
-
-    try {
-      formulasReadyMeasurement = await measureAsync("formulasReady", () =>
-        createFormulaFieldsAndWaitForSamples(
-          context,
-          perfCase,
-          tableId,
-          formulas,
-          sampleRecords,
+        sourceFieldsArray(seedFixture.sourceFields),
+      ),
+      createdFormulaFieldIds: [] as string[],
+    });
+  },
+  assertSeedReady: ({ fixture, config }) =>
+    waitForSourceSamples(
+      fixture.tableId,
+      fixture.sourceFields,
+      config,
+      fixture.sampleRecords,
+    ),
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    const formulasReadyMeasurement = await measureAsync("formulasReady", () =>
+      createFormulaFieldsAndWaitForSamples(
+        context,
+        perfCase,
+        fixture.tableId,
+        fixture.compiledFormulas,
+        fixture.sampleRecords,
+        config,
+        (createdFormula) => {
+          fixture.createdFormulaFieldIds.push(createdFormula.id);
+        },
+      ),
+    );
+    const fullFormulaScanReadyMeasurement = await measureAsync(
+      "fullFormulaScanReady",
+      () =>
+        waitForFormulaFullScan(
+          fixture.tableId,
+          formulasReadyMeasurement.result.map(({ formula }) => formula),
           config,
-          (createdFormula) => {
-            createdFormulaFieldIds.push(createdFormula.id);
-            createdFormulaFields.set(createdFormula.name, createdFormula);
-          },
+          fixture.sourceFields,
         ),
-      );
-      fullFormulaScanReadyMeasurement = await measureAsync(
-        "fullFormulaScanReady",
-        () =>
-          waitForFormulaFullScan(
-            tableId,
-            formulasReadyMeasurement.result.map(({ formula }) => formula),
-            config,
-            sourceFields,
-          ),
-      );
-    } catch (error) {
-      const formulasWithCreatedIds = formulas.map((formula) => {
-        const createdFormula = createdFormulaFields.get(formula.name);
-        return createdFormula ?? formula;
-      });
-      const diagnosticResult = buildFormulaCaseResult({
-        config,
-        tableId,
-        tableName: seedTableName,
-        batches,
-        batchDurations,
-        sampleRecords,
-        createTableMeasurement,
-        seedMeasurement,
-        sourceReadyMeasurement,
-        seedCacheInfo,
-        seedCacheHit,
-        reusableSeed,
-        sourceFields,
-        formulas: formulasWithCreatedIds,
-        formulasReadyMeasurement,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
+    );
+    return { formulasReadyMeasurement, fullFormulaScanReadyMeasurement };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    if (!fixture) {
+      // Unreachable in the driver's flow (a fixture always exists before
+      // seedReady/runPrimary run), kept only to satisfy the optional-fixture
+      // type without crashing on the source-field accesses below.
+      return {
+        metrics: {},
+        thresholds: [],
+        phases: [],
+        details: {
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : undefined,
+        },
+      };
     }
-
+    const sourceReadyMeasurement = seedReadyMeasurement
+      ? {
+          name: fixture.sourceReadyName,
+          durationMs: seedReadyMeasurement.durationMs,
+          result: seedReadyMeasurement.result,
+        }
+      : undefined;
+    const formulas = primary
+      ? primary.formulasReadyMeasurement.result.map(({ formula }) => formula)
+      : fixture.compiledFormulas;
     const result = buildFormulaCaseResult({
       config,
-      tableId,
-      tableName: seedTableName,
-      batches,
-      batchDurations,
-      sampleRecords,
-      createTableMeasurement,
-      seedMeasurement,
+      tableId: fixture.tableId,
+      tableName: fixture.tableName,
+      batches: fixture.batches,
+      batchDurations: fixture.batchDurations,
+      sampleRecords: fixture.sampleRecords,
+      createTableMeasurement: fixture.createTableMeasurement,
+      seedMeasurement: fixture.seedMeasurement,
       sourceReadyMeasurement,
-      seedCacheInfo,
-      seedCacheHit,
-      reusableSeed,
-      sourceFields,
-      formulas: formulasReadyMeasurement.result.map(({ formula }) => formula),
-      formulasReadyMeasurement,
-      fullFormulaScanReadyMeasurement,
+      seedCacheInfo: fixture.seedCacheInfo,
+      seedCacheHit: fixture.seedCacheHit,
+      reusableSeed: fixture.reusable,
+      sourceFields: fixture.sourceFields,
+      formulas,
+      formulasReadyMeasurement: primary?.formulasReadyMeasurement,
+      fullFormulaScanReadyMeasurement: primary?.fullFormulaScanReadyMeasurement,
+      error,
     });
-
+    if (!primary) {
+      return result;
+    }
+    // The legacy execute path appends the formula-ready phase AFTER
+    // fullFormulaScanReady (matching its original phase order), so reproduce it
+    // here verbatim instead of folding it into buildFormulaCaseResult.
     return {
       ...result,
       phases: [
         ...(result.phases ?? []),
         {
           name:
-            formulasReadyMeasurement.result.length === 1
+            primary.formulasReadyMeasurement.result.length === 1
               ? "formulaReady"
-              : formulasReadyMeasurement.name,
-          durationMs: formulasReadyMeasurement.durationMs,
+              : primary.formulasReadyMeasurement.name,
+          durationMs: primary.formulasReadyMeasurement.durationMs,
         },
       ],
     };
-  } finally {
+  },
+  cleanup: async ({ baseId, fixture }) => {
     // CI execute jobs run on a disposable restored DB copy; cleanup that only
     // tidies the durable database is skipped there.
-    if (isExecuteDbIsolated()) {
-      // discarded with the database
-    } else if (reusableSeed) {
-      for (const fieldId of createdFormulaFieldIds.reverse()) {
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    if (fixture.reusable) {
+      // Restore the reusable seed by deleting the added formula fields (the same
+      // source-fields-only invariant the seed asserts). Reverse so dependent
+      // fields drop before their dependencies; idempotent and a no-op when the
+      // create made nothing.
+      for (const fieldId of [...fixture.createdFormulaFieldIds].reverse()) {
         try {
-          await deleteField(tableId, fieldId);
+          await deleteField(fixture.tableId, fieldId);
         } catch (error) {
           console.warn(
             `Failed to cleanup perf formula field ${fieldId}`,
@@ -1284,12 +1246,24 @@ export const runFormulaTableCase = async (
           );
         }
       }
-    } else if (tableId) {
-      try {
-        await permanentDeleteTable(baseId, tableId);
-      } catch (error) {
-        console.warn(`Failed to cleanup perf table ${tableId}`, error);
-      }
+      return;
     }
-  }
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
+    }
+  },
 };
+
+export const seedFormulaTableCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedFieldAddLifecycle(perfCase, context, formulaTableFieldAddSpec);
+
+export const runFormulaTableCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runFieldAddLifecycle(perfCase, context, formulaTableFieldAddSpec);
