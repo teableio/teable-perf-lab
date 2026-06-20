@@ -18,6 +18,7 @@ import { V2ExecutionContextFactory } from "../../../../src/features/v2/v2-execut
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -466,26 +467,20 @@ const assertFullScan = async (
     ...fixture.computedFields.map((field) => field.id),
   ];
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleField.id],
         config.generator.titlePrefix,
@@ -495,9 +490,8 @@ const assertFullScan = async (
       }
       seenRowNumbers.add(rowNumber);
       assertRowState(fixture, config, rowNumber, record.fields, renamed);
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

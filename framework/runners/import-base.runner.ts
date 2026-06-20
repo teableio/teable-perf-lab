@@ -30,6 +30,7 @@ import {
   getRoutingResponseHeader,
   type EngineRouting,
 } from "../routing";
+import { forEachRecordPage } from "../record-page-scan";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
@@ -365,27 +366,22 @@ const scanTable = async (
   config: ImportBaseCaseConfig,
 ): Promise<TableScanResult> => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < tableConfig.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, tableConfig.rowCount - skip);
-    const result = await getRecords(tableRef.id, {
-      viewId: tableRef.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [tableRef.fieldIdByName[TITLE_FIELD]],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records in ${tableRef.name} at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    scannedRecords += result.records.length;
-  }
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: tableConfig.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableRef.id, {
+          viewId: tableRef.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [tableRef.fieldIdByName[TITLE_FIELD]],
+          skip,
+          take,
+        }),
+      pageNoun: `records in ${tableRef.name}`,
+    },
+    () => {},
+  );
 
   if (scannedRecords !== tableConfig.rowCount) {
     throw new Error(

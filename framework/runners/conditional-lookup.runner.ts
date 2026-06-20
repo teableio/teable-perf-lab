@@ -12,6 +12,7 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -427,30 +428,24 @@ const assertLookupFullScan = async (
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.recordCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.recordCount - skip);
-    const result = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [
-        hostFields.keyFieldId,
-        hostFields.lookupKeyFieldId,
-        lookupFieldId,
-      ],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.recordCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [
+            hostFields.keyFieldId,
+            hostFields.lookupKeyFieldId,
+            lookupFieldId,
+          ],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const hostRowNumber = parseRowNumber(
         record.fields[hostFields.keyFieldId],
         config.generator.hostKeyPrefix,
@@ -498,9 +493,8 @@ const assertLookupFullScan = async (
           expected,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.recordCount) {
     throw new Error(

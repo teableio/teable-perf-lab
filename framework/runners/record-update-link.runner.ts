@@ -10,6 +10,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { forEachRecordPage } from "../record-page-scan";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
@@ -251,24 +252,20 @@ const assertLinkFullScan = async (
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleFieldId, fixture.linkFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    result.records.forEach((record) => {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleFieldId, fixture.linkFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleFieldId],
         config,
@@ -286,9 +283,8 @@ const assertLinkFullScan = async (
           `Link full scan mismatch at row ${rowNumber} in ${phase} state: expected ${expectedTitle}, actual ${JSON.stringify(linkValue)}`,
         );
       }
-      scannedRecords += 1;
-    });
-  }
+    },
+  );
   if (scannedRecords !== config.rowCount) {
     throw new Error(
       `Link full scan count mismatch: expected ${config.rowCount}, scanned ${scannedRecords}`,

@@ -21,6 +21,7 @@ import {
   type SeedCacheInfo,
 } from "../seed-cache";
 import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertLinkCaseConfig,
@@ -564,24 +565,19 @@ const assertConvertedFullScan = async (
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleField.id, convertedFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleField.id, convertedFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleField.id],
         config,
@@ -599,9 +595,8 @@ const assertConvertedFullScan = async (
           `Converted full scan mismatch at row ${rowNumber}: expected title ${expectedTitle}, actual ${JSON.stringify(actual)}`,
         );
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

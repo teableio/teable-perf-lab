@@ -17,6 +17,7 @@ import {
   type SeedCacheInfo,
 } from "../seed-cache";
 import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FormulaFieldCaseConfig,
@@ -466,29 +467,22 @@ const assertFormulaFullScan = async (
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < config.recordCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.recordCount - skip);
-    const result = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [
-        sourceFields.Title.id,
-        ...formulas.map((formula) => formula.id),
-      ],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.recordCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [
+            sourceFields.Title.id,
+            ...formulas.map((formula) => formula.id),
+          ],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[sourceFields.Title.id],
         config.generator.titlePrefix,
@@ -535,9 +529,8 @@ const assertFormulaFullScan = async (
           formulas: verifiedFormulaValues,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.recordCount) {
     throw new Error(
