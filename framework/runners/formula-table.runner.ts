@@ -18,6 +18,10 @@ import {
 } from "../seed-cache";
 import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FormulaFieldCaseConfig,
@@ -61,12 +65,6 @@ type SeedRecordInput = {
       C: string | number;
     };
   };
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 type FormulaRunResult = {
@@ -937,16 +935,12 @@ const buildFormulaSeedFixture = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            seededSampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          seededSampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     });
 
