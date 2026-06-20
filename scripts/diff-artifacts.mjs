@@ -212,6 +212,40 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // link-computed-propagation owns four fixture tables (the orders host + the
+  // users/guest foreign tables + the downstream purchase table). With its seed
+  // cache disabled (the CI default) each run builds them fresh, so their ids —
+  // and the orders host's `${prefix}-${Date.now()}` fallback name — differ
+  // run-to-run on unchanged code (confirmed by the link-computed baseline A vs
+  // B diff). The fixture topology stays visible via details.operation, the
+  // computedFields layout, and rowCount/foreignRowCount/purchaseRowCount/
+  // purchaseGroupSize; routing keeps the engine identity. (When the cache is
+  // enabled the hash-derived seed names are instead masked by the cache /
+  // seed rules above.)
+  if (
+    pathEquals(path, ["details"]) &&
+    [
+      "ordersTableId",
+      "ordersTableName",
+      "usersTableId",
+      "guestTableId",
+      "purchaseTableId",
+    ].includes(key)
+  ) {
+    return true;
+  }
+
+  // The link-computed request echoes back the two generated link field ids of
+  // the freshly-built orders host; like its table ids they move every run on
+  // unchanged code. details.request.method + recordCount keep the write shape
+  // visible.
+  if (
+    pathEquals(path, ["details", "request"]) &&
+    ["customerLinkFieldId", "guestLinkFieldId"].includes(key)
+  ) {
+    return true;
+  }
+
   if (
     pathEquals(path, ["details", "import", "completion"]) &&
     ["pollCount", "tableId"].includes(key)
