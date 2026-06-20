@@ -355,6 +355,21 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // record-update-attachment generated attachment field id and uploaded tokens.
+  // Each run seeds a fresh table (new attachment field id) and uploads fresh
+  // files (new random tokens), so details.request.attachmentFieldId and
+  // details.update.expectedTokens differ between two runs of unchanged code
+  // (confirmed by the record-update-attachment baseline A vs B diff). The
+  // semantic evidence stays visible: rowCount / attachmentsPerCell,
+  // update.requestedRecords / updatedRecords, routing, sampleVerification, and
+  // fullScan.
+  if (pathEquals(path, ["details", "request"]) && key === "attachmentFieldId") {
+    return true;
+  }
+  if (pathEquals(path, ["details", "update"]) && key === "expectedTokens") {
+    return true;
+  }
+
   return false;
 };
 
