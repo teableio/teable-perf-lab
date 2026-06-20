@@ -484,6 +484,26 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // form-submit echoes the auto-created Form view id as details.formViewId. Each
+  // run builds a fresh Form-view table, so the view id differs between two runs
+  // of unchanged code (confirmed by the form-submit baseline A vs B diff). The
+  // form table identity stays visible via details.tableName (masked) and the
+  // field layout; the per-sample recordIds are already masked by the recordId
+  // key rule, and routing/verification evidence is unaffected.
+  if (pathEquals(path, ["details"]) && key === "formViewId") {
+    return true;
+  }
+
+  // form-submit's submit summary carries summarizeDurations' maxMs — the slowest
+  // sample duration, a timing value that varies run-to-run on unchanged code
+  // (confirmed by the form-submit baseline A vs B diff). maxMs is normally kept
+  // visible (threshold maxMs), so this is scoped to details.submit.summary;
+  // minMs/p50Ms/p95Ms are already masked as *Ms, and sample counts and routing
+  // stay visible. Mirrors the lookup-search-index keywords summary.maxMs rule.
+  if (pathEquals(path, ["details", "submit", "summary"]) && key === "maxMs") {
+    return true;
+  }
+
   return false;
 };
 

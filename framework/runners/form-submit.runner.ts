@@ -23,13 +23,11 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
+import { type Measurement } from "./record-undo-redo.shared";
+import {
+  runRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 type NamedField = {
   id: string;
@@ -80,6 +78,18 @@ type SubmitPrimaryResult = {
     first?: EngineRouting;
     last?: EngineRouting;
   };
+};
+
+// The single measured window bundles the sequential submit loop with the
+// post-submit full-scan verification, so the record-mutation lifecycle driver
+// can drive form-submit without owning submit-specific verification. The
+// driver's primary measurement keeps the submit-loop timing; the verification
+// measurement rides along on its result so buildResult emits the same
+// prepare -> formSubmitLoop -> verifySubmittedRows phases as the legacy runner.
+type FormSubmitPrimaryResult = SubmitPrimaryResult & {
+  verificationMeasurement: Measurement<
+    Awaited<ReturnType<typeof assertSubmittedRows>>
+  >;
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
@@ -627,73 +637,85 @@ const buildFormSubmitCaseResult = ({
   };
 };
 
-export const runFormSubmitCase = async (
+// The single measured window: the sequential submit loop (each submit
+// trace-wrapped + routing-asserted inside submitRecordsSequentially) followed
+// by the post-submit full-scan verification, bundled into one primary
+// measurement. The driver runs no record window for form-submit and does not
+// re-measure this.
+const runFormSubmitMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FormSubmitCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<FormSubmitFixture> | undefined;
-  let primaryMeasurement: Measurement<SubmitPrimaryResult> | undefined;
-  let verificationMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSubmittedRows>>>
-    | undefined;
+  config: FormSubmitCaseConfig,
+  fixture: FormSubmitFixture,
+): Promise<Measurement<FormSubmitPrimaryResult>> => {
+  const primaryMeasurement = await measureAsync("formSubmitLoop", () =>
+    submitRecordsSequentially(fixture, config, perfCase, context),
+  );
+  const verificationMeasurement = await measureAsync(
+    "verifySubmittedRows",
+    () => assertSubmittedRows(fixture, config),
+  );
+  return {
+    ...primaryMeasurement,
+    result: { ...primaryMeasurement.result, verificationMeasurement },
+  };
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareFormSubmitFixture(baseId, tableName, config),
-    );
-
+// The Form-view table is single-use scratch (no reusable seed), so cleanup just
+// drops it on a shared DB; isolated CI execute DBs are discarded wholesale.
+const cleanupFormSubmitFixture = async ({
+  baseId,
+  fixture,
+}: {
+  baseId: string;
+  fixture: FormSubmitFixture | undefined;
+}) => {
+  if (isExecuteDbIsolated()) {
+    return;
+  }
+  if (fixture?.tableId) {
     try {
-      primaryMeasurement = await measureAsync("formSubmitLoop", () =>
-        submitRecordsSequentially(
-          prepareMeasurement!.result,
-          config,
-          perfCase,
-          context,
-        ),
-      );
-      verificationMeasurement = await measureAsync("verifySubmittedRows", () =>
-        assertSubmittedRows(prepareMeasurement!.result, config),
-      );
+      await permanentDeleteTable(baseId, fixture.tableId);
     } catch (error) {
-      const diagnosticResult = buildFormSubmitCaseResult({
-        config,
-        prepareMeasurement,
-        primaryMeasurement,
-        verificationMeasurement,
+      console.warn(
+        `Failed to cleanup perf form submit table ${fixture.tableId}`,
         error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
       );
-    }
-
-    return buildFormSubmitCaseResult({
-      config,
-      prepareMeasurement,
-      primaryMeasurement,
-      verificationMeasurement,
-    });
-  } finally {
-    if (isExecuteDbIsolated()) {
-      // CI execute jobs run on a disposable restored DB copy; the temporary
-      // form table is discarded with the database.
-    } else if (prepareMeasurement?.result.tableId) {
-      try {
-        await permanentDeleteTable(baseId, prepareMeasurement.result.tableId);
-      } catch (error) {
-        console.warn(
-          `Failed to cleanup perf form submit table ${prepareMeasurement.result.tableId}`,
-          error,
-        );
-      }
     }
   }
 };
+
+const formSubmitLifecycleSpec: RecordMutationLifecycleSpec<
+  FormSubmitCaseConfig,
+  FormSubmitFixture,
+  never,
+  FormSubmitPrimaryResult
+> = {
+  // form-submit builds a fresh Form-view table per run and verifies after the
+  // submit loop, so it omits useRecordWindow and assertSeedReady; the driver
+  // emits no seedReady phase, matching the legacy prepare -> submit -> verify
+  // phase order surfaced by buildFormSubmitCaseResult.
+  prepareFixture: ({ baseId, tableName, config }) =>
+    prepareFormSubmitFixture(baseId, tableName, config),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runFormSubmitMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: ({ config, prepareMeasurement, primaryMeasurement, error }) =>
+    buildFormSubmitCaseResult({
+      config,
+      prepareMeasurement,
+      primaryMeasurement,
+      verificationMeasurement:
+        primaryMeasurement?.result.verificationMeasurement,
+      error,
+    }),
+  cleanup: cleanupFormSubmitFixture,
+};
+
+export const runFormSubmitCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, formSubmitLifecycleSpec);
 
 export const seedFormSubmitCase = async (
   perfCase: PerfCase,
