@@ -1566,6 +1566,29 @@ const buildImportBaseResult = ({
   };
 };
 
+// Intentionally NOT on a lifecycle driver yet — deferred after audit
+// (2026-06-20), not an oversight. import-base has no clean driver fit:
+//
+//   - It cannot ride csv-import-lifecycle.ts without rewriting that driver.
+//     import-base's cleanup must delete the imported RESULT base
+//     (primaryMeasurement.result.resultBaseId), but that driver's cleanup args
+//     carry only prepareMeasurement; its buildResult args carry no export/upload
+//     measurements; and its execute path has neither a seedReady phase nor the
+//     intermediate export+upload phases import-base emits between seedReady and
+//     the measured stream. csv-import imports a CSV INTO the existing base, while
+//     import-base creates a WHOLE NEW base (permanentDeleteBase) — different
+//     cardinality, not the same family. Generalizing csv-import-lifecycle to fit
+//     would force a re-G1 of its three csv-import cases for optionality they
+//     never use.
+//   - A standalone one-member import-base-lifecycle.ts would be premature: a
+//     lifecycle driver only earns its abstraction once a SECOND family member
+//     shares its shape, and there is no second base-import-from-stream kind.
+//
+// So this runner stays direct until a second base-import kind gives a driver a
+// real second member. Its run/seed flow is already explicit and loud-on-error,
+// and the upload-must-be-rebuilt-in-execute constraint (see the prepareImportUpload
+// comment below) is easier to keep correct inline than behind a driver seam.
+// See tasks/runner-migration-tracker.md.
 export const runImportBaseCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
