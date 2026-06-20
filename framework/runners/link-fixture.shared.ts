@@ -5,6 +5,7 @@ import {
   getFields,
   getRecords,
 } from "../../../utils/init-app";
+import { forEachRecordPage } from "../record-page-scan";
 
 // Foreign fixture table shape shared by the link-aware runners
 // (record-update-link, field-convert-link). The first field is the primary
@@ -124,21 +125,25 @@ export const fetchForeignIdByTitle = async (
   pageSize = 1_000,
 ): Promise<Map<string, string>> => {
   const idByTitle = new Map<string, string>();
-  for (let skip = 0; skip < rowCount; skip += pageSize) {
-    const take = Math.min(pageSize, rowCount - skip);
-    const result = await getRecords(foreignTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [keyFieldId],
-      skip,
-      take,
-    });
-    for (const record of result.records) {
+  await forEachRecordPage(
+    {
+      totalRows: rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(foreignTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [keyFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const title = record.fields[keyFieldId];
       if (typeof title === "string") {
         idByTitle.set(title, record.id);
       }
-    }
-  }
+    },
+  );
   if (idByTitle.size !== rowCount) {
     throw new Error(
       `Foreign table ${foreignTableId} resolved ${idByTitle.size} titled rows, expected ${rowCount}`,

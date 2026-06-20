@@ -13,6 +13,7 @@ import {
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -750,22 +751,21 @@ const assertSeedReady = async (
 
   if (rowCount > 0) {
     const pageSize = config.verify.fullScanPageSize ?? 1_000;
-    let scannedRecords = 0;
-    for (let skip = 0; skip < rowCount; skip += pageSize) {
-      const expectedTake = Math.min(pageSize, rowCount - skip);
-      const result = await getRecords(fixture.tableId, {
-        viewId,
-        fieldKeyType: FieldKeyType.Name,
-        skip,
-        take: expectedTake,
-      });
-      if (result.records.length !== expectedTake) {
-        throw new Error(
-          `Expected ${expectedTake} seed records at skip ${skip}, got ${result.records.length}`,
-        );
-      }
-      scannedRecords += result.records.length;
-    }
+    const { scannedRecords } = await forEachRecordPage(
+      {
+        totalRows: rowCount,
+        pageSize,
+        fetchPage: (skip, take) =>
+          getRecords(fixture.tableId, {
+            viewId,
+            fieldKeyType: FieldKeyType.Name,
+            skip,
+            take,
+          }),
+        pageNoun: "seed records",
+      },
+      () => {},
+    );
     fixture.viewId = viewId;
     fixture.seedRecordCount = scannedRecords;
   }

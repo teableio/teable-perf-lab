@@ -34,6 +34,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -546,28 +547,23 @@ const assertInsertedFullScan = async (
   expectedTokens: string[],
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleFieldId, fixture.attachmentFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    result.records.forEach((record, index) => {
-      assertInsertedSample(record, fixture, expectedTokens, skip + index + 1);
-      scannedRecords += 1;
-    });
-  }
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleFieldId, fixture.attachmentFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
+      assertInsertedSample(record, fixture, expectedTokens, rowNumber);
+    },
+  );
   if (scannedRecords !== config.rowCount) {
     throw new Error(
       `Attachment full scan count mismatch: expected ${config.rowCount}, scanned ${scannedRecords}`,

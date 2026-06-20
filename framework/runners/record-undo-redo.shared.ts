@@ -21,6 +21,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
 import { assertEngineRouting, assertStreamEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
@@ -754,28 +755,21 @@ export const assertRowsRestored = async (
   options: RestoreVerificationOptions = {},
 ): Promise<RecordReplayVerification> => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    scannedRecords += result.records.length;
-  }
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    () => {},
+  );
 
   const beyondLastPage = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,

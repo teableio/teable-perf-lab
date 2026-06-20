@@ -27,6 +27,7 @@ import {
   type SeedCacheInfo,
 } from "../seed-cache";
 import { pollUntilReady, sleep } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   LinkComputedPropagationCaseConfig,
@@ -788,23 +789,20 @@ const assertOrdersFullScan = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const projection = ordersProjection(fixture);
   const seen = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.ordersTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} orders at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "orders",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.ordersTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const orderRowNumber = parseOrderRowNumber(
         record.fields[fixture.ordersFields.titleFieldId],
       );
@@ -820,9 +818,8 @@ const assertOrdersFullScan = async (
         fixture,
         linked,
       );
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
   if (scannedRecords !== config.rowCount) {
     throw new Error(
       `Orders scan count mismatch: expected ${config.rowCount}, scanned ${scannedRecords}`,
@@ -849,23 +846,20 @@ const assertPurchaseFullScan = async (
     fixture.purchaseFields.labelId,
   ];
   const seen = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < total; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, total - skip);
-    const result = await getRecords(fixture.purchaseTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} purchases at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: total,
+      pageSize,
+      pageNoun: "purchases",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.purchaseTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const purchaseNumber = parsePurchaseRowNumber(
         record.fields[fixture.purchaseFields.titleFieldId],
       );
@@ -912,9 +906,8 @@ const assertPurchaseFullScan = async (
           `Purchase ${purchaseNumber} p_label mismatch: expected ${expectedLabel}, actual ${String(label)}`,
         );
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
   if (scannedRecords !== total) {
     throw new Error(
       `Purchase scan count mismatch: expected ${total}, scanned ${scannedRecords}`,

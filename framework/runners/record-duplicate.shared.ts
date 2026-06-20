@@ -9,6 +9,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { measureAsync, type Measurement } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -465,28 +466,22 @@ export const assertDuplicateSourceReady = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples: SourceReadyVerification["verifiedSamples"] = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} duplicate source records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "duplicate source records",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const compared = assertRecordValues({
         fixture,
         config,
@@ -504,9 +499,8 @@ export const assertDuplicateSourceReady = async (
           ...compared,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   const beyondLastPage = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,
