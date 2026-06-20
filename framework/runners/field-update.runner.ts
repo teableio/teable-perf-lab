@@ -33,7 +33,12 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import { type Measurement } from "./record-undo-redo.shared";
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -91,12 +96,6 @@ type SeededSampleRecord = {
   rowOffset: number;
   rowNumber: number;
   recordId: string;
-};
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
 };
 
 type ComputedField = {
@@ -1146,30 +1145,90 @@ const buildFieldUpdateResult = ({
   };
 };
 
-export const seedFieldUpdateCase = async (
+// The single measured window: the in-process v2 updateField (rename) request
+// followed by the computed-cascade readiness waits, bundled into one primary
+// measurement whose name and duration are the primary metric. No record window
+// is involved.
+const runFieldUpdateMeasuredOperation = (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldUpdateCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const fixture = await prepareFieldUpdateFixture(
-    perfCase,
-    context,
-    baseId,
-    tableName,
-    config,
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedSamples(fixture, config),
+  config: FieldUpdateCaseConfig,
+  fixture: FieldUpdateFixture,
+): Promise<Measurement<UpdatePrimaryResult>> =>
+  measureAsync(config.threshold.metric, () =>
+    runFieldUpdatePrimary(perfCase, context, fixture, config),
   );
 
-  return buildFieldUpdateResult({
+// The measured rename rewrites the Status column and recomputes dependent
+// computed columns in place, so a mutated reusable seed cannot be cheaply
+// restored: delete it unless the execute DB is the throwaway isolated copy, or
+// the rename never started on an otherwise-reusable seed. `primaryMeasurement`
+// is defined once the measured rename was attempted (the driver supplies it on
+// both the success and diagnostic paths), mirroring the legacy `renameAttempted`
+// flag.
+const cleanupFieldUpdateFixture = async ({
+  baseId,
+  fixture,
+  primaryMeasurement,
+}: {
+  baseId: string;
+  fixture: FieldUpdateFixture | undefined;
+  primaryMeasurement?: Measurement<UpdatePrimaryResult>;
+}) => {
+  const renameAttempted = primaryMeasurement != null;
+  const keepFixture =
+    isExecuteDbIsolated() ||
+    (Boolean(fixture?.reusableSeed) && !renameAttempted);
+  if (fixture?.tableId && !keepFixture) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(
+        `Failed to cleanup perf field update table ${fixture.tableId}`,
+        error,
+      );
+    }
+  }
+};
+
+const fieldUpdateLifecycleSpec: RecordMutationLifecycleSpec<
+  FieldUpdateCaseConfig,
+  FieldUpdateFixture,
+  Awaited<ReturnType<typeof assertSeedSamples>>,
+  UpdatePrimaryResult
+> = {
+  // field-update parks its createTable/seedRecords/computedFieldsReady
+  // sub-measurements on the fixture, so buildFieldUpdateResult emits those
+  // phases instead of the driver's "prepare" measurement. It asserts the seed
+  // (un-renamed) state as the seedReady phase, then runs the rename +
+  // computed-cascade wait as the primary; no record window is involved.
+  prepareFixture: ({ baseId, tableName, config, perfCase, context }) =>
+    prepareFieldUpdateFixture(perfCase, context, baseId, tableName, config),
+  assertSeedReady: ({ fixture, config }) => assertSeedSamples(fixture, config),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runFieldUpdateMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: ({
     config,
     fixture,
     seedReadyMeasurement,
-  });
+    primaryMeasurement,
+    error,
+  }) =>
+    buildFieldUpdateResult({
+      config,
+      fixture,
+      seedReadyMeasurement,
+      primaryMeasurement,
+      error,
+    }),
+  cleanup: cleanupFieldUpdateFixture,
 };
+
+export const seedFieldUpdateCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(perfCase, context, fieldUpdateLifecycleSpec);
 
 export const runFieldUpdateCase = async (
   perfCase: PerfCase,
@@ -1179,6 +1238,8 @@ export const runFieldUpdateCase = async (
 
   // V2-only diagnostic: the legacy PATCH updateField schema cannot express
   // select options, so there is no equivalent V1 workload to compare against.
+  // The skip short-circuits before the lifecycle driver so the skipped artifact
+  // stays byte-identical to the legacy runner.
   if (context.engine !== "v2") {
     return {
       result: "skipped",
@@ -1197,69 +1258,9 @@ export const runFieldUpdateCase = async (
     };
   }
 
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let fixture: FieldUpdateFixture | undefined;
-  let renameAttempted = false;
-
-  try {
-    fixture = await prepareFieldUpdateFixture(
-      perfCase,
-      context,
-      baseId,
-      tableName,
-      config,
-    );
-    let seedReadyMeasurement:
-      | Measurement<Awaited<ReturnType<typeof assertSeedSamples>>>
-      | undefined;
-    let primaryMeasurement: Measurement<UpdatePrimaryResult> | undefined;
-
-    try {
-      seedReadyMeasurement = await measureAsync("seedReady", () =>
-        assertSeedSamples(fixture!, config),
-      );
-      renameAttempted = true;
-      primaryMeasurement = await measureAsync(config.threshold.metric, () =>
-        runFieldUpdatePrimary(perfCase, context, fixture!, config),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildFieldUpdateResult({
-          config,
-          fixture,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildFieldUpdateResult({
-      config,
-      fixture,
-      seedReadyMeasurement,
-      primaryMeasurement,
-    });
-  } finally {
-    // CI execute jobs run on an isolated restored copy of the seed dump, so
-    // the renamed (mutated) cached seed is simply discarded with the
-    // database. A reusable seed that was never mutated can also stay. In all
-    // other cases the rename rewrote Status values and recomputed dependent
-    // columns in place; restoring would cost as much as reseeding, so delete
-    // the table and let the next run (or the seed job) rebuild it.
-    const keepFixture =
-      isExecuteDbIsolated() || (fixture?.reusableSeed && !renameAttempted);
-    if (fixture?.tableId && !keepFixture) {
-      try {
-        await permanentDeleteTable(baseId, fixture.tableId);
-      } catch (error) {
-        console.warn(
-          `Failed to cleanup perf field update table ${fixture.tableId}`,
-          error,
-        );
-      }
-    }
-  }
+  return runRecordMutationLifecycle(
+    perfCase,
+    context,
+    fieldUpdateLifecycleSpec,
+  );
 };

@@ -504,6 +504,41 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // field-update echoes the renamed field/option ids and the v2 command-bus
+  // event stream. Each run seeds a fresh table (and a fresh select field whose
+  // option ids are regenerated), so these generated ids and the event timestamps
+  // differ between two runs of unchanged code (confirmed by the field-update
+  // baseline A vs B diff). The semantic rename proof stays visible:
+  // details.updatedField.name/type, details.renamedOption.previousName/nextName,
+  // the verifiedSamples computed values, and the full-scan counts. The opaque
+  // ids / timestamps surface in three shapes:
+  //   * details.primaryTrace.traceId — the in-process span's trace id
+  //     (traceparent is already masked by the traceparent key rule)
+  if (pathEquals(path, ["details", "primaryTrace"]) && key === "traceId") {
+    return true;
+  }
+  //   * details.updatedField.id and details.renamedOption.id — the renamed field
+  //     and select-option ids
+  if (
+    path.length === 2 &&
+    path[0] === "details" &&
+    ["updatedField", "renamedOption"].includes(path[1]) &&
+    key === "id"
+  ) {
+    return true;
+  }
+  //   * the generated ids and occurredAt timestamps embedded throughout the
+  //     details.updateEvents domain-event echo (e.g. the old/new select option
+  //     ids under changes.options); the event types and field/option names stay
+  //     visible (fieldId is already masked by the generated-id key rule)
+  if (
+    path[0] === "details" &&
+    path[1] === "updateEvents" &&
+    ["id", "occurredAt"].includes(key)
+  ) {
+    return true;
+  }
+
   return false;
 };
 
