@@ -11,6 +11,17 @@ import type {
   PerfRunResult,
 } from "../types";
 
+// Intentionally NOT on a lifecycle driver — legacy by design, not yet-to-do.
+//
+// http-endpoint is a bare warmup + sampled-GET loop: no seed or fixture, no
+// seedReady, no measured-operation/diagnostic wrapping, no cleanup, no SSE. The
+// lifecycle drivers exist to consolidate the prepare -> seedReady -> measured op
+// -> restore/cleanup protocol that many mutation/read/import kinds repeat; this
+// runner shares none of that protocol, and it is the only bare-HTTP-smoke kind,
+// so there is no second member to generalize a driver toward. Wrapping it would
+// add indirection while consolidating nothing. It stays a direct runner on
+// purpose — revisit only if a second bare-HTTP-sampling kind ever appears.
+// See tasks/runner-migration-tracker.md.
 export const runHttpEndpointCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
