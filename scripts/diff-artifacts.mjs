@@ -101,6 +101,21 @@ const GENERATED_ID_KEYS = new Set([
   "valueFieldId",
   "lookupKeyFieldId",
   "hostRecordId",
+  // duplicate-base base ids: the source base (a reusable cached seed, content-
+  // addressed) and the freshly-created duplicate copy. Both are opaque generated
+  // ids — the copy id moves run-to-run, the source base id moves when the seed
+  // code changes — and a base's semantic identity is its table structure, never
+  // its id (confirmed by the duplicate-base baseline A vs B and G1 diffs).
+  "baseId",
+  // lookup-search-index host/view ids: the index-off and index-on host tables and
+  // their grid views. Each migration re-seeds them under a new content-hash name,
+  // so the ids move in G1 while the seed config is frozen; the semantic identity
+  // stays visible via the field layout and verified keyword hits. (sourceTableId
+  // is already masked above.)
+  "offTableId",
+  "onTableId",
+  "offViewId",
+  "onViewId",
 ]);
 
 const GENERATED_NAME_KEYS = new Set([
@@ -114,6 +129,12 @@ const GENERATED_NAME_KEYS = new Set([
   // details.seed.seedHash / seedNamePrefix.
   "sourceTableName",
   "hostTableName",
+  // duplicate-base base names: the source base's content-hash seed name and the
+  // freshly-created copy's Date.now()-suffixed name (plus the export package's
+  // hash-derived base name). Generated/seed-derived, so they differ run-to-run or
+  // on refactor; the semantic table names (Main 10k, Linked 1k, ...) stay visible.
+  // (duplicate-base baseline A vs B / G1 diff.)
+  "baseName",
 ]);
 
 const shouldMaskKey = (path, key) => {
@@ -219,7 +240,10 @@ const shouldMaskKey = (path, key) => {
 
   if (
     path.at(-1) === "cache" &&
-    ["seedHash", "seedHashShort", "seedTableName"].includes(key)
+    // seedBaseName is duplicate-base's hash-derived source-base name, nested under
+    // details.sourceBase.cache exactly like every other migrated runner's
+    // seedTableName — same content address, so the same cache rule masks it.
+    ["seedHash", "seedHashShort", "seedTableName", "seedBaseName"].includes(key)
   ) {
     return true;
   }
@@ -384,6 +408,78 @@ const shouldMaskKey = (path, key) => {
       path.at(-2),
     ) &&
     key === "id"
+  ) {
+    return true;
+  }
+
+  // duplicate-base echoes generated identifiers of the freshly-created copy (or
+  // exported package) every run. The measured operation always creates a brand-new
+  // base / export, so these differ between two runs of unchanged code (confirmed by
+  // the duplicate-base baseline A vs B diff). The semantic evidence stays visible:
+  // details.duplicate.operation/status/withRecords, progressEventCount, routing,
+  // and the full-scan + link-remap verification counts. The opaque copy base id /
+  // name are already masked by the baseId / baseName key rules above; the remaining
+  // echoes are:
+  //   * the duplicated main table id surfaced as the linked table's foreign table id
+  if (key === "linkFieldForeignTableId") {
+    return true;
+  }
+  //   * the export package preview URL (random token) and its hash-derived file
+  //     name, under details.duplicate.exportResult
+  if (
+    pathEquals(path, ["details", "duplicate", "exportResult"]) &&
+    ["previewUrl", "fileName"].includes(key)
+  ) {
+    return true;
+  }
+  //   * the SSE done-event payload: the created base id/name (duplicate-stream) or
+  //     the export preview URL / hash file name (export-stream)
+  if (
+    pathEquals(path, ["details", "duplicate", "doneEvent", "data"]) &&
+    ["id", "name", "previewUrl", "fileName"].includes(key)
+  ) {
+    return true;
+  }
+
+  // record-read overhead case: details.queryVariant.overheadRatio is the measured
+  // queryMs / baselineMs quotient, a pure timing ratio that varies run-to-run on
+  // unchanged code (confirmed by the record-read baseline A vs B diff). The signed
+  // overheadMs and raw baselineMs/queryMs are already masked as *Ms, and the
+  // threshold-participating overhead metric stays visible (and value-masked) under
+  // metrics.
+  if (
+    pathEquals(path, ["details", "queryVariant"]) &&
+    key === "overheadRatio"
+  ) {
+    return true;
+  }
+
+  // lookup-search-index per-keyword timing summaries: summarizeDurations emits a
+  // `maxMs` that is the slowest sample duration, a timing value that varies
+  // run-to-run on unchanged code (confirmed by the lookup-search-index baseline A
+  // vs B diff). maxMs is normally kept visible (threshold maxMs), so this is scoped
+  // to the details.keywords.* summaries; minMs/p50Ms/p95Ms are already masked as
+  // *Ms, and the semantic hitCount / fieldGroup / expectedHitCount stay visible.
+  if (
+    path[0] === "details" &&
+    path[1] === "keywords" &&
+    path.at(-1) === "summary" &&
+    key === "maxMs"
+  ) {
+    return true;
+  }
+
+  // lookup-search-index emits its seed-cache key BARE under details.seedCache
+  // (spread from seedCacheInfo), not nested in a `cache` object, so the
+  // path.at(-1) === "cache" rule above does not reach it. Same content address as
+  // every migrated runner's seedHash: stable run-to-run on unchanged code (absent
+  // from the lookup-search-index baseline A vs B diff) but it moves when the runner
+  // is refactored, so masking it lets a behavior-preserving migration pass G1. The
+  // semantic seed identity stays visible via seedNamePrefix / schemaSignature and
+  // the verified keyword hits.
+  if (
+    path.at(-1) === "seedCache" &&
+    ["seedHash", "seedHashShort", "seedTableName"].includes(key)
   ) {
     return true;
   }

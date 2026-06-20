@@ -34,7 +34,11 @@ import type {
   PerfRunResult,
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runDuplicateLifecycle,
+  seedDuplicateLifecycle,
+  type DuplicateLifecycleSpec,
+} from "./duplicate-lifecycle";
 import {
   buildRecordFields,
   undoRedoMixed20Fields,
@@ -1195,14 +1199,12 @@ const executeBaseOperation = async (
 };
 
 const buildDuplicateBaseCaseResult = ({
-  context,
   config,
   prepareMeasurement,
   seedReadyMeasurement,
   primaryMeasurement,
   error,
 }: {
-  context?: PerfRunContext;
   config: DuplicateBaseCaseConfig;
   prepareMeasurement?: Measurement<DuplicateBaseFixture>;
   seedReadyMeasurement?: Measurement<
@@ -1409,120 +1411,125 @@ const buildDuplicateBaseCaseResult = ({
   };
 };
 
-export const runDuplicateBaseCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as DuplicateBaseCaseConfig;
-  const spaceId = globalThis.testConfig.spaceId;
-  const thresholdMetric = getEffectiveThresholdMetric(config);
-  let prepareMeasurement: Measurement<DuplicateBaseFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSourceBaseReady>>>
-    | undefined;
-  let primaryMeasurement: Measurement<DuplicateBasePrimaryResult> | undefined;
-  // Captured as soon as a result base is created, so the finally block can clean
-  // it up even when post-create verification throws (primaryMeasurement stays
-  // undefined in that path).
-  let createdResultBaseId: string | undefined;
+// duplicate-base is the SECOND member of the duplicate lifecycle (duplicate-table
+// was the first). It fits the existing driver verbatim — prepare a populated
+// source base (its own "prepare" measurement parked on the fixture), assert the
+// source is readable, run one measured base operation, then drop the created copy
+// and the source unless it is a reusable cached seed — so the driver needs no
+// change. Two member-specific shapes ride in the spec:
+//   * The measured "primary" is one of three base operations (duplicate /
+//     duplicate-stream / export-stream); executeBaseOperation switches on
+//     config.operation and returns a uniform DuplicateBasePrimaryResult, so the
+//     driver's opaque runPrimary expresses all three without caring how the
+//     primary is produced.
+//   * The created copy id is parked on the (mutable) fixture as soon as the base
+//     is created — before verification — so cleanup can drop it even when
+//     post-create verification throws. export-stream creates no base, so it parks
+//     nothing and cleanup skips the base delete.
+type DuplicateBaseLifecycleFixture = DuplicateBaseFixture & {
+  // Parked by prepareFixture (the driver emits no "prepare" phase); buildResult
+  // rebuilds the prepare measurement from this.
+  prepareDurationMs: number;
+  // Parked by runPrimary once a result base is created (via onResultBaseCreated),
+  // so cleanup can drop it even if verification throws afterwards. Undefined for
+  // export-stream, which creates no base.
+  createdResultBaseId?: string;
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
+const duplicateBaseSpec: DuplicateLifecycleSpec<
+  DuplicateBaseCaseConfig,
+  DuplicateBaseLifecycleFixture,
+  Awaited<ReturnType<typeof assertSourceBaseReady>>,
+  Measurement<DuplicateBasePrimaryResult>
+> = {
+  prepareFixture: async ({ config, perfCase }) => {
+    const spaceId = globalThis.testConfig.spaceId;
+    const prepareMeasurement = await measureAsync("prepare", () =>
       prepareDuplicateBaseFixture(spaceId, config, perfCase),
     );
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSourceBaseReady(prepareMeasurement!.result, config),
-    );
-
-    try {
-      primaryMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        thresholdMetric,
-        () =>
-          measureAsync(`${getBaseOperation(config)}Ready`, () =>
-            executeBaseOperation(
-              context,
-              perfCase,
-              spaceId,
-              prepareMeasurement!.result,
-              config,
-              (baseId) => {
-                createdResultBaseId = baseId;
-              },
-            ),
-          ),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildDuplicateBaseCaseResult({
-          context,
-          config,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          primaryMeasurement,
-          error,
-        }),
-      );
-    }
-
-    return buildDuplicateBaseCaseResult({
+    return Object.assign(prepareMeasurement.result, {
+      prepareDurationMs: prepareMeasurement.durationMs,
+    });
+  },
+  assertSeedReady: ({ fixture, config }) =>
+    assertSourceBaseReady(fixture, config),
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    const spaceId = globalThis.testConfig.spaceId;
+    return withPerfTraceStep(
       context,
+      perfCase,
+      getEffectiveThresholdMetric(config),
+      () =>
+        measureAsync(`${getBaseOperation(config)}Ready`, () =>
+          executeBaseOperation(
+            context,
+            perfCase,
+            spaceId,
+            fixture,
+            config,
+            (baseId) => {
+              fixture.createdResultBaseId = baseId;
+            },
+          ),
+        ),
+    );
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    const prepareMeasurement = fixture
+      ? {
+          name: "prepare",
+          durationMs: fixture.prepareDurationMs,
+          result: fixture,
+        }
+      : undefined;
+    return buildDuplicateBaseCaseResult({
       config,
       prepareMeasurement,
       seedReadyMeasurement,
-      primaryMeasurement,
+      primaryMeasurement: primary,
+      error,
     });
-  } finally {
-    // CI execute jobs run on an isolated restored copy of the seed dump, so
-    // the mutated database is simply discarded after the job.
-    if (!isExecuteDbIsolated()) {
-      // For export-stream the only side effect is a transient `.tea` preview file
-      // in object storage (no result base); it is left to storage TTL/GC since no
-      // stable delete handle is exposed here. duplicate/duplicate-stream create a
-      // real base, cleaned up below.
-      const resultBaseId =
-        primaryMeasurement?.result.resultBaseId ?? createdResultBaseId;
-      if (resultBaseId) {
-        try {
-          await permanentDeleteBase(resultBaseId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup perf result base ${resultBaseId}`,
-            error,
-          );
-        }
-      }
-
-      const fixture = prepareMeasurement?.result;
-      if (fixture?.baseId && !fixture.reusableSeed) {
-        try {
-          await permanentDeleteBase(fixture.baseId);
-        } catch (error) {
-          console.warn(`Failed to cleanup perf base ${fixture.baseId}`, error);
-        }
+  },
+  cleanup: async ({ fixture }) => {
+    // CI execute jobs run on an isolated restored copy of the seed dump, so the
+    // mutated database is simply discarded after the job.
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    // duplicate/duplicate-stream create a real base, dropped here. For
+    // export-stream the only side effect is a transient `.tea` preview file in
+    // object storage (no result base), left to storage TTL/GC since no stable
+    // delete handle is exposed.
+    const resultBaseId = fixture.createdResultBaseId;
+    if (resultBaseId) {
+      try {
+        await permanentDeleteBase(resultBaseId);
+      } catch (error) {
+        console.warn(
+          `Failed to cleanup perf result base ${resultBaseId}`,
+          error,
+        );
       }
     }
-  }
+
+    if (fixture.baseId && !fixture.reusableSeed) {
+      try {
+        await permanentDeleteBase(fixture.baseId);
+      } catch (error) {
+        console.warn(`Failed to cleanup perf base ${fixture.baseId}`, error);
+      }
+    }
+  },
 };
 
-export const seedDuplicateBaseCase = async (
+export const runDuplicateBaseCase = (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as DuplicateBaseCaseConfig;
-  const spaceId = globalThis.testConfig.spaceId;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareDuplicateBaseFixture(spaceId, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSourceBaseReady(prepareMeasurement.result, config),
-  );
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runDuplicateLifecycle(perfCase, context, duplicateBaseSpec);
 
-  return buildDuplicateBaseCaseResult({
-    config,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+export const seedDuplicateBaseCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedDuplicateLifecycle(perfCase, context, duplicateBaseSpec);
