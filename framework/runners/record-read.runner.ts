@@ -8,7 +8,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric } from "../metrics";
 import {
   assertEngineRouting,
@@ -28,7 +28,11 @@ import type {
   PerfRunResult,
   RecordReadCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runReadLifecycle,
+  seedReadLifecycle,
+  type ReadLifecycleSpec,
+} from "./read-lifecycle";
 
 type Measurement<T> = {
   name: string;
@@ -1131,7 +1135,7 @@ const createFixture = async (
   }
 };
 
-const prepareFixture = async (
+const prepareRecordReadFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   config: RecordReadCaseConfig,
@@ -1638,126 +1642,131 @@ const buildRecordReadResult = ({
   };
 };
 
-export const runRecordReadCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordReadCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  let fixture: RecordReadFixture | undefined;
-  let prepareMeasurement: Measurement<RecordReadFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<ProjectionBoundaryVerification>
-    | undefined;
-  let baselineMeasurement: Measurement<ReadPagedScanResult> | undefined;
-  let baselineVerifyMeasurement:
-    | Measurement<ReadPagedScanVerification>
-    | undefined;
-  let readMeasurement: Measurement<ReadPagedScanResult> | undefined;
-  let verifyMeasurement: Measurement<ReadPagedScanVerification> | undefined;
+// record-read is the FIRST member of the read lifecycle: seed (or restore) a host
+// table plus the source table its lookups read through, assert the full 50-field
+// projection is readable, run the measured paged getRecords scan (optionally vs a
+// no-query baseline for the overhead variant) and verify it, then drop the host +
+// source tables unless they are a reusable cached seed. Its prepare carries its
+// own "prepare" measurement (so the driver emits no "prepare" phase), and its
+// primary bundles the optional baseline scan + the trace-wrapped measured scan +
+// the verify pass — all expressed in the spec, so the new read driver is born
+// minimal and family-shaped (lookup-search-index joins as the second member).
+type RecordReadLifecycleFixture = RecordReadFixture & {
+  // Parked by prepareFixture (the driver emits no "prepare" phase); buildResult
+  // rebuilds the prepare measurement from this.
+  prepareDurationMs: number;
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareFixture(perfCase, context, config),
+type RecordReadPrimary = {
+  readMeasurement: Measurement<ReadPagedScanResult>;
+  verifyMeasurement: Measurement<ReadPagedScanVerification>;
+  // Only the queryVariant (overhead) case runs the no-query baseline scan.
+  baselineMeasurement?: Measurement<ReadPagedScanResult>;
+  baselineVerifyMeasurement?: Measurement<ReadPagedScanVerification>;
+};
+
+const recordReadSpec: ReadLifecycleSpec<
+  RecordReadCaseConfig,
+  RecordReadLifecycleFixture,
+  ProjectionBoundaryVerification,
+  RecordReadPrimary
+> = {
+  prepareFixture: async ({ perfCase, context, config }) => {
+    const prepareMeasurement = await measureAsync("prepare", () =>
+      prepareRecordReadFixture(perfCase, context, config),
     );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertProjectionBoundary(fixture!, config),
-    );
+    return Object.assign(prepareMeasurement.result, {
+      prepareDurationMs: prepareMeasurement.durationMs,
+    });
+  },
+  assertSeedReady: ({ fixture, config }) =>
+    assertProjectionBoundary(fixture, config),
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    let baselineMeasurement: Measurement<ReadPagedScanResult> | undefined;
+    let baselineVerifyMeasurement:
+      | Measurement<ReadPagedScanVerification>
+      | undefined;
 
-    try {
-      if (config.queryVariant) {
-        baselineMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          "getRecordsBaselinePagedScan",
-          () =>
-            measureAsync("getRecordsBaselinePagedScan", () =>
-              readPagedScan(fixture!, context, config),
-            ),
-        );
-        baselineVerifyMeasurement = await measureAsync(
-          "verifyBaselineReadPages",
-          () =>
-            Promise.resolve(
-              verifyReadPagedScan(
-                fixture!,
-                config,
-                baselineMeasurement!.result,
-              ),
-            ),
-        );
-      }
-
-      readMeasurement = await withPerfTraceStep(
+    if (config.queryVariant) {
+      baselineMeasurement = await withPerfTraceStep(
         context,
         perfCase,
-        config.threshold.metric,
+        "getRecordsBaselinePagedScan",
         () =>
-          measureAsync(config.threshold.metric, () =>
-            readPagedScan(
-              fixture!,
-              context,
-              config,
-              buildQueryVariant(fixture!, config),
-            ),
+          measureAsync("getRecordsBaselinePagedScan", () =>
+            readPagedScan(fixture, context, config),
           ),
       );
-      verifyMeasurement = await measureAsync("verifyReadPages", () =>
-        Promise.resolve(
-          verifyReadPagedScan(fixture!, config, readMeasurement!.result),
-        ),
-      );
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildRecordReadResult({
-          config,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          readMeasurement,
-          verifyMeasurement,
-          baselineMeasurement,
-          baselineVerifyMeasurement,
-          error,
-        }),
+      baselineVerifyMeasurement = await measureAsync(
+        "verifyBaselineReadPages",
+        () =>
+          Promise.resolve(
+            verifyReadPagedScan(fixture, config, baselineMeasurement!.result),
+          ),
       );
     }
 
+    const readMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      config.threshold.metric,
+      () =>
+        measureAsync(config.threshold.metric, () =>
+          readPagedScan(
+            fixture,
+            context,
+            config,
+            buildQueryVariant(fixture, config),
+          ),
+        ),
+    );
+    const verifyMeasurement = await measureAsync("verifyReadPages", () =>
+      Promise.resolve(
+        verifyReadPagedScan(fixture, config, readMeasurement.result),
+      ),
+    );
+
+    return {
+      readMeasurement,
+      verifyMeasurement,
+      baselineMeasurement,
+      baselineVerifyMeasurement,
+    };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    const prepareMeasurement = fixture
+      ? {
+          name: "prepare",
+          durationMs: fixture.prepareDurationMs,
+          result: fixture,
+        }
+      : undefined;
     return buildRecordReadResult({
       config,
       fixture,
       prepareMeasurement,
       seedReadyMeasurement,
-      readMeasurement,
-      verifyMeasurement,
-      baselineMeasurement,
-      baselineVerifyMeasurement,
+      readMeasurement: primary?.readMeasurement,
+      verifyMeasurement: primary?.verifyMeasurement,
+      baselineMeasurement: primary?.baselineMeasurement,
+      baselineVerifyMeasurement: primary?.baselineVerifyMeasurement,
+      error,
     });
-  } finally {
-    if (fixture && !fixture.reusableSeed && !isExecuteDbIsolated()) {
-      await deleteTables(baseId, [fixture.tableId, fixture.sourceTableId]);
-    }
-  }
+  },
+  // Non-destructive read: drop the host + source tables unless the seed is a
+  // reusable cached seed (the driver also short-circuits on the isolated CI DB).
+  seedTableIds: (fixture) => [fixture.tableId, fixture.sourceTableId],
+  isReusableSeed: (fixture) => fixture.reusableSeed,
 };
 
-export const seedRecordReadCase = async (
+export const runRecordReadCase = (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordReadCaseConfig;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareFixture(perfCase, context, config),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertProjectionBoundary(prepareMeasurement.result, config),
-  );
+): Promise<PerfRunResult> =>
+  runReadLifecycle(perfCase, context, recordReadSpec);
 
-  return buildRecordReadResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+export const seedRecordReadCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedReadLifecycle(perfCase, context, recordReadSpec);
