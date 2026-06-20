@@ -9,6 +9,7 @@ import {
   getTable,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import {
   getPositiveIntegerEnv,
   getPrimaryThresholdMs,
@@ -227,14 +228,6 @@ type PrimaryResult = {
   routing: EngineRouting;
   ordersScan: { scannedRecords: number; pageSize: number; pageCount: number };
   purchaseScan: { scannedRecords: number; pageSize: number; pageCount: number };
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 // Debug-only smoke overrides so a local run can validate mechanics at small

@@ -14,6 +14,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { forEachRecordPage } from "../record-page-scan";
 import { measureAsync, type Measurement } from "../metrics";
@@ -68,14 +69,6 @@ type ClearFixture = {
 type ExpectedCellValue = string | number | boolean | string[] | null;
 
 const DEFAULT_GROUPS = ["A", "B", "C", "D", "E"];
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const buildSyntheticSeededRecords = (rowCount: number): SeededRecord[] =>
   Array.from({ length: rowCount }, (_, index) => ({

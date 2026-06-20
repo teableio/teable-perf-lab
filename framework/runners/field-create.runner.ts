@@ -10,6 +10,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
@@ -701,14 +702,6 @@ const waitForComputedFieldsReady = (
       );
     },
   );
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const pickResponseHeaders = pickRoutingResponseHeaders;

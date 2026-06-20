@@ -5,6 +5,7 @@ import {
   getFields,
   getRecords,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { forEachRecordPage } from "../record-page-scan";
 
 // Foreign fixture table shape shared by the link-aware runners
@@ -25,14 +26,6 @@ export type ForeignTableSeed = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(6, "0");
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 // Deterministic mapping host row -> foreign row. The permutation keeps the
 // mapping computable from the row number so V1/V2 runs and reruns compare.

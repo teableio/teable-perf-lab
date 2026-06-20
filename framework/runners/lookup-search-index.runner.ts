@@ -14,6 +14,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { TableIndexService } from "../../../../src/features/table/table-index.service";
+import { chunk } from "../chunk";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
 import {
   type Measurement,
@@ -139,14 +140,6 @@ const getSearchTraceSampleSettleMs = () => {
     return 0;
   }
   return getPositiveIntegerEnv("PERF_LAB_SEARCH_TRACE_SAMPLE_SETTLE_MS") ?? 50;
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const getGreatestCommonDivisor = (left: number, right: number): number => {

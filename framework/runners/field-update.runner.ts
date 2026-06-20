@@ -12,6 +12,7 @@ import {
   runWithTestUser,
 } from "../../../utils/init-app";
 import { executeUpdateFieldEndpoint } from "@teable/v2-contract-http-implementation/handlers";
+import { chunk } from "../chunk";
 import { v2CoreTokens, type ICommandBus } from "@teable/v2-core";
 import { V2ContainerService } from "../../../../src/features/v2/v2-container.service";
 import { V2ExecutionContextFactory } from "../../../../src/features/v2/v2-execution-context.factory";
@@ -44,14 +45,6 @@ import {
   seedRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const FIELD_UPDATE_FIXTURE_VERSION = "field-update-v1";
 

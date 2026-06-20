@@ -23,6 +23,7 @@ import {
   getTable,
   getViews,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
@@ -202,14 +203,6 @@ type ImportBasePrimaryResult = {
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
