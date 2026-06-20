@@ -484,6 +484,61 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // form-submit echoes the auto-created Form view id as details.formViewId. Each
+  // run builds a fresh Form-view table, so the view id differs between two runs
+  // of unchanged code (confirmed by the form-submit baseline A vs B diff). The
+  // form table identity stays visible via details.tableName (masked) and the
+  // field layout; the per-sample recordIds are already masked by the recordId
+  // key rule, and routing/verification evidence is unaffected.
+  if (pathEquals(path, ["details"]) && key === "formViewId") {
+    return true;
+  }
+
+  // form-submit's submit summary carries summarizeDurations' maxMs — the slowest
+  // sample duration, a timing value that varies run-to-run on unchanged code
+  // (confirmed by the form-submit baseline A vs B diff). maxMs is normally kept
+  // visible (threshold maxMs), so this is scoped to details.submit.summary;
+  // minMs/p50Ms/p95Ms are already masked as *Ms, and sample counts and routing
+  // stay visible. Mirrors the lookup-search-index keywords summary.maxMs rule.
+  if (pathEquals(path, ["details", "submit", "summary"]) && key === "maxMs") {
+    return true;
+  }
+
+  // field-update echoes the renamed field/option ids and the v2 command-bus
+  // event stream. Each run seeds a fresh table (and a fresh select field whose
+  // option ids are regenerated), so these generated ids and the event timestamps
+  // differ between two runs of unchanged code (confirmed by the field-update
+  // baseline A vs B diff). The semantic rename proof stays visible:
+  // details.updatedField.name/type, details.renamedOption.previousName/nextName,
+  // the verifiedSamples computed values, and the full-scan counts. The opaque
+  // ids / timestamps surface in three shapes:
+  //   * details.primaryTrace.traceId — the in-process span's trace id
+  //     (traceparent is already masked by the traceparent key rule)
+  if (pathEquals(path, ["details", "primaryTrace"]) && key === "traceId") {
+    return true;
+  }
+  //   * details.updatedField.id and details.renamedOption.id — the renamed field
+  //     and select-option ids
+  if (
+    path.length === 2 &&
+    path[0] === "details" &&
+    ["updatedField", "renamedOption"].includes(path[1]) &&
+    key === "id"
+  ) {
+    return true;
+  }
+  //   * the generated ids and occurredAt timestamps embedded throughout the
+  //     details.updateEvents domain-event echo (e.g. the old/new select option
+  //     ids under changes.options); the event types and field/option names stay
+  //     visible (fieldId is already masked by the generated-id key rule)
+  if (
+    path[0] === "details" &&
+    path[1] === "updateEvents" &&
+    ["id", "occurredAt"].includes(key)
+  ) {
+    return true;
+  }
+
   return false;
 };
 
