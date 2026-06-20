@@ -8,6 +8,7 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
@@ -39,14 +40,6 @@ import {
   seedFieldConvertLifecycle,
   type FieldConvertLifecycleSpec,
 } from "./field-convert-lifecycle";
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const TAG_CHOICES = ["Alpha", "Beta", "Gamma", "Delta"];
 

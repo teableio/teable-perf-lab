@@ -9,6 +9,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { forEachRecordPage } from "../record-page-scan";
 import { type Measurement, measureAsync, roundMetric } from "../metrics";
@@ -233,14 +234,6 @@ const getFormulaExpectedValue = (
     case "amountTimesPercent":
       return amount * percent;
   }
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

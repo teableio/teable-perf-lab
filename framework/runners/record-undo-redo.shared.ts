@@ -19,6 +19,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import { forEachRecordPage } from "../record-page-scan";
@@ -215,14 +216,6 @@ export const undoRedo10kBaseConfig = {
     sampleRows: [0, 4_999, 9_999],
     fullScanPageSize: 1_000,
   },
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const buildSyntheticSeededRecords = (rowCount: number): SeededRecord[] =>

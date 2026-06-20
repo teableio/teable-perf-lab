@@ -1,4 +1,5 @@
 import { FieldKeyType, FieldType } from "@teable/core";
+import { chunk } from "../chunk";
 import {
   deleteRecords,
   createRecords,
@@ -84,14 +85,6 @@ export type RowCountVerification = {
 const DEFAULT_GROUPS = ["A", "B", "C", "D", "E"];
 const RECORD_ID_QUERY_BATCH_SIZE = 100;
 const DELETE_RECORD_BATCH_SIZE = 100;
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
