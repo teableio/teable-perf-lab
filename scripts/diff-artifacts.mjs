@@ -107,6 +107,15 @@ const GENERATED_ID_KEYS = new Set([
   // code changes — and a base's semantic identity is its table structure, never
   // its id (confirmed by the duplicate-base baseline A vs B and G1 diffs).
   "baseId",
+  // lookup-search-index host/view ids: the index-off and index-on host tables and
+  // their grid views. Each migration re-seeds them under a new content-hash name,
+  // so the ids move in G1 while the seed config is frozen; the semantic identity
+  // stays visible via the field layout and verified keyword hits. (sourceTableId
+  // is already masked above.)
+  "offTableId",
+  "onTableId",
+  "offViewId",
+  "onViewId",
 ]);
 
 const GENERATED_NAME_KEYS = new Set([
@@ -441,6 +450,36 @@ const shouldMaskKey = (path, key) => {
   if (
     pathEquals(path, ["details", "queryVariant"]) &&
     key === "overheadRatio"
+  ) {
+    return true;
+  }
+
+  // lookup-search-index per-keyword timing summaries: summarizeDurations emits a
+  // `maxMs` that is the slowest sample duration, a timing value that varies
+  // run-to-run on unchanged code (confirmed by the lookup-search-index baseline A
+  // vs B diff). maxMs is normally kept visible (threshold maxMs), so this is scoped
+  // to the details.keywords.* summaries; minMs/p50Ms/p95Ms are already masked as
+  // *Ms, and the semantic hitCount / fieldGroup / expectedHitCount stay visible.
+  if (
+    path[0] === "details" &&
+    path[1] === "keywords" &&
+    path.at(-1) === "summary" &&
+    key === "maxMs"
+  ) {
+    return true;
+  }
+
+  // lookup-search-index emits its seed-cache key BARE under details.seedCache
+  // (spread from seedCacheInfo), not nested in a `cache` object, so the
+  // path.at(-1) === "cache" rule above does not reach it. Same content address as
+  // every migrated runner's seedHash: stable run-to-run on unchanged code (absent
+  // from the lookup-search-index baseline A vs B diff) but it moves when the runner
+  // is refactored, so masking it lets a behavior-preserving migration pass G1. The
+  // semantic seed identity stays visible via seedNamePrefix / schemaSignature and
+  // the verified keyword hits.
+  if (
+    path.at(-1) === "seedCache" &&
+    ["seedHash", "seedHashShort", "seedTableName"].includes(key)
   ) {
     return true;
   }
