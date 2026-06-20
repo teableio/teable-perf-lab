@@ -36,7 +36,11 @@ import type {
   PerfRunResult,
   RecordUpdateAttachmentCaseConfig,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
 
 const ATTACHMENT_FIXTURE_VERSION = "record-update-attachment-v1";
 const ATTACHMENT_METADATA_PREFIX = "perf-lab-record-update-attachment:";
@@ -74,6 +78,10 @@ type AttachmentFixture = {
   seedCacheInfo: SeedCacheInfo;
   seedCacheHit: boolean;
   reusableSeed: boolean;
+  // Parked by the measured operation (the execute-only attachment upload), read
+  // by buildResult so the unmeasured upload cost is still reported even on the
+  // diagnostic path when a later step throws.
+  uploadSetupMs?: number;
 };
 
 type AttachmentPrimaryResult = {
@@ -722,186 +730,197 @@ const buildResult = ({
   },
 });
 
-export const runRecordUpdateAttachmentCase = async (
+// The single measured operation, run inside the driver's execute path only:
+// upload tokens (execute-only setup) -> warmup -> p95-sampled bulk
+// attachment-cell update -> routing assertion -> post-update verification + full
+// scan, bundled into one synthetic primary measurement whose p95 duration is the
+// primary metric. The attachment tokens MUST be uploaded here (execute), never
+// seeded: the seed->execute cache carries only the DB dump, not the storage
+// volume, so a cached token would 404 on the execute runner. uploadSetupMs is
+// parked on the (mutable) fixture so buildResult still reports it even when a
+// later step throws (the diagnostic path).
+const runAttachmentMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateAttachmentCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<AttachmentFixture> | undefined;
-  let seedReadyMeasurement: Measurement<{ checkedRecords: number }> | undefined;
-  let uploadSetupMs: number | undefined;
-  let fixture: AttachmentFixture | undefined;
-
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      prepareAttachmentFixture(baseId, tableName, config, perfCase),
+  config: RecordUpdateAttachmentCaseConfig,
+  fixture: AttachmentFixture,
+): Promise<Measurement<AttachmentPrimaryResult>> => {
+  const uploadMeasurement = await measureAsync("uploadSetup", () =>
+    uploadAttachmentSet(fixture, config),
+  );
+  fixture.uploadSetupMs = uploadMeasurement.durationMs;
+  const insertItems = uploadMeasurement.result.slice(
+    0,
+    config.attachmentsPerCell,
+  );
+  if (insertItems.length !== config.attachmentsPerCell) {
+    throw new Error(
+      `Uploaded ${uploadMeasurement.result.length} attachments, need ${config.attachmentsPerCell} per cell`,
     );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSeedSamples(fixture!, config),
-    );
+  }
+  const expectedTokens = insertItems.map((item) => item.token);
 
-    let primaryMeasurement: Measurement<AttachmentPrimaryResult> | undefined;
+  // Warmup: one unmeasured bulk insert so the per-request v2
+  // container/context construction, prepared statements, and connection
+  // pools are hot before the sampled requests. The update is idempotent
+  // (the same tokens are written every time), so warmup and all samples
+  // leave the same final state the verification then checks.
+  const warmupMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    "warmup",
+    () =>
+      measureAsync("warmupUpdate", () =>
+        bulkInsertAttachments(fixture, insertItems),
+      ),
+  );
+
+  const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
+  const durations: number[] = [];
+  let lastUpdate = warmupMeasurement.result;
+  for (let iteration = 1; iteration <= samples; iteration += 1) {
+    const sampleMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      `sample-${iteration}`,
+      () =>
+        measureAsync(`sample-${iteration}`, () =>
+          bulkInsertAttachments(fixture, insertItems),
+        ),
+    );
+    durations.push(sampleMeasurement.durationMs);
+    lastUpdate = sampleMeasurement.result;
+  }
+  const summary = summarizeDurations(durations);
+  const routing = assertEngineRouting(context, lastUpdate.responseHeaders, {
+    operation: "updateRecords",
+  });
+  const verifyMeasurement = await measureAsync("verifyUpdated", () =>
+    assertInsertedSamples(fixture, config, expectedTokens),
+  );
+  const fullScan = await assertInsertedFullScan(
+    fixture,
+    config,
+    expectedTokens,
+  );
+
+  return {
+    name: config.threshold.metric,
+    durationMs: summary.p95Ms,
+    result: {
+      summary,
+      samples,
+      warmupUpdateMs: warmupMeasurement.durationMs,
+      requestedRecords: lastUpdate.requestedRecords,
+      updatedRecords: lastUpdate.updatedRecords,
+      responseHeaders: lastUpdate.responseHeaders,
+      routing,
+      expectedTokens,
+      verified: { checkedRecords: verifyMeasurement.result.checkedRecords },
+      verifyUpdatedMs: verifyMeasurement.durationMs,
+      fullScan,
+    },
+  };
+};
+
+// Class C cleanup: clear the inserted attachment cells so the cached seed
+// returns to its empty-attachment state; if that fails, delete the table.
+// Isolated CI execute DBs are discarded, so skip all cleanup there.
+const cleanupAttachmentFixture = async ({
+  baseId,
+  fixture,
+  config,
+}: {
+  baseId: string;
+  fixture: AttachmentFixture | undefined;
+  config: RecordUpdateAttachmentCaseConfig;
+}) => {
+  if (isExecuteDbIsolated()) {
+    return;
+  }
+  if (fixture?.reusableSeed) {
+    let restored = false;
     try {
-      const uploadMeasurement = await measureAsync("uploadSetup", () =>
-        uploadAttachmentSet(fixture!, config),
-      );
-      uploadSetupMs = uploadMeasurement.durationMs;
-      const insertItems = uploadMeasurement.result.slice(
-        0,
-        config.attachmentsPerCell,
-      );
-      if (insertItems.length !== config.attachmentsPerCell) {
-        throw new Error(
-          `Uploaded ${uploadMeasurement.result.length} attachments, need ${config.attachmentsPerCell} per cell`,
-        );
-      }
-      const expectedTokens = insertItems.map((item) => item.token);
-
-      // Warmup: one unmeasured bulk insert so the per-request v2
-      // container/context construction, prepared statements, and connection
-      // pools are hot before the sampled requests. The update is idempotent
-      // (the same tokens are written every time), so warmup and all samples
-      // leave the same final state the verification then checks.
-      const warmupMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        "warmup",
-        () =>
-          measureAsync("warmupUpdate", () =>
-            bulkInsertAttachments(fixture!, insertItems),
-          ),
-      );
-
-      const samples =
-        getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
-      const durations: number[] = [];
-      let lastUpdate = warmupMeasurement.result;
-      for (let iteration = 1; iteration <= samples; iteration += 1) {
-        const sampleMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          `sample-${iteration}`,
-          () =>
-            measureAsync(`sample-${iteration}`, () =>
-              bulkInsertAttachments(fixture!, insertItems),
-            ),
-        );
-        durations.push(sampleMeasurement.durationMs);
-        lastUpdate = sampleMeasurement.result;
-      }
-      const summary = summarizeDurations(durations);
-      const routing = assertEngineRouting(context, lastUpdate.responseHeaders, {
-        operation: "updateRecords",
-      });
-      const verifyMeasurement = await measureAsync("verifyUpdated", () =>
-        assertInsertedSamples(fixture!, config, expectedTokens),
-      );
-      const fullScan = await assertInsertedFullScan(
-        fixture!,
-        config,
-        expectedTokens,
-      );
-      primaryMeasurement = {
-        name: config.threshold.metric,
-        durationMs: summary.p95Ms,
-        result: {
-          summary,
-          samples,
-          warmupUpdateMs: warmupMeasurement.durationMs,
-          requestedRecords: lastUpdate.requestedRecords,
-          updatedRecords: lastUpdate.updatedRecords,
-          responseHeaders: lastUpdate.responseHeaders,
-          routing,
-          expectedTokens,
-          verified: { checkedRecords: verifyMeasurement.result.checkedRecords },
-          verifyUpdatedMs: verifyMeasurement.durationMs,
-          fullScan,
-        },
-      };
+      await clearAttachmentCells(fixture);
+      await assertSeedSamples(fixture, config);
+      restored = true;
     } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult({
-          config,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          uploadSetupMs,
-          primaryMeasurement,
-          error,
-        }),
+      console.warn(
+        `Failed to restore cached attachment seed ${fixture.tableId}; deleting it`,
+        error,
       );
     }
-
-    return buildResult({
-      config,
-      fixture,
-      prepareMeasurement,
-      seedReadyMeasurement,
-      uploadSetupMs,
-      primaryMeasurement,
-    });
-  } finally {
-    // Class C cleanup: clear the inserted attachment cells so the cached seed
-    // returns to its empty-attachment state; if that fails, delete the table.
-    // Isolated CI execute DBs are discarded, so skip all cleanup there.
-    if (!isExecuteDbIsolated()) {
-      if (fixture?.reusableSeed) {
-        let restored = false;
-        try {
-          await clearAttachmentCells(fixture);
-          await assertSeedSamples(fixture, config);
-          restored = true;
-        } catch (error) {
-          console.warn(
-            `Failed to restore cached attachment seed ${fixture.tableId}; deleting it`,
-            error,
-          );
-        }
-        if (!restored) {
-          try {
-            await permanentDeleteTable(baseId, fixture.tableId);
-          } catch (error) {
-            console.warn(
-              `Failed to cleanup attachment table ${fixture.tableId}`,
-              error,
-            );
-          }
-        }
-      } else if (fixture) {
-        try {
-          await permanentDeleteTable(baseId, fixture.tableId);
-        } catch (error) {
-          console.warn(
-            `Failed to cleanup attachment table ${fixture.tableId}`,
-            error,
-          );
-        }
+    if (!restored) {
+      try {
+        await permanentDeleteTable(baseId, fixture.tableId);
+      } catch (error) {
+        console.warn(
+          `Failed to cleanup attachment table ${fixture.tableId}`,
+          error,
+        );
       }
+    }
+  } else if (fixture) {
+    try {
+      await permanentDeleteTable(baseId, fixture.tableId);
+    } catch (error) {
+      console.warn(
+        `Failed to cleanup attachment table ${fixture.tableId}`,
+        error,
+      );
     }
   }
 };
 
-export const seedRecordUpdateAttachmentCase = async (
-  perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as RecordUpdateAttachmentCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
+// record-update-attachment rides the record-mutation lifecycle: seed a Title +
+// empty-Attachment table, assert the cells are empty, then run the single
+// measured bulk attachment-cell update and restore-or-delete the seed. It varies
+// from the scalar record-update member only in the measured operation (an
+// execute-only upload + p95-sampled idempotent insert) and in opening no record
+// window, so it expresses both as spec fields and the driver stays unchanged.
+const recordUpdateAttachmentSpec: RecordMutationLifecycleSpec<
+  RecordUpdateAttachmentCaseConfig,
+  AttachmentFixture,
+  Awaited<ReturnType<typeof assertSeedSamples>>,
+  AttachmentPrimaryResult
+> = {
+  // The attachment bulk update is not grouped under a record window (matches the
+  // legacy runner, which opened none).
+  useRecordWindow: false,
+  prepareFixture: ({ baseId, tableName, config, perfCase }) =>
     prepareAttachmentFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedSamples(prepareMeasurement.result, config),
-  );
-  return buildResult({
+  assertSeedReady: ({ fixture, config }) => assertSeedSamples(fixture, config),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runAttachmentMeasuredOperation(perfCase, context, config, fixture),
+  buildResult: ({
     config,
-    fixture: prepareMeasurement.result,
+    fixture,
     prepareMeasurement,
     seedReadyMeasurement,
-  });
+    primaryMeasurement,
+    error,
+  }) =>
+    buildResult({
+      config,
+      fixture,
+      prepareMeasurement,
+      seedReadyMeasurement,
+      uploadSetupMs: fixture?.uploadSetupMs,
+      primaryMeasurement,
+      error,
+    }),
+  cleanup: ({ baseId, fixture, config }) =>
+    cleanupAttachmentFixture({ baseId, fixture, config }),
 };
+
+export const runRecordUpdateAttachmentCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(perfCase, context, recordUpdateAttachmentSpec);
+
+export const seedRecordUpdateAttachmentCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(perfCase, context, recordUpdateAttachmentSpec);

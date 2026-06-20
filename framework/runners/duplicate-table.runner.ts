@@ -28,7 +28,11 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
+import {
+  runDuplicateLifecycle,
+  seedDuplicateLifecycle,
+  type DuplicateLifecycleSpec,
+} from "./duplicate-lifecycle";
 
 type Measurement<T> = {
   name: string;
@@ -1086,106 +1090,102 @@ const buildDuplicateTableCaseResult = ({
   };
 };
 
-export const runDuplicateTableCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as DuplicateTableCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.sourceTableNamePrefix}-${Date.now()}`;
-  let prepareMeasurement: Measurement<DuplicateTableFixture> | undefined;
-  let seedReadyMeasurement:
-    | Measurement<Awaited<ReturnType<typeof assertSeedReady>>>
-    | undefined;
-  let primaryMeasurement: Measurement<DuplicateTablePrimaryResult> | undefined;
+type DuplicateTableLifecycleFixture = DuplicateTableFixture & {
+  // Parked by prepareFixture (the driver emits no "prepare" phase); buildResult
+  // rebuilds the prepare measurement from this.
+  prepareDurationMs: number;
+  // Parked by runPrimary once the duplicate request returns, so cleanup can drop
+  // the created copy even if the copy-readiness scan throws afterwards.
+  duplicateTableId?: string;
+};
 
-  try {
-    prepareMeasurement = await measureAsync("prepare", () =>
+// duplicate-table is the first member of the duplicate lifecycle: seed (or
+// restore) a populated source table, assert it is fully readable, run the single
+// measured duplicate request and wait for the copy's rows to be readable, then
+// drop the copy (and the source unless it is a reusable cached seed). Its prepare
+// carries its own "prepare" measurement (so the driver emits no "prepare" phase),
+// and its primary is the trace-wrapped duplicateTableTotalReady measurement whose
+// request/full-scan split feeds the computed metrics — all expressed in the spec,
+// so the new driver is born minimal and family-shaped (duplicate-base joins next).
+const duplicateTableSpec: DuplicateLifecycleSpec<
+  DuplicateTableCaseConfig,
+  DuplicateTableLifecycleFixture,
+  Awaited<ReturnType<typeof assertSeedReady>>,
+  Measurement<DuplicateTablePrimaryResult>
+> = {
+  prepareFixture: async ({ baseId, config, perfCase, seedMode }) => {
+    const tableName = seedMode
+      ? `${config.sourceTableNamePrefix}-seed-${Date.now()}`
+      : `${config.sourceTableNamePrefix}-${Date.now()}`;
+    const prepareMeasurement = await measureAsync("prepare", () =>
       prepareDuplicateTableFixture(baseId, tableName, config, perfCase),
     );
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      assertSeedReady(prepareMeasurement!.result, config),
+    return Object.assign(prepareMeasurement.result, {
+      prepareDurationMs: prepareMeasurement.durationMs,
+    });
+  },
+  assertSeedReady: ({ fixture, config }) => assertSeedReady(fixture, config),
+  runPrimary: async ({ perfCase, context, baseId, fixture, config }) => {
+    const primaryMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      config.threshold.metric,
+      () =>
+        measureAsync("duplicateTableTotalReady", () =>
+          duplicateTableAndVerify(context, baseId, fixture, config),
+        ),
     );
-
-    try {
-      primaryMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync("duplicateTableTotalReady", () =>
-            duplicateTableAndVerify(
-              context,
-              baseId,
-              prepareMeasurement!.result,
-              config,
-            ),
-          ),
-      );
-    } catch (error) {
-      const diagnosticResult = buildDuplicateTableCaseResult({
-        config,
-        prepareMeasurement,
-        seedReadyMeasurement,
-        primaryMeasurement,
-        error,
-      });
-
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        diagnosticResult,
-      );
-    }
-
+    fixture.duplicateTableId = primaryMeasurement.result.duplicateTableId;
+    return primaryMeasurement;
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
+    const prepareMeasurement = fixture
+      ? {
+          name: "prepare",
+          durationMs: fixture.prepareDurationMs,
+          result: fixture,
+        }
+      : undefined;
     return buildDuplicateTableCaseResult({
       config,
       prepareMeasurement,
       seedReadyMeasurement,
-      primaryMeasurement,
+      primaryMeasurement: primary,
+      error,
     });
-  } finally {
-    if (primaryMeasurement?.result.duplicateTableId && !isExecuteDbIsolated()) {
+  },
+  cleanup: async ({ baseId, fixture }) => {
+    if (isExecuteDbIsolated() || !fixture) {
+      return;
+    }
+    if (fixture.duplicateTableId) {
       try {
-        await permanentDeleteTable(
-          baseId,
-          primaryMeasurement.result.duplicateTableId,
-        );
+        await permanentDeleteTable(baseId, fixture.duplicateTableId);
       } catch (error) {
         console.warn(
-          `Failed to cleanup duplicated perf table ${primaryMeasurement.result.duplicateTableId}`,
+          `Failed to cleanup duplicated perf table ${fixture.duplicateTableId}`,
           error,
         );
       }
     }
-
-    const fixture = prepareMeasurement?.result;
-    if (fixture?.tableId && !fixture.reusableSeed && !isExecuteDbIsolated()) {
+    if (fixture.tableId && !fixture.reusableSeed) {
       try {
         await permanentDeleteTable(baseId, fixture.tableId);
       } catch (error) {
         console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
       }
     }
-  }
+  },
 };
 
-export const seedDuplicateTableCase = async (
+export const runDuplicateTableCase = (
   perfCase: PerfCase,
-  _context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as DuplicateTableCaseConfig;
-  const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.sourceTableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareDuplicateTableFixture(baseId, tableName, config, perfCase),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(prepareMeasurement.result, config),
-  );
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runDuplicateLifecycle(perfCase, context, duplicateTableSpec);
 
-  return buildDuplicateTableCaseResult({
-    config,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
+export const seedDuplicateTableCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedDuplicateLifecycle(perfCase, context, duplicateTableSpec);
