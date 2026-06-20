@@ -10,7 +10,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, type Measurement, roundMetric } from "../metrics";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -67,12 +67,6 @@ type SeededSampleRecord = {
   rowOffset: number;
   rowNumber: number;
   recordId: string;
-};
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
 };
 
 type FormulaRunResult = {

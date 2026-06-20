@@ -10,7 +10,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -34,7 +34,6 @@ import type {
 import {
   undoRedoMixed20Fields,
   withRecordWindowId,
-  type Measurement,
 } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,

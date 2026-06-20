@@ -1,7 +1,6 @@
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 
 // The lifecycle skeleton shared by the duplicate family: seed (or restore) a
 // populated source entity, assert it is in its expected pre-duplicate shape, run

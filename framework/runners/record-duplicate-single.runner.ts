@@ -1,6 +1,11 @@
 import { duplicateRecord } from "@teable/openapi";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import {
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+  type Measurement,
+} from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -20,7 +25,6 @@ import {
   assertRecordCount,
   getSourceRecords,
   type DuplicateRecordFixture,
-  type Measurement,
 } from "./record-duplicate.shared";
 import {
   runRecordDuplicateLifecycle,

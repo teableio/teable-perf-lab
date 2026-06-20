@@ -14,7 +14,7 @@ import {
   getPrimaryThresholdMs,
   isExecuteDbIsolated,
 } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -45,7 +45,6 @@ import {
   type RecordMutationLifecycleConfig,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
 
 const FIXTURE_VERSION = "link-computed-propagation-v2";
 const METADATA_PREFIX = "perf-lab-link-computed-propagation:";

@@ -24,7 +24,7 @@ import {
   getViews,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -40,7 +40,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 
 const IMPORT_BASE_FIXTURE_VERSION = "import-base-v2-only-v2";
 const IMPORT_BASE_METADATA_PREFIX = "perf-lab-import-base:";

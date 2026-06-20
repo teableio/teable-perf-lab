@@ -10,7 +10,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { type Measurement, measureAsync, roundMetric } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -33,12 +33,6 @@ import {
   seedDuplicateLifecycle,
   type DuplicateLifecycleSpec,
 } from "./duplicate-lifecycle";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;

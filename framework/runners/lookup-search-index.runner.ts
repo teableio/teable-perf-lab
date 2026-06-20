@@ -15,7 +15,12 @@ import {
 } from "../../../utils/init-app";
 import { TableIndexService } from "../../../../src/features/table/table-index.service";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import {
+  type Measurement,
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+} from "../metrics";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -35,12 +40,6 @@ import {
   seedReadLifecycle,
   type ReadLifecycleSpec,
 } from "./read-lifecycle";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type FieldIds = Record<string, string>;
 

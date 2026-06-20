@@ -15,7 +15,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { assertEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
@@ -34,7 +34,6 @@ import {
   runRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
 
 type NamedField = {
   id: string;

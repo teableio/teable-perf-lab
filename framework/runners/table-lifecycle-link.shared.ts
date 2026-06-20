@@ -7,7 +7,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { buildSeedCacheInfo, findSeedTable } from "../seed-cache";
 import type {
   PerfCase,
@@ -20,7 +20,6 @@ import type {
 import {
   assertRowsRestored,
   buildRecordFields,
-  type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";

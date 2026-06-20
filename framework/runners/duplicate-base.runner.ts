@@ -18,7 +18,7 @@ import {
   getViews,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -42,7 +42,6 @@ import {
 import {
   buildRecordFields,
   undoRedoMixed20Fields,
-  type Measurement,
 } from "./record-undo-redo.shared";
 
 const DUPLICATE_BASE_FIXTURE_VERSION = "duplicate-base-v1";

@@ -18,7 +18,12 @@ import {
   getPrimaryThresholdMs,
   isExecuteDbIsolated,
 } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import {
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+  type Measurement,
+} from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -44,12 +49,6 @@ import {
 
 const ATTACHMENT_FIXTURE_VERSION = "record-update-attachment-v1";
 const ATTACHMENT_METADATA_PREFIX = "perf-lab-record-update-attachment:";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = { id: string; name: string; type?: string };
 
