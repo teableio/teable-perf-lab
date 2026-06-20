@@ -432,6 +432,19 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
+  // record-read overhead case: details.queryVariant.overheadRatio is the measured
+  // queryMs / baselineMs quotient, a pure timing ratio that varies run-to-run on
+  // unchanged code (confirmed by the record-read baseline A vs B diff). The signed
+  // overheadMs and raw baselineMs/queryMs are already masked as *Ms, and the
+  // threshold-participating overhead metric stays visible (and value-masked) under
+  // metrics.
+  if (
+    pathEquals(path, ["details", "queryVariant"]) &&
+    key === "overheadRatio"
+  ) {
+    return true;
+  }
+
   return false;
 };
 
