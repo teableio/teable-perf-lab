@@ -33,13 +33,19 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { PerfRunDiagnosticError } from "../types";
 import {
   expectedForeignTitle,
   fetchForeignIdByTitle,
   foreignRowForHostRow,
   type LinkPermutation,
 } from "./link-fixture.shared";
+import {
+  runRecordMutationLifecycle,
+  seedRecordMutationLifecycle,
+  type RecordMutationLifecycleConfig,
+  type RecordMutationLifecycleSpec,
+} from "./record-mutation-lifecycle";
+import { type Measurement } from "./record-undo-redo.shared";
 
 const FIXTURE_VERSION = "link-computed-propagation-v2";
 const METADATA_PREFIX = "perf-lab-link-computed-propagation:";
@@ -162,12 +168,6 @@ const expectedFormulaValue = (
 };
 
 type Phase = "seed" | "updated";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;
@@ -1558,14 +1558,31 @@ const buildResult = ({
   },
 });
 
-export const runLinkComputedPropagationCase = async (
+// link-computed-propagation rides the record-mutation lifecycle: seed (or
+// restore) the orders host + users/guest foreign + downstream purchase fixture,
+// run one measured "write both order links then await the full computed cascade"
+// operation, then restore-or-delete the reusable seed. It is the family's most
+// fan-out fixture (four tables) and its measured primary bundles the link write
+// and the propagation full-scan wait into a single window, but the driver treats
+// the fixture opaquely and owns no extra protocol, so it rides byte-unchanged.
+//
+// Two boundary adaptations keep the driver generic (see toLifecyclePerfCase):
+// this case config names its prefix `ordersTableNamePrefix` (it owns four
+// tables), so the entry points alias it to the driver's `tableNamePrefix` before
+// delegating — the driver then derives the exact same
+// `${prefix}-[seed-]${Date.now()}` fallback name the legacy runner used. Smoke
+// overrides are applied once at that boundary so every spec callback (and the
+// seed-cache hash) sees the overridden config.
+type LcpLifecycleConfig = LinkComputedPropagationCaseConfig &
+  RecordMutationLifecycleConfig;
+
+const prepareLcpFixture = async (
+  baseId: string,
+  fallbackTableName: string,
+  config: LinkComputedPropagationCaseConfig,
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = applySmokeOverrides(
-    perfCase.config as LinkComputedPropagationCaseConfig,
-  );
-  const baseId = globalThis.testConfig.baseId;
+): Promise<Fixture> => {
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase,
     runner: "link-computed-propagation",
@@ -1577,32 +1594,144 @@ export const runLinkComputedPropagationCase = async (
       new URL("./link-fixture.shared.ts", import.meta.url),
     ],
   });
-  const fallbackTableName = `${config.ordersTableNamePrefix}-${Date.now()}`;
+  return buildFixture(
+    baseId,
+    config,
+    perfCase,
+    context,
+    seedCacheInfo,
+    fallbackTableName,
+  );
+};
+
+// The single measured operation: resolve foreign ids (unmeasured setup) ->
+// trace-wrapped write of BOTH order links -> propagation wait (full orders +
+// purchase recompute scan) -> routing assertion, bundled into one primary
+// measurement whose duration is lookupReadyTotalMs. The inner linkWrite trace
+// step is preserved so the write keeps its own trace ref. No record window, so
+// the driver invokes this directly.
+const runLcpMeasuredOperation = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  config: LinkComputedPropagationCaseConfig,
+  fixture: Fixture,
+): Promise<Measurement<PrimaryResult>> => {
+  // Execute setup (not measured): resolve foreign titles -> record ids.
+  const [userIdByTitle, guestIdByTitle] = await Promise.all([
+    fetchForeignIdByTitle(
+      fixture.usersTableId,
+      fixture.usersKeyFieldId,
+      config.foreignRowCount,
+    ),
+    fetchForeignIdByTitle(
+      fixture.guestTableId,
+      fixture.guestKeyFieldId,
+      config.foreignRowCount,
+    ),
+  ]);
+
+  let linkWriteMs = 0;
+  let lookupPropagationMs = 0;
+  let responseHeaders: Record<string, string> = {};
+  let requestedRecords = 0;
+  let updatedRecords = 0;
+  let ordersScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
+  let purchaseScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
+
+  const totalMeasurement = await withPerfTraceStep(
+    context,
+    perfCase,
+    config.threshold.metric,
+    () =>
+      measureAsync(config.threshold.metric, async () => {
+        const writeMeasurement = await withPerfTraceStep(
+          context,
+          perfCase,
+          "linkWrite",
+          () =>
+            measureAsync("linkWrite", () =>
+              writeOrderLinks(
+                fixture,
+                config,
+                "updated",
+                userIdByTitle,
+                guestIdByTitle,
+              ),
+            ),
+        );
+        linkWriteMs = writeMeasurement.durationMs;
+        responseHeaders = writeMeasurement.result.responseHeaders;
+        requestedRecords = writeMeasurement.result.requestedRecords;
+        updatedRecords = writeMeasurement.result.updatedRecords;
+
+        const propagationMeasurement = await measureAsync(
+          "lookupPropagation",
+          () => waitForReadyFullScan(fixture, config, "updated", context),
+        );
+        lookupPropagationMs = propagationMeasurement.durationMs;
+        ordersScan = propagationMeasurement.result.ordersScan;
+        purchaseScan = propagationMeasurement.result.purchaseScan;
+      }),
+  );
+
+  const routing = assertEngineRouting(context, responseHeaders, {
+    operation: "updateRecords",
+  });
+  return {
+    ...totalMeasurement,
+    result: {
+      linkWriteMs,
+      lookupPropagationMs,
+      requestedRecords,
+      updatedRecords,
+      responseHeaders,
+      routing,
+      ordersScan,
+      purchaseScan,
+    },
+  };
+};
+
+// Class C cleanup: the measured write re-points the reusable seed's order links,
+// so a shared (non-isolated) execute DB must be restored to the seed state — or
+// all four fixture tables dropped if restore fails — before the next run reuses
+// it. Foreign id maps are re-resolved here (cleanup is unmeasured) instead of
+// being threaded from the measured op, matching record-update-link. Isolated CI
+// execute DBs are discarded by teardown, so cleanup is skipped.
+const cleanupLcpFixture = async ({
+  baseId,
+  fixture,
+  config,
+}: {
+  baseId: string;
+  fixture: Fixture | undefined;
+  config: LinkComputedPropagationCaseConfig;
+}) => {
+  if (!fixture || isExecuteDbIsolated()) {
+    return;
+  }
   const seededLinked = seededOrdersAreLinked(config);
-
-  let prepareMeasurement: Measurement<Fixture> | undefined;
-  let seedReadyMeasurement: Measurement<{ checkedRecords: number }> | undefined;
-  let fixture: Fixture | undefined;
-  let userIdByTitle: Map<string, string> | undefined;
-  let guestIdByTitle: Map<string, string> | undefined;
-
+  const dropAllTables = async () => {
+    for (const tableId of [
+      fixture.ordersTableId,
+      fixture.usersTableId,
+      fixture.guestTableId,
+      fixture.purchaseTableId,
+    ]) {
+      try {
+        await permanentDeleteTable(baseId, tableId);
+      } catch (error) {
+        console.warn(`Failed to cleanup table ${tableId}`, error);
+      }
+    }
+  };
+  if (!fixture.reusableSeed) {
+    await dropAllTables();
+    return;
+  }
+  let restored = false;
   try {
-    prepareMeasurement = await measureAsync("prepare", () =>
-      buildFixture(
-        baseId,
-        config,
-        perfCase,
-        context,
-        seedCacheInfo,
-        fallbackTableName,
-      ),
-    );
-    fixture = prepareMeasurement.result;
-    seedReadyMeasurement = await measureAsync("seedReady", () =>
-      waitForOrderSamples(fixture!, config, "seed", seededLinked),
-    );
-    // Execute setup (not measured): resolve foreign titles -> record ids.
-    [userIdByTitle, guestIdByTitle] = await Promise.all([
+    const [userIdByTitle, guestIdByTitle] = await Promise.all([
       fetchForeignIdByTitle(
         fixture.usersTableId,
         fixture.usersKeyFieldId,
@@ -1614,187 +1743,93 @@ export const runLinkComputedPropagationCase = async (
         config.foreignRowCount,
       ),
     ]);
+    await writeOrderLinks(
+      fixture,
+      config,
+      seededLinked ? "seed" : "clear",
+      userIdByTitle,
+      guestIdByTitle,
+    );
+    await waitForOrderSamples(fixture, config, "seed", seededLinked);
+    restored = true;
+  } catch (error) {
+    console.warn(
+      `Failed to restore cached link-computed seed ${fixture.ordersTableId}; deleting it`,
+      error,
+    );
+  }
+  if (!restored) {
+    await dropAllTables();
+  }
+};
 
-    let primary: PrimaryResult | undefined;
-    let totalMeasurement: Measurement<unknown> | undefined;
-    try {
-      let linkWriteMs = 0;
-      let lookupPropagationMs = 0;
-      let responseHeaders: Record<string, string> = {};
-      let requestedRecords = 0;
-      let updatedRecords = 0;
-      let ordersScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
-      let purchaseScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
-
-      totalMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
-        config.threshold.metric,
-        () =>
-          measureAsync(config.threshold.metric, async () => {
-            const writeMeasurement = await withPerfTraceStep(
-              context,
-              perfCase,
-              "linkWrite",
-              () =>
-                measureAsync("linkWrite", () =>
-                  writeOrderLinks(
-                    fixture!,
-                    config,
-                    "updated",
-                    userIdByTitle!,
-                    guestIdByTitle!,
-                  ),
-                ),
-            );
-            linkWriteMs = writeMeasurement.durationMs;
-            responseHeaders = writeMeasurement.result.responseHeaders;
-            requestedRecords = writeMeasurement.result.requestedRecords;
-            updatedRecords = writeMeasurement.result.updatedRecords;
-
-            const propagationMeasurement = await measureAsync(
-              "lookupPropagation",
-              () => waitForReadyFullScan(fixture!, config, "updated", context),
-            );
-            lookupPropagationMs = propagationMeasurement.durationMs;
-            ordersScan = propagationMeasurement.result.ordersScan;
-            purchaseScan = propagationMeasurement.result.purchaseScan;
-          }),
-      );
-
-      const routing = assertEngineRouting(context, responseHeaders, {
-        operation: "updateRecords",
-      });
-      primary = {
-        linkWriteMs,
-        lookupPropagationMs,
-        requestedRecords,
-        updatedRecords,
-        responseHeaders,
-        routing,
-        ordersScan,
-        purchaseScan,
-      };
-    } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult({
-          config,
-          fixture,
-          prepareMeasurement,
-          seedReadyMeasurement,
-          totalMeasurement,
-          primary,
-          error,
-        }),
-      );
-    }
-
-    return buildResult({
+const linkComputedPropagationLifecycleSpec: RecordMutationLifecycleSpec<
+  LcpLifecycleConfig,
+  Fixture,
+  { checkedRecords: number },
+  PrimaryResult
+> = {
+  prepareFixture: ({ baseId, tableName, config, perfCase, context }) =>
+    prepareLcpFixture(baseId, tableName, config, perfCase, context),
+  assertSeedReady: ({ fixture, config }) =>
+    waitForOrderSamples(fixture, config, "seed", seededOrdersAreLinked(config)),
+  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
+    runLcpMeasuredOperation(perfCase, context, config, fixture),
+  // buildResult already matches the driver arg shape; map the driver's single
+  // bundled primaryMeasurement back to the legacy (totalMeasurement, primary)
+  // split and delegate to the existing assembler unchanged.
+  buildResult: ({
+    config,
+    fixture,
+    prepareMeasurement,
+    seedReadyMeasurement,
+    primaryMeasurement,
+    error,
+  }) =>
+    buildResult({
       config,
       fixture,
       prepareMeasurement,
       seedReadyMeasurement,
-      totalMeasurement,
-      primary,
-    });
-  } finally {
-    // Class C cleanup: return orders links to seed state so the cached fixture is
-    // seed-ready next run; on failure delete all four tables. Isolated CI execute
-    // DBs are discarded by teardown, so skip all.
-    if (!isExecuteDbIsolated()) {
-      if (fixture?.reusableSeed && userIdByTitle && guestIdByTitle) {
-        let restored = false;
-        try {
-          await writeOrderLinks(
-            fixture,
-            config,
-            seededLinked ? "seed" : "clear",
-            userIdByTitle,
-            guestIdByTitle,
-          );
-          await waitForOrderSamples(fixture, config, "seed", seededLinked);
-          restored = true;
-        } catch (error) {
-          console.warn(
-            `Failed to restore cached link-computed seed ${fixture.ordersTableId}; deleting it`,
-            error,
-          );
-        }
-        if (!restored) {
-          for (const tableId of [
-            fixture.ordersTableId,
-            fixture.usersTableId,
-            fixture.guestTableId,
-            fixture.purchaseTableId,
-          ]) {
-            try {
-              await permanentDeleteTable(baseId, tableId);
-            } catch (error) {
-              console.warn(`Failed to cleanup table ${tableId}`, error);
-            }
-          }
-        }
-      } else if (fixture && !fixture.reusableSeed) {
-        for (const tableId of [
-          fixture.ordersTableId,
-          fixture.usersTableId,
-          fixture.guestTableId,
-          fixture.purchaseTableId,
-        ]) {
-          try {
-            await permanentDeleteTable(baseId, tableId);
-          } catch (error) {
-            console.warn(`Failed to cleanup table ${tableId}`, error);
-          }
-        }
-      }
-    }
-  }
+      totalMeasurement: primaryMeasurement,
+      primary: primaryMeasurement?.result,
+      error,
+    }),
+  cleanup: cleanupLcpFixture,
 };
+
+// Apply smoke overrides once and alias the four-table prefix to the driver's
+// single `tableNamePrefix`, so the driver derives the identical fallback table
+// name and every downstream spec callback sees the overridden, aliased config.
+const toLifecyclePerfCase = (perfCase: PerfCase): PerfCase => {
+  const config = applySmokeOverrides(
+    perfCase.config as LinkComputedPropagationCaseConfig,
+  );
+  return {
+    ...perfCase,
+    config: {
+      ...config,
+      tableNamePrefix: config.ordersTableNamePrefix,
+    } as unknown as PerfCase["config"],
+  };
+};
+
+export const runLinkComputedPropagationCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  runRecordMutationLifecycle(
+    toLifecyclePerfCase(perfCase),
+    context,
+    linkComputedPropagationLifecycleSpec,
+  );
 
 export const seedLinkComputedPropagationCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = applySmokeOverrides(
-    perfCase.config as LinkComputedPropagationCaseConfig,
+): Promise<PerfRunResult> =>
+  seedRecordMutationLifecycle(
+    toLifecyclePerfCase(perfCase),
+    context,
+    linkComputedPropagationLifecycleSpec,
   );
-  const baseId = globalThis.testConfig.baseId;
-  const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
-    runner: "link-computed-propagation",
-    fixtureVersion: FIXTURE_VERSION,
-    seedConfig: getComputedSeedConfig(config) as never,
-    seedCodeFiles: [
-      new URL(import.meta.url),
-      new URL("../seed-cache.ts", import.meta.url),
-      new URL("./link-fixture.shared.ts", import.meta.url),
-    ],
-  });
-  const fallbackTableName = `${config.ordersTableNamePrefix}-seed-${Date.now()}`;
-  const prepareMeasurement = await measureAsync("prepare", () =>
-    buildFixture(
-      baseId,
-      config,
-      perfCase,
-      context,
-      seedCacheInfo,
-      fallbackTableName,
-    ),
-  );
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    waitForOrderSamples(
-      prepareMeasurement.result,
-      config,
-      "seed",
-      seededOrdersAreLinked(config),
-    ),
-  );
-  return buildResult({
-    config,
-    fixture: prepareMeasurement.result,
-    prepareMeasurement,
-    seedReadyMeasurement,
-  });
-};
