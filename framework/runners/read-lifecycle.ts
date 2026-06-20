@@ -1,9 +1,8 @@
 import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 
 // The lifecycle skeleton shared by the read family: seed (or restore) a populated
 // host table (plus any source tables it reads through), assert the seed is fully

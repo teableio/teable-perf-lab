@@ -8,7 +8,7 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -19,12 +19,6 @@ import type {
   PerfCase,
   PerfRunnerKind,
 } from "../types";
-
-export type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;

@@ -20,7 +20,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { assertEngineRouting, assertStreamEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
@@ -35,12 +35,6 @@ import type {
   PerfRunnerKind,
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
-
-export type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;

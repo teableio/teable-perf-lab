@@ -8,7 +8,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -34,7 +34,6 @@ import {
   resolveForeignKeyFieldId,
   seedForeignTable,
 } from "./link-fixture.shared";
-import type { Measurement } from "./record-undo-redo.shared";
 import {
   runFieldConvertLifecycle,
   seedFieldConvertLifecycle,

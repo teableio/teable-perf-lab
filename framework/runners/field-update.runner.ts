@@ -16,7 +16,7 @@ import { v2CoreTokens, type ICommandBus } from "@teable/v2-core";
 import { V2ContainerService } from "../../../../src/features/v2/v2-container.service";
 import { V2ExecutionContextFactory } from "../../../../src/features/v2/v2-execution-context.factory";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -33,7 +33,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { type Measurement } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,

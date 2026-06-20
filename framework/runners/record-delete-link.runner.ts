@@ -7,11 +7,11 @@ import type {
   PerfRunResult,
   RecordDeleteLinkCaseConfig,
 } from "../types";
+import { type Measurement } from "../metrics";
 import {
   assertDeleted,
   buildRecordReplayResult,
   deleteAllRowsViaSelectionDelete,
-  type Measurement,
   type RecordReplayVerification,
 } from "./record-undo-redo.shared";
 import { runRecordDeleteLinkLifecycle } from "./table-link-lifecycle";

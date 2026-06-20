@@ -2,7 +2,7 @@ import { FieldKeyType } from "@teable/core";
 import { axios, getTableList, getTrashItems, TrashType } from "@teable/openapi";
 import { getRecords } from "../../../utils/init-app";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
-import { measureAsync, summarizeDurations } from "../metrics";
+import { measureAsync, summarizeDurations, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -19,7 +19,6 @@ import {
   assertRowsRestored,
   getExpectedCellValue,
   prepareRecordUndoRedoFixture,
-  type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";

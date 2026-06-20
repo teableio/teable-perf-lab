@@ -13,9 +13,9 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
+import { type Measurement } from "../metrics";
 import {
   assertRowsRestored,
-  type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";

@@ -6,7 +6,7 @@ import type {
   IDuplicateSelectionStreamProgressEvent,
 } from "@teable/openapi";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { assertEngineRouting } from "../routing";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
@@ -21,7 +21,6 @@ import {
   assertDuplicateSourceReady,
   assertRecordCount,
   type DuplicateRecordFixture,
-  type Measurement,
 } from "./record-duplicate.shared";
 import {
   runRecordDuplicateLifecycle,

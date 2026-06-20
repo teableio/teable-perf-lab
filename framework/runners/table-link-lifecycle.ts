@@ -1,5 +1,5 @@
 import { isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -14,7 +14,6 @@ import {
   cleanupRecordUndoRedoFixture,
   waitForRowsRestored,
   withRecordWindowId,
-  type Measurement,
   type RecordReplayVerification,
 } from "./record-undo-redo.shared";
 import {
