@@ -20,6 +20,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertCaseConfig,
@@ -41,8 +42,6 @@ const chunk = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const TAG_CHOICES = ["Alpha", "Beta", "Gamma", "Delta"];
 
@@ -593,31 +592,19 @@ const assertConvertedSamples = async (
   return verifiedSamples;
 };
 
-const waitForConvertedSamples = async (
+const waitForConvertedSamples = (
   fixture: FieldConvertFixture,
   config: FieldConvertCaseConfig,
   convertedFieldId: string,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertConvertedSamples(fixture, config, convertedFieldId);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for converted samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "converted samples",
+    },
+    () => assertConvertedSamples(fixture, config, convertedFieldId),
   );
-};
 
 const assertConvertedFullScan = async (
   fixture: FieldConvertFixture,
@@ -682,31 +669,19 @@ const assertConvertedFullScan = async (
   return { scannedRecords, pageSize, pageCount };
 };
 
-const waitForConvertedFullScan = async (
+const waitForConvertedFullScan = (
   fixture: FieldConvertFixture,
   config: FieldConvertCaseConfig,
   convertedFieldId: string,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertConvertedFullScan(fixture, config, convertedFieldId);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for converted full scan after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "converted full scan",
+    },
+    () => assertConvertedFullScan(fixture, config, convertedFieldId),
   );
-};
 
 const runFieldConvertPrimary = async (
   perfCase: PerfCase,

@@ -20,6 +20,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertLinkCaseConfig,
@@ -41,8 +42,6 @@ import {
 } from "./field-convert-lifecycle";
 
 const FIELD_CONVERT_LINK_FIXTURE_VERSION = "field-convert-link-v1";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const chunk = <T>(items: T[], size: number) => {
   const chunks: T[][] = [];
@@ -544,29 +543,19 @@ const assertConvertedSamples = async (
   return verifiedSamples;
 };
 
-const waitFor = async <T>(
+const waitFor = <T>(
   config: FieldConvertLinkCaseConfig,
   label: string,
   fn: () => Promise<T>,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-  throw new Error(
-    `Timed out waiting for ${label} after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: label,
+    },
+    fn,
   );
-};
 
 const assertConvertedFullScan = async (
   fixture: FieldConvertLinkFixture,

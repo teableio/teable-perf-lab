@@ -16,6 +16,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FormulaFieldCaseConfig,
@@ -38,8 +39,6 @@ const chunk = <T>(items: T[], size: number) => {
   }
   return chunks;
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type NamedField = { id: string; name: string };
 
@@ -385,32 +384,16 @@ const waitForSourceSamples = async (
   sourceFields: SourceFields,
   config: FormulaTableCaseConfig,
   sampleRecords: SeededSampleRecord[],
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertSourceSamples(
-        tableId,
-        sourceFields,
-        config,
-        sampleRecords,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for source samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "source samples",
+    },
+    async () =>
+      assertSourceSamples(tableId, sourceFields, config, sampleRecords),
   );
-};
 
 const assertFormulaSamples = async (
   tableId: string,
@@ -463,30 +446,15 @@ const waitForFormulaSamples = async (
     timeoutMs = 30_000,
     pollIntervalMs = 200,
   }: { timeoutMs?: number; pollIntervalMs?: number } = {},
-) => {
-  const startedAt = Date.now();
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertFormulaSamples(
-        tableId,
-        formula,
-        sampleRecords,
-        config,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for formula ${formula.name} samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs,
+      pollIntervalMs,
+      description: `formula ${formula.name} samples`,
+    },
+    async () => assertFormulaSamples(tableId, formula, sampleRecords, config),
   );
-};
 
 const assertFormulaFullScan = async (
   tableId: string,
@@ -598,32 +566,15 @@ const waitForFormulaFullScan = async (
   formulas: Array<FormulaFieldCaseConfig & { id: string }>,
   config: FormulaTableCaseConfig,
   sourceFields: SourceFields,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertFormulaFullScan(
-        tableId,
-        formulas,
-        config,
-        sourceFields,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for full formula scan after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "full formula scan",
+    },
+    async () => assertFormulaFullScan(tableId, formulas, config, sourceFields),
   );
-};
 
 const buildFormulaCaseResult = ({
   config,

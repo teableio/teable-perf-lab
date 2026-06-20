@@ -12,6 +12,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -287,8 +288,6 @@ const buildSeedRecordFields = (
     [getPrimaryField(config)]: title,
   };
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getFormulaExpectedKind = (
   field: FieldCreateInput,
@@ -675,23 +674,23 @@ const assertComputedBackfillReady = async (
   };
 };
 
-const waitForComputedFieldsReady = async (
+const waitForComputedFieldsReady = (
   baseId: string,
   context: PerfRunContext,
   fixture: FieldCreateFixture,
   config: FieldCreateCaseConfig,
   primaryResult: FieldCreatePrimaryResult,
 ) => {
-  const timeoutMs = config.ready?.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.ready?.pollIntervalMs ?? 200;
-  const startedAt = Date.now();
-  let lastError: unknown;
   let attempts = 0;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    attempts += 1;
-    try {
-      return await assertComputedBackfillReady(
+  return pollUntilReady(
+    {
+      timeoutMs: config.ready?.timeoutMs ?? 30_000,
+      pollIntervalMs: config.ready?.pollIntervalMs ?? 200,
+      description: "computed backfill ready",
+    },
+    () => {
+      attempts += 1;
+      return assertComputedBackfillReady(
         baseId,
         context,
         fixture,
@@ -699,16 +698,7 @@ const waitForComputedFieldsReady = async (
         primaryResult,
         attempts,
       );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for computed backfill ready after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+    },
   );
 };
 
