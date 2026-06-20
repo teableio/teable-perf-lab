@@ -48,7 +48,13 @@ export const forEachRecordPage = async <TRecord extends ScannedRecord>(
 
     for (const [index, record] of result.records.entries()) {
       const rowNumber = skip + index + 1;
-      await onRecord(record, rowNumber);
+      // Only await when onRecord is actually async. Most callers pass a
+      // synchronous validator; awaiting `undefined` would add a microtask per
+      // record, so the sync path stays byte-equivalent to the original loops.
+      const pending = onRecord(record, rowNumber);
+      if (pending) {
+        await pending;
+      }
       scannedRecords += 1;
     }
   }
