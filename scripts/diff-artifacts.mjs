@@ -224,20 +224,22 @@ const shouldMaskKey = (path, key) => {
     return true;
   }
 
-  // conditional-lookup emits its seed-cache key directly under details.seed
-  // (seedHash / seedHashShort), where every other migrated runner nests it under
+  // conditional-lookup and formula-table emit their seed-cache key directly under
+  // details.seed (seedHash / seedHashShort, plus seedTableName whose suffix IS
+  // the hash for formula-table), where every other migrated runner nests it under
   // a `cache` object masked by the rule above. Like that key, this is a content
   // address that digests both the seed config AND the seed code files: it is
-  // stable run-to-run on unchanged code (the conditional-lookup baseline A vs B
-  // artifacts are identical), but it legitimately changes when the runner is
-  // refactored — so masking it lets a behavior-preserving migration pass the G1
-  // diff, exactly as the cache.seedHash rule already does for the other migrated
+  // stable run-to-run on unchanged code (the conditional-lookup and formula-table
+  // baseline A vs B artifacts are identical — seedTableName never appears there),
+  // but it legitimately changes when the runner is refactored — so masking it
+  // lets a behavior-preserving migration pass the G1 diff, exactly as the
+  // cache.seedHash / cache.seedTableName rule already does for the other migrated
   // runners. The semantic seed identity stays visible via
   // details.seed.seedNamePrefix / schemaSignature, details.recordCount /
   // batchSize, and the verifiedSamples expected values.
   if (
     pathEquals(path, ["details", "seed"]) &&
-    ["seedHash", "seedHashShort"].includes(key)
+    ["seedHash", "seedHashShort", "seedTableName"].includes(key)
   ) {
     return true;
   }
@@ -338,6 +340,18 @@ const shouldMaskKey = (path, key) => {
     pathEquals(path, ["details", "prepare"]) &&
     ["seedHash", "seedTableName"].includes(key)
   ) {
+    return true;
+  }
+
+  // formula-table compiled formula expressions embed the generated A/B/C source
+  // field ids, so details.formula.compiledExpression,
+  // details.formulas[].compiledExpression, and
+  // details.formulaResults[].compiledExpression differ between two runs of
+  // unchanged code (confirmed by the formula-table baseline A vs B diff). The
+  // compiled form is never the semantic field — the uncompiled `expression` and
+  // `expected` kind stay visible — so masking it everywhere under details is
+  // safe, mirroring the field-create verifiedFields[].expression rule.
+  if (path[0] === "details" && key === "compiledExpression") {
     return true;
   }
 
