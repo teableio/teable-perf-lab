@@ -30,6 +30,11 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
+import {
+  runReadLifecycle,
+  seedReadLifecycle,
+  type ReadLifecycleSpec,
+} from "./read-lifecycle";
 
 type Measurement<T> = {
   name: string;
@@ -558,7 +563,7 @@ const waitForLookupSamples = async (
   );
 };
 
-const assertSeedReady = async (
+const assertLookupSeedReady = async (
   fixture: LookupSearchIndexFixture,
   config: LookupSearchIndexCaseConfig,
 ) => {
@@ -907,7 +912,7 @@ const restoreFixture = async (
   }
   try {
     await ensurePerfUsers(context, config);
-    await assertSeedReady(fixture, config);
+    await assertLookupSeedReady(fixture, config);
     const tableIndexService =
       context.app.get<TableIndexService>(TableIndexService);
     const onIndexes = await tableIndexService.getActivatedTableIndexes(
@@ -934,7 +939,7 @@ const restoreFixture = async (
   }
 };
 
-const prepareFixture = async (
+const prepareLookupSearchIndexFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   config: LookupSearchIndexCaseConfig,
@@ -1088,7 +1093,7 @@ const runKeywordSamples = async (
   };
 };
 
-const buildResult = (
+const buildLookupSearchIndexResult = (
   config: LookupSearchIndexCaseConfig,
   fixture: LookupSearchIndexFixture,
   seedReadyMeasurement: Measurement<unknown>,
@@ -1156,66 +1161,101 @@ const buildResult = (
   };
 };
 
-export const runLookupSearchIndexCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as LookupSearchIndexCaseConfig;
-  assertConfig(config);
-  const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
-  const fixture = await prepareFixture(perfCase, context, config);
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(fixture, config),
-  );
-  const offResults = [];
-  const onResults = [];
-  for (const keyword of config.keywords) {
-    if (config.tableIndexMode === "off") {
-      offResults.push(
-        await runKeywordSamples(
-          perfCase,
-          context,
-          fixture.offTableId,
-          fixture.offViewId,
-          fixture.offFieldIds,
-          "off",
-          keyword,
-          samples,
-        ),
-      );
-    } else {
-      onResults.push(
-        await runKeywordSamples(
-          perfCase,
-          context,
-          fixture.onTableId,
-          fixture.onViewId,
-          fixture.onFieldIds,
-          "on",
-          keyword,
-          samples,
-        ),
-      );
-    }
-  }
-  return buildResult(
-    config,
-    fixture,
-    seedReadyMeasurement,
-    offResults,
-    onResults,
-  );
+type LookupSearchIndexPrimary = {
+  offResults: Awaited<ReturnType<typeof runKeywordSamples>>[];
+  onResults: Awaited<ReturnType<typeof runKeywordSamples>>[];
 };
 
-export const seedLookupSearchIndexCase = async (
+// lookup-search-index is the SECOND member of the read lifecycle: it measures
+// global aggregation/search-index reads over a seeded source + dual host
+// (index-off / index-on) table set. It rides the same driver as record-read —
+// seed (or restore) the read fixture, assert it is fully readable, run the
+// measured read workload, and (per the driver's read cleanup policy) drop nothing
+// because the seed is always a reusable cached seed. Two member-specific shapes
+// ride in the spec:
+//   * prepare carries its per-stage seed sub-measurements on the fixture and emits
+//     NO "prepare" phase (the driver emits none); the runner surfaces them from
+//     buildResult, matching the pre-migration artifact.
+//   * the measured primary is a keyword x sample loop whose p95 is the threshold
+//     metric, expressed entirely inside the opaque runPrimary.
+// isReusableSeed is always true: the seed is the shared cached fixture both the
+// off and on cases reuse, so it is never dropped (matching the pre-migration
+// runner, which had no cleanup at all).
+const lookupSearchIndexSpec: ReadLifecycleSpec<
+  LookupSearchIndexCaseConfig,
+  LookupSearchIndexFixture,
+  Awaited<ReturnType<typeof assertLookupSeedReady>>,
+  LookupSearchIndexPrimary
+> = {
+  prepareFixture: ({ perfCase, context, config }) => {
+    assertConfig(config);
+    return prepareLookupSearchIndexFixture(perfCase, context, config);
+  },
+  assertSeedReady: ({ fixture, config }) =>
+    assertLookupSeedReady(fixture, config),
+  runPrimary: async ({ perfCase, context, fixture, config }) => {
+    const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
+    const offResults: Awaited<ReturnType<typeof runKeywordSamples>>[] = [];
+    const onResults: Awaited<ReturnType<typeof runKeywordSamples>>[] = [];
+    for (const keyword of config.keywords) {
+      if (config.tableIndexMode === "off") {
+        offResults.push(
+          await runKeywordSamples(
+            perfCase,
+            context,
+            fixture.offTableId,
+            fixture.offViewId,
+            fixture.offFieldIds,
+            "off",
+            keyword,
+            samples,
+          ),
+        );
+      } else {
+        onResults.push(
+          await runKeywordSamples(
+            perfCase,
+            context,
+            fixture.onTableId,
+            fixture.onViewId,
+            fixture.onFieldIds,
+            "on",
+            keyword,
+            samples,
+          ),
+        );
+      }
+    }
+    return { offResults, onResults };
+  },
+  buildResult: ({ config, fixture, seedReadyMeasurement, primary }) =>
+    // The read driver always prepares the fixture and computes seedReady (outside
+    // the diagnostic try) before any buildResult call, so both are defined here;
+    // only `primary` is absent on the measured-read failure path.
+    buildLookupSearchIndexResult(
+      config,
+      fixture as LookupSearchIndexFixture,
+      seedReadyMeasurement as Measurement<unknown>,
+      primary?.offResults ?? [],
+      primary?.onResults ?? [],
+    ),
+  // The seed is the shared cached fixture both cases reuse — never dropped.
+  seedTableIds: (fixture) => [
+    fixture.onTableId,
+    fixture.offTableId,
+    fixture.sourceTableId,
+  ],
+  isReusableSeed: () => true,
+};
+
+export const runLookupSearchIndexCase = (
   perfCase: PerfCase,
   context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const config = perfCase.config as LookupSearchIndexCaseConfig;
-  assertConfig(config);
-  const fixture = await prepareFixture(perfCase, context, config);
-  const seedReadyMeasurement = await measureAsync("seedReady", () =>
-    assertSeedReady(fixture, config),
-  );
-  return buildResult(config, fixture, seedReadyMeasurement, [], []);
-};
+): Promise<PerfRunResult> =>
+  runReadLifecycle(perfCase, context, lookupSearchIndexSpec);
+
+export const seedLookupSearchIndexCase = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> =>
+  seedReadLifecycle(perfCase, context, lookupSearchIndexSpec);
