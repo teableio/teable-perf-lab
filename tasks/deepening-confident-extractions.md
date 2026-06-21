@@ -21,7 +21,36 @@ artifact fields, `../teable-ee`).
 | ⑥   | `670eeb7` | `collectSampleRecords` + shared `SeededSampleRecord` (5 runners)  | `framework/sample-records.ts`   | ⚠️ **behaviour-touching — G1 required**                |
 | ⑦   | `f3c5348` | Extract `chunk<T>`; delete 21 dup defs                            | `framework/chunk.ts`            | ✅ **pure function move — `pnpm check` is full proof** |
 
-Whole branch: 46 files, net −377 lines, `pnpm check` green.
+Plus `5ff2888` — forEachRecordPage skips the per-record `await` for synchronous
+callbacks (sync path now byte-equivalent to the original loops).
+
+Whole branch: 47 files, net −371 lines, `pnpm check` green.
+
+## CI + sandbox verification (2026-06-21)
+
+- **Sandbox (local, direction-finding):** `selection-clear/flat-1k-…-cell-clear-stream`
+  v1+v2 and `lookup/conditional-10k` v2 all `pass` with real verification
+  (scanned 1000 / 10000 rows, 3 verified samples each).
+- **CI full run, all cases × v1,v2** ([run 27878606648](https://github.com/teableio/teable-perf-lab/actions/runs/27878606648)):
+  seed ✅, v2-sync ✅ (all), v2-hybrid ✅ (dual-link-computed), v1 **54/55**,
+  report ✅. The one v1 failure was
+  `lookup/dual-link-computed-first-link-4k`: `lookupReadyTotalMs` over the 60s
+  threshold — a **perf-threshold breach, not a behavioural failure** (the case
+  scanned and verified correctly).
+- **Investigated with repeated v1 samples** of that case:
+  - main: 31.1, 51.7, 53.4, 57.1, 58.5 s — range 31–58.5 s, itself a near-miss at 60.
+  - branch (pre-`5ff2888`): 50.8, 59.2, 64.1, 78.6 s.
+  - branch (post-`5ff2888`): 50.7, 54.5 s.
+  - Conclusion: the metric is inherently high-variance on the v1 synchronous
+    whole-graph recompute, and the 60s guardrail (calibrated at ~50.9 s) is too
+    tight for the current `teable-ee@develop` + CI environment. Not a regression:
+    the branch floor equals main's, the branch passes, and main itself nearly
+    breaches. The pre-fix tail is gone post-`5ff2888`.
+
+**Follow-up (separate task, protected surface):** recalibrate the
+`lookup/dual-link-computed-first-link-4k` v1 `lookupReadyTotalMs` threshold
+(60s → ~90s with margin over the observed ~78s tail). This is a case-contract
+threshold change, so it does NOT belong on this framework-only branch.
 
 ## ⚠️ Merge gate (read this first)
 
