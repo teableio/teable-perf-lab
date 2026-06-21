@@ -141,6 +141,14 @@ assert.throws(
   /must project exactly 50 fields/,
 );
 assert.throws(
+  () => assertConfigShape({ ...config, pageSize: 1_001 }),
+  /exceeds the getRecords max of 1000/,
+);
+assert.throws(
+  () => assertConfigShape({ ...config, rowCount: 9_999, pageSize: 1_000 }),
+  /must be divisible by pageSize/,
+);
+assert.throws(
   () =>
     assertConfigShape({
       ...config,

@@ -46,6 +46,7 @@ import {
   buildSourceFieldModels,
   buildSourceRecordFields,
   compileExpression,
+  type FieldModel,
   formulaName,
   getExpectedValue,
   getFormulaExpression,
@@ -177,10 +178,13 @@ const buildRecordReadSeedCacheInfo = (perfCase: PerfCase) => {
   });
 };
 
-const fieldTypeByModel = {
+// Exhaustive over FieldModel["type"]: if the model ever emits a new field-model
+// type, check:types fails here loudly instead of silently mapping it to
+// undefined and creating a broken field.
+const fieldTypeByModel: Record<FieldModel["type"], FieldType> = {
   singleLineText: FieldType.SingleLineText,
   number: FieldType.Number,
-} as const;
+};
 
 const toCreateFields = (
   fields: ReturnType<
