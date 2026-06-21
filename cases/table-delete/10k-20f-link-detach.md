@@ -28,7 +28,7 @@ difference.
 Per sample (3 samples, each with its own seed-cache identity):
 
 1. Create a foreign table (`<seed-name>-fk`, 1,000 rows, `Key` / `Note`).
-2. Create the main table: mixed 20-field schema (`undoRedo10kBaseConfig`) plus
+2. Create the main table: mixed 20-field schema (`recordReplay10kBaseConfig`) plus
    a one-way `Ref Link` field; 10,000 records, row _i_ linking to foreign row
    `((i - 1) * 7 + 3) % 1000 + 1`.
 

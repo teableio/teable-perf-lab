@@ -8,7 +8,7 @@ import {
   redoLastOperation,
   undoLastOperation,
   waitForRowsRestored,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 
 // Setup (not measured): delete all rows, undo that delete (rows restored), so a
 // redo has something to replay. Measured operation: redo via the redo-stream.

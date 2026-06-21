@@ -9,17 +9,17 @@ import type {
 import {
   assertRowsRestored,
   buildRecordWindowId,
-  prepareRecordUndoRedoFixture,
+  prepareRecordReplayFixture,
   withRecordWindowId,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
-} from "./record-undo-redo.shared";
+  type RecordReplayFixture,
+} from "./record-replay.shared";
 
 export type FieldDeleteLifecycleBuildResultArgs<TPrimary, TVerification> = {
   config: FieldDeleteCaseConfig;
   windowId?: string;
-  fixture?: RecordUndoRedoFixture;
-  prepareMeasurement?: Measurement<RecordUndoRedoFixture>;
+  fixture?: RecordReplayFixture;
+  prepareMeasurement?: Measurement<RecordReplayFixture>;
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   operationMeasurement?: Measurement<TPrimary>;
   verifyMeasurement?: Measurement<TVerification>;
@@ -30,7 +30,7 @@ type FieldDeleteLifecycleRunArgs = {
   perfCase: PerfCase;
   context: PerfRunContext;
   config: FieldDeleteCaseConfig;
-  fixture: RecordUndoRedoFixture;
+  fixture: RecordReplayFixture;
 };
 
 export type FieldDeleteLifecycleSpec<TPrimary, TVerification, TOperationInput> =
@@ -48,7 +48,7 @@ export type FieldDeleteLifecycleSpec<TPrimary, TVerification, TOperationInput> =
     ) => PerfRunResult;
     cleanup: (
       baseId: string,
-      fixture: RecordUndoRedoFixture | undefined,
+      fixture: RecordReplayFixture | undefined,
       options: { deleteAttempted: boolean },
     ) => Promise<void>;
   };
@@ -66,7 +66,7 @@ export const seedFieldDeleteLifecycle = async <
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareRecordUndoRedoFixture(baseId, tableName, config, {
+    prepareRecordReplayFixture(baseId, tableName, config, {
       perfCase,
       runner: "field-delete",
       seedCodeFiles: [spec.seedCodeFile],
@@ -98,12 +98,12 @@ export const runFieldDeleteLifecycle = async <
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
-  let prepareMeasurement: Measurement<RecordUndoRedoFixture> | undefined;
+  let prepareMeasurement: Measurement<RecordReplayFixture> | undefined;
   let deleteAttempted = false;
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config, {
+      prepareRecordReplayFixture(baseId, tableName, config, {
         perfCase,
         runner: "field-delete",
         seedCodeFiles: [spec.seedCodeFile],

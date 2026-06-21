@@ -43,8 +43,8 @@ import {
 } from "./duplicate-lifecycle";
 import {
   buildRecordFields,
-  undoRedoMixed20Fields,
-} from "./record-undo-redo.shared";
+  recordReplayMixed20Fields,
+} from "./record-replay.shared";
 
 const DUPLICATE_BASE_FIXTURE_VERSION = "duplicate-base-v1";
 const DUPLICATE_BASE_METADATA_PREFIX = "perf-lab-duplicate-base:";
@@ -201,7 +201,7 @@ const mainRecordConfig = (
   tableNamePrefix: config.mainTable.name,
   rowCount: config.mainTable.rowCount,
   batchSize: config.mainTable.batchSize,
-  fields: undoRedoMixed20Fields,
+  fields: recordReplayMixed20Fields,
   generator: {
     type: "mixed-undo-redo",
     titlePrefix: config.mainTable.generator.titlePrefix,
@@ -554,7 +554,7 @@ const persistMetadata = async (
 const getDuplicateBaseSeedConfig = (config: DuplicateBaseCaseConfig) => ({
   spaceId: config.spaceId,
   mainTable: config.mainTable,
-  mainFields: undoRedoMixed20Fields,
+  mainFields: recordReplayMixed20Fields,
   linkedTable: config.linkedTable,
   smallTable: config.smallTable,
   workflows: config.workflows,
@@ -605,7 +605,7 @@ const seedMainTable = async (
   const recordConfig = mainRecordConfig(config);
   const table = await createTable(baseId, {
     name: config.mainTable.name,
-    fields: undoRedoMixed20Fields,
+    fields: recordReplayMixed20Fields,
     records: [],
   });
 
@@ -751,7 +751,7 @@ const prepareDuplicateBaseFixture = async (
     seedConfig: getDuplicateBaseSeedConfig(config),
     seedCodeFiles: [
       new URL(import.meta.url),
-      new URL("./record-undo-redo.shared.ts", import.meta.url),
+      new URL("./record-replay.shared.ts", import.meta.url),
       new URL("../seed-cache.ts", import.meta.url),
     ],
   });

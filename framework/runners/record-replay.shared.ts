@@ -79,9 +79,9 @@ type UndoRedoStreamResult = {
   };
 };
 
-export type RecordUndoRedoOperation = "delete" | "undo" | "redo";
+export type RecordReplayOperation = "delete" | "undo" | "redo";
 
-export type RecordUndoRedoFixture = {
+export type RecordReplayFixture = {
   tableId: string;
   tableName: string;
   viewId: string;
@@ -112,7 +112,7 @@ export type RecordReplaySetupMeasurements = {
   undoSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
 };
 
-type RecordUndoRedoSeedOptions = {
+type RecordReplaySeedOptions = {
   perfCase: PerfCase;
   runner: PerfRunnerKind;
   seedIdentity?: Record<string, string | number | boolean>;
@@ -148,7 +148,7 @@ const dateOptions = {
   },
 };
 
-export const undoRedoMixed20Fields = [
+export const recordReplayMixed20Fields = [
   { name: "Title", type: FieldType.SingleLineText },
   { name: "Description", type: FieldType.LongText },
   {
@@ -201,11 +201,11 @@ export const undoRedoMixed20Fields = [
   { name: "Comment", type: FieldType.LongText },
 ];
 
-export const undoRedo10kBaseConfig = {
+export const recordReplay10kBaseConfig = {
   baseId: "seed-base" as const,
   rowCount: 10_000,
   batchSize: 1_000,
-  fields: undoRedoMixed20Fields,
+  fields: recordReplayMixed20Fields,
   generator: {
     type: "mixed-undo-redo" as const,
     titlePrefix: "Item",
@@ -326,14 +326,14 @@ const resolveOperationFields = (
   });
 };
 
-const buildAllRowsRange = (fixture: RecordUndoRedoFixture) => ({
+const buildAllRowsRange = (fixture: RecordReplayFixture) => ({
   viewId: fixture.viewId,
   type: RangeType.Rows,
   ranges: [[0, fixture.seededRecords.length - 1] as [number, number]],
   projection: fixture.projection,
 });
 
-const buildUiSelectionDeleteRange = (fixture: RecordUndoRedoFixture) => ({
+const buildUiSelectionDeleteRange = (fixture: RecordReplayFixture) => ({
   viewId: fixture.viewId,
   ranges: [
     [0, 0],
@@ -388,7 +388,7 @@ export const withRecordWindowId = async <T>(
 };
 
 const seedRecords = async (
-  fixture: Omit<RecordUndoRedoFixture, "seededRecords" | "seedBatchDurations">,
+  fixture: Omit<RecordReplayFixture, "seededRecords" | "seedBatchDurations">,
   config: RecordUndoRedoBaseCaseConfig,
 ) => {
   const records = Array.from({ length: config.rowCount }, (_, index) => {
@@ -433,7 +433,7 @@ const seedRecords = async (
   return { seededRecords, batchDurations };
 };
 
-const getRecordUndoRedoSeedConfig = (
+const getRecordReplaySeedConfig = (
   config: RecordUndoRedoBaseCaseConfig,
   seedIdentity?: Record<string, string | number | boolean>,
 ) => ({
@@ -452,7 +452,7 @@ const buildBaseFixture = async (
   tableName: string,
   config: RecordUndoRedoBaseCaseConfig,
 ): Promise<
-  Omit<RecordUndoRedoFixture, "seededRecords" | "seedBatchDurations">
+  Omit<RecordReplayFixture, "seededRecords" | "seedBatchDurations">
 > => {
   const tableFields = await getFields(tableId);
   const views = await getViews(tableId);
@@ -472,21 +472,18 @@ const buildBaseFixture = async (
   };
 };
 
-export const prepareRecordUndoRedoFixture = async (
+export const prepareRecordReplayFixture = async (
   baseId: string,
   tableName: string,
   config: RecordUndoRedoBaseCaseConfig,
-  seedOptions?: RecordUndoRedoSeedOptions,
-): Promise<RecordUndoRedoFixture> => {
+  seedOptions?: RecordReplaySeedOptions,
+): Promise<RecordReplayFixture> => {
   const seedCacheInfo = seedOptions
     ? await buildSeedCacheInfo({
         perfCase: seedOptions.perfCase,
         runner: seedOptions.runner,
         fixtureVersion: "record-undo-redo-v1",
-        seedConfig: getRecordUndoRedoSeedConfig(
-          config,
-          seedOptions.seedIdentity,
-        ),
+        seedConfig: getRecordReplaySeedConfig(config, seedOptions.seedIdentity),
         seedCodeFiles: [
           new URL(import.meta.url),
           new URL("../seed-cache.ts", import.meta.url),
@@ -501,7 +498,7 @@ export const prepareRecordUndoRedoFixture = async (
 
   if (cachedTable && seedCacheInfo) {
     try {
-      const cachedFixture: RecordUndoRedoFixture = {
+      const cachedFixture: RecordReplayFixture = {
         ...(await buildBaseFixture(cachedTable.id, cachedTable.name, config)),
         seededRecords: buildSyntheticSeededRecords(config.rowCount),
         seedBatchDurations: [0],
@@ -564,7 +561,7 @@ export const prepareRecordUndoRedoFixture = async (
 };
 
 export const deleteAllRows = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   context: PerfRunContext,
 ) => {
   const result = await deleteSelectionStream(
@@ -583,7 +580,7 @@ export const deleteAllRows = async (
 };
 
 export const deleteAllRowsViaSelectionDelete = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   context?: Pick<PerfRunContext, "engine">,
 ): Promise<{
   status: number;
@@ -636,7 +633,7 @@ export const deleteAllRowsViaSelectionDelete = async (
 };
 
 export const undoLastOperation = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   context: PerfRunContext,
   perfCase: PerfCase,
   stepId = "undo",
@@ -652,7 +649,7 @@ export const undoLastOperation = async (
 };
 
 export const redoLastOperation = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   context: PerfRunContext,
   perfCase: PerfCase,
   stepId = "redo",
@@ -675,7 +672,7 @@ const streamUndoRedoOperation = async ({
   stepId,
 }: {
   mode: "undo" | "redo";
-  fixture: RecordUndoRedoFixture;
+  fixture: RecordReplayFixture;
   context: PerfRunContext;
   perfCase: PerfCase;
   stepId: string;
@@ -743,7 +740,7 @@ const streamUndoRedoOperation = async ({
 };
 
 export const assertRowsRestored = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: RecordUndoRedoBaseCaseConfig,
   options: RestoreVerificationOptions = {},
 ): Promise<RecordReplayVerification> => {
@@ -790,7 +787,7 @@ export const assertRowsRestored = async (
 };
 
 const assertRestoredSampleTextValues = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: RecordUndoRedoBaseCaseConfig,
 ): Promise<RecordReplayVerification["verifiedSamples"]> => {
   const sampleFields = fixture.fields.filter((field) =>
@@ -845,7 +842,7 @@ const assertRestoredSampleTextValues = async (
 };
 
 export const waitForRowsRestored = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: RecordUndoRedoBaseCaseConfig,
   options: {
     timeoutMs?: number;
@@ -878,7 +875,7 @@ export const waitForRowsRestored = async (
 };
 
 export const assertDeleted = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
 ): Promise<RecordReplayVerification> => {
   const result = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,
@@ -902,9 +899,9 @@ export const assertDeleted = async (
   };
 };
 
-export const cleanupRecordUndoRedoFixture = async (
+export const cleanupRecordReplayFixture = async (
   baseId: string,
-  prepareMeasurement?: Measurement<RecordUndoRedoFixture>,
+  prepareMeasurement?: Measurement<RecordReplayFixture>,
   options?: {
     config?: RecordUndoRedoBaseCaseConfig;
     context?: PerfRunContext;
@@ -960,7 +957,7 @@ export const cleanupRecordUndoRedoFixture = async (
   }
 };
 
-export const seedRecordUndoRedoCase = async (
+export const seedRecordReplayCase = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   runner: Extract<
@@ -979,7 +976,7 @@ export const seedRecordUndoRedoCase = async (
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
-    prepareRecordUndoRedoFixture(baseId, tableName, config, {
+    prepareRecordReplayFixture(baseId, tableName, config, {
       perfCase,
       runner,
       seedCodeFiles: [seedCodeFileByRunner[runner]],
@@ -1019,10 +1016,10 @@ export const buildRecordReplayResult = ({
   config: RecordUndoRedoBaseCaseConfig & {
     threshold: { metric: string; maxMs: number };
   };
-  operation: RecordUndoRedoOperation;
+  operation: RecordReplayOperation;
   windowId?: string;
-  fixture?: RecordUndoRedoFixture;
-  prepareMeasurement?: Measurement<RecordUndoRedoFixture>;
+  fixture?: RecordReplayFixture;
+  prepareMeasurement?: Measurement<RecordReplayFixture>;
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   setupMeasurements?: RecordReplaySetupMeasurements;
   operationMeasurement?: Measurement<unknown>;

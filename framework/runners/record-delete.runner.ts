@@ -3,7 +3,7 @@ import { runRecordReplayLifecycle } from "./record-replay-lifecycle";
 import {
   assertDeleted,
   deleteAllRowsViaSelectionDelete,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 
 // Measured operation: delete every seeded row through the grid selection-delete
 // path. No setup phases. Verify that no records remain.

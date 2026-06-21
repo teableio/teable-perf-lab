@@ -6,7 +6,7 @@ import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
 import {
   waitForRowsRestored,
   type RecordReplayVerification,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 import { runTableSamplesLifecycle } from "./table-lifecycle";
 import {
   archiveTable,

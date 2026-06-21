@@ -43,7 +43,7 @@ import { runRecordRedoCase } from "./runners/record-redo.runner";
 import { runRecordReorderCase } from "./runners/record-reorder.runner";
 import { seedRecordReorderCase } from "./runners/record-reorder.runner";
 import { runRecordUndoCase } from "./runners/record-undo.runner";
-import { seedRecordUndoRedoCase } from "./runners/record-undo-redo.shared";
+import { seedRecordReplayCase } from "./runners/record-replay.shared";
 import { runRecordUpdateCase } from "./runners/record-update.runner";
 import { seedRecordUpdateCase } from "./runners/record-update.runner";
 import { runRecordUpdateAttachmentCase } from "./runners/record-update-attachment.runner";
@@ -115,7 +115,7 @@ const seedRecordReplayRunner: SeedEntry = async (perfCase, context) => {
     );
   }
 
-  return seedRecordUndoRedoCase(perfCase, context, perfCase.runner);
+  return seedRecordReplayCase(perfCase, context, perfCase.runner);
 };
 
 export const runnerRegistry: Record<PerfRunnerKind, RunnerRegistryEntry> = {
