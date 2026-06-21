@@ -112,10 +112,12 @@ shape from that case's markdown.
 
 ### 6. Register
 
-In `registry.ts`: add the import and include the case in the `cases` array.
-Optionally add short aliases in `caseAliases` for manual triggering, but keep
-aliases current and literal. Do not map old workload names such as `*/10k` to a
-new `*/1k` case. An unregistered `.case.ts` fails the case check.
+In `registry.ts`: add the import **and** include the case in the `cases` array.
+Both are required — the catalog check (`check:catalog`, see step 7) fails if a
+file on disk is not imported, an import is missing from the `cases` array, or an
+import points at a file that is not on disk. Optionally add short aliases in
+`caseAliases` for manual triggering, but keep aliases current and literal. Do
+not map old workload names such as `*/10k` to a new `*/1k` case.
 
 After registering, run `pnpm sync:readme` to regenerate the root README
 "Available Cases" list from the registry and each case's `## Goal` section.
@@ -127,10 +129,15 @@ After registering, run `pnpm sync:readme` to regenerate the root README
 pnpm check
 ```
 
-This validates formatting, workflow YAML, TypeScript syntax, case registry
-(every case registered, exists on disk, has a same-name markdown, and parses the
-metadata Teable sync needs), and that the root README "Available Cases" list
-matches the registry. It does **not** execute anything against a real
+This runs the full chain: `format:check`, `check:yaml`, `check:ts`,
+`check:types`, `check:trace`, `check:catalog`, `check:cases`, `check:readme`.
+Between them they validate formatting, workflow YAML, TypeScript syntax and
+types (incl. the runner↔config binding — pairing a runner with the wrong config
+fails `check:types`), the case catalog (`check:catalog`: every disk `.case.ts`
+is imported in `registry.ts`, every import is in the `cases` array, every import
+is on disk, and each registered case has a same-name markdown), the metadata
+Teable sync needs (`check:cases`), and that the root README "Available Cases"
+list matches the registry. It does **not** execute anything against a real
 Teable — that is step 8.
 
 ### 8. Local Verify
