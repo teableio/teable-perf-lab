@@ -27,7 +27,9 @@ as an assumption.
 - **Goal**: tie it to a real product action. "Catch regressions in clearing all
   cells of a 10k grid", not "test clear".
 - **Runner**: decide with [runners.md](runners.md). State reuse / extend / new
-  explicitly.
+  explicitly. The runner and its config are type-bound: `PerfCaseConfigByRunner`
+  in `framework/types.ts` maps each runner kind to its one allowed `*CaseConfig`,
+  so pairing a runner with the wrong config fails `pnpm check:types`.
 - **Seed vs Execute**: keep them separate. Seed builds deterministic source
   state; execute runs the measured operation. See [seed-execute.md](seed-execute.md).
 - **Primary Metric**: must measure the operation + readiness, not seed/setup
@@ -42,6 +44,9 @@ as an assumption.
 
 ## After Confirmation
 
-Proceed to write `cases/<group>/<case-name>.case.ts` + `.md`, register in
-`registry.ts`, then `pnpm check`. See the flow in
+Proceed to write `cases/<group>/<case-name>.case.ts` + same-name `.md`, then
+register in `registry.ts` — both the per-case `import` AND an entry in the
+`cases` array. `pnpm check`'s `check:catalog` step fails loud if the disk files,
+the `registry.ts` imports, and the `cases` array disagree (e.g. an import that
+never made it into the array). Then run `pnpm check`. See the flow in
 [.agents/README.md](README.md).
