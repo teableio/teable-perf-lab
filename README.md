@@ -32,7 +32,12 @@ ready.
 - `cases/**/*.case.ts`: typed case configs.
 - `cases/**/*.md`: same-name case descriptions used by registry sync.
 - `framework/runners/*.runner.ts`: runner implementations.
-- `framework/types.ts`: runner kinds, case config interfaces, result types.
+- `framework/runner-registry.ts`: the `runnerRegistry` dispatch table mapping each
+  runner kind to its `{ execute, seed }` fns; `run-perf-case.ts`/`run-perf-seed.ts`
+  look up the runner here (no switch statement).
+- `framework/types.ts`: the `PerfCaseConfigByRunner` map that binds each runner kind
+  to its case config interface, plus `PerfRunnerKind`, the `PerfCase` discriminated
+  union derived from that map, and result types.
 - `framework/seed-cache.ts`: runner-level seed hash helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
@@ -43,7 +48,8 @@ ready.
 - Keep changes inside this repo unless the user explicitly asks otherwise.
 - Do not edit `../teable-ee` for perf-lab case implementation.
 - Every runnable case needs `cases/<group>/<name>.case.ts`, same-name `.md`, and
-  a `registry.ts` entry.
+  both its `registry.ts` import and an entry in the registered `cases` array
+  (`pnpm check:catalog` fails loud if disk, imports, and that array disagree).
 - Shared execution behavior belongs in `framework/`.
 - Keep fixture data deterministic so V1, V2, and repeated runs compare.
 - Run `pnpm check` before finishing code or documentation changes.

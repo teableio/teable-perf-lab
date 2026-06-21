@@ -31,9 +31,14 @@ wrong or non-comparable metrics.
 Default to two levels:
 
 - **Sample**: quick polling on a few known rows to confirm correct values start
-  appearing.
+  appearing. Drive the retry-until-ready wait with
+  `pollUntilReady(...)` from `framework/readiness.ts` instead of hand-rolling a
+  retry loop.
 - **Full scan**: paged read of every row through the real read path
-  (`getRecords`, usually 1000 at a time) to prove the operation fully landed.
+  (`getRecords`, usually 1000 at a time) to prove the operation fully landed. Use
+  `forEachRecordPage(...)` from `framework/record-page-scan.ts` for the paged
+  scan — it owns the skip/take loop, the per-page bounds guard, the 1-based
+  `rowNumber`, and the scanned/page counts, so do not open-code the loop.
 
 Match verification to the promised final state. Computed-field cases must prove
 values. Selection clear must prove cells are empty while rows remain. Delete

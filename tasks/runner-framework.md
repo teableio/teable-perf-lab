@@ -120,7 +120,35 @@ Proof:
   and trace evidence.
 - `tasks/runner-migration-tracker.md` is updated.
 
-### 3. G1 Artifact Diff
+### 3. Shared Runner Helpers
+
+Goal: a runner reuses framework helpers for cross-cutting mechanics instead of
+hand-rolling them, so behavior and artifact shape stay uniform.
+
+Reuse these — do not re-implement them in a new runner:
+
+- `framework/metrics.ts`: `measureAsync` and its `Measurement<T>` named-timed-
+  result type (moved here from the old `record-undo-redo.shared.ts`), plus
+  `roundMetric`, `percentile`, `summarizeDurations`.
+- `framework/readiness.ts`: `pollUntilReady({ timeoutMs, pollIntervalMs,
+description }, assertFn)` and `sleep(ms)` — any "retry an assertion until it
+  stops throwing or times out" readiness wait.
+- `framework/record-page-scan.ts`: `forEachRecordPage({ totalRows, pageSize,
+fetchPage, pageNoun? }, onRecord)` — owns the skip/take paged-scan loop, the
+  per-page bounds guard, the 1-based rowNumber, and scanned/page counts. Use it
+  for paged full-scan verification instead of open-coding the loop.
+- `framework/sample-records.ts`: `collectSampleRecords(map, wanted, inputs,
+records)` plus the `SeededSampleRecord` type — capture seed-time verification
+  samples.
+- `framework/chunk.ts`: `chunk(items, size)` — batch an array.
+
+Rules:
+
+- A new runner uses these helpers rather than copying their logic.
+- Changing a helper is a framework surface change: it must keep artifact-visible
+  output identical and prove it with G1.
+
+### 4. G1 Artifact Diff
 
 Goal: prove framework refactors preserve observable behavior.
 
@@ -154,7 +182,7 @@ Proof:
 - The mask list is derived from actual run-to-run noise, not from expected
   candidate differences.
 
-### 4. G2 Contract Checks
+### 5. G2 Contract Checks
 
 Goal: make source-level framework contract drift fail in `pnpm check`.
 
@@ -172,9 +200,17 @@ Proof:
 - Negative fixtures or inline assertions prove each contract violation fails.
 - The check focuses on framework contracts, not private implementation style.
 
-### 5. G3 Routing And Verification Guards
+### 6. G3 Routing And Verification Guards
 
 Goal: make silent false positives fail.
+
+Status: BUILT for engine and feature routing. `framework/routing.ts`
+`assertEngineRouting` throws on an engine mismatch, and now also throws on a
+declared-feature mismatch — guarded to v2 (`expectedXTeableV2 === "true"`), so a
+v2 request answered by the wrong feature (or a generic fall-through) fails loud
+instead of recording `featureMatched=false` and passing silently. A case that
+passes `feature:` must produce the matching `x-teable-v2-feature` header on v2.
+v1 is unaffected. `assertStreamEngineRouting` covers the streaming path.
 
 Target failures:
 
@@ -189,9 +225,18 @@ Proof:
 - Affected runtime cases run on v1 and v2 when route behavior matters.
 - Artifacts include route-match evidence and final-state evidence.
 
-### 6. G4 Case Catalog
+### 7. G4 Case Catalog
 
 Goal: make registry, README, and sync tooling read from one catalog shape.
+
+Status: BUILT. `scripts/case-catalog.mjs` is the single catalog model — it reads
+the three views once (case files on disk, `registry.ts` imports, the registered
+`cases` array) so `sync-perf-cases`, `sync-readme`, and the check all agree.
+`scripts/check-catalog.mjs` runs as the new `check:catalog` step in `pnpm check`
+and fails loud when those three views disagree, including an import that is
+missing from the `cases` array. Adding a case now requires the `.case.ts` plus a
+same-name `.md` on disk, the import in `registry.ts`, and the entry in the
+`cases` array.
 
 Target failures:
 
@@ -226,14 +271,15 @@ Stop and narrow the task if it touches multiple unrelated surfaces.
 
 ## Verification Matrix
 
-| Change type                   | Required proof                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------- |
-| Registry-only dispatch change | `pnpm check`; switches removed; registry calls same functions with same args     |
-| Lifecycle migration           | `pnpm check`; all cases for runner kind run; G1 baseline vs candidate passes     |
-| G1 comparator change          | unchanged-code diff passes; semantic perturbation fails                          |
-| Contract check change         | `pnpm check`; negative cases prove each contract violation fails                 |
-| Routing/verification guard    | `pnpm check`; affected cases run; artifacts show route and final-state evidence  |
-| Case catalog refactor         | `pnpm check`; generated output byte-stable; registry/disk/README drift is caught |
+| Change type                   | Required proof                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| Registry-only dispatch change | `pnpm check`; switches removed; registry calls same functions with same args       |
+| Lifecycle migration           | `pnpm check`; all cases for runner kind run; G1 baseline vs candidate passes       |
+| Shared helper change          | `pnpm check`; G1 passes for every case using the helper; artifact output identical |
+| G1 comparator change          | unchanged-code diff passes; semantic perturbation fails                            |
+| Contract check change         | `pnpm check`; negative cases prove each contract violation fails                   |
+| Routing/verification guard    | `pnpm check`; affected cases run; artifacts show route and final-state evidence    |
+| Case catalog refactor         | `pnpm check`; generated output byte-stable; registry/disk/README drift is caught   |
 
 ## Done Definition
 
