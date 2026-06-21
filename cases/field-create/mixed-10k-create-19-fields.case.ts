@@ -1,10 +1,10 @@
-import { undoRedoMixed20Fields } from "../../framework/runners/record-undo-redo.shared";
+import { recordReplayMixed20Fields } from "../../framework/runners/record-replay.shared";
 import { definePerfCase } from "../../framework/types";
 
-const baseFields = undoRedoMixed20Fields.filter(
+const baseFields = recordReplayMixed20Fields.filter(
   (field) => field.name === "Title",
 );
-const createFields = undoRedoMixed20Fields.filter(
+const createFields = recordReplayMixed20Fields.filter(
   (field) => field.name !== "Title",
 );
 

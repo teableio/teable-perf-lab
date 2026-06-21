@@ -3,7 +3,7 @@ import { isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
-import { waitForRowsRestored } from "./record-undo-redo.shared";
+import { waitForRowsRestored } from "./record-replay.shared";
 import {
   archiveTable,
   assertTableNotListed,

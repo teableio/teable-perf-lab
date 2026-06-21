@@ -13,7 +13,7 @@ import {
   buildRecordReplayResult,
   deleteAllRowsViaSelectionDelete,
   type RecordReplayVerification,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 import { runRecordDeleteLinkLifecycle } from "./table-link-lifecycle";
 import {
   assertLinkCellSamples,

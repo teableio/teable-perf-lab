@@ -11,11 +11,11 @@ import type {
 import { PerfRunDiagnosticError } from "../types";
 import {
   buildRecordWindowId,
-  cleanupRecordUndoRedoFixture,
+  cleanupRecordReplayFixture,
   waitForRowsRestored,
   withRecordWindowId,
   type RecordReplayVerification,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 import {
   buildTableLifecycleSamplesResult,
   type TableLifecycleRequestSample,
@@ -159,7 +159,7 @@ export const runRecordDeleteLinkLifecycle = async <TPrimary, TVerification>(
     ) {
       await permanentDeleteLinkFixture(baseId, prepareMeasurement.result);
     } else {
-      await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
+      await cleanupRecordReplayFixture(baseId, prepareMeasurement, {
         config,
         context,
         perfCase,

@@ -22,8 +22,8 @@ import {
   assertRowsRestored,
   buildRecordFields,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
-} from "./record-undo-redo.shared";
+  type RecordReplayFixture,
+} from "./record-replay.shared";
 import {
   buildTableLifecycleSamplesResult,
   formatTableLifecycleSample,
@@ -41,7 +41,7 @@ export type TableLinkLifecycleCaseConfig = RecordUndoRedoBaseCaseConfig & {
   threshold: { metric: string; maxMs: number };
 };
 
-export type TableLinkFixture = RecordUndoRedoFixture & {
+export type TableLinkFixture = RecordReplayFixture & {
   link: {
     fieldId: string;
     fieldName: string;
@@ -369,7 +369,7 @@ export const prepareTableLinkFixture = async (
     seedCodeFiles: [
       new URL(import.meta.url),
       new URL("../seed-cache.ts", import.meta.url),
-      new URL("./record-undo-redo.shared.ts", import.meta.url),
+      new URL("./record-replay.shared.ts", import.meta.url),
       runner === "table-delete-link"
         ? new URL("./table-delete-link.runner.ts", import.meta.url)
         : runner === "table-restore-link"

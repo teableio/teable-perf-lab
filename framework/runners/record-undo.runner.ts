@@ -7,7 +7,7 @@ import {
   deleteAllRowsViaSelectionDelete,
   undoLastOperation,
   waitForRowsRestored,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 
 // Setup (not measured): delete all rows, then assert the table is empty.
 // Measured operation: undo that delete via the undo-stream. Verify the rows are

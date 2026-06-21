@@ -12,14 +12,14 @@ import {
   assertRowsRestored,
   buildRecordReplayResult,
   buildRecordWindowId,
-  cleanupRecordUndoRedoFixture,
-  prepareRecordUndoRedoFixture,
+  cleanupRecordReplayFixture,
+  prepareRecordReplayFixture,
   withRecordWindowId,
   type RecordReplaySetupMeasurements,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
-  type RecordUndoRedoOperation,
-} from "./record-undo-redo.shared";
+  type RecordReplayFixture,
+  type RecordReplayOperation,
+} from "./record-replay.shared";
 
 // The lifecycle skeleton shared by record-delete / record-undo / record-redo.
 // Before this driver, all three runners hand-wrote the identical control flow:
@@ -38,7 +38,7 @@ export type RecordReplayConfig = RecordUndoRedoBaseCaseConfig & {
 };
 
 export type RecordReplayHookArgs = {
-  fixture: RecordUndoRedoFixture;
+  fixture: RecordReplayFixture;
   context: PerfRunContext;
   perfCase: PerfCase;
   config: RecordReplayConfig;
@@ -50,9 +50,9 @@ export type RecordReplaySpec = {
     PerfRunnerKind,
     "record-delete" | "record-undo" | "record-redo"
   >;
-  operation: RecordUndoRedoOperation;
+  operation: RecordReplayOperation;
   // Hash input for the seed cache; must be the migrated runner's own file so the
-  // seed hash stays identical between seed mode (seedRecordUndoRedoCase, which
+  // seed hash stays identical between seed mode (seedRecordReplayCase, which
   // hashes the same runner file) and execute mode.
   seedCodeFile: URL;
   // Ordered NON-measured setup steps run before the measured operation, inside
@@ -79,12 +79,12 @@ export const runRecordReplayLifecycle = async (
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
 
-  let prepareMeasurement: Measurement<RecordUndoRedoFixture> | undefined;
+  let prepareMeasurement: Measurement<RecordReplayFixture> | undefined;
   let seedReadyMeasurement: Measurement<RecordReplayVerification> | undefined;
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
-      prepareRecordUndoRedoFixture(baseId, tableName, config, {
+      prepareRecordReplayFixture(baseId, tableName, config, {
         perfCase,
         runner: spec.runner,
         seedCodeFiles: [spec.seedCodeFile],
@@ -161,7 +161,7 @@ export const runRecordReplayLifecycle = async (
       verifyMeasurement,
     });
   } finally {
-    await cleanupRecordUndoRedoFixture(baseId, prepareMeasurement, {
+    await cleanupRecordReplayFixture(baseId, prepareMeasurement, {
       config,
       context,
       perfCase,

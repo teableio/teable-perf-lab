@@ -1,4 +1,4 @@
-import { undoRedo10kBaseConfig } from "../../framework/runners/record-undo-redo.shared";
+import { recordReplay10kBaseConfig } from "../../framework/runners/record-replay.shared";
 import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
@@ -8,10 +8,10 @@ export default definePerfCase({
   runner: "table-restore-link",
   timeoutMs: 1_800_000,
   config: {
-    ...undoRedo10kBaseConfig,
+    ...recordReplay10kBaseConfig,
     tableNamePrefix: "perf-table-restore-link-10k",
     generator: {
-      ...undoRedo10kBaseConfig.generator,
+      ...recordReplay10kBaseConfig.generator,
       source: "perf-lab-table-restore-link",
     },
     samples: 5,
