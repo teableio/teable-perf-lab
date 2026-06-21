@@ -30,8 +30,9 @@ pnpm check
 
 This chains: `format:check`, `check:yaml`, `check:ts`, `check:types`,
 `check:trace`, `check:catalog`, `check:run-plan`,
-`check:artifact-read-model`, `check:cases`, `check:readme`. `check:catalog`
-fails loud if the disk case files, the
+`check:artifact-read-model`, `check:run-summary-model`,
+`check:artifact-diff-model`, `check:record-read-model`, `check:cases`,
+`check:readme`. `check:catalog` fails loud if the disk case files, the
 `registry.ts` imports, and the registered `cases` array disagree — so adding a
 case requires all of: the `*.case.ts` plus its same-name `*.md`, the import in
 `registry.ts`, and the entry in the `cases` array.
