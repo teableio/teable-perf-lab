@@ -4,7 +4,7 @@ import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
 import {
   buildRecordWindowId,
   withRecordWindowId,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 
 // The lifecycle skeleton shared by the record-mutation family: seed a record
 // table, run one measured bulk mutation, verify the final state, then

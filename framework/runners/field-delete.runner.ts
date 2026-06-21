@@ -17,8 +17,8 @@ import { type Measurement } from "../metrics";
 import {
   assertRowsRestored,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
-} from "./record-undo-redo.shared";
+  type RecordReplayFixture,
+} from "./record-replay.shared";
 import {
   runFieldDeleteLifecycle,
   seedFieldDeleteLifecycle,
@@ -53,7 +53,7 @@ const assertExpectedRouting = (
   });
 
 const resolveDeleteFieldIds = (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: FieldDeleteCaseConfig,
 ) => {
   const fieldByName = new Map(
@@ -75,7 +75,7 @@ const resolveDeleteFieldIds = (
 const runFieldDeletePrimary = async (
   perfCase: PerfCase,
   context: PerfRunContext,
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: FieldDeleteCaseConfig,
   deleteFieldIds: string[],
 ): Promise<FieldDeletePrimaryResult> => {
@@ -100,7 +100,7 @@ const runFieldDeletePrimary = async (
 };
 
 const assertFieldsDeleted = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: FieldDeleteCaseConfig,
 ): Promise<FieldDeleteVerification> => {
   const fields = (await getFields(fixture.tableId)) as NamedField[];
@@ -145,7 +145,7 @@ const assertFieldsDeleted = async (
 
 const cleanupFieldDeleteFixture = async (
   baseId: string,
-  fixture: RecordUndoRedoFixture | undefined,
+  fixture: RecordReplayFixture | undefined,
   options: {
     deleteAttempted: boolean;
   },
@@ -189,8 +189,8 @@ const buildFieldDeleteResult = ({
 }: {
   config: FieldDeleteCaseConfig;
   windowId?: string;
-  fixture?: RecordUndoRedoFixture;
-  prepareMeasurement?: Measurement<RecordUndoRedoFixture>;
+  fixture?: RecordReplayFixture;
+  prepareMeasurement?: Measurement<RecordReplayFixture>;
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   operationMeasurement?: Measurement<FieldDeletePrimaryResult>;
   verifyMeasurement?: Measurement<FieldDeleteVerification>;
