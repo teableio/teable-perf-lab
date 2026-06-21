@@ -91,6 +91,11 @@ jobs:
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
 
     steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
+        with:
+          path: perf-lab
+
       - name: Resolve engine matrix
         id: engines
         env:
@@ -100,109 +105,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          node <<'NODE'
-          const fs = require("node:fs");
-          const hybridComputedCases = [
-            "lookup/dual-link-computed-first-link-4k",
-            "lookup/dual-link-computed-repoint-2k",
-          ];
-
-          const raw = process.env.ENGINE_FILTER ?? "";
-          const engines = [
-            ...new Set(
-              raw
-                .split(",")
-                .map((engine) => engine.trim())
-                .filter(Boolean),
-            ),
-          ];
-          const validEngines = new Set(["v1", "v2"]);
-          const invalidEngines = engines.filter((engine) => !validEngines.has(engine));
-
-          if (engines.length === 0) {
-            console.error("engine_filter must include at least one engine.");
-            process.exit(1);
-          }
-
-          if (invalidEngines.length > 0) {
-            console.error(
-              `Unsupported engine_filter value(s): ${invalidEngines.join(", ")}. Use v1, v2, or v1,v2.`,
-            );
-            process.exit(1);
-          }
-
-          const rawCaseFilter = process.env.CASE_FILTER ?? "";
-          const caseFilters =
-            rawCaseFilter.trim().toLowerCase() === "all"
-              ? ["all"]
-              : [
-                  ...new Set(
-                    rawCaseFilter
-                      .split(",")
-                      .map((caseId) => caseId.trim())
-                      .filter(Boolean)
-                      .sort(),
-                  ),
-                ];
-          if (caseFilters.length === 0) {
-            console.error("case_filter must include at least one case id or all.");
-            process.exit(1);
-          }
-          const caseFilterKey = caseFilters
-            .join("__")
-            .replace(/[^a-zA-Z0-9_.-]+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 160);
-          const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
-          const requestedComputedUpdateMode = (process.env.COMPUTED_UPDATE_MODE ?? "").trim();
-          const executePlan = engines.flatMap((engine) => {
-            if (
-              engine !== "v2" ||
-              !caseFilterIsAll ||
-              requestedComputedUpdateMode
-            ) {
-              return [
-                {
-                  name: engine,
-                  engine,
-                  caseFilter: rawCaseFilter,
-                  excludeCaseFilter: "",
-                  computedUpdateMode: requestedComputedUpdateMode,
-                  artifactSuffix: engine,
-                  otelServiceSuffix: engine,
-                },
-              ];
-            }
-
-            return [
-              {
-                name: "v2-sync-default",
-                engine,
-                caseFilter: rawCaseFilter,
-                excludeCaseFilter: hybridComputedCases.join(","),
-                computedUpdateMode: "",
-                artifactSuffix: "v2",
-                otelServiceSuffix: "v2-sync",
-              },
-              {
-                name: "v2-hybrid-computed",
-                engine,
-                caseFilter: hybridComputedCases.join(","),
-                excludeCaseFilter: "",
-                computedUpdateMode: "hybrid",
-                artifactSuffix: "v2-hybrid-computed",
-                otelServiceSuffix: "v2-hybrid",
-              },
-            ];
-          });
-
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `engines=${JSON.stringify(engines)}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `execute_plan=${JSON.stringify(executePlan)}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `case_filter_key=${caseFilterKey}\n`);
-          console.log(`Resolved engines: ${engines.join(", ")}`);
-          console.log(`Resolved case filter cache key: ${caseFilterKey}`);
-          console.log(`Resolved execute plan: ${JSON.stringify(executePlan)}`);
-          NODE
+          node perf-lab/scripts/run-plan.mjs
 
   seed:
     name: Prepare perf seed DB
