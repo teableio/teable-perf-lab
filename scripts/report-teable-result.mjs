@@ -1,5 +1,16 @@
-import { access, readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
+import {
+  compactTraceManifest,
+  jsonText,
+  numberOrUndefined,
+  readArtifactPayloads,
+  readJsonFileIfExists,
+  readTextFileIfExists,
+  resolvePrimaryTraceUrl,
+  sanitizeCaseId,
+  stringOrUndefined,
+  summaryMarkdownName,
+} from "./perf-artifact-read-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
@@ -69,102 +80,6 @@ const requiredEnv = (name) => {
   return value;
 };
 
-const sanitizeCaseId = (caseId) => caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
-const sanitizeSegment = (value) => value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
-const artifactJsonName = (caseId, engine) =>
-  `${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.json`;
-
-const legacyArtifactJsonName = (caseId) => `${sanitizeCaseId(caseId)}.json`;
-
-const summaryMarkdownName = (caseId, engine) =>
-  `summary-${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.md`;
-
-const fileExists = async (path) => {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const readJsonFile = async (path) => JSON.parse(await readFile(path, "utf8"));
-
-const artifactNameFromPayloadPath = (fileName) => {
-  const [firstSegment] = fileName.split(/[\\/]/);
-  return firstSegment?.startsWith("teable-ee-e2e-perf-")
-    ? firstSegment
-    : undefined;
-};
-
-const readTextFileIfExists = async (path) =>
-  (await fileExists(path)) ? readFile(path, "utf8") : "";
-
-const readJsonFileIfExists = async (path) =>
-  (await fileExists(path)) ? readJsonFile(path) : undefined;
-
-const readArtifactPayloads = async ({ artifactDir, fallbackCaseId }) => {
-  const payloadFiles = [];
-  const walk = async (directory) => {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await walk(path);
-        continue;
-      }
-      if (
-        entry.isFile() &&
-        entry.name.endsWith(".json") &&
-        entry.name !== "manifest.json"
-      ) {
-        payloadFiles.push(path);
-      }
-    }
-  };
-  await walk(artifactDir);
-  payloadFiles.sort();
-
-  const payloads = [];
-  for (const payloadPath of payloadFiles) {
-    const payload = await readJsonFile(payloadPath);
-    if (payload?.caseId && payload?.engine) {
-      const fileName = relative(artifactDir, payloadPath);
-      payloads.push({
-        payload,
-        payloadPath,
-        fileName,
-        artifactName: artifactNameFromPayloadPath(fileName),
-      });
-    }
-  }
-
-  if (payloads.length > 0) {
-    return payloads;
-  }
-
-  const caseId = fallbackCaseId ?? env("PERF_LAB_CASE_ID");
-  if (!caseId) {
-    throw new Error(
-      `No perf payloads found in ${artifactDir}, and PERF_LAB_CASE_ID is not set`,
-    );
-  }
-
-  const engine = env("PERF_LAB_ENGINE", "local");
-  const newPayloadPath = join(artifactDir, artifactJsonName(caseId, engine));
-  const legacyPayloadPath = join(artifactDir, legacyArtifactJsonName(caseId));
-  const payloadPath = (await fileExists(newPayloadPath))
-    ? newPayloadPath
-    : legacyPayloadPath;
-  const payload = (await fileExists(payloadPath))
-    ? await readJsonFile(payloadPath)
-    : buildMissingPayload({ caseId, payloadPath });
-
-  return [{ payload, payloadPath, fileName: payloadPath }];
-};
-
 const githubResultToPerfResult = (result) => {
   switch (result) {
     case "success":
@@ -204,107 +119,6 @@ const buildMissingPayload = ({ caseId, payloadPath }) => {
       message: `Perf payload was not generated at ${payloadPath}`,
     },
   };
-};
-
-const jsonText = (value) =>
-  value == null ? "" : JSON.stringify(value, null, 2);
-
-const compactTraceManifest = (traceManifest) => {
-  if (!traceManifest) {
-    return undefined;
-  }
-
-  const failedOrMissing = Array.isArray(traceManifest.savedTraces)
-    ? traceManifest.savedTraces.filter(
-        (trace) => trace?.status && trace.status !== "saved",
-      )
-    : [];
-  const sampledRefs = Array.isArray(traceManifest.refs)
-    ? traceManifest.refs.slice(0, 20).map((ref) => ({
-        stepId: ref?.stepId,
-        traceId: ref?.traceId,
-        sampled: ref?.sampled,
-        method: ref?.method,
-        url: ref?.url,
-        status: ref?.status,
-        traceLink: ref?.traceLink,
-      }))
-    : undefined;
-
-  return {
-    enabled: traceManifest.enabled,
-    traceRefCount: traceManifest.traceRefCount,
-    uniqueTraceCount: traceManifest.uniqueTraceCount,
-    selectedTraceCount: traceManifest.selectedTraceCount,
-    savedTraceCount: traceManifest.savedTraceCount,
-    failedTraceCount: traceManifest.failedTraceCount,
-    skippedTraceCount: traceManifest.skippedTraceCount,
-    missingFetchCount: traceManifest.missingFetchCount,
-    wastedFetchMs: traceManifest.wastedFetchMs,
-    maxSnapshotCount: traceManifest.maxSnapshotCount,
-    fetchConcurrency: traceManifest.fetchConcurrency,
-    backgroundFlushIntervalMs: traceManifest.backgroundFlushIntervalMs,
-    backgroundFlushCount: traceManifest.backgroundFlushCount,
-    backgroundFlushErrorCount: traceManifest.backgroundFlushErrorCount,
-    flushDurationMs: traceManifest.flushDurationMs,
-    jaegerApiBaseUrl: traceManifest.jaegerApiBaseUrl,
-    artifactDir: traceManifest.artifactDir,
-    manifestPath: traceManifest.manifestPath,
-    refsSample: sampledRefs,
-    nonSavedTracesSample: failedOrMissing.slice(0, 20),
-  };
-};
-
-const isPriorityTraceRef = (ref) =>
-  /create.*field|formula|lookup/i.test(ref?.stepId ?? "") ||
-  /\/field\//i.test(ref?.url ?? "");
-
-const buildTraceUrl = (traceId) => {
-  const baseUrl =
-    env("TRACE_LINK_BASE_URL") || env("PERF_LAB_JAEGER_API_BASE_URL");
-  if (!baseUrl || !traceId) {
-    return "";
-  }
-  return `${baseUrl.replace(/\/+$/, "")}/trace/${traceId}?uiEmbed=v0`;
-};
-
-const resolvePrimaryTraceUrl = ({ payload, traceManifest }) => {
-  const refs =
-    traceManifest?.refs ?? payload.details?.observability?.traces?.refs;
-  if (!Array.isArray(refs) || refs.length === 0) {
-    return "";
-  }
-
-  const savedTraceIds = new Set(
-    (Array.isArray(traceManifest?.savedTraces)
-      ? traceManifest.savedTraces
-      : (payload.details?.observability?.traces?.savedTraces ?? [])
-    )
-      .filter((trace) => trace?.status === "saved" && trace?.traceId)
-      .map((trace) => trace.traceId),
-  );
-  const availableRefs =
-    savedTraceIds.size > 0
-      ? refs.filter((ref) => savedTraceIds.has(ref?.traceId))
-      : refs;
-  const ref =
-    availableRefs.find(isPriorityTraceRef) ?? availableRefs[0] ?? refs[0];
-  return stringOrUndefined(ref.traceLink) || buildTraceUrl(ref.traceId);
-};
-
-const numberOrUndefined = (value) => {
-  if (value == null || value === "") {
-    return undefined;
-  }
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-};
-
-const stringOrUndefined = (value) => {
-  if (value == null || value === "") {
-    return undefined;
-  }
-  return String(value);
 };
 
 const buildRunUrl = () => {
@@ -538,7 +352,12 @@ const buildReportFields = async ({
   const traceManifestPath =
     stringOrUndefined(traces.manifestPath) ||
     stringOrUndefined(traceManifest?.manifestPath);
-  const traceUrl = resolvePrimaryTraceUrl({ payload, traceManifest });
+  const traceUrl = resolvePrimaryTraceUrl({
+    payload,
+    traceManifest,
+    traceBaseUrl:
+      env("TRACE_LINK_BASE_URL") || env("PERF_LAB_JAEGER_API_BASE_URL"),
+  });
 
   return {
     runKey,
@@ -598,6 +417,8 @@ const main = async () => {
   const payloads = await readArtifactPayloads({
     artifactDir,
     fallbackCaseId: env("PERF_LAB_CASE_ID"),
+    fallbackEngine: env("PERF_LAB_ENGINE", "local"),
+    buildMissingPayload,
   });
 
   await ensureFields({ endpoint, token, tableId });

@@ -1,5 +1,10 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  numberOrUndefined,
+  primaryMetricValue,
+  readArtifactPayloads,
+  sanitizeCaseId,
+  traceWaste,
+} from "./perf-artifact-read-model.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -14,45 +19,6 @@ const requiredEnv = (name) => {
     throw new Error(`${name} is required`);
   }
   return value;
-};
-
-const numberOrUndefined = (value) => {
-  if (value == null || value === "") {
-    return undefined;
-  }
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-};
-
-const readJsonFile = async (path) => JSON.parse(await readFile(path, "utf8"));
-
-const readArtifactPayloads = async (artifactDir) => {
-  const payloads = [];
-  const walk = async (directory) => {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await walk(path);
-        continue;
-      }
-      if (!entry.isFile() || !entry.name.endsWith(".json")) {
-        continue;
-      }
-      if (entry.name === "manifest.json") {
-        continue;
-      }
-      const payload = await readJsonFile(path);
-      if (payload?.caseId && payload?.engine && payload.engine !== "seed") {
-        payloads.push(payload);
-      }
-    }
-  };
-
-  await walk(artifactDir);
-  return payloads.sort((a, b) =>
-    `${a.caseId}:${a.engine}`.localeCompare(`${b.caseId}:${b.engine}`),
-  );
 };
 
 const githubApi = async (path) => {
@@ -108,8 +74,6 @@ const formatMetricSeconds = (ms) => {
   }
   return `${(ms / 1000).toFixed(2)}s`;
 };
-
-const sanitizeCaseId = (caseId) => caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 
 const buildRunUrl = () => {
   const repository = env("GITHUB_REPOSITORY");
@@ -199,17 +163,6 @@ const resolveRunTiming = async () => {
     );
     return {};
   }
-};
-
-const primaryThreshold = (payload) =>
-  Array.isArray(payload.thresholds) ? payload.thresholds[0] : undefined;
-
-const primaryMetricValue = (payload) => {
-  const threshold = primaryThreshold(payload);
-  if (Number.isFinite(threshold?.actual)) {
-    return threshold.actual;
-  }
-  return numberOrUndefined(payload.durationMs);
 };
 
 const rowStatusRank = (status) => {
@@ -320,37 +273,6 @@ const resultCounts = (payloads) => {
     }
   }
   return counts;
-};
-
-// Aggregate the wall-clock burned polling Jaeger for traces that never showed
-// up (typically v2 reads served from the performance cache emit no sampled
-// span). This is invisible in per-case durationMs, so surface it explicitly.
-const traceWaste = (payloads) => {
-  const byEngine = {};
-  let missingCount = 0;
-  let wastedMs = 0;
-  for (const payload of payloads) {
-    const traces = payload.details?.observability?.traces;
-    const missing = numberOrUndefined(traces?.missingFetchCount) ?? 0;
-    const wastedSum = numberOrUndefined(traces?.wastedFetchMs) ?? 0;
-    if (!missing && !wastedSum) {
-      continue;
-    }
-    // wastedFetchMs sums poll time across concurrent fetch lanes; divide by the
-    // concurrency to estimate the wall-clock this case added. Cases run
-    // serially, so summing the per-case estimates yields the run-level cost.
-    const concurrency = Math.max(
-      numberOrUndefined(traces?.fetchConcurrency) ?? 1,
-      1,
-    );
-    const wasted = wastedSum / concurrency;
-    missingCount += missing;
-    wastedMs += wasted;
-    const bucket = (byEngine[payload.engine] ??= { missing: 0, wastedMs: 0 });
-    bucket.missing += missing;
-    bucket.wastedMs += wasted;
-  }
-  return { missingCount, wastedMs, byEngine };
 };
 
 const chartUrlForCase = (caseId) =>
@@ -616,7 +538,16 @@ const sendFeishuCard = async (webhookUrl, card) => {
 
 const main = async () => {
   const artifactDir = requiredEnv("PERF_LAB_ARTIFACT_DIR");
-  const payloads = await readArtifactPayloads(artifactDir);
+  const payloadEntries = await readArtifactPayloads({
+    artifactDir,
+    includeSeed: false,
+    allowEmpty: true,
+  });
+  const payloads = payloadEntries
+    .map(({ payload }) => payload)
+    .sort((a, b) =>
+      `${a.caseId}:${a.engine}`.localeCompare(`${b.caseId}:${b.engine}`),
+    );
   if (payloads.length === 0) {
     console.warn(
       `No execute perf payloads found in ${artifactDir}; skipping Feishu summary.`,
