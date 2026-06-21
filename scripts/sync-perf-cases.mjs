@@ -1,6 +1,11 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  findCaseFilesOnDisk,
+  importedCasePathsSorted,
+  loadRegistry,
+} from "./case-catalog.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
@@ -152,45 +157,17 @@ const parseCaseSource = async (casePath) => {
   };
 };
 
-const walk = async (dir) => {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const paths = [];
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      paths.push(...(await walk(path)));
-      continue;
-    }
-    paths.push(path);
-  }
-  return paths;
-};
-
-const normalizePath = (path) => path.replaceAll("\\", "/");
-
-const findCaseFilesOnDisk = async () =>
-  (await walk(join(repoRoot, "cases")))
-    .filter((path) => path.endsWith(".case.ts"))
-    .map((path) => normalizePath(relative(repoRoot, path)))
-    .sort();
-
-const findRegisteredCaseFiles = async () => {
-  const registry = await readText(join(repoRoot, "registry.ts"));
-  const importPattern = /from\s+["']\.\/(cases\/[^"']+\.case)["'];?/g;
-  const casePaths = [...registry.matchAll(importPattern)]
-    .map((match) => `${match[1]}.ts`)
-    .sort();
-
-  if (casePaths.length === 0) {
+// Reconciliation reads through the shared catalog so this and sync-readme parse
+// registry.ts the same way; check:catalog catches the wider drift set (e.g. an
+// import missing from the `cases` array) separately and earlier in `pnpm check`.
+const assertRegisteredCasesMatchDisk = async () => {
+  const diskCasePaths = await findCaseFilesOnDisk(repoRoot);
+  const registeredCasePaths = importedCasePathsSorted(
+    await loadRegistry(repoRoot),
+  );
+  if (registeredCasePaths.length === 0) {
     throw new Error("No registered perf cases found in registry.ts");
   }
-
-  return [...new Set(casePaths)];
-};
-
-const assertRegisteredCasesMatchDisk = async () => {
-  const diskCasePaths = await findCaseFilesOnDisk();
-  const registeredCasePaths = await findRegisteredCaseFiles();
   const disk = new Set(diskCasePaths);
   const registered = new Set(registeredCasePaths);
   const missingFromRegistry = diskCasePaths.filter((path) => !registered.has(path));
