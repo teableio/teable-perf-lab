@@ -18,10 +18,10 @@ import type {
 import {
   assertRowsRestored,
   getExpectedCellValue,
-  prepareRecordUndoRedoFixture,
+  prepareRecordReplayFixture,
   type RecordReplayVerification,
-  type RecordUndoRedoFixture,
-} from "./record-undo-redo.shared";
+  type RecordReplayFixture,
+} from "./record-replay.shared";
 
 export type TableLifecycleRunnerKind = Extract<
   PerfRunnerKind,
@@ -64,8 +64,8 @@ export type TableLifecycleSampleVerification = {
 
 export type TableLifecycleFixtureSample = {
   iteration: number;
-  fixture: RecordUndoRedoFixture;
-  prepareMeasurement: Measurement<RecordUndoRedoFixture>;
+  fixture: RecordReplayFixture;
+  prepareMeasurement: Measurement<RecordReplayFixture>;
   seedReadyMeasurement: Measurement<RecordReplayVerification>;
 };
 
@@ -115,8 +115,8 @@ export const prepareTableLifecycleFixture = async (
   perfCase: PerfCase,
   runner: TableLifecycleRunnerKind,
   seedIdentity?: Record<string, string | number | boolean>,
-): Promise<RecordUndoRedoFixture> =>
-  prepareRecordUndoRedoFixture(baseId, tableName, config, {
+): Promise<RecordReplayFixture> =>
+  prepareRecordReplayFixture(baseId, tableName, config, {
     perfCase,
     runner,
     seedIdentity,
@@ -267,7 +267,7 @@ export const buildTableLifecycleRouting = (
 
 export const buildTableLifecycleSampleResult = (
   iteration: number,
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   measurement: Measurement<TableLifecycleRequestResult>,
   expectedFeature: string,
   context: PerfRunContext,
@@ -288,7 +288,7 @@ export const buildTableLifecycleSampleResult = (
 // Sample value evidence on plain text fields; rows are addressed by view
 // offset, which archive/restore does not change.
 export const assertSampleTextValues = async (
-  fixture: RecordUndoRedoFixture,
+  fixture: RecordReplayFixture,
   config: TableLifecycleCaseConfig,
 ): Promise<TableLifecycleSampleVerification> => {
   const sampleFields = fixture.fields.filter((field) =>
@@ -359,7 +359,7 @@ export const buildTableLifecycleResult = ({
 }: {
   config: TableLifecycleCaseConfig;
   runner: TableLifecycleRunnerKind;
-  prepareMeasurement?: Measurement<RecordUndoRedoFixture>;
+  prepareMeasurement?: Measurement<RecordReplayFixture>;
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   setupMeasurements?: Array<Measurement<unknown>>;
   primaryMeasurement?: Measurement<TableLifecycleRequestResult>;

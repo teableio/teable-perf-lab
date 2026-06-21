@@ -1,47 +1,54 @@
 import type { INestApplication } from "@nestjs/common";
 import type { IFieldRo } from "@teable/core";
 
-export type PerfRunnerKind =
-  | "http-endpoint"
-  | "formula-table"
-  | "conditional-lookup"
-  | "link-computed-propagation"
-  | "lookup-search-index"
-  | "field-create"
-  | "field-convert"
-  | "field-convert-link"
-  | "field-update"
-  | "field-delete"
-  | "field-duplicate"
-  | "duplicate-table"
-  | "duplicate-base"
-  | "import-base"
-  | "record-delete-link"
-  | "table-create"
-  | "table-delete"
-  | "table-delete-link"
-  | "table-restore"
-  | "table-restore-link"
-  | "csv-import"
-  | "form-submit"
-  | "record-paste"
-  | "record-read"
-  | "record-create"
-  | "record-update"
-  | "record-update-attachment"
-  | "record-update-link"
-  | "record-reorder"
-  | "record-delete"
-  | "record-undo"
-  | "record-redo"
-  | "selection-clear"
-  | "selection-duplicate"
-  | "record-duplicate-single";
+// Single source of truth for the runner <-> config binding. PerfRunnerKind is
+// the keys of this map, and PerfCase (below) is discriminated on `runner`, so a
+// case that pairs a runner with the wrong config shape fails `pnpm check:types`
+// at the case file itself — instead of compiling clean and blowing up later when
+// a driver reads a field the config never had.
+export interface PerfCaseConfigByRunner {
+  "http-endpoint": HttpEndpointCaseConfig;
+  "formula-table": FormulaTableCaseConfig;
+  "conditional-lookup": ConditionalLookupCaseConfig;
+  "link-computed-propagation": LinkComputedPropagationCaseConfig;
+  "lookup-search-index": LookupSearchIndexCaseConfig;
+  "field-create": FieldCreateCaseConfig;
+  "field-convert": FieldConvertCaseConfig;
+  "field-convert-link": FieldConvertLinkCaseConfig;
+  "field-update": FieldUpdateCaseConfig;
+  "field-delete": FieldDeleteCaseConfig;
+  "field-duplicate": FieldDuplicateCaseConfig;
+  "duplicate-table": DuplicateTableCaseConfig;
+  "duplicate-base": DuplicateBaseCaseConfig;
+  "import-base": ImportBaseCaseConfig;
+  "record-delete-link": RecordDeleteLinkCaseConfig;
+  "table-create": TableCreateCaseConfig;
+  "table-delete": TableDeleteCaseConfig;
+  "table-delete-link": TableDeleteLinkCaseConfig;
+  "table-restore": TableRestoreCaseConfig;
+  "table-restore-link": TableRestoreLinkCaseConfig;
+  "csv-import": CsvImportCaseConfig;
+  "form-submit": FormSubmitCaseConfig;
+  "record-paste": RecordPasteCaseConfig;
+  "record-read": RecordReadCaseConfig;
+  "record-create": RecordCreateCaseConfig;
+  "record-update": RecordUpdateCaseConfig;
+  "record-update-attachment": RecordUpdateAttachmentCaseConfig;
+  "record-update-link": RecordUpdateLinkCaseConfig;
+  "record-reorder": RecordReorderCaseConfig;
+  "record-delete": RecordDeleteCaseConfig;
+  "record-undo": RecordUndoCaseConfig;
+  "record-redo": RecordRedoCaseConfig;
+  "selection-clear": SelectionClearCaseConfig;
+  "selection-duplicate": SelectionDuplicateCaseConfig;
+  "record-duplicate-single": RecordDuplicateSingleCaseConfig;
+}
 
-export interface PerfCase {
+export type PerfRunnerKind = keyof PerfCaseConfigByRunner;
+
+interface PerfCaseBase {
   id: string;
   title: string;
-  runner: PerfRunnerKind;
   timeoutMs: number;
   // Opt-in idle watchdog (see framework/watchdog.ts). When set, the case fails
   // fast with a clear diagnostic if the server makes no HTTP/SSE progress for
@@ -50,43 +57,19 @@ export interface PerfCase {
   // silence trips it. Leave unset to keep the legacy hang-until-timeout behavior.
   watchdogMs?: number;
   runtimeEnv?: Record<string, string | number | boolean>;
-  config:
-    | HttpEndpointCaseConfig
-    | FormulaTableCaseConfig
-    | ConditionalLookupCaseConfig
-    | LinkComputedPropagationCaseConfig
-    | LookupSearchIndexCaseConfig
-    | FieldCreateCaseConfig
-    | FieldConvertCaseConfig
-    | FieldConvertLinkCaseConfig
-    | FieldUpdateCaseConfig
-    | FieldDeleteCaseConfig
-    | FieldDuplicateCaseConfig
-    | DuplicateTableCaseConfig
-    | DuplicateBaseCaseConfig
-    | ImportBaseCaseConfig
-    | RecordDeleteLinkCaseConfig
-    | TableCreateCaseConfig
-    | TableDeleteCaseConfig
-    | TableDeleteLinkCaseConfig
-    | TableRestoreCaseConfig
-    | TableRestoreLinkCaseConfig
-    | CsvImportCaseConfig
-    | FormSubmitCaseConfig
-    | RecordPasteCaseConfig
-    | RecordReadCaseConfig
-    | RecordCreateCaseConfig
-    | RecordUpdateCaseConfig
-    | RecordUpdateAttachmentCaseConfig
-    | RecordUpdateLinkCaseConfig
-    | RecordReorderCaseConfig
-    | RecordDeleteCaseConfig
-    | RecordUndoCaseConfig
-    | RecordRedoCaseConfig
-    | SelectionClearCaseConfig
-    | SelectionDuplicateCaseConfig
-    | RecordDuplicateSingleCaseConfig;
 }
+
+// Discriminated on `runner`: each runner literal binds to its matching config
+// from PerfCaseConfigByRunner, so a case that pairs the wrong two does not
+// type-check. The union still exposes the same `runner`/`config`/base fields to
+// generic framework code (run-perf-case, artifacts), which reads them without
+// narrowing.
+export type PerfCase = {
+  [K in PerfRunnerKind]: PerfCaseBase & {
+    runner: K;
+    config: PerfCaseConfigByRunner[K];
+  };
+}[PerfRunnerKind];
 
 export interface PerfRunContext {
   app: INestApplication;
@@ -1095,4 +1078,11 @@ export interface RecordReorderCaseConfig extends RecordUndoRedoBaseCaseConfig {
   };
 }
 
-export const definePerfCase = <T extends PerfCase>(perfCase: T) => perfCase;
+// Generic so the return type keeps the case's specific config variant: a few
+// cases build on a sibling by spreading `baseCase.config`, which only works if
+// that property is the narrow member config, not the whole union. The constraint
+// `T extends PerfCase` is what enforces the binding now that PerfCase is
+// discriminated on `runner` — a runner paired with the wrong config no longer
+// satisfies the constraint and fails `pnpm check:types`. (No `const`: `id`/
+// `title` stay `string`, so the registry's case-id map stays open.)
+export const definePerfCase = <T extends PerfCase>(perfCase: T): T => perfCase;

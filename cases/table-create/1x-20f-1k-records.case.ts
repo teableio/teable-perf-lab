@@ -1,4 +1,4 @@
-import { undoRedoMixed20Fields } from "../../framework/runners/record-undo-redo.shared";
+import { recordReplayMixed20Fields } from "../../framework/runners/record-replay.shared";
 import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
@@ -10,7 +10,7 @@ export default definePerfCase({
     baseId: "seed-base",
     tableNamePrefix: "perf-table-create-1k-records",
     tableCount: 1,
-    fields: undoRedoMixed20Fields,
+    fields: recordReplayMixed20Fields,
     inlineRecords: {
       count: 1_000,
       titlePrefix: "Inline",

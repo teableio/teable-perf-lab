@@ -1,5 +1,5 @@
 import { definePerfCase } from "../../framework/types";
-import { undoRedo10kBaseConfig } from "../../framework/runners/record-undo-redo.shared";
+import { recordReplay10kBaseConfig } from "../../framework/runners/record-replay.shared";
 
 export default definePerfCase({
   id: "record-delete/link-trash-1k",
@@ -7,7 +7,7 @@ export default definePerfCase({
   runner: "record-delete-link",
   timeoutMs: 900_000,
   config: {
-    ...undoRedo10kBaseConfig,
+    ...recordReplay10kBaseConfig,
     rowCount: 1_000,
     tableNamePrefix: "perf-record-delete-link-trash-1k",
     link: {
@@ -23,7 +23,7 @@ export default definePerfCase({
       },
     },
     verify: {
-      ...undoRedo10kBaseConfig.verify,
+      ...recordReplay10kBaseConfig.verify,
       sampleRows: [0, 499, 999],
       fullScanPageSize: 1_000,
     },

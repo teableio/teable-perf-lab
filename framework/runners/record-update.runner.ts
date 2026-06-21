@@ -29,7 +29,7 @@ import type {
   PerfRunResult,
   RecordUpdateCaseConfig,
 } from "../types";
-import { withRecordWindowId } from "./record-undo-redo.shared";
+import { withRecordWindowId } from "./record-replay.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,

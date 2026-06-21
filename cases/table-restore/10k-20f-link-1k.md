@@ -29,7 +29,7 @@ Per sample (5 samples, each with its own seed-cache identity):
 1. Create a foreign table (`<seed-name>-fk`) with `Key` / `Note` text fields
    and 1,000 deterministic rows (`RESTORE-FK-00001` ...).
 2. Create the main table with the shared mixed 20-field schema
-   (`undoRedo10kBaseConfig`) plus a `Ref Link` field
+   (`recordReplay10kBaseConfig`) plus a `Ref Link` field
    (`manyOne`, `isOneWay: true`, `foreignTableId` = the foreign table). One-way
    keeps the foreign table free of inbound link fields, so archiving the main
    table never triggers `detachLink` conversions and the fixture stays

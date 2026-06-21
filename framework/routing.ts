@@ -79,6 +79,20 @@ export const assertEngineRouting = (
     );
   }
 
+  // Feature routing is a v2 concept: x-teable-v2-feature is only set when the v2
+  // engine handles the request. Enforce a declared feature route only when v2
+  // was requested (engine route already matched above) — on v1 the header is
+  // absent, which is expected, not a mismatch. Without this, a v2 request that
+  // was answered by the wrong feature (or fell through to a generic path) was
+  // recorded as featureMatched=false but passed silently.
+  if (expectedXTeableV2 === "true" && options.feature && !featureMatched) {
+    throw new Error(
+      `${options.operation} did not use expected v2 feature route; expected x-teable-v2-feature=${options.feature}, got ${feature}; headers=${JSON.stringify(
+        responseHeaders,
+      )}`,
+    );
+  }
+
   return {
     requestedEngine,
     expectedXTeableV2,

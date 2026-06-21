@@ -34,9 +34,9 @@ import type {
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
 import {
-  undoRedoMixed20Fields,
+  recordReplayMixed20Fields,
   withRecordWindowId,
-} from "./record-undo-redo.shared";
+} from "./record-replay.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
@@ -1192,7 +1192,7 @@ export const recordReorderMixed10kBaseConfig = {
   baseId: "seed-base" as const,
   rowCount: 10_000,
   batchSize: 1_000,
-  fields: undoRedoMixed20Fields.map((field) =>
+  fields: recordReplayMixed20Fields.map((field) =>
     field.name === "External ID"
       ? {
           ...field,

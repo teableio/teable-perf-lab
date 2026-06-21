@@ -1779,13 +1779,17 @@ const toLifecyclePerfCase = (perfCase: PerfCase): PerfCase => {
   const config = applySmokeOverrides(
     perfCase.config as LinkComputedPropagationCaseConfig,
   );
+  // Deliberately re-shapes the config (aliasing ordersTableNamePrefix ->
+  // tableNamePrefix) into a record-mutation driver shape while keeping the
+  // link-computed runner, so it fits no discriminated PerfCase member — assert
+  // the whole object. The case-authoring surface (definePerfCase) is unaffected.
   return {
     ...perfCase,
     config: {
       ...config,
       tableNamePrefix: config.ordersTableNamePrefix,
-    } as unknown as PerfCase["config"],
-  };
+    },
+  } as unknown as PerfCase;
 };
 
 export const runLinkComputedPropagationCase = async (
