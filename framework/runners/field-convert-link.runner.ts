@@ -7,8 +7,9 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -20,6 +21,8 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertLinkCaseConfig,
@@ -34,7 +37,6 @@ import {
   resolveForeignKeyFieldId,
   seedForeignTable,
 } from "./link-fixture.shared";
-import type { Measurement } from "./record-undo-redo.shared";
 import {
   runFieldConvertLifecycle,
   seedFieldConvertLifecycle,
@@ -42,16 +44,6 @@ import {
 } from "./field-convert-lifecycle";
 
 const FIELD_CONVERT_LINK_FIXTURE_VERSION = "field-convert-link-v1";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 type NamedField = { id: string; name: string; type?: string };
 
@@ -545,29 +537,19 @@ const assertConvertedSamples = async (
   return verifiedSamples;
 };
 
-const waitFor = async <T>(
+const waitFor = <T>(
   config: FieldConvertLinkCaseConfig,
   label: string,
   fn: () => Promise<T>,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-  throw new Error(
-    `Timed out waiting for ${label} after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: label,
+    },
+    fn,
   );
-};
 
 const assertConvertedFullScan = async (
   fixture: FieldConvertLinkFixture,
@@ -576,24 +558,19 @@ const assertConvertedFullScan = async (
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleField.id, convertedFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleField.id, convertedFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleField.id],
         config,
@@ -611,9 +588,8 @@ const assertConvertedFullScan = async (
           `Converted full scan mismatch at row ${rowNumber}: expected title ${expectedTitle}, actual ${JSON.stringify(actual)}`,
         );
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

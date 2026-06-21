@@ -14,8 +14,10 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
+import { measureAsync, type Measurement } from "../metrics";
 import { assertEngineRouting } from "../routing";
 import {
   buildSeedCacheInfo,
@@ -34,7 +36,6 @@ import {
   runRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
 
 type NamedField = {
   id: string;
@@ -68,14 +69,6 @@ type ClearFixture = {
 type ExpectedCellValue = string | number | boolean | string[] | null;
 
 const DEFAULT_GROUPS = ["A", "B", "C", "D", "E"];
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const buildSyntheticSeededRecords = (rowCount: number): SeededRecord[] =>
   Array.from({ length: rowCount }, (_, index) => ({
@@ -482,28 +475,21 @@ const assertCellsCleared = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const actual: Record<string, unknown> = {};
 
       for (const field of fixture.fields) {
@@ -528,9 +514,8 @@ const assertCellsCleared = async (
           actual,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   return {
     scannedRecords,
@@ -547,28 +532,21 @@ const assertCellsRestored = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const actual: Record<string, unknown> = {};
       const expected: Record<string, unknown> = {};
 
@@ -597,9 +575,8 @@ const assertCellsRestored = async (
           expected,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   return {
     scannedRecords,

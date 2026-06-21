@@ -8,13 +8,19 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
   type EngineRouting,
 } from "../routing";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -34,22 +40,10 @@ import {
   type ReadLifecycleSpec,
 } from "./read-lifecycle";
 
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
-
 type ResolvedField = {
   id: string;
   name: string;
   type?: string;
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 type RecordReadFixture = {
@@ -132,8 +126,6 @@ const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup Source Key";
 const BASE_NUMBER_FIELDS = ["A", "B", "C"] as const;
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const sourceValueName = (index: number) => `Source Value ${index}`;
 const hostTextName = (index: number) => `Text ${index}`;
@@ -419,14 +411,6 @@ const compileExpression = (
     return fieldId ? `{${fieldId}}` : match;
   });
 
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
 const pickResponseHeaders = pickRoutingResponseHeaders;
 
 const assertExpectedRouting = (
@@ -601,16 +585,12 @@ const seedHostRecords = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     },
   );
@@ -917,33 +897,21 @@ const assertProjectionBoundary = async (
   };
 };
 
-const waitForProjectionFullScan = async (
+const waitForProjectionFullScan = (
   fixture: Pick<
     RecordReadFixture,
     "tableId" | "viewId" | "fields" | "projection"
   >,
   config: RecordReadCaseConfig,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 120_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 1_000;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertProjectionFullScan(fixture, config);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for record-read projection after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 120_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 1_000,
+      description: "record-read projection",
+    },
+    () => assertProjectionFullScan(fixture, config),
   );
-};
 
 const createEmptyMeasurement = <T>(
   name: string,

@@ -10,7 +10,13 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
+import {
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+  type Measurement,
+} from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -23,7 +29,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { type Measurement } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
@@ -452,28 +457,22 @@ const assertSubmittedRows = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.gridViewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} submitted records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "submitted records",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.gridViewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const verifiedRow = assertSubmittedRow(
         rowNumber,
         fixture.fields,
@@ -490,10 +489,8 @@ const assertSubmittedRows = async (
           ...verifiedRow,
         });
       }
-
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

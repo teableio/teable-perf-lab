@@ -7,7 +7,8 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { measureAsync } from "../metrics";
+import { chunk } from "../chunk";
+import { measureAsync, type Measurement } from "../metrics";
 import { buildSeedCacheInfo, findSeedTable } from "../seed-cache";
 import type {
   PerfCase,
@@ -20,7 +21,6 @@ import type {
 import {
   assertRowsRestored,
   buildRecordFields,
-  type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";
@@ -63,14 +63,6 @@ export type LinkFieldState = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 export const foreignRowForMainRow = (
   mainRowNumber: number,

@@ -9,8 +9,9 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -21,6 +22,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   MetricThreshold,
@@ -34,7 +36,6 @@ import type {
 import {
   undoRedoMixed20Fields,
   withRecordWindowId,
-  type Measurement,
 } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
@@ -237,14 +238,6 @@ const buildRecordFields = (
       getExpectedCellValue(field, rowNumber, config),
     ]),
   );
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const pickResponseHeaders = pickRoutingResponseHeaders;
 
@@ -535,32 +528,30 @@ const readOrderedRecords = async (
   }
 
   const orderedRecords: OrderedRecord[] = [];
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [titleField.id],
-      skip,
-      take: expectedTake,
-    });
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} ordered records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowOffset = skip + index;
+  await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [titleField.id],
+          skip,
+          take,
+        }),
+      pageNoun: "ordered records",
+    },
+    (record, rowNumber) => {
+      const rowOffset = rowNumber - 1;
       orderedRecords.push({
         rowOffset,
         rowNumber: rowOffset + 1,
         recordId: record.id,
         title: record.fields[titleField.id],
       });
-    }
-  }
+    },
+  );
 
   return orderedRecords;
 };

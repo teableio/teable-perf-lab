@@ -8,8 +8,9 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -20,6 +21,12 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   FieldConvertCaseConfig,
@@ -28,34 +35,17 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 import {
   runFieldConvertLifecycle,
   seedFieldConvertLifecycle,
   type FieldConvertLifecycleSpec,
 } from "./field-convert-lifecycle";
 
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const TAG_CHOICES = ["Alpha", "Beta", "Gamma", "Delta"];
 
 const FIELD_CONVERT_FIXTURE_VERSION = "field-convert-v1";
 
 type NamedField = { id: string; name: string; type?: string };
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
-};
 
 type FieldConvertFixture = {
   tableId: string;
@@ -416,16 +406,12 @@ const prepareFieldConvertFixture = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     });
 
@@ -594,31 +580,19 @@ const assertConvertedSamples = async (
   return verifiedSamples;
 };
 
-const waitForConvertedSamples = async (
+const waitForConvertedSamples = (
   fixture: FieldConvertFixture,
   config: FieldConvertCaseConfig,
   convertedFieldId: string,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertConvertedSamples(fixture, config, convertedFieldId);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for converted samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "converted samples",
+    },
+    () => assertConvertedSamples(fixture, config, convertedFieldId),
   );
-};
 
 const assertConvertedFullScan = async (
   fixture: FieldConvertFixture,
@@ -627,26 +601,20 @@ const assertConvertedFullScan = async (
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleField.id, convertedFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleField.id, convertedFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleField.id],
         config.generator.titlePrefix,
@@ -670,9 +638,8 @@ const assertConvertedFullScan = async (
           )}, actual ${String(actual)}`,
         );
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(
@@ -683,31 +650,19 @@ const assertConvertedFullScan = async (
   return { scannedRecords, pageSize, pageCount };
 };
 
-const waitForConvertedFullScan = async (
+const waitForConvertedFullScan = (
   fixture: FieldConvertFixture,
   config: FieldConvertCaseConfig,
   convertedFieldId: string,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertConvertedFullScan(fixture, config, convertedFieldId);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for converted full scan after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 30_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description: "converted full scan",
+    },
+    () => assertConvertedFullScan(fixture, config, convertedFieldId),
   );
-};
 
 const runFieldConvertPrimary = async (
   perfCase: PerfCase,

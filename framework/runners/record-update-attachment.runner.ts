@@ -18,7 +18,12 @@ import {
   getPrimaryThresholdMs,
   isExecuteDbIsolated,
 } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import {
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+  type Measurement,
+} from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -29,6 +34,8 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { chunk } from "../chunk";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCase,
@@ -44,12 +51,6 @@ import {
 
 const ATTACHMENT_FIXTURE_VERSION = "record-update-attachment-v1";
 const ATTACHMENT_METADATA_PREFIX = "perf-lab-record-update-attachment:";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = { id: string; name: string; type?: string };
 
@@ -96,14 +97,6 @@ type AttachmentPrimaryResult = {
   verified?: { checkedRecords: number };
   verifyUpdatedMs?: number;
   fullScan?: { scannedRecords: number; pageSize: number; pageCount: number };
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const titleForRow = (
@@ -547,28 +540,23 @@ const assertInsertedFullScan = async (
   expectedTokens: string[],
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [fixture.titleFieldId, fixture.attachmentFieldId],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    result.records.forEach((record, index) => {
-      assertInsertedSample(record, fixture, expectedTokens, skip + index + 1);
-      scannedRecords += 1;
-    });
-  }
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.titleFieldId, fixture.attachmentFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
+      assertInsertedSample(record, fixture, expectedTokens, rowNumber);
+    },
+  );
   if (scannedRecords !== config.rowCount) {
     throw new Error(
       `Attachment full scan count mismatch: expected ${config.rowCount}, scanned ${scannedRecords}`,

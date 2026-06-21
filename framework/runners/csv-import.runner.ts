@@ -27,6 +27,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady, sleep } from "../readiness";
 import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -524,46 +525,23 @@ const assertImportedRows = async (
   };
 };
 
-const sleep = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const assertImportedRowsReady = async (
+const assertImportedRowsReady = (
   baseId: string,
   dbTableName: string,
   tableId: string,
   viewId: string,
   fields: CsvField[],
   config: CsvImportCaseConfig,
-) => {
-  const timeoutMs = 120_000;
-  const pollIntervalMs = 1_000;
-  const startedAt = Date.now();
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertImportedRows(
-        baseId,
-        dbTableName,
-        tableId,
-        viewId,
-        fields,
-        config,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `CSV import readiness timed out after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: 120_000,
+      pollIntervalMs: 1_000,
+      description: "CSV import readiness",
+    },
+    () =>
+      assertImportedRows(baseId, dbTableName, tableId, viewId, fields, config),
   );
-};
 
 const waitForCsvImportCompletion = async (
   baseId: string,

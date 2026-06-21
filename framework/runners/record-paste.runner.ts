@@ -19,12 +19,13 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
   type EngineRouting,
 } from "../routing";
+import { forEachRecordPage } from "../record-page-scan";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -33,7 +34,6 @@ import type {
   PerfRunResult,
   RecordPasteCaseConfig,
 } from "../types";
-import { type Measurement } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
@@ -409,28 +409,22 @@ const assertPastedRows = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(tableId, {
-      viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} pasted records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "pasted records",
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const verifiedRow = assertRow(rowNumber, fields, record.fields, config);
       const rowOffset = rowNumber - 1;
 
@@ -442,10 +436,8 @@ const assertPastedRows = async (
           ...verifiedRow,
         });
       }
-
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

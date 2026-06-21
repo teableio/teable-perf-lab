@@ -23,13 +23,15 @@ import {
   getTable,
   getViews,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
   type EngineRouting,
 } from "../routing";
+import { forEachRecordPage } from "../record-page-scan";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
@@ -40,7 +42,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 
 const IMPORT_BASE_FIXTURE_VERSION = "import-base-v2-only-v2";
 const IMPORT_BASE_METADATA_PREFIX = "perf-lab-import-base:";
@@ -203,14 +204,6 @@ const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
   "x-teable-v2-feature": getRoutingResponseHeader(
@@ -366,27 +359,22 @@ const scanTable = async (
   config: ImportBaseCaseConfig,
 ): Promise<TableScanResult> => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < tableConfig.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, tableConfig.rowCount - skip);
-    const result = await getRecords(tableRef.id, {
-      viewId: tableRef.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [tableRef.fieldIdByName[TITLE_FIELD]],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records in ${tableRef.name} at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    scannedRecords += result.records.length;
-  }
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: tableConfig.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableRef.id, {
+          viewId: tableRef.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [tableRef.fieldIdByName[TITLE_FIELD]],
+          skip,
+          take,
+        }),
+      pageNoun: `records in ${tableRef.name}`,
+    },
+    () => {},
+  );
 
   if (scannedRecords !== tableConfig.rowCount) {
     throw new Error(

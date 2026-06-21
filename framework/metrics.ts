@@ -20,13 +20,23 @@ export const summarizeDurations = (durations: number[]) => {
   };
 };
 
+// A named, timed async result. This is exactly what `measureAsync` returns,
+// and the shape every runner threads through its phases. It lives here, next
+// to `measureAsync`, so callers import it from the module that produces it —
+// not from an unrelated runner file.
+export type Measurement<T> = {
+  name: string;
+  durationMs: number;
+  result: T;
+};
+
 // The `any` default keeps inference stable when the callback's return type
 // degrades to `any` (e.g. under the standalone type check's module stubs);
 // without it, TS infers `unknown` for T.
 export const measureAsync = async <T = any>(
   name: string,
   fn: () => Promise<T>,
-): Promise<{ name: string; durationMs: number; result: T }> => {
+): Promise<Measurement<T>> => {
   const startedAt = performance.now();
   const result = await fn();
   return {

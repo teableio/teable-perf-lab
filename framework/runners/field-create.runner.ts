@@ -10,8 +10,11 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -35,7 +38,6 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
 
 type FieldCreateFixture = {
   tableId: string;
@@ -288,8 +290,6 @@ const buildSeedRecordFields = (
     [getPrimaryField(config)]: title,
   };
 };
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getFormulaExpectedKind = (
   field: FieldCreateInput,
@@ -676,23 +676,23 @@ const assertComputedBackfillReady = async (
   };
 };
 
-const waitForComputedFieldsReady = async (
+const waitForComputedFieldsReady = (
   baseId: string,
   context: PerfRunContext,
   fixture: FieldCreateFixture,
   config: FieldCreateCaseConfig,
   primaryResult: FieldCreatePrimaryResult,
 ) => {
-  const timeoutMs = config.ready?.timeoutMs ?? 30_000;
-  const pollIntervalMs = config.ready?.pollIntervalMs ?? 200;
-  const startedAt = Date.now();
-  let lastError: unknown;
   let attempts = 0;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    attempts += 1;
-    try {
-      return await assertComputedBackfillReady(
+  return pollUntilReady(
+    {
+      timeoutMs: config.ready?.timeoutMs ?? 30_000,
+      pollIntervalMs: config.ready?.pollIntervalMs ?? 200,
+      description: "computed backfill ready",
+    },
+    () => {
+      attempts += 1;
+      return assertComputedBackfillReady(
         baseId,
         context,
         fixture,
@@ -700,25 +700,8 @@ const waitForComputedFieldsReady = async (
         primaryResult,
         attempts,
       );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for computed backfill ready after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+    },
   );
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const pickResponseHeaders = pickRoutingResponseHeaders;
@@ -761,22 +744,21 @@ const assertSeedReady = async (
 
   if (rowCount > 0) {
     const pageSize = config.verify.fullScanPageSize ?? 1_000;
-    let scannedRecords = 0;
-    for (let skip = 0; skip < rowCount; skip += pageSize) {
-      const expectedTake = Math.min(pageSize, rowCount - skip);
-      const result = await getRecords(fixture.tableId, {
-        viewId,
-        fieldKeyType: FieldKeyType.Name,
-        skip,
-        take: expectedTake,
-      });
-      if (result.records.length !== expectedTake) {
-        throw new Error(
-          `Expected ${expectedTake} seed records at skip ${skip}, got ${result.records.length}`,
-        );
-      }
-      scannedRecords += result.records.length;
-    }
+    const { scannedRecords } = await forEachRecordPage(
+      {
+        totalRows: rowCount,
+        pageSize,
+        fetchPage: (skip, take) =>
+          getRecords(fixture.tableId, {
+            viewId,
+            fieldKeyType: FieldKeyType.Name,
+            skip,
+            take,
+          }),
+        pageNoun: "seed records",
+      },
+      () => {},
+    );
     fixture.viewId = viewId;
     fixture.seedRecordCount = scannedRecords;
   }

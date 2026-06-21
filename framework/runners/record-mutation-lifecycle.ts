@@ -1,10 +1,9 @@
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
 import {
   buildRecordWindowId,
   withRecordWindowId,
-  type Measurement,
 } from "./record-undo-redo.shared";
 
 // The lifecycle skeleton shared by the record-mutation family: seed a record

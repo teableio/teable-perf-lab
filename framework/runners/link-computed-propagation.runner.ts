@@ -9,12 +9,13 @@ import {
   getTable,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import {
   getPositiveIntegerEnv,
   getPrimaryThresholdMs,
   isExecuteDbIsolated,
 } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -26,6 +27,8 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady, sleep } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   LinkComputedPropagationCaseConfig,
@@ -45,7 +48,6 @@ import {
   type RecordMutationLifecycleConfig,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
 
 const FIXTURE_VERSION = "link-computed-propagation-v2";
 const METADATA_PREFIX = "perf-lab-link-computed-propagation:";
@@ -226,16 +228,6 @@ type PrimaryResult = {
   routing: EngineRouting;
   ordersScan: { scannedRecords: number; pageSize: number; pageCount: number };
   purchaseScan: { scannedRecords: number; pageSize: number; pageCount: number };
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 // Debug-only smoke overrides so a local run can validate mechanics at small
@@ -790,23 +782,20 @@ const assertOrdersFullScan = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const projection = ordersProjection(fixture);
   const seen = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.ordersTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} orders at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "orders",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.ordersTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const orderRowNumber = parseOrderRowNumber(
         record.fields[fixture.ordersFields.titleFieldId],
       );
@@ -822,9 +811,8 @@ const assertOrdersFullScan = async (
         fixture,
         linked,
       );
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
   if (scannedRecords !== config.rowCount) {
     throw new Error(
       `Orders scan count mismatch: expected ${config.rowCount}, scanned ${scannedRecords}`,
@@ -851,23 +839,20 @@ const assertPurchaseFullScan = async (
     fixture.purchaseFields.labelId,
   ];
   const seen = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
-  for (let skip = 0; skip < total; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, total - skip);
-    const result = await getRecords(fixture.purchaseTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} purchases at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: total,
+      pageSize,
+      pageNoun: "purchases",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.purchaseTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const purchaseNumber = parsePurchaseRowNumber(
         record.fields[fixture.purchaseFields.titleFieldId],
       );
@@ -914,9 +899,8 @@ const assertPurchaseFullScan = async (
           `Purchase ${purchaseNumber} p_label mismatch: expected ${expectedLabel}, actual ${String(label)}`,
         );
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
   if (scannedRecords !== total) {
     throw new Error(
       `Purchase scan count mismatch: expected ${total}, scanned ${scannedRecords}`,
@@ -1003,30 +987,20 @@ const assertOrderSamples = async (
   return { checkedRecords };
 };
 
-const waitForOrderSamples = async (
+const waitForOrderSamples = (
   fixture: Fixture,
   config: LinkComputedPropagationCaseConfig,
   phase: Phase,
   linked: boolean,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 300_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 250;
-  let lastError: unknown;
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertOrderSamples(fixture, config, phase, linked);
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-  throw new Error(
-    `Timed out waiting for seed order samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 300_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 250,
+      description: "seed order samples",
+    },
+    () => assertOrderSamples(fixture, config, phase, linked),
   );
-};
 
 const seededOrdersAreLinked = (config: LinkComputedPropagationCaseConfig) =>
   config.mode === "repoint";

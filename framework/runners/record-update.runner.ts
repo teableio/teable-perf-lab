@@ -9,8 +9,9 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -28,10 +29,7 @@ import type {
   PerfRunResult,
   RecordUpdateCaseConfig,
 } from "../types";
-import {
-  withRecordWindowId,
-  type Measurement,
-} from "./record-undo-redo.shared";
+import { withRecordWindowId } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
@@ -196,14 +194,6 @@ const valuesMatch = (
     return new Date(actualValue).toISOString().slice(0, 10) === expectedValue;
   }
   return actualValue === expectedValue;
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const buildRecordFields = (

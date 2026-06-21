@@ -1,4 +1,5 @@
 import { FieldKeyType, FieldType } from "@teable/core";
+import { chunk } from "../chunk";
 import {
   deleteRecords,
   createRecords,
@@ -8,7 +9,8 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -19,12 +21,6 @@ import type {
   PerfCase,
   PerfRunnerKind,
 } from "../types";
-
-export type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;
@@ -89,14 +85,6 @@ export type RowCountVerification = {
 const DEFAULT_GROUPS = ["A", "B", "C", "D", "E"];
 const RECORD_ID_QUERY_BATCH_SIZE = 100;
 const DELETE_RECORD_BATCH_SIZE = 100;
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
@@ -471,28 +459,22 @@ export const assertDuplicateSourceReady = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples: SourceReadyVerification["verifiedSamples"] = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      viewId: fixture.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: fixture.projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} duplicate source records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      pageNoun: "duplicate source records",
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: fixture.projection,
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
       const compared = assertRecordValues({
         fixture,
         config,
@@ -510,9 +492,8 @@ export const assertDuplicateSourceReady = async (
           ...compared,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   const beyondLastPage = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,
