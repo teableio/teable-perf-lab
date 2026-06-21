@@ -32,6 +32,9 @@ ready.
 - `cases/**/*.case.ts`: typed case configs.
 - `cases/**/*.md`: same-name case descriptions used by registry sync.
 - `framework/runners/*.runner.ts`: runner implementations.
+- `framework/runners/*-model.ts`: pure workload models for runner-owned naming,
+  fixture shape, expected values, and config validation. Keep Teable I/O in the
+  runner adapter; keep deterministic model logic here.
 - `framework/runner-registry.ts`: the `runnerRegistry` dispatch table mapping each
   runner kind to its `{ execute, seed }` fns; `run-perf-case.ts`/`run-perf-seed.ts`
   look up the runner here (no switch statement).
@@ -41,6 +44,14 @@ ready.
 - `framework/seed-cache.ts`: runner-level seed hash helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
+- `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
+  payload projection, primary metric, trace URL, and trace-waste helpers used by
+  report adapters.
+- `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
+  keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
+- `scripts/perf-artifact-diff-model.mjs`: artifact normalization and mask profile
+  for behavior-preserving artifact diffs; keep CLI file I/O in
+  `scripts/diff-artifacts.mjs`.
 - `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules
