@@ -1,4 +1,4 @@
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
 import { PerfRunDiagnosticError } from "../types";
 import type {
@@ -15,7 +15,6 @@ import {
   cleanupRecordUndoRedoFixture,
   prepareRecordUndoRedoFixture,
   withRecordWindowId,
-  type Measurement,
   type RecordReplaySetupMeasurements,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,

@@ -12,7 +12,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -31,7 +31,6 @@ import type {
   RecordCreateCaseConfig,
 } from "../types";
 import type { PerfRunResult } from "../types";
-import { type Measurement } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,

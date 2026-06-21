@@ -1,4 +1,4 @@
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type {
   FieldDeleteCaseConfig,
@@ -11,7 +11,6 @@ import {
   buildRecordWindowId,
   prepareRecordUndoRedoFixture,
   withRecordWindowId,
-  type Measurement,
   type RecordReplayVerification,
   type RecordUndoRedoFixture,
 } from "./record-undo-redo.shared";

@@ -18,12 +18,14 @@ import {
   getViews,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
   type EngineRouting,
 } from "../routing";
+import { chunk } from "../chunk";
+import { forEachRecordPage } from "../record-page-scan";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
@@ -42,7 +44,6 @@ import {
 import {
   buildRecordFields,
   undoRedoMixed20Fields,
-  type Measurement,
 } from "./record-undo-redo.shared";
 
 const DUPLICATE_BASE_FIXTURE_VERSION = "duplicate-base-v1";
@@ -159,14 +160,6 @@ type DuplicateBasePrimaryResult = {
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
 
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
@@ -332,34 +325,27 @@ const scanTable = async (
   options: { collectRecordIds?: boolean } = {},
 ): Promise<ScanResult> => {
   const recordIds: string[] = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < expectedRowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, expectedRowCount - skip);
-    const result = await getRecords(tableRef.id, {
-      viewId: tableRef.viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection: [
-        tableRef.fieldIdByName[Object.keys(tableRef.fieldIdByName)[0]],
-      ],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records in ${tableRef.name} at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-    scannedRecords += result.records.length;
-    if (options.collectRecordIds) {
-      for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: expectedRowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableRef.id, {
+          viewId: tableRef.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection: [
+            tableRef.fieldIdByName[Object.keys(tableRef.fieldIdByName)[0]],
+          ],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
+      if (options.collectRecordIds) {
         recordIds.push(record.id);
       }
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== expectedRowCount) {
     throw new Error(

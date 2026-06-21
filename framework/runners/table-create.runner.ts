@@ -7,7 +7,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, summarizeDurations } from "../metrics";
+import { type Measurement, measureAsync, summarizeDurations } from "../metrics";
 import { assertEngineRouting, type EngineRouting } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -21,12 +21,6 @@ import {
   type TableCreateLifecycleSpec,
 } from "./table-create-lifecycle";
 import { pickTableLifecycleHeaders } from "./table-lifecycle.shared";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type CreatedTable = {
   index: number;

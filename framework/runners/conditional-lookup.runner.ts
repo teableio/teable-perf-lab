@@ -9,8 +9,15 @@ import {
   getRecords,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -30,28 +37,11 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
-import { type Measurement } from "./record-undo-redo.shared";
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type SeedRecordInput = {
   rowOffset: number;
   rowNumber: number;
   fields: Record<string, string>;
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 export type ConditionalLookupSourceFields = {
@@ -404,37 +394,20 @@ const assertLookupSamples = async (
   return verifiedSamples;
 };
 
-const waitForLookupSamples = async (
+const waitForLookupSamples = (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupSharedConfig,
   sampleRecords: SeededSampleRecord[],
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertLookupSamples(
-        tableId,
-        lookupFieldId,
-        config,
-        sampleRecords,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for conditional lookup samples after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "conditional lookup samples",
+    },
+    () => assertLookupSamples(tableId, lookupFieldId, config, sampleRecords),
   );
-};
 
 const assertLookupFullScan = async (
   tableId: string,
@@ -446,30 +419,24 @@ const assertLookupFullScan = async (
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.recordCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.recordCount - skip);
-    const result = await getRecords(tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection: [
-        hostFields.keyFieldId,
-        hostFields.lookupKeyFieldId,
-        lookupFieldId,
-      ],
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.recordCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [
+            hostFields.keyFieldId,
+            hostFields.lookupKeyFieldId,
+            lookupFieldId,
+          ],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const hostRowNumber = parseRowNumber(
         record.fields[hostFields.keyFieldId],
         config.generator.hostKeyPrefix,
@@ -517,9 +484,8 @@ const assertLookupFullScan = async (
           expected,
         });
       }
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.recordCount) {
     throw new Error(
@@ -543,37 +509,20 @@ const assertLookupFullScan = async (
   };
 };
 
-export const waitForConditionalLookupFullScan = async (
+export const waitForConditionalLookupFullScan = (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalLookupSharedConfig,
   hostFields: ConditionalLookupHostFields,
-) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertLookupFullScan(
-        tableId,
-        lookupFieldId,
-        config,
-        hostFields,
-      );
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for full conditional lookup scan after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "full conditional lookup scan",
+    },
+    () => assertLookupFullScan(tableId, lookupFieldId, config, hostFields),
   );
-};
 
 export const assertConditionalLookupSeedReady = async (
   sourceTableId: string,
@@ -808,16 +757,12 @@ const seedHostTable = async (
         );
         hostBatchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            seededSampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          seededSampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     },
   );

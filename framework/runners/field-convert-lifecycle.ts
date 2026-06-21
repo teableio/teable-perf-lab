@@ -1,8 +1,7 @@
 import { isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
-import type { Measurement } from "./record-undo-redo.shared";
 
 // The lifecycle skeleton shared by the field-convert family: seed a populated
 // table, assert the seed sample state, run one measured `convertField` request

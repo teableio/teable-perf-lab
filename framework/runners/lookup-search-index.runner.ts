@@ -14,14 +14,21 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { TableIndexService } from "../../../../src/features/table/table-index.service";
+import { chunk } from "../chunk";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
-import { measureAsync, roundMetric, summarizeDurations } from "../metrics";
+import {
+  type Measurement,
+  measureAsync,
+  roundMetric,
+  summarizeDurations,
+} from "../metrics";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { pollUntilReady, sleep } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   LookupSearchIndexCaseConfig,
@@ -35,12 +42,6 @@ import {
   seedReadLifecycle,
   type ReadLifecycleSpec,
 } from "./read-lifecycle";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type FieldIds = Record<string, string>;
 
@@ -134,21 +135,11 @@ const hostLookupFieldNames = [
 
 const hostSearchFieldNames = [...hostBaseFieldNames, ...hostLookupFieldNames];
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const getSearchTraceSampleSettleMs = () => {
   if (process.env.PERF_LAB_TRACE_ENABLED === "false") {
     return 0;
   }
   return getPositiveIntegerEnv("PERF_LAB_SEARCH_TRACE_SAMPLE_SETTLE_MS") ?? 50;
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const getGreatestCommonDivisor = (left: number, right: number): number => {
@@ -517,13 +508,13 @@ const waitForLookupSamples = async (
   fieldIds: FieldIds,
   config: LookupSearchIndexCaseConfig,
 ) => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 120_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 500;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
+  return pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 120_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 500,
+      description: "lookup samples",
+    },
+    async () => {
       const verified = [];
       for (const rowOffset of config.verify.sampleRows) {
         const rowNumber = rowOffset + 1;
@@ -550,16 +541,7 @@ const waitForLookupSamples = async (
         verified.push({ rowOffset, rowNumber, sourceRow, expected, actual });
       }
       return verified;
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for lookup samples: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+    },
   );
 };
 

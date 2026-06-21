@@ -9,8 +9,10 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
+import { type Measurement, measureAsync, roundMetric } from "../metrics";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -33,12 +35,6 @@ import {
   seedDuplicateLifecycle,
   type DuplicateLifecycleSpec,
 } from "./duplicate-lifecycle";
-
-type Measurement<T> = {
-  name: string;
-  durationMs: number;
-  result: T;
-};
 
 type NamedField = {
   id: string;
@@ -238,14 +234,6 @@ const getFormulaExpectedValue = (
     case "amountTimesPercent":
       return amount * percent;
   }
-};
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -456,28 +444,21 @@ const assertDuplicatedRows = async (
   const verifiedFormulas = options.verifyFormulaValues ? formulas : [];
   const projection = [...fields, ...verifiedFormulas].map((field) => field.id);
   const verifiedSamples = [];
-  let scannedRecords = 0;
-  let pageCount = 0;
-
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(duplicateTableId, {
-      viewId,
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} duplicated records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const [index, record] of result.records.entries()) {
-      const rowNumber = skip + index + 1;
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(duplicateTableId, {
+          viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+      pageNoun: "duplicated records",
+    },
+    (record, rowNumber) => {
       const verifiedRow = assertRow(
         rowNumber,
         fields,
@@ -495,10 +476,8 @@ const assertDuplicatedRows = async (
           ...verifiedRow,
         });
       }
-
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(

@@ -1,6 +1,6 @@
 import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
-import { measureAsync } from "../metrics";
+import { measureAsync, type Measurement } from "../metrics";
 import { PerfRunDiagnosticError } from "../types";
 import type {
   DuplicateRecordSeedBaseCaseConfig,
@@ -15,7 +15,6 @@ import {
   deleteRecordsInBatches,
   prepareDuplicateSourceFixture,
   type DuplicateRecordFixture,
-  type Measurement,
   type SourceReadyVerification,
 } from "./record-duplicate.shared";
 

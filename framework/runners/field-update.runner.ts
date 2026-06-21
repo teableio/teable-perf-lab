@@ -12,11 +12,18 @@ import {
   runWithTestUser,
 } from "../../../utils/init-app";
 import { executeUpdateFieldEndpoint } from "@teable/v2-contract-http-implementation/handlers";
+import { chunk } from "../chunk";
 import { v2CoreTokens, type ICommandBus } from "@teable/v2-core";
 import { V2ContainerService } from "../../../../src/features/v2/v2-container.service";
 import { V2ExecutionContextFactory } from "../../../../src/features/v2/v2-execution-context.factory";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
+import { forEachRecordPage } from "../record-page-scan";
+import {
+  collectSampleRecords,
+  type SeededSampleRecord,
+} from "../sample-records";
 import {
   buildSeedCacheInfo,
   findSeedTable,
@@ -33,22 +40,11 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
-import { type Measurement } from "./record-undo-redo.shared";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
-
-const chunk = <T>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const FIELD_UPDATE_FIXTURE_VERSION = "field-update-v1";
 
@@ -90,12 +86,6 @@ type NamedField = {
   name: string;
   type?: string;
   options?: { choices?: SelectChoice[] };
-};
-
-type SeededSampleRecord = {
-  rowOffset: number;
-  rowNumber: number;
-  recordId: string;
 };
 
 type ComputedField = {
@@ -468,26 +458,20 @@ const assertFullScan = async (
     ...fixture.computedFields.map((field) => field.id),
   ];
   const seenRowNumbers = new Set<number>();
-  let scannedRecords = 0;
-  let pageCount = 0;
 
-  for (let skip = 0; skip < config.rowCount; skip += pageSize) {
-    const expectedTake = Math.min(pageSize, config.rowCount - skip);
-    const result = await getRecords(fixture.tableId, {
-      fieldKeyType: FieldKeyType.Id,
-      projection,
-      skip,
-      take: expectedTake,
-    });
-    pageCount += 1;
-
-    if (result.records.length !== expectedTake) {
-      throw new Error(
-        `Expected ${expectedTake} records at skip ${skip}, got ${result.records.length}`,
-      );
-    }
-
-    for (const record of result.records) {
+  const { scannedRecords, pageCount } = await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+    },
+    (record) => {
       const rowNumber = parseTitleRowNumber(
         record.fields[fixture.titleField.id],
         config.generator.titlePrefix,
@@ -497,9 +481,8 @@ const assertFullScan = async (
       }
       seenRowNumbers.add(rowNumber);
       assertRowState(fixture, config, rowNumber, record.fields, renamed);
-      scannedRecords += 1;
-    }
-  }
+    },
+  );
 
   if (scannedRecords !== config.rowCount) {
     throw new Error(
@@ -510,31 +493,19 @@ const assertFullScan = async (
   return { scannedRecords, pageSize, pageCount };
 };
 
-const waitFor = async <T>(
+const waitFor = <T>(
   config: FieldUpdateCaseConfig,
   description: string,
   assertFn: () => Promise<T>,
-): Promise<T> => {
-  const startedAt = Date.now();
-  const timeoutMs = config.verify.timeoutMs ?? 60_000;
-  const pollIntervalMs = config.verify.pollIntervalMs ?? 200;
-  let lastError: unknown;
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    try {
-      return await assertFn();
-    } catch (error) {
-      lastError = error;
-      await sleep(pollIntervalMs);
-    }
-  }
-
-  throw new Error(
-    `Timed out waiting for ${description} after ${timeoutMs}ms: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
+): Promise<T> =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 60_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 200,
+      description,
+    },
+    assertFn,
   );
-};
 
 const createEmptyMeasurement = <T>(
   name: string,
@@ -685,16 +656,12 @@ const prepareFieldUpdateFixture = async (
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
-        batchMeasurement.result.records.forEach((record, index) => {
-          const input = batch[index];
-          if (input && wantedSampleOffsets.has(input.rowOffset)) {
-            sampleRecordByOffset.set(input.rowOffset, {
-              rowOffset: input.rowOffset,
-              rowNumber: input.rowNumber,
-              recordId: record.id,
-            });
-          }
-        });
+        collectSampleRecords(
+          sampleRecordByOffset,
+          wantedSampleOffsets,
+          batch,
+          batchMeasurement.result.records,
+        );
       }
     });
 
