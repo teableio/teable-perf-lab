@@ -131,16 +131,21 @@ pnpm check
 
 This runs the full chain: `format:check`, `check:yaml`, `check:ts`,
 `check:types`, `check:trace`, `check:catalog`, `check:run-plan`,
-`check:artifact-read-model`, `check:cases`, `check:readme`.
+`check:artifact-read-model`, `check:run-summary-model`,
+`check:artifact-diff-model`, `check:record-read-model`, `check:cases`,
+`check:readme`.
 Between them they validate formatting, workflow YAML, TypeScript syntax and
 types (incl. the runner↔config binding — pairing a runner with the wrong config
 fails `check:types`), the case catalog (`check:catalog`: every disk `.case.ts`
 is imported in `registry.ts`, every import is in the `cases` array, every import
 is on disk, and each registered case has a same-name markdown), the workflow
 run-plan split (`check:run-plan`), the artifact read model used by report
-adapters (`check:artifact-read-model`), the metadata Teable sync needs
-(`check:cases`), and that the root README "Available Cases" list matches the
-registry. It does **not** execute anything against a real Teable — that is step 8.
+adapters (`check:artifact-read-model`), the Feishu summary projection
+(`check:run-summary-model`), the artifact diff masking profile
+(`check:artifact-diff-model`), the record-read workload model
+(`check:record-read-model`), the metadata Teable sync needs (`check:cases`),
+and that the root README "Available Cases" list matches the registry. It does
+**not** execute anything against a real Teable — that is step 8.
 
 ### 8. Local Verify
 
