@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, "..");
@@ -23,39 +24,13 @@ const matchString = (source, pattern, label) => {
 };
 
 // Resolve the case files in registry array order so the README list keeps the
-// curated grouping instead of an alphabetical sort.
+// curated grouping instead of an alphabetical sort. Reads through the shared
+// catalog so this and sync-perf-cases parse registry.ts the same way.
 const findRegisteredCasePaths = async () => {
-  const registry = await readText(join(repoRoot, "registry.ts"));
-  const importPattern =
-    /import\s+(\w+)\s+from\s+["']\.\/(cases\/[^"']+\.case)["'];?/g;
-  const pathByImport = new Map(
-    [...registry.matchAll(importPattern)].map((match) => [
-      match[1],
-      `${match[2]}.ts`,
-    ]),
-  );
-
-  const arraySource = matchString(
-    registry,
-    /const cases = \[([\s\S]*?)\] satisfies PerfCase\[\]/,
-    "registry.ts cases array",
-  );
-  const casePaths = arraySource
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((importName) => {
-      const path = pathByImport.get(importName);
-      if (!path) {
-        throw new Error(`registry.ts cases entry has no import: ${importName}`);
-      }
-      return path;
-    });
-
+  const casePaths = registeredCasePathsInOrder(await loadRegistry(repoRoot));
   if (casePaths.length === 0) {
     throw new Error("No registered perf cases found in registry.ts");
   }
-
   return casePaths;
 };
 
