@@ -47,10 +47,13 @@ Whole branch: 47 files, net −371 lines, `pnpm check` green.
     the branch floor equals main's, the branch passes, and main itself nearly
     breaches. The pre-fix tail is gone post-`5ff2888`.
 
-**Follow-up (separate task, protected surface):** recalibrate the
-`lookup/dual-link-computed-first-link-4k` v1 `lookupReadyTotalMs` threshold
-(60s → ~90s with margin over the observed ~78s tail). This is a case-contract
-threshold change, so it does NOT belong on this framework-only branch.
+**Threshold recalibrated (maintainer decision, 2026-06-21):** the
+`lookup/dual-link-computed-first-link-4k` v1 `lookupReadyTotalMs` threshold was
+raised 60s → **120s** (~1.5x over the observed ~79s tail) to stop the
+variance-driven false failures while still catching a 2x+ blow-up / non-convergence.
+This is the ONE protected-surface (case-contract) change on this branch; it is a
+deliberate threshold-only edit and is called out separately from the
+framework-only refactors. A threshold change does not need a G1 artifact diff.
 
 ## ⚠️ Merge gate (read this first)
 

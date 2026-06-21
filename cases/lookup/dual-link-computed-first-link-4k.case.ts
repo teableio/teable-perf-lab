@@ -44,10 +44,22 @@ export default definePerfCase({
     },
     threshold: {
       metric: "lookupReadyTotalMs",
-      // Run 27736047791 measured V2 hybrid at ~19.6s end-to-end and V1 sync at
-      // ~50.9s. Keep the initial guardrail above that V1 sync cost while still
-      // catching the 10k-class non-convergence/regression shape.
-      maxMs: 60_000,
+      // COARSE guardrail to catch the 10k-class non-convergence / 2x+ regression
+      // shape — NOT a tight perf SLA. Genuine non-convergence already times out
+      // at verify.timeoutMs (600s), so this only needs margin over normal noise.
+      //
+      // The V1 synchronous whole-graph recompute is high-variance. The original
+      // 60s bound (calibrated at ~50.9s on run 27736047791) flaked on
+      // environment noise: 2026-06-21 sampling of this exact case over 11 v1 runs
+      // measured lookupReadyTotalMs across 31–79s, and `main` alone reached 58.5s
+      // (a near-miss), i.e. the breaches were CI-runner variance, not a code
+      // regression. Raised to 120s ≈ 1.5x over the observed ~79s tail: it kills
+      // the false failures while still flagging a real 2x+ blow-up or the
+      // 10k-class non-convergence shape.
+      //
+      // If this fails again: first confirm the recompute genuinely regressed
+      // (compare the measured value against this 31–79s band) before re-bumping.
+      maxMs: 120_000,
     },
   },
 });
