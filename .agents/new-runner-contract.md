@@ -8,23 +8,53 @@ ones.
 
 A new runner needs these edits:
 
-- `framework/types.ts`: add the runner kind, config interface, and include the
-  config in `PerfCase["config"]`.
+- `framework/types.ts`: add an entry to the `PerfCaseConfigByRunner` interface
+  (key = the kind string, value = its `*CaseConfig` interface). `PerfRunnerKind`
+  and the `PerfCase` discriminated union are both derived from that map, so
+  pairing a runner with the wrong config now fails `pnpm check:types`.
 - `framework/runners/<runner>.runner.ts`: export `run<Runner>Case(perfCase,
-context): Promise<PerfRunResult>`.
-- `framework/run-perf-case.ts`: import the runner and add a switch branch.
+context): Promise<PerfRunResult>` (and a `seed<Runner>Case` if the runner has a
+  reusable seed).
+- `framework/runner-registry.ts`: import the run/seed fns and add one entry to
+  the `runnerRegistry` map (`{ execute, seed }`, keyed by the kind). Dispatch is
+  this registry table, not a switch — `framework/run-perf-case.ts` and
+  `run-perf-seed.ts` just look the kind up. Use `seedlessRunner` for the `seed`
+  slot when there is no reusable seed phase.
 - `registry.ts`: register concrete cases that use the new runner.
 - `cases/<group>/<name>.case.ts` and `cases/<group>/<name>.md`: executable case
-  and matching description.
+  and matching description. `pnpm check:catalog` fails loud unless the
+  `.case.ts`, its same-name `.md`, the `registry.ts` import, AND the entry in the
+  `cases` array all agree.
+
+Before hand-rolling a runner, prefer riding or extending an existing lifecycle
+driver in `framework/runners/*-lifecycle.ts` (e.g. `record-mutation-lifecycle`,
+`read-lifecycle`, `field-add-lifecycle`, `record-replay-lifecycle`,
+`field-convert-lifecycle`, `field-delete-lifecycle`, `csv-import-lifecycle`,
+`duplicate-lifecycle`, `table-create-lifecycle`). A migrated runner declares only
+its seed/execute/verify/cleanup hooks and the driver owns the protocol. Most
+kinds are migrated; `http-endpoint` and `import-base` are intentionally left
+legacy.
+
+Reuse the shared helpers instead of re-deriving them in a new runner:
+
+- `framework/metrics.ts`: `Measurement<T>` / `measureAsync()` for named timed
+  results (moved here from the old record-undo-redo shared module).
+- `framework/readiness.ts`: `pollUntilReady({ timeoutMs, pollIntervalMs,
+description }, assertFn)` and `sleep(ms)` for retry-an-assertion readiness waits.
+- `framework/record-page-scan.ts`: `forEachRecordPage(...)` for paged full-scan
+  verification.
+- `framework/sample-records.ts`: `collectSampleRecords(...)` +
+  `SeededSampleRecord` for seed-time verification samples.
+- `framework/chunk.ts`: `chunk(items, size)` to batch an array.
 
 Existing examples:
 
-- Dispatch shape: `framework/run-perf-case.ts`.
+- Dispatch shape: `framework/runner-registry.ts`.
 - Simple runner: `framework/runners/http-endpoint.runner.ts`.
 - Cache-aware computed runner: `framework/runners/formula-table.runner.ts`.
 - Stateful mutation runner: `framework/runners/record-undo.runner.ts`,
   `framework/runners/record-redo.runner.ts`, and
-  `framework/runners/record-undo-redo.shared.ts`.
+  `framework/runners/record-replay.shared.ts`.
 
 ## Result Shape
 
@@ -43,7 +73,7 @@ Existing examples:
 - `http-endpoint` returns repeated sample details and a `p95Ms` threshold.
 - `formula-table` returns seed cache metadata, formula field ids, sample
   verification, and full-scan evidence.
-- `record-undo-redo.shared.ts` centralizes mutation metrics, phases, seed cache
+- `record-replay.shared.ts` centralizes mutation metrics, phases, seed cache
   details, setup timings, and final verification details.
 
 ## Failure Diagnostics
@@ -85,7 +115,7 @@ Existing examples:
 - `http-endpoint.runner.ts` wraps `warmup` and each sample.
 - `formula-table.runner.ts` wraps seed creation, source readiness, field
   creation, and full scan readiness.
-- `selection-clear.runner.ts` and `record-undo-redo.shared.ts` use raw SSE
+- `selection-clear.runner.ts` and `record-replay.shared.ts` use raw SSE
   helpers for stream requests.
 
 ## Seed Cache Contract
@@ -113,7 +143,7 @@ Existing examples:
   field is execute-only.
 - `selection-clear.runner.ts`: cleared cells are restored to deterministic seed
   values.
-- `record-undo-redo.shared.ts`: deleted rows are restored through the real undo
+- `record-replay.shared.ts`: deleted rows are restored through the real undo
   path when the seed is reusable.
 - `record-paste.runner.ts`: paste records are not cached because paste insertion
   is the measured workload.
@@ -126,7 +156,10 @@ state through the real read path.
 Default to:
 
 - sample verification for known rows or known values
-- a paged full scan, usually `getRecords` with `take: 1000`
+- a paged full scan, usually `getRecords` with `take: 1000` — drive it through
+  `forEachRecordPage(...)` from `framework/record-page-scan.ts` rather than
+  open-coding the skip/take loop, so the per-page bounds guard, 1-based
+  `rowNumber`, and scanned/page counts are owned in one place
 
 Use the final-state contract to choose the exact checks. Computed-field cases
 must prove values. Delete cases must prove no visible records remain.
@@ -185,7 +218,7 @@ delete the fixture so a later run cannot reuse corrupted seed.
 
 Existing examples:
 
-- `record-delete.runner.ts` calls `cleanupRecordUndoRedoFixture(...)` in
+- `record-delete.runner.ts` calls `cleanupRecordReplayFixture(...)` in
   `finally` (C: restores through the real undo path).
 - Formula and lookup runners remove execute-created fields while keeping valid
   source seed tables (B).

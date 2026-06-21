@@ -4,6 +4,14 @@ A runner is the reusable execution shape. The case config feeds it. Runner kinds
 are defined in `framework/types.ts`; implementations live in
 `framework/runners/*.runner.ts`.
 
+Before hand-rolling a new runner, prefer riding a lifecycle driver
+(`framework/runners/*-lifecycle.ts` — e.g. `record-mutation-lifecycle`,
+`read-lifecycle`, `field-add-lifecycle`) that owns the seed/execute/verify/cleanup
+protocol, and reuse the shared helpers in `framework/`: `metrics.ts`
+(`measureAsync`/`Measurement`), `readiness.ts` (`pollUntilReady`/`sleep`),
+`record-page-scan.ts` (`forEachRecordPage`), `sample-records.ts`
+(`collectSampleRecords`), and `chunk.ts` (`chunk`).
+
 ## Decision Order
 
 ```text
@@ -60,7 +68,7 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **record-update**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-record-update",seedPrefix,updatePrefix}`, `verify`, `threshold{metric:"bulkUpdate1kMs"}`. The reusable seed stores deterministic records and cached record ids; non-isolated cleanup restores seed values.
 - **record-reorder**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `reorder{blockStartOffset,blockSize,anchorOffset,position}`, `verify`, `threshold{metric:"moveLast1kToFrontMs"}`. The reusable seed stores initial order metadata; non-isolated cleanup restores the original order.
 - **selection-clear**: `tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"flat-table-operation",titlePrefix,payloadPrefix}`, `verify`, `threshold{metric:"clear1kMs"}`.
-- **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ only in the threshold metric: `delete1kMs` / `undoReplay1kMs` / `redoReplay1kMs`. The shared mixed-record base config is exported as `undoRedo10kBaseConfig` in `framework/runners/record-undo-redo.shared.ts` — spread it and override `rowCount`, `tableNamePrefix`, `verify`, and `threshold` for the 1k cases.
+- **record-delete / record-undo / record-redo**: share `RecordUndoRedoBaseCaseConfig` (`tableNamePrefix`, `rowCount`, `batchSize`, `fields[]`, `generator{type:"mixed-undo-redo",...}`, `verify`). They differ only in the threshold metric: `delete1kMs` / `undoReplay1kMs` / `redoReplay1kMs`. The shared mixed-record base config is exported as `recordReplay10kBaseConfig` in `framework/runners/record-replay.shared.ts` — spread it and override `rowCount`, `tableNamePrefix`, `verify`, and `threshold` for the 1k cases.
 
 ## Fail-Fast Watchdog (opt-in)
 

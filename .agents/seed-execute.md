@@ -50,13 +50,22 @@ cleanup execute-only changes
    and the normal e2e seed.
 2. `seedHash`: per-runner table identity from seed config + seed code.
 3. `seedRestore` / `seedBuild`: find a matching fixture in the dump, else create
-   tables and insert deterministic data in batches.
+   tables and insert deterministic data in batches. Batch the inserts with
+   `chunk(items, size)` from `framework/chunk.ts` instead of hand-rolling the
+   slicing loop.
 4. `seedReady` / `sourceReady`: verify record count, field layout, and the
-   sample values / indexes / links the case needs.
+   sample values / indexes / links the case needs. Capture the seed-time
+   verification samples with `collectSampleRecords(map, wanted, inputs, records)`
+   (and the `SeededSampleRecord` type) from `framework/sample-records.ts`.
 5. trigger the measured operation (create field / paste / stream request).
 6. full-scan readiness: page through records until the final-state contract is
    proven, such as computed values matching, cells empty, table empty, or row
-   count restored.
+   count restored. Use `forEachRecordPage({ totalRows, pageSize, fetchPage })`
+   from `framework/record-page-scan.ts` for the paged full-scan loop (it owns the
+   skip/take paging, the per-page bounds guard, and the scanned/page counts), and
+   `pollUntilReady({ timeoutMs, pollIntervalMs, description }, assertFn)` from
+   `framework/readiness.ts` for any "retry the assertion until it stops throwing
+   or times out" wait. Do not open-code either loop.
 7. cleanup: remove per-run measured fields / derived temp tables. Preserve
    reusable source fixtures unless the key is invalid or the case intentionally
    measures cold import.
