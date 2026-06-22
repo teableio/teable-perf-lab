@@ -82,3 +82,10 @@ This case measures paste typecasting and validation overhead for a wide table.
 It intentionally excludes attachment, user, formula, link, lookup, and rollup
 fields because those add external dependencies or computed-field readiness that
 should be covered by separate specialized cases.
+
+Each engine pastes through the endpoint its own grid uses, so the metric compares
+the user behavior rather than one endpoint: V1 routes to the range-based
+`PATCH /selection/paste` (`x-teable-v2: false`), V2 routes to the by-id
+`PATCH /selection/paste-by-id` (`x-teable-v2: true`, `selection.recordIds: []` so
+every content row is created). Both legs share the content and the post-paste
+full-scan verification.

@@ -11,7 +11,7 @@ import { type Measurement } from "../metrics";
 import {
   assertDeleted,
   buildRecordReplayResult,
-  deleteAllRowsViaSelectionDelete,
+  deleteAllRowsByEngine,
   type RecordReplayVerification,
 } from "./record-replay.shared";
 import { runRecordDeleteLinkLifecycle } from "./table-link-lifecycle";
@@ -88,7 +88,7 @@ const buildDeleteLinkResult = ({
     Awaited<ReturnType<typeof assertLinkCellSamples>>
   >;
   operationMeasurement?: Measurement<
-    Awaited<ReturnType<typeof deleteAllRowsViaSelectionDelete>>
+    Awaited<ReturnType<typeof deleteAllRowsByEngine>>
   >;
   verifyMeasurement?: Measurement<LinkDeleteVerification>;
   error?: unknown;
@@ -182,7 +182,7 @@ export const runRecordDeleteLinkCase = async (
   runRecordDeleteLinkLifecycle(perfCase, context, {
     runner: "record-delete-link",
     measuredOperation: ({ fixture, context }) =>
-      deleteAllRowsViaSelectionDelete(fixture, context),
+      deleteAllRowsByEngine(fixture, context),
     verifyPhaseName: "verifyDeletedLinkedRows",
     verify: ({ fixture, config }) => verifyLinkedDelete(fixture, config),
     buildResult: buildDeleteLinkResult,

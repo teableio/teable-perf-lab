@@ -4,7 +4,7 @@ import {
   FieldKeyType,
   FieldType,
 } from "@teable/core";
-import { axios, paste, X_CANARY_HEADER } from "@teable/openapi";
+import { axios, paste, pasteById, X_CANARY_HEADER } from "@teable/openapi";
 import type {
   IPasteSelectionStreamDoneEvent,
   IPasteSelectionStreamErrorEvent,
@@ -67,6 +67,11 @@ type PasteFixture = {
   seedRowCount: number;
   seedFieldCount: number;
   header: PasteHeaderField[];
+  // Real ids of the seeded rows (empty for the empty-table paste cases). Captured
+  // from the createTable response so the V2 by-id paste can anchor on existing
+  // records without a separate read. This runner builds a fresh table per run (no
+  // seed cache), so these ids are always real.
+  seededRecordIds: string[];
 };
 
 type PastePrimaryResult = Awaited<ReturnType<typeof paste>> & {
@@ -539,6 +544,7 @@ const preparePasteFixture = async (
     seedRowCount,
     seedFieldCount,
     header,
+    seededRecordIds: (table.records ?? []).map((record) => record.id),
   };
 };
 
@@ -561,6 +567,43 @@ const executePaste = async (
   perfCase: PerfCase,
 ): Promise<PastePrimaryResult> => {
   if (!config.stream) {
+    // Same user behavior ("paste the clipboard block"), engine-specific endpoint:
+    // V1 pastes by range (PATCH /selection/paste), V2 pastes by id
+    // (PATCH /selection/paste-by-id). The full-scan assertPastedRows below proves
+    // value correctness for both, so the only engine-specific assertion here is
+    // the response shape (V1 returns ranges, V2 returns created/pasted ids).
+    if (context.engine === "v2") {
+      const response = await pasteById(prepared.tableId, {
+        viewId: prepared.viewId,
+        projection: prepared.projection,
+        // recordIds:[] = no existing rows selected, so every content row is
+        // created (these cases paste into an empty table). fieldIds anchors on
+        // the existing columns; header carries the clipboard schema.
+        selection: { recordIds: [], fieldIds: prepared.projection },
+        content: prepared.content,
+        header: prepared.header,
+      });
+      expect(response.status).toBe(200);
+      expect(response.data.createdRecordIds ?? []).toHaveLength(
+        config.rowCount,
+      );
+      const responseHeaders = pickRoutingResponseHeaders(
+        response.headers as Record<string, unknown>,
+      );
+      return {
+        status: response.status,
+        data: { ranges: undefined },
+        headers: response.headers,
+        config: {},
+        statusText: "OK",
+        responseHeaders,
+        routing: assertEngineRouting(context, responseHeaders, {
+          feature: "paste",
+          operation: "pasteRecordsById",
+        }),
+      } as PastePrimaryResult;
+    }
+
     const response = await paste(prepared.tableId, {
       viewId: prepared.viewId,
       projection: prepared.projection,
@@ -588,13 +631,20 @@ const executePaste = async (
     };
   }
 
+  // Same user behavior, engine-specific stream endpoint: V1 pastes by range
+  // (PATCH /selection/paste-stream), V2 pastes by id
+  // (PATCH /selection/paste-by-id-stream). Both emit IPasteSelectionStreamEvent,
+  // so the done-event assertions below are identical.
+  const isV2 = context.engine === "v2";
   const sseResult = await perfStreamSse<IPasteSelectionStreamEvent>({
     context,
     perfCase,
     stepId: config.threshold.metric,
     url: axios.getUri({
       baseURL: axios.defaults.baseURL || "/api",
-      url: `/table/${prepared.tableId}/selection/paste-stream`,
+      url: `/table/${prepared.tableId}/selection/${
+        isV2 ? "paste-by-id-stream" : "paste-stream"
+      }`,
     }),
     method: "PATCH",
     headers: getStreamHeaders(context),
@@ -602,17 +652,33 @@ const executePaste = async (
     // field ids already visible at the paste anchor (here the seeded fields only),
     // while `header` carries the full clipboard column schema the backend uses to
     // create the missing fields. So a 2-id projection with a 20-field header is the
-    // intended row+field expansion shape, not a mismatch.
-    body: JSON.stringify({
-      viewId: prepared.viewId,
-      projection: prepared.projection,
-      ranges: [
-        [0, 0],
-        [0, 0],
-      ],
-      header: prepared.header,
-      content: prepared.content,
-    }),
+    // intended row+field expansion shape, not a mismatch. The V2 by-id body
+    // anchors on the real seeded record ids; content rows beyond them are created
+    // (row expansion) and header fields beyond the projection are created (field
+    // expansion), matching the range body's expansion semantics.
+    body: JSON.stringify(
+      isV2
+        ? {
+            viewId: prepared.viewId,
+            projection: prepared.projection,
+            selection: {
+              recordIds: prepared.seededRecordIds,
+              fieldIds: prepared.projection,
+            },
+            header: prepared.header,
+            content: prepared.content,
+          }
+        : {
+            viewId: prepared.viewId,
+            projection: prepared.projection,
+            ranges: [
+              [0, 0],
+              [0, 0],
+            ],
+            header: prepared.header,
+            content: prepared.content,
+          },
+    ),
     errorPrefix: "Paste selection stream failed",
   });
   const progressEvents = sseResult.events.filter(

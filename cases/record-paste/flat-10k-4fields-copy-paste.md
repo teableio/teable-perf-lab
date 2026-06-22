@@ -72,5 +72,12 @@ This case intentionally starts from an empty table. Manual validation confirmed
 that pasting to `ranges: [[0, 0], [0, 0]]` on an empty table creates all 10,000
 records and returns the expected expanded range.
 
+Each engine pastes through the endpoint its own grid uses, so the metric compares
+the user behavior rather than one endpoint: V1 routes to the range-based
+`PATCH /selection/paste` (`x-teable-v2: false`), V2 routes to the by-id
+`PATCH /selection/paste-by-id` (`x-teable-v2: true`, `selection.recordIds: []` on
+the empty table so every content row is created). Both legs share the content and
+the post-paste full-scan verification.
+
 The CI artifact records the `prepare` phase separately so the measured
 `paste10kMs` can be interpreted as the paste operation only.

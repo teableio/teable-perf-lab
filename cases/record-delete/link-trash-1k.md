@@ -54,3 +54,8 @@ undo cleanup are diagnostics outside the threshold.
 This case complements `record-delete/delete-1k`. The existing case deletes
 mixed scalar rows; this case deletes rows whose link cells participate in
 relationship/trash handling.
+
+Like `record-delete/delete-1k`, each engine deletes through the endpoint its own
+grid uses: V1 routes to `DELETE /selection/delete` (`x-teable-v2: false`), V2
+routes to `POST /selection/delete-by-id` (`x-teable-v2: true`,
+`selection.excludeRecordIds: []`). Both legs share the seed and verification.
