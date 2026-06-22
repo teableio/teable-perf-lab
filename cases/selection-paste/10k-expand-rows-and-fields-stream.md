@@ -58,3 +58,12 @@ This differs from the existing `record-paste/*copy-paste` cases: those paste
 into a table that already has the final fields. This case measures the product
 behavior users see when Excel/Sheets content is larger than the current Teable
 grid.
+
+Each engine pastes through the stream endpoint its own grid uses, so the metric
+compares the user behavior rather than one endpoint: V1 routes to the
+range-based `PATCH /selection/paste-stream` (`x-teable-v2: false`), V2 routes to
+the by-id `PATCH /selection/paste-by-id-stream` (`x-teable-v2: true`). The V2
+body anchors on the real seeded record ids so content rows beyond them are
+created (row expansion) and header fields beyond the projection are created
+(field expansion), matching the range body's expansion. Both legs share the
+seed, content, and verification.

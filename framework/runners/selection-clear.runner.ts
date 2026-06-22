@@ -406,14 +406,35 @@ const buildAllCellsRange = (fixture: ClearFixture) => ({
   projection: fixture.projection,
 });
 
+// V2 by-id clear body (selectionIdsRoSchema). Use allRecords:true instead of an
+// explicit recordIds list because a seed-cache hit hydrates seededRecords with
+// synthetic empty ids (only the row COUNT is restored, not real ids), so the
+// id-based selection must not depend on recordIds. fieldIds uses the real
+// projection field ids (fetched from getFields, valid on cache hit too), so the
+// cleared column set matches buildAllCellsRange exactly.
+const buildAllCellsByIdBody = (fixture: ClearFixture) => ({
+  viewId: fixture.viewId,
+  selection: {
+    allRecords: true,
+    fieldIds: fixture.projection,
+  },
+});
+
 const clearAllCells = async (
   fixture: ClearFixture,
   perfCase: PerfCase,
   context: PerfRunContext,
 ) => {
+  // Same user behavior ("clear the selected cells"), engine-specific endpoint:
+  // V1's grid drives the range-based clear-stream, V2's grid drives the by-id
+  // clear-by-id-stream. Both emit IClearSelectionStreamEvent, so the done-event
+  // assertions and routing check below are identical for both engines.
+  const isV2 = context.engine === "v2";
   const url = axios.getUri({
     baseURL: axios.defaults.baseURL || "/api",
-    url: `/table/${fixture.tableId}/selection/clear-stream`,
+    url: `/table/${fixture.tableId}/selection/${
+      isV2 ? "clear-by-id-stream" : "clear-stream"
+    }`,
   });
   const sseResult = await perfStreamSse<IClearSelectionStreamEvent>({
     context,
@@ -425,7 +446,9 @@ const clearAllCells = async (
       "Content-Type": "application/json",
       ...getStreamHeaders(context),
     },
-    body: JSON.stringify(buildAllCellsRange(fixture)),
+    body: JSON.stringify(
+      isV2 ? buildAllCellsByIdBody(fixture) : buildAllCellsRange(fixture),
+    ),
     errorPrefix: "Clear selection stream failed",
   });
   const progressEvents = sseResult.events.filter(
