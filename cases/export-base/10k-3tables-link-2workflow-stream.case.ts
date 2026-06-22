@@ -12,7 +12,10 @@ export default definePerfCase({
     sourceBaseNamePrefix: "perf-export-base-source-10k-3tables",
     threshold: {
       metric: "exportBaseStreamMs",
-      maxMs: 180_000,
+      // Calibrated 2026-06-22 from 84 CI runs (v1+v2, Apr-Jun 2026): p95 ~2123ms,
+      // worst ~2616ms. Guardrail ~2x worst - catches a real ~2x regression without
+      // flaking on CI variance (was 180_000).
+      maxMs: 6_000,
     },
   },
 });

@@ -39,7 +39,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "singleSelectCreateOptionsMs",
-      maxMs: 30_000,
+      // Calibrated 2026-06-22 from 196 CI runs (v1+v2, Apr-Jun 2026): p95 ~261ms,
+      // worst ~358ms. Sub-second metric floored at 2_000ms (not 2x worst) to keep
+      // headroom for CI variance on a noisy small metric (was 30_000).
+      maxMs: 2_000,
     },
   },
 });

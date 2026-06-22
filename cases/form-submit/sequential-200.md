@@ -59,6 +59,7 @@ scan verification and cleanup are recorded separately.
 
 ## Notes
 
-The initial `maxMs` guardrail is 4,000 ms per submit. The row count, p95
-aggregation, and Form view field shape should be tightened after real CI
-history exists for both engines.
+The `maxMs` guardrail is 2,000 ms per submit, calibrated 2026-06-22 from CI
+history (143 v1+v2 runs; p95 ~250ms, worst ~270ms). This is a sub-second metric,
+so it is floored at 2,000 ms rather than 2x the worst to keep headroom for CI
+variance on a noisy small metric.

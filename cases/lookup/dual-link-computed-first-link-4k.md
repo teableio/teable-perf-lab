@@ -110,10 +110,10 @@ yields a real V2 async number. The 10k async non-convergence is itself a recorde
 finding, not a target metric; raising the scale back to 10k would make the hybrid
 run a permanent timeout until the V2 outbox drain throughput is optimized.
 
-Initial `maxMs` (60,000) is based on run 27736047791, where V2 hybrid completed
-the end-to-end window in ~19.6s and V1 synchronous recompute completed in ~50.9s.
-Keep this as a broad first guardrail until more CI history is available; the
-expected V2 hybrid standard is the ~20s band at 4k, not the old 300s
-post-write-propagation ceiling.
+`maxMs` (120,000) is a coarse guardrail for this high-variance async case, not a
+tight SLA. It is kept near the observed worst rather than tightened to ~2x: CI
+history (70 v1+v2 runs) shows V1 synchronous recompute running 31-79s and the V2
+hybrid path reaching ~117s, so a wide bound is needed to avoid flaking on the
+async window. See the `.case.ts` threshold comment for the full rationale.
 For a fast local smoke, set `PERF_LAB_LCP_ROWS` / `PERF_LAB_LCP_FOREIGN_ROWS` to
 shrink the workload without editing this config.

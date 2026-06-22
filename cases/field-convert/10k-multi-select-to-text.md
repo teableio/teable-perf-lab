@@ -64,7 +64,7 @@ it and are reported as diagnostic metrics (`createTableMs`, `seedRecordsMs`,
 
 ## Notes
 
-Initial `maxMs` (15,000) is a wide guardrail picked relative to the 10k
-formula cases, not a benchmark result; tighten it after real V1/V2 run
-history. Expected text uses the product's multiple-select
+`maxMs` (6,000) is calibrated 2026-06-22 from CI history (158 v1+v2 runs; p95
+~2.6s, worst ~2.9s), set to ~2x the worst observed to catch a real ~2x
+regression without flaking on CI variance. Expected text uses the product's multiple-select
 `cellValue2String` semantics (`values.join(", ")`).

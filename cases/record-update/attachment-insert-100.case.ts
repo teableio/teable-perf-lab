@@ -41,7 +41,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "bulkUpdate100AttachmentCellsP95Ms",
-      maxMs: 60_000,
+      // Calibrated 2026-06-22 from 93 CI runs (v1+v2, Apr-Jun 2026): p95 ~318ms,
+      // worst ~447ms. Sub-second metric floored at 2_000ms (not 2x worst) to keep
+      // headroom for CI variance on a noisy small metric (was 60_000).
+      maxMs: 2_000,
     },
   },
 });
