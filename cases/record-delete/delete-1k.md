@@ -68,3 +68,10 @@ plus the `verifyDeleted` phase.
 
 The `x-window-id` header is still sent so the request matches real grid
 behavior and can populate the undo stack, but this case does not replay it.
+
+Each engine deletes the same selection through the endpoint its own grid uses,
+so the metric compares the user behavior rather than one endpoint: V1 routes to
+the range-based `DELETE /selection/delete` (`x-teable-v2: false`), V2 routes to
+the by-id `POST /selection/delete-by-id` (`x-teable-v2: true`,
+`selection.excludeRecordIds: []` to select the whole view). Both legs share the
+seed and verification.

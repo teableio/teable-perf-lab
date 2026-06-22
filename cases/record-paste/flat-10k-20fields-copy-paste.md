@@ -64,3 +64,9 @@ steps are setup/verification diagnostics outside the threshold metric.
 
 This case isolates table width. It keeps the row count equal to the 4-field case
 but increases pasted cell count from 40,000 to 200,000.
+
+Each engine pastes through the endpoint its own grid uses, so the metric compares
+the user behavior rather than one endpoint: V1 routes to the range-based
+`PATCH /selection/paste` (`x-teable-v2: false`), V2 routes to the by-id
+`PATCH /selection/paste-by-id` (`x-teable-v2: true`, `selection.recordIds: []` so
+every content row is created). Both legs share the content and verification.

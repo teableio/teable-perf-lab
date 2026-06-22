@@ -74,3 +74,10 @@ The product switches clear to the stream endpoint when the affected row count is
 greater than 200. This 1k case intentionally measures that stream path while
 remaining comparable across engines. It measures clearing content, not deleting
 records, so verification expects the row count to remain 1,000.
+
+Each engine clears the same selection through the endpoint its own grid uses, so
+the metric compares the user behavior rather than one endpoint: V1 routes to the
+range-based `PATCH /selection/clear-stream` (`x-teable-v2: false`), V2 routes to
+the by-id `PATCH /selection/clear-by-id-stream` (`x-teable-v2: true`,
+`selection.allRecords`). Both legs share the seed, selection size, and
+verification.

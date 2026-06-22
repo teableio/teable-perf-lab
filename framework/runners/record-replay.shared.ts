@@ -1,6 +1,7 @@
 import { Colors, FieldKeyType, FieldType } from "@teable/core";
 import {
   axios,
+  deleteById,
   deleteSelection,
   deleteSelectionStream,
   RangeType,
@@ -621,6 +622,72 @@ export const deleteAllRowsViaSelectionDelete = async (
       },
     );
   }
+
+  return {
+    status: response.status,
+    deletedCount: response.data.ids.length,
+    routing,
+    trace: {
+      traceparent: headers.traceparent,
+    },
+  };
+};
+
+// Same user behavior ("delete the selected rows"), engine-specific endpoint:
+// V1's grid deletes by range (DELETE /selection/delete), V2's grid deletes by id
+// (POST /selection/delete-by-id). Both return IDeleteVo, so the assertions and
+// returned shape are identical. Only the MEASURED delete in record-delete /
+// record-delete-link routes through here; record-undo/redo keep using the range
+// delete for their (non-measured) setup so their undo/redo replay is unchanged.
+export const deleteAllRowsByEngine = async (
+  fixture: RecordReplayFixture,
+  context: Pick<PerfRunContext, "engine">,
+): Promise<{
+  status: number;
+  deletedCount: number;
+  routing: {
+    xTeableV2?: string;
+    xTeableV2Reason?: string;
+    xTeableV2Feature?: string;
+  };
+  trace: {
+    traceparent?: string;
+  };
+}> => {
+  if (context.engine !== "v2") {
+    return deleteAllRowsViaSelectionDelete(fixture, context);
+  }
+
+  // excludeRecordIds:[] selects the whole query scope (all rows minus none), so
+  // it does not depend on per-row ids — robust to a seed-cache hit that hydrates
+  // seededRecords with synthetic empty ids (only the row COUNT is restored).
+  const response = (await deleteById(fixture.tableId, {
+    viewId: fixture.viewId,
+    selection: { excludeRecordIds: [] },
+  })) as SelectionDeleteResponse;
+  const headers = response.headers;
+
+  // POST /selection/delete-by-id returns 201 (Created); the range DELETE returns
+  // 200. Accept either so the same helper covers both engines.
+  expect([200, 201]).toContain(response.status);
+  expect(response.data.ids).toHaveLength(fixture.seededRecords.length);
+
+  const routing = {
+    xTeableV2: headers["x-teable-v2"],
+    xTeableV2Reason: headers["x-teable-v2-reason"],
+    xTeableV2Feature: headers["x-teable-v2-feature"],
+  };
+  assertEngineRouting(
+    context,
+    {
+      "x-teable-v2": routing.xTeableV2,
+      "x-teable-v2-reason": routing.xTeableV2Reason,
+      "x-teable-v2-feature": routing.xTeableV2Feature,
+    },
+    {
+      operation: "deleteSelection",
+    },
+  );
 
   return {
     status: response.status,
