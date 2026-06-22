@@ -987,6 +987,7 @@ const buildQueryVariant = (
     },
     orderBy: [{ fieldId: orderByFieldId, order: "asc" }],
     groupBy: [{ fieldId: groupByFieldId, order: "asc" }],
+    includeQueryExtra: false,
   };
 };
 
