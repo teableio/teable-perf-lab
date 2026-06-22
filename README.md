@@ -272,6 +272,19 @@ workload.
   `PATCH /api/table/{tableId}/selection/clear-stream`.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
+- `record-delete/delete-stream-1k`: Measure the grid **streaming**
+  selection-delete path for deleting every record of a 1,000-row, 20-field table.
+  This is the streaming sibling of `record-delete/delete-1k`: the product
+  switches a selection delete to the stream endpoints once the affected row count
+  crosses ~200, so a 1k delete in the real UI never uses the synchronous endpoint
+  the sync case measures.
+- `record-delete/delete-stream-10k`: Measure the grid **streaming**
+  selection-delete path for deleting every record of a 10,000-row, 20-field
+  table. This is the larger-scale sibling of `record-delete/delete-stream-1k`:
+  same runner, same per-engine dispatch, 10x the rows. 10k is where the V1 legacy
+  range stream's O(n) cost (if any) shows against the V2 by-id stream, so this
+  case carries the real V1/V2 spread; the 1k case covers correctness and routing
+  at small scale.
 - `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
   whose rows contain populated link cells, covering the record-trash path for
   linked records rather than plain scalar-row deletion.

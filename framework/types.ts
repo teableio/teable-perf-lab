@@ -37,6 +37,7 @@ export interface PerfCaseConfigByRunner {
   "record-update-link": RecordUpdateLinkCaseConfig;
   "record-reorder": RecordReorderCaseConfig;
   "record-delete": RecordDeleteCaseConfig;
+  "record-delete-stream": RecordDeleteStreamCaseConfig;
   "record-undo": RecordUndoCaseConfig;
   "record-redo": RecordRedoCaseConfig;
   "selection-clear": SelectionClearCaseConfig;
@@ -1047,6 +1048,20 @@ export interface RecordDeleteLinkCaseConfig
   link: TableLifecycleLinkConfig;
   threshold: {
     metric: "deleteLinked1kMs";
+    maxMs: number;
+  };
+}
+
+// Streaming sibling of record-delete. The grid streams any selection delete
+// over ~200 effective rows; the sync record-delete runner only exercises the
+// small-selection path. Same user behavior ("delete the whole selection"),
+// each engine driving the endpoint its own grid uses: V1 → range
+// GET /selection/delete-stream (legacy range stream), V2 → by-id
+// PATCH /selection/delete-by-id-stream. Both legs are @UseV2Feature('deleteRecord').
+export interface RecordDeleteStreamCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric: "deleteStream1kMs" | "deleteStream10kMs";
     maxMs: number;
   };
 }

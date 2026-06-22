@@ -32,6 +32,10 @@ import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner"
 import { runRecordCreateCase } from "./runners/record-create.runner";
 import { seedRecordCreateCase } from "./runners/record-create.runner";
 import { runRecordDeleteCase } from "./runners/record-delete.runner";
+import {
+  runRecordDeleteStreamCase,
+  seedRecordDeleteStreamCase,
+} from "./runners/record-delete-stream.runner";
 import { runRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { seedRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { runRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
@@ -242,6 +246,11 @@ export const runnerRegistry: Record<PerfRunnerKind, RunnerRegistryEntry> = {
   "record-delete": {
     execute: (perfCase, context) => runRecordDeleteCase(perfCase, context),
     seed: seedRecordReplayRunner,
+  },
+  "record-delete-stream": {
+    execute: (perfCase, context) =>
+      runRecordDeleteStreamCase(perfCase, context),
+    seed: (perfCase, context) => seedRecordDeleteStreamCase(perfCase, context),
   },
   "record-undo": {
     execute: (perfCase, context) => runRecordUndoCase(perfCase, context),
