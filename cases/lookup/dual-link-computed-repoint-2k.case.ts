@@ -44,7 +44,12 @@ export default definePerfCase({
     },
     threshold: {
       metric: "lookupPropagationMs",
-      maxMs: 300_000,
+      // Calibrated 2026-06-22 from 53 CI runs (v1+v2) of lookupPropagationMs:
+      // async path, v2 worst ~15.7s (p95 ~13.9s), v1 worst ~0.6s. Guardrail
+      // ~2.5x v2 worst - extra margin for the async window, still 7.5x tighter
+      // than the old 300_000. (Earlier runs measured a now-retired
+      // lookupReadyTotalMs.)
+      maxMs: 40_000,
     },
   },
 });

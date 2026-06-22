@@ -65,5 +65,6 @@ are reported as diagnostics (`createTableMs`, `seedRecordsMs`, `maxSeedBatchMs`,
 ## Notes
 
 The expected text equals the link's display title (the foreign primary `Key`).
-Initial `maxMs` (30,000) is a wide guardrail relative to the existing 10k
-convert cases; tighten it after real V1/V2 run history.
+`maxMs` (6,000) is calibrated 2026-06-22 from CI history (94 v1+v2 runs; p95
+~2.4s, worst ~2.5s), set to ~2x the worst observed to catch a real ~2x
+regression without flaking on CI variance.

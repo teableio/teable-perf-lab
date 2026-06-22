@@ -67,7 +67,8 @@ verification, or cleanup; those are reported separately as diagnostics such as
 
 ## Notes
 
-The initial 120s threshold is a guardrail, not a benchmark result; tighten it
-after real V1/V2 run history exists. The `x-window-id` header is sent so the
+The 20s threshold is calibrated 2026-06-22 from CI history (178 v1+v2 runs; p95
+~3.9s, worst ~7.8s), set to ~2.5x the worst observed so a real regression trips
+it without flaking on CI variance. The `x-window-id` header is sent so the
 request matches real grid behavior; this case does not replay or restore
 through the undo stack.

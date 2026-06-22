@@ -39,7 +39,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "convertTextToFormulaReadyMs",
-      maxMs: 15_000,
+      // Calibrated 2026-06-22 from 158 CI runs (v1+v2, Apr-Jun 2026): p95 ~5120ms,
+      // worst ~5492ms. Guardrail ~2x worst - catches a real ~2x regression without
+      // flaking on CI variance (was 15_000).
+      maxMs: 12_000,
     },
   },
 });

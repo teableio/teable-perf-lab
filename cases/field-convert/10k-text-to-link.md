@@ -70,5 +70,6 @@ reported as diagnostics (`createTableMs`, `seedRecordsMs`, `maxSeedBatchMs`,
 
 Every host text value matches a deterministic unique foreign title, so the
 conversion creates real links rather than testing missing-title behavior.
-Initial `maxMs` (30,000) is a wide guardrail relative to the existing 10k
-convert cases; tighten it after real V1/V2 run history.
+`maxMs` (20,000) is calibrated 2026-06-22 from CI history (94 v1+v2 runs; p95
+~8.8s, worst ~9.3s), set to ~2x the worst observed to catch a real ~2x
+regression without flaking on CI variance.

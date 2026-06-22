@@ -13,7 +13,10 @@ export default definePerfCase({
     fields: recordReplayMixed20Fields,
     threshold: {
       metric: "createTables10xTotalMs",
-      maxMs: 60_000,
+      // Calibrated 2026-06-22 from 154 CI runs (v1+v2, Apr-Jun 2026): p95 ~2272ms,
+      // worst ~2768ms. Guardrail ~2x worst - catches a real ~2x regression without
+      // flaking on CI variance (was 60_000).
+      maxMs: 6_000,
     },
   },
 });

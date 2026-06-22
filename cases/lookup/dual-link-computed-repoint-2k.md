@@ -109,6 +109,9 @@ and `lookupReadyTotalMs` 22.1s, with 2,000 orders and 200 purchases fully
 scanned. 10k remains a recorded non-convergence finding (run 27679497968), not a
 target metric for this green CI standard.
 
-Initial `maxMs` (300,000) is a wide guardrail; tighten after real V1/V2 history.
+`maxMs` (40,000) is calibrated 2026-06-22 from CI history of the current
+`lookupPropagationMs` metric (53 v1+v2 runs; v2 worst ~15.7s, v1 worst ~0.6s),
+set to ~2.5x the v2 worst for async-window margin - 7.5x tighter than the old
+300,000.
 For a fast local smoke, set `PERF_LAB_LCP_ROWS` / `PERF_LAB_LCP_FOREIGN_ROWS` to
 shrink the workload without editing this config.
