@@ -74,5 +74,7 @@ and local cleanup are outside the threshold metric.
 
 ## Notes
 
-The initial 4,000 ms threshold is a wide per-request p95 guardrail. It should be
-tightened after real CI history is available.
+The 2,000 ms per-request p95 threshold is calibrated 2026-06-22 from CI history
+(127 v1+v2 runs; p95 ~120ms, worst ~180ms). This is a sub-second metric, so it
+is floored at 2,000 ms rather than 2x the worst to keep headroom for CI
+variance.

@@ -16,9 +16,10 @@ export default definePerfCase({
     samples: 10,
     threshold: {
       metric: "restoreTableP95Ms",
-      // Local v1/v2 runs measured p95 ~41ms; 5s still leaves ~120x headroom
-      // while catching order-of-magnitude regressions.
-      maxMs: 5_000,
+      // Calibrated 2026-06-22 from 148 CI runs (v1+v2, Apr-Jun 2026): p95 ~135ms,
+      // worst ~180ms. Sub-second metric floored at 2_000ms (not 2x worst) to keep
+      // headroom for CI variance on a noisy small metric (was 5_000).
+      maxMs: 2_000,
     },
   },
 });

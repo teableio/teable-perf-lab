@@ -16,7 +16,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "redoReplay1kMs",
-      maxMs: 90_000,
+      // Calibrated 2026-06-22 from 271 CI runs (v1+v2, Apr-Jun 2026): p95 ~379ms,
+      // worst ~555ms. Sub-second metric floored at 2_000ms (not 2x worst) to keep
+      // headroom for CI variance on a noisy small metric (was 90_000).
+      maxMs: 2_000,
     },
   },
 });

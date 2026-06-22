@@ -134,7 +134,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "duplicateTableRequestMs",
-      maxMs: 180_000,
+      // Calibrated 2026-06-22 from 154 CI runs (v1+v2, Apr-Jun 2026): p95 ~19286ms,
+      // worst ~22090ms. Guardrail ~2x worst - catches a real ~2x regression without
+      // flaking on CI variance (was 180_000).
+      maxMs: 45_000,
     },
   },
 });

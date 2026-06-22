@@ -34,9 +34,11 @@ export default definePerfCase({
       metric: "deleteTableDetachLinkP95Ms",
       // v1 pays detachLink: a field convert over the surviving table's 10k
       // link cells inside the delete request (expected seconds, O(rowCount)).
-      // v2 soft delete skips that side effect (expected tens of ms). Local
-      // v1/v2 verification on 2026-06-12 measured p95 at 1312.58 ms / 41.08 ms.
-      maxMs: 10_000,
+      // v2 soft delete skips that side effect (expected tens of ms).
+      // Calibrated 2026-06-22 from 135 CI runs (v1+v2, Apr-Jun 2026): p95 ~2665ms,
+      // worst ~2975ms. Guardrail ~2x worst - catches a real ~2x regression without
+      // flaking on CI variance (was 10_000).
+      maxMs: 6_000,
     },
   },
 });

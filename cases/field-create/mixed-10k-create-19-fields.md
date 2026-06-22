@@ -54,5 +54,7 @@ window; it does not add or call a product bulk-create API.
 ## Notes
 
 Verification runs after the primary measurement and is not included in
-`create19FieldsMs`, thresholds, or phases. The initial 180s threshold is a
-guardrail until real V1/V2 history is available.
+`create19FieldsMs`, thresholds, or phases. The 40s threshold is
+calibrated 2026-06-22 from CI history (166 v1+v2 runs; p95 ~17s, worst ~18.7s),
+set to ~2x the worst observed to catch a real ~2x regression without flaking on
+CI variance.

@@ -36,7 +36,10 @@ export default definePerfCase({
     },
     threshold: {
       metric: "importBaseStreamMs",
-      maxMs: 120_000,
+      // Calibrated 2026-06-22 from 38 CI runs (v1+v2, Apr-Jun 2026): p95 ~313ms,
+      // worst ~387ms. Sub-second metric floored at 2_000ms (not 2x worst) to keep
+      // headroom for CI variance on a noisy small metric (was 120_000).
+      maxMs: 2_000,
     },
   },
 });

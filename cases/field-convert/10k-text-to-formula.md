@@ -70,6 +70,7 @@ it and are reported as diagnostic metrics (`createTableMs`, `seedRecordsMs`,
 
 This is intentionally heavier than the select-to-text case: the conversion
 must type-change the column and backfill 10,000 computed values, exercising
-the formula calculation path on top of the convert path. Initial `maxMs`
-(15,000) is a wide guardrail picked relative to the 10k formula cases;
-tighten it after real V1/V2 run history.
+the formula calculation path on top of the convert path. `maxMs` (12,000) is
+calibrated 2026-06-22 from CI history (158 v1+v2 runs; p95 ~5.1s, worst ~5.5s),
+set to ~2x the worst observed to catch a real ~2x regression without flaking on
+CI variance.

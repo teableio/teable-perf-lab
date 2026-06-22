@@ -66,5 +66,6 @@ foreign id scan, and seed validation stay out of the primary metric.
 ## Notes
 
 The workload is sized at 1,000 link cells to match the link bulk-update scale
-in `tasks/todo.md`. Initial `maxMs` (90,000) mirrors the scalar 1k bulk-update
-guardrail; tighten it after real V1/V2 run history.
+in `tasks/todo.md`. `maxMs` (12,000) is calibrated 2026-06-22 from CI
+history (93 v1+v2 runs; p95 ~4.7s, worst ~5.2s), set to ~2x the worst observed
+to catch a real ~2x regression without flaking on CI variance.

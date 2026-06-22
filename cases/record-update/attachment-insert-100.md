@@ -75,6 +75,7 @@ Diagnostics recorded separately: `attachmentUpdateMinMs` /
 
 Attachment tokens must reference real uploaded attachments, so the file set is
 uploaded fresh during each execute run rather than cached: the seed dump
-captures the database, not the storage volume. Initial `maxMs` (60,000) is a
-wide guardrail relative to the scalar 1k bulk-update case; tighten it after
-real V1/V2 run history.
+captures the database, not the storage volume. `maxMs` (2,000) is
+calibrated 2026-06-22 from CI history (93 v1+v2 runs; p95 ~320ms, worst ~450ms).
+This is a sub-second p95 metric, so it is floored at 2,000 ms rather than 2x the
+worst to keep headroom for CI variance.

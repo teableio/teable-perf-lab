@@ -33,7 +33,11 @@ export default definePerfCase({
     },
     threshold: {
       metric: "conditionalLookupReadyMs",
-      maxMs: 120_000,
+      // Calibrated 2026-06-22 from 350 CI runs (v1+v2): p95 ~2.5s; v1 worst
+      // ~2.8s, v2 worst ~1.5s recently with one early ~8.1s outlier. Guardrail
+      // ~2.5x that outlier - catches a real regression without flaking (was
+      // 120_000).
+      maxMs: 20_000,
     },
   },
 });
