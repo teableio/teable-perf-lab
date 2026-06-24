@@ -386,11 +386,33 @@ const parseTraceStepPatterns = (value: unknown) => {
     .map((pattern) => new RegExp(pattern));
 };
 
-const getTraceIncludeStepPattern = (perfCase: PerfCase) =>
-  perfCase.runtimeEnv?.PERF_LAB_TRACE_INCLUDE_STEP_PATTERN;
+// Trace step patterns may be scoped to one engine: an engine-suffixed key
+// (e.g. PERF_LAB_TRACE_INCLUDE_STEP_PATTERN_V1) wins for that engine, and the
+// bare key applies to every engine. This lets a case narrow trace capture for
+// an engine that drops spans under burst (V1, won't-fix) while still capturing
+// everything for an engine that doesn't (V2). A bare key alone keeps the old
+// both-engines behavior, so existing cases are unaffected.
+const getEngineScopedRuntimeEnv = (
+  perfCase: PerfCase,
+  baseKey: string,
+  engine: string,
+) =>
+  perfCase.runtimeEnv?.[`${baseKey}_${engine.toUpperCase()}`] ??
+  perfCase.runtimeEnv?.[baseKey];
 
-const getTraceFallbackStepPattern = (perfCase: PerfCase) =>
-  perfCase.runtimeEnv?.PERF_LAB_TRACE_FALLBACK_STEP_PATTERN;
+const getTraceIncludeStepPattern = (perfCase: PerfCase, engine: string) =>
+  getEngineScopedRuntimeEnv(
+    perfCase,
+    "PERF_LAB_TRACE_INCLUDE_STEP_PATTERN",
+    engine,
+  );
+
+const getTraceFallbackStepPattern = (perfCase: PerfCase, engine: string) =>
+  getEngineScopedRuntimeEnv(
+    perfCase,
+    "PERF_LAB_TRACE_FALLBACK_STEP_PATTERN",
+    engine,
+  );
 
 const matchesTraceIncludePattern = (patterns: RegExp[], ref: PerfTraceRef) =>
   patterns.length === 0 || patterns.some((pattern) => pattern.test(ref.stepId));
@@ -445,7 +467,7 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
     (ref) => ref.sampled,
   );
   const includePatterns = parseTraceStepPatterns(
-    getTraceIncludeStepPattern(perfCase),
+    getTraceIncludeStepPattern(perfCase, engine),
   );
   const candidateRefs = uniqueRefs.filter((ref) =>
     matchesTraceIncludePattern(includePatterns, ref),
@@ -778,7 +800,7 @@ export const writeTraceArtifacts = async ({
     );
   };
 
-  const fallbackPattern = getTraceFallbackStepPattern(perfCase);
+  const fallbackPattern = getTraceFallbackStepPattern(perfCase, engine);
   const fallbackPatterns = parseTraceStepPatterns(fallbackPattern);
   const maxFallbackAttempts = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FALLBACK_MAX_ATTEMPTS",
@@ -889,7 +911,7 @@ export const writeTraceArtifacts = async ({
     addFailedTrace(ref, result);
   }
 
-  const includePattern = getTraceIncludeStepPattern(perfCase);
+  const includePattern = getTraceIncludeStepPattern(perfCase, engine);
   const includePatterns = parseTraceStepPatterns(includePattern);
   for (const ref of runRefs) {
     if (savedTraceIds.has(ref.traceId) || failedTraceIds.has(ref.traceId)) {

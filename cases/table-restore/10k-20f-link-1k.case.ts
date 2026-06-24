@@ -7,15 +7,16 @@ export default definePerfCase({
     "Restore a 10k-record 20-field table owning a populated link field from trash",
   runner: "table-restore-link",
   timeoutMs: 1_800_000,
-  // Trace snapshots exist to debug the *measured* operation (restoreTable). The
-  // deleteSetup and restoreTableVerify steps fire a large request burst (~170
-  // verify reads across samples) whose server spans overflow the OTel export
-  // queue and 404 in Jaeger; on V1 that loss is won't-fix, so polling those
-  // traces to timeout is pure wasted CI wall-clock. Capture every restore-op
-  // trace plus one before/after sample for V2 debugging context, and skip the
-  // rest. Cuts selected traces ~210 -> ~30 and missing-trace polling ~45s -> ~5s.
+  // V1 only: the deleteSetup and restoreTableVerify steps fire a large request
+  // burst (~170 verify reads across samples) whose server spans overflow the
+  // OTel export queue and 404 in Jaeger. On V1 (won't-fix engine) we don't debug
+  // those traces, so polling each missing one to timeout is pure wasted CI
+  // wall-clock — narrow V1 capture to the measured restore op plus one
+  // before/after sample (~210 -> ~30 traces, ~45s -> ~0 missing-trace polling).
+  // V2 does NOT drop these (PR #2248 protects route roots), so it has no
+  // engine-suffixed key and keeps capturing every trace for debugging.
   runtimeEnv: {
-    PERF_LAB_TRACE_INCLUDE_STEP_PATTERN:
+    PERF_LAB_TRACE_INCLUDE_STEP_PATTERN_V1:
       "^restoreTable-sample-\\d+$,^deleteSetup-sample-01$,^restoreTableVerify-sample-01$",
   },
   config: {
