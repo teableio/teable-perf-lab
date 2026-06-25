@@ -1,4 +1,8 @@
-import { primaryMetricValue, traceWaste } from "./perf-artifact-read-model.mjs";
+import {
+  primaryMetricValue,
+  traceServiceOutage,
+  traceWaste,
+} from "./perf-artifact-read-model.mjs";
 
 export const DEFAULT_REGRESSION_RATIO_THRESHOLD = 1.2;
 
@@ -258,10 +262,16 @@ export const buildPerfSummaryCard = ({
 }) => {
   const counts = resultCounts(payloads);
   const waste = traceWaste(payloads);
+  const traceOutage = traceServiceOutage(payloads);
   const wasteByEngineText = Object.entries(waste.byEngine)
     .filter(([, value]) => value.wastedMs > 0)
     .sort((a, b) => b[1].wastedMs - a[1].wastedMs)
     .map(([engine, value]) => `${engine} ${formatDuration(value.wastedMs)}`)
+    .join(" · ");
+  const outageByEngineText = Object.entries(traceOutage.byEngine)
+    .filter(([, value]) => value.skippedFetchCount > 0)
+    .sort((a, b) => b[1].skippedFetchCount - a[1].skippedFetchCount)
+    .map(([engine, value]) => `${engine} ${value.skippedFetchCount}`)
     .join(" · ");
   const rows = buildCaseRows(payloads, { regressionRatioThreshold });
   const regressionRows = rows.filter((row) => row.status === "attention");
@@ -322,6 +332,17 @@ export const buildPerfSummaryCard = ({
             content: `**目标**: teable-ee ${teableRef}${sha ? ` @ ${sha}` : ""}\n**运行**: ${runId}  |  **任务**: ${executeResult || "unknown"}  |  **结果**: ${counts.pass} 通过 / ${counts.skipped} 跳过 / ${counts.fail} 失败`,
           },
         },
+        ...(traceOutage.skippedFetchCount > 0
+          ? [
+              {
+                tag: "div",
+                text: {
+                  tag: "lark_md",
+                  content: `⚠️ **Trace 服务不可用，本轮跳过 Trace 抓取** · ${traceOutage.skippedFetchCount} 个 trace 未抓取${outageByEngineText ? `(${outageByEngineText})` : ""}\n非引擎性能退化:抓 Trace 的 Jaeger/观测服务当时不可用或无响应，本轮性能结果仍可看，但没有 raw trace 证据。请查 observability-stack / teable-perf-jaeger。`,
+                },
+              },
+            ]
+          : []),
         ...(waste.wastedMs >= 30_000
           ? [
               {

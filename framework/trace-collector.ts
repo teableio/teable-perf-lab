@@ -54,6 +54,7 @@ export interface PerfTraceArtifactSummary {
   backgroundFlushLastError?: string;
   flushDurationMs?: number;
   flushError?: string;
+  traceFetchSkippedReason?: string;
   artifactDir?: string;
   manifestPath?: string;
   jaegerApiBaseUrl?: string;
@@ -565,6 +566,12 @@ const fetchJaegerTrace = async (
   };
 };
 
+const isOtelExporterUnavailableError = (error?: string) =>
+  error != null &&
+  /\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|UND_ERR_CONNECT_TIMEOUT)\b|connect timeout|fetch failed|socket hang up/i.test(
+    error,
+  );
+
 export const installPerfTraceCollector = () => {
   if (installed || !isTraceCollectionEnabled()) {
     return;
@@ -705,6 +712,28 @@ export const writeTraceArtifacts = async ({
   const traceDir = join(artifactDir, traceRelativeDir);
   await mkdir(traceDir, { recursive: true });
 
+  const writeSummary = async () => {
+    summary.artifactDir = traceRelativeDir;
+    summary.manifestPath = join(traceRelativeDir, "manifest.json");
+    await writeFile(
+      join(artifactDir, summary.manifestPath),
+      JSON.stringify(summary, null, 2),
+    );
+    return summary;
+  };
+
+  const addSkippedTrace = (ref: PerfTraceRef, error: string) => {
+    summary.skippedTraceCount += 1;
+    summary.savedTraces.push({
+      traceId: ref.traceId,
+      stepId: ref.stepId,
+      path: "",
+      status: "skipped",
+      error,
+      sampled: ref.sampled,
+    });
+  };
+
   if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
     const flushStartedAt = Date.now();
     try {
@@ -715,6 +744,17 @@ export const writeTraceArtifacts = async ({
       summary.flushError =
         error instanceof Error ? error.message : String(error);
     }
+  }
+
+  if (
+    selectedRefs.length > 0 &&
+    isOtelExporterUnavailableError(summary.flushError)
+  ) {
+    summary.traceFetchSkippedReason = `Trace service unavailable; skipped Jaeger fetch: ${summary.flushError}`;
+    for (const ref of runRefs) {
+      addSkippedTrace(ref, summary.traceFetchSkippedReason);
+    }
+    return writeSummary();
   }
 
   const settleMs = getPositiveIntegerEnv(
@@ -920,29 +960,16 @@ export const writeTraceArtifacts = async ({
 
     const skippedByIncludePattern =
       ref.sampled && !matchesTraceIncludePattern(includePatterns, ref);
-    summary.skippedTraceCount += 1;
-    summary.savedTraces.push({
-      traceId: ref.traceId,
-      stepId: ref.stepId,
-      path: "",
-      status: "skipped",
-      error:
-        skippedTraceErrors.get(ref.traceId) ??
+    addSkippedTrace(
+      ref,
+      skippedTraceErrors.get(ref.traceId) ??
         (!ref.sampled
           ? "Traceparent is not sampled, so Jaeger is not expected to store it"
           : skippedByIncludePattern
             ? `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`
             : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`),
-      sampled: ref.sampled,
-    });
+    );
   }
 
-  summary.artifactDir = traceRelativeDir;
-  summary.manifestPath = join(traceRelativeDir, "manifest.json");
-  await writeFile(
-    join(artifactDir, summary.manifestPath),
-    JSON.stringify(summary, null, 2),
-  );
-
-  return summary;
+  return writeSummary();
 };

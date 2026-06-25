@@ -12,6 +12,7 @@ import {
   sanitizeCaseId,
   sanitizeSegment,
   summaryMarkdownName,
+  traceServiceOutage,
   traceWaste,
 } from "./perf-artifact-read-model.mjs";
 
@@ -144,6 +145,37 @@ try {
     wastedMs: 2000,
     byEngine: { v2: { missing: 4, wastedMs: 2000 } },
   });
+  assert.deepEqual(traceServiceOutage([executePayload]), {
+    skippedFetchCount: 0,
+    byEngine: {},
+  });
+  assert.deepEqual(
+    traceServiceOutage([
+      {
+        engine: "v2",
+        details: {
+          observability: {
+            traces: {
+              traceRefCount: 30,
+              selectedTraceCount: 20,
+              traceFetchSkippedReason:
+                "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+            },
+          },
+        },
+      },
+    ]),
+    {
+      skippedFetchCount: 20,
+      byEngine: {
+        v2: {
+          skippedFetchCount: 20,
+          reason:
+            "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+        },
+      },
+    },
+  );
 
   const fallbackDir = await mkdtemp(join(tmpdir(), "perf-artifact-fallback-"));
   try {
