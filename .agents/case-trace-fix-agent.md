@@ -21,6 +21,9 @@ The performance monitor should treat trace warnings with these shapes:
 - `Trace_Ref_Count > Saved_Trace_Count` alone is not a defect when the manifest
   records the difference as `skippedTraceCount`. High-repeat cases can keep all
   trace refs while saving representative raw Jaeger snapshots.
+- `traceFetchSkippedReason` set and `Failed_Trace_Count = 0`: the Trace service
+  was unavailable before Jaeger fetch began, so the collector skipped polling
+  instead of wasting time on trace ids that could not have been exported.
 - Repeated sampled refs with a successful same-shape raw snapshot may be marked
   `skipped` when a sibling trace 404s in Jaeger. If no same-shape trace saves,
   the fetch must stay failed so the monitor still alerts.
@@ -46,9 +49,12 @@ The performance monitor should treat trace warnings with these shapes:
    diagnosis needs the raw snapshot JSON files themselves.
 2. For `Failed_Trace_Count > 0`, read `savedTraces[]` entries with
    `status: "missing"` or `status: "error"`.
-3. Check `error`, `attempts`, `durationMs`, `stepId`, `traceId`, `sampled`, and
+3. If `traceFetchSkippedReason` is present, treat this as Trace service outage
+   evidence first; check `flushError` and the observability service, not the
+   case runner.
+4. Check `error`, `attempts`, `durationMs`, `stepId`, `traceId`, `sampled`, and
    request `url`.
-4. For `Trace_Ref_Count > Saved_Trace_Count`, compare:
+5. For `Trace_Ref_Count > Saved_Trace_Count`, compare:
    - `traceRefCount`
    - `uniqueTraceCount`
    - `savedTraceCount`
@@ -58,7 +64,7 @@ The performance monitor should treat trace warnings with these shapes:
      If `savedTraceCount + failedTraceCount + skippedTraceCount` covers
      `traceRefCount`, this is an intentional representative-snapshot gap, not a
      trace-capture failure.
-5. Decide root cause:
+6. Decide root cause:
    - Jaeger late availability or short timeout -> tune trace fetch timing.
    - Too many captured refs but snapshot cap too low -> adjust
      `PERF_LAB_TRACE_MAX_SNAPSHOTS` or selection priority.

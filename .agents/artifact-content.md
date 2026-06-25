@@ -118,6 +118,7 @@ only if you are not already holding the payload.
   "backgroundFlushCount": 12,
   "backgroundFlushErrorCount": 0,
   "flushDurationMs": 512,
+  "traceFetchSkippedReason": null,
   "jaegerApiBaseUrl": "http://host:16686",
   "artifactDir": "traces/formula-10k-calc-v2",
   "manifestPath": "traces/formula-10k-calc-v2/manifest.json",
@@ -161,10 +162,14 @@ only if you are not already holding the payload.
 Count relationships (a healthy run): `savedTraceCount + failedTraceCount +
 skippedTraceCount` accounts for every fetched/skipped ref. `skipped` covers
 unsampled refs, sampled refs above `maxSnapshotCount`, sampled refs outside a
-case include pattern, and repeated sampled refs whose Jaeger fetch failed after
-a same-shape trace already saved a raw snapshot. Each skipped entry carries an
-`error` string explaining why it was not fetched. `refs[]` lists every captured
-request; `savedTraces[]` lists the fetch outcome per selected trace.
+case include pattern, repeated sampled refs whose Jaeger fetch failed after a
+same-shape trace already saved a raw snapshot, and whole-case fetch skips when
+the Trace service was unavailable before Jaeger fetch began. Each skipped entry
+carries an `error` string explaining why it was not fetched. `refs[]` lists every
+captured request; `savedTraces[]` lists the fetch outcome per selected trace.
+`traceFetchSkippedReason` is set only when the collector skipped Jaeger fetch for
+the case, for example because the Trace service rejected the final OTEL flush.
+This is not counted as trace polling waste.
 
 ## `traces/<case-id>-<engine>/<step-id>-<trace-id>.json` — raw Jaeger snapshot
 
@@ -208,6 +213,7 @@ is the heavy part of the artifact. Open it only for span-level debugging.
 | Why a trace was not saved          | `details.observability.traces.savedTraces[]` where `status` is `error`/`missing`/`skipped` (read `error`) |
 | Open a trace in the Jaeger UI      | any `refs[].traceLink`                                                                                    |
 | Span-level timings (full artifact) | `traces/<case>-<engine>/<step>-<trace>.json` → `.data[0].spans`                                           |
+| Trace service unavailable          | `details.observability.traces.traceFetchSkippedReason`                                                    |
 
 ## jq quick paths
 
