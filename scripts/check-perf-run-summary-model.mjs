@@ -165,4 +165,50 @@ assert.equal(
   "https://charts.example",
 );
 
+const outageCard = buildPerfSummaryCard({
+  payloads: [
+    {
+      caseId: "smoke/auth-user",
+      engine: "v2",
+      result: "pass",
+      durationMs: 1000,
+      thresholds: [{ metric: "durationMs", actual: 1000, passed: true }],
+      details: {
+        observability: {
+          traces: {
+            traceRefCount: 3,
+            selectedTraceCount: 3,
+            savedTraceCount: 0,
+            failedTraceCount: 0,
+            skippedTraceCount: 3,
+            missingFetchCount: 0,
+            wastedFetchMs: 0,
+            traceFetchSkippedReason:
+              "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+          },
+        },
+      },
+    },
+  ],
+  timings: resolveRunTimingFromJobs(jobs),
+  context: {
+    chartUrl: "https://charts.example",
+    executeResult: "success",
+    runId: "456",
+    runUrl: "https://github.example/run/456",
+    sha: "abcdef1",
+    teableRef: "main",
+    teableResultsUrl: "https://teable.example/results",
+  },
+});
+
+const outageText = outageCard.card.elements[1].text.content;
+assert.match(outageText, /Trace 服务不可用，本轮跳过 Trace 抓取/);
+assert.match(outageText, /observability-stack \/ teable-perf-jaeger/);
+assert.doesNotMatch(outageText, /OTLP/);
+assert.doesNotMatch(
+  JSON.stringify(outageCard.card.elements),
+  /Trace 抓取浪费/,
+);
+
 console.log("Perf run summary model checks ok");

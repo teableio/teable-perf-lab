@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
+import ts from "typescript";
+
+const source = await readFile("framework/trace-collector.ts", "utf8");
+const output = ts.transpileModule(source, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "framework/trace-collector.ts",
+  reportDiagnostics: true,
+});
+
+const errors = (output.diagnostics ?? []).filter(
+  (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
+);
+assert.equal(errors.length, 0);
+
+const tempDir = await mkdtemp(join(tmpdir(), "perf-lab-trace-collector-"));
+const collectorFile = join(tempDir, "trace-collector.mjs");
+const classificationFile = join(tempDir, "trace-classification.mjs");
+const artifactDir = join(tempDir, "artifacts");
+const traceDir = join(artifactDir, "traces", "smoke-auth-user-v2");
+const manifestPath = join(traceDir, "manifest.json");
+
+try {
+  await writeFile(
+    classificationFile,
+    [
+      "export const normalizeTraceStepShape = (stepId) => stepId;",
+      "export const hasSavedTraceStepShape = () => false;",
+    ].join("\n"),
+  );
+  await writeFile(
+    collectorFile,
+    output.outputText
+      .replace('from "@teable/openapi"', 'from "./teable-openapi.mjs"')
+      .replace('from "./trace-classification"', 'from "./trace-classification.mjs"'),
+  );
+  await writeFile(
+    join(tempDir, "teable-openapi.mjs"),
+    [
+      "const interceptor = { use: () => 0, eject: () => undefined };",
+      "export const axios = { interceptors: { request: interceptor, response: interceptor } };",
+    ].join("\n"),
+  );
+
+  const {
+    installPerfTraceCollector,
+    recordPerfTraceRefFromHeaders,
+    resetPerfTraceRefs,
+    setPerfTraceFlush,
+    writeTraceArtifacts,
+  } = await import(pathToFileURL(collectorFile));
+
+  const previousEnv = {
+    PERF_LAB_TRACE_ENABLED: process.env.PERF_LAB_TRACE_ENABLED,
+    PERF_LAB_TRACE_MAX_SNAPSHOTS: process.env.PERF_LAB_TRACE_MAX_SNAPSHOTS,
+    PERF_LAB_TRACE_FETCH_SETTLE_MS: process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS,
+    PERF_LAB_JAEGER_API_BASE_URL: process.env.PERF_LAB_JAEGER_API_BASE_URL,
+  };
+  const previousFetch = globalThis.fetch;
+  let fetchCount = 0;
+
+  try {
+    process.env.PERF_LAB_TRACE_ENABLED = "true";
+    process.env.PERF_LAB_TRACE_MAX_SNAPSHOTS = "10";
+    process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS = "1";
+    process.env.PERF_LAB_JAEGER_API_BASE_URL = "http://jaeger.example";
+    globalThis.fetch = async () => {
+      fetchCount += 1;
+      throw new Error("fetch should not run after exporter outage");
+    };
+
+    const context = { runId: "run-1", engine: "v2" };
+    const perfCase = { id: "smoke/auth-user" };
+
+    installPerfTraceCollector();
+    resetPerfTraceRefs();
+    setPerfTraceFlush(async () => {
+      throw new Error("connect ECONNREFUSED 136.119.178.56:4318");
+    });
+
+    recordPerfTraceRefFromHeaders({
+      context,
+      perfCase,
+      stepId: "authUserMs",
+      headers: {
+        traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
+        link: "<http://jaeger.example/trace/11111111111111111111111111111111>; rel=trace",
+      },
+      method: "GET",
+      url: "http://127.0.0.1/api/auth/user",
+      status: 200,
+    });
+
+    const summary = await writeTraceArtifacts({
+      artifactDir,
+      perfCase,
+      engine: "v2",
+    });
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
+    assert.equal(fetchCount, 0);
+    assert.equal(summary.savedTraceCount, 0);
+    assert.equal(summary.failedTraceCount, 0);
+    assert.equal(summary.skippedTraceCount, 1);
+    assert.equal(summary.missingFetchCount, 0);
+    assert.equal(summary.wastedFetchMs, 0);
+    assert.match(
+      summary.traceFetchSkippedReason,
+      /Trace service unavailable; skipped Jaeger fetch/,
+    );
+    assert.deepEqual(manifest, JSON.parse(JSON.stringify(summary)));
+  } finally {
+    globalThis.fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value == null) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+
+  console.log("Trace collector exporter outage checks ok");
+} finally {
+  await rm(tempDir, { recursive: true, force: true });
+}

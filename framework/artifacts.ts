@@ -97,6 +97,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               backgroundFlushLastError?: string;
               flushDurationMs?: number;
               flushError?: string;
+              traceFetchSkippedReason?: string;
               manifestPath?: string;
               artifactDir?: string;
               refs?: Array<{ traceLink?: string; traceId?: string }>;
@@ -156,6 +157,11 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     }
     if (traces.flushError) {
       lines.push(`| OTEL flush error | \`${traces.flushError}\` |`);
+    }
+    if (traces.traceFetchSkippedReason) {
+      lines.push(
+        `| trace fetch skipped | \`${traces.traceFetchSkippedReason}\` |`,
+      );
     }
     if (traces.manifestPath) {
       lines.push(`| manifest | \`${traces.manifestPath}\` |`);

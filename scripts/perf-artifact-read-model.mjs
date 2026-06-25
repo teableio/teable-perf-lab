@@ -205,6 +205,8 @@ export const compactTraceManifest = (traceManifest) => {
     backgroundFlushCount: traceManifest.backgroundFlushCount,
     backgroundFlushErrorCount: traceManifest.backgroundFlushErrorCount,
     flushDurationMs: traceManifest.flushDurationMs,
+    flushError: traceManifest.flushError,
+    traceFetchSkippedReason: traceManifest.traceFetchSkippedReason,
     jaegerApiBaseUrl: traceManifest.jaegerApiBaseUrl,
     artifactDir: traceManifest.artifactDir,
     manifestPath: traceManifest.manifestPath,
@@ -252,6 +254,29 @@ export const resolvePrimaryTraceUrl = ({
   return (
     stringOrUndefined(ref.traceLink) || buildTraceUrl(ref.traceId, traceBaseUrl)
   );
+};
+
+export const traceServiceOutage = (payloads) => {
+  const byEngine = {};
+  let skippedFetchCount = 0;
+  for (const payload of payloads) {
+    const traces = payload.details?.observability?.traces;
+    if (!traces?.traceFetchSkippedReason) {
+      continue;
+    }
+
+    const skipped =
+      numberOrUndefined(traces.selectedTraceCount) ??
+      numberOrUndefined(traces.traceRefCount) ??
+      0;
+    skippedFetchCount += skipped;
+    const bucket = (byEngine[payload.engine] ??= {
+      skippedFetchCount: 0,
+      reason: traces.traceFetchSkippedReason,
+    });
+    bucket.skippedFetchCount += skipped;
+  }
+  return { skippedFetchCount, byEngine };
 };
 
 export const traceWaste = (payloads) => {
