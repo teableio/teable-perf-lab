@@ -2,10 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
-import {
-  hasSavedTraceStepShape,
-  normalizeTraceStepShape,
-} from "./trace-classification";
+import { normalizeTraceStepShape } from "./trace-classification";
 import type { PerfCase, PerfRunContext } from "./types";
 
 type HeaderBag = Record<string, unknown> & {
@@ -459,6 +456,65 @@ const isPriorityTraceRef = (ref: PerfTraceRef) =>
   /create.*field|formula|lookup/i.test(ref.stepId) ||
   /\/field\//i.test(ref.url ?? "");
 
+const normalizeTracePathSegment = (segment: string) => {
+  if (
+    /^(bse|tbl|rec|fld|viw|spc|usr|org|app)[a-zA-Z0-9_-]{6,}$/.test(segment)
+  ) {
+    return `:${segment.slice(0, 3)}`;
+  }
+  if (/^[a-zA-Z0-9_-]{16,}$/.test(segment) && /[A-Z_-]/.test(segment)) {
+    return ":id";
+  }
+  return segment;
+};
+
+const normalizeTraceUrlShape = (url?: string) => {
+  if (!url) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname
+      .split("/")
+      .map(normalizeTracePathSegment)
+      .join("/");
+    const queryKeys = Array.from(new Set(parsed.searchParams.keys())).sort();
+    return queryKeys.length > 0 ? `${path}?${queryKeys.join("&")}` : path;
+  } catch {
+    return url;
+  }
+};
+
+const traceRequestShape = (ref: PerfTraceRef) =>
+  [
+    normalizeTraceStepShape(ref.stepId),
+    ref.method?.toUpperCase() ?? "",
+    normalizeTraceUrlShape(ref.url),
+  ].join(" ");
+
+const traceFetchSelectionKey = (ref: PerfTraceRef) =>
+  ref.method?.toUpperCase() === "GET"
+    ? [
+        ref.stepId,
+        ref.method?.toUpperCase() ?? "",
+        normalizeTraceUrlShape(ref.url),
+      ].join(" ")
+    : ref.traceId;
+
+const hasSavedTraceRequestShape = (
+  ref: PerfTraceRef,
+  refs: PerfTraceRef[],
+  savedTraceIds: ReadonlySet<string>,
+) => {
+  const requestShape = traceRequestShape(ref);
+  return refs.some(
+    (candidate) =>
+      savedTraceIds.has(candidate.traceId) &&
+      traceRequestShape(candidate) === requestShape,
+  );
+};
+
 const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
   const maxSnapshots = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_MAX_SNAPSHOTS",
@@ -474,20 +530,36 @@ const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
     matchesTraceIncludePattern(includePatterns, ref),
   );
   const priorityRefs = candidateRefs.filter(isPriorityTraceRef);
-  const selected = [...priorityRefs];
-  const selectedTraceIds = new Set(selected.map((ref) => ref.traceId));
+  const selected: PerfTraceRef[] = [];
+  const selectedTraceIds = new Set<string>();
+  const selectedFetchKeys = new Set<string>();
+
+  const selectRef = (ref: PerfTraceRef) => {
+    if (selected.length >= maxSnapshots || selectedTraceIds.has(ref.traceId)) {
+      return;
+    }
+
+    const fetchKey = traceFetchSelectionKey(ref);
+    if (selectedFetchKeys.has(fetchKey)) {
+      return;
+    }
+
+    selected.push(ref);
+    selectedTraceIds.add(ref.traceId);
+    selectedFetchKeys.add(fetchKey);
+  };
 
   for (const ref of candidateRefs) {
-    if (selected.length >= maxSnapshots) {
-      break;
-    }
-    if (!selectedTraceIds.has(ref.traceId)) {
-      selected.push(ref);
-      selectedTraceIds.add(ref.traceId);
+    if (isPriorityTraceRef(ref)) {
+      selectRef(ref);
     }
   }
 
-  return selected.slice(0, maxSnapshots);
+  for (const ref of candidateRefs) {
+    selectRef(ref);
+  }
+
+  return selected;
 };
 
 const runWithConcurrency = async <T, R>(
@@ -674,6 +746,13 @@ export const writeTraceArtifacts = async ({
   const selectedRefs = enabled ? selectTraceRefsToSave(perfCase, engine) : [];
   const runRefs = uniqueTraceRefsForRun(perfCase, engine);
   const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
+  const selectedRepresentativeByRequestShape = new Map<string, PerfTraceRef>();
+  for (const ref of selectedRefs) {
+    const requestShape = traceRequestShape(ref);
+    if (!selectedRepresentativeByRequestShape.has(requestShape)) {
+      selectedRepresentativeByRequestShape.set(requestShape, ref);
+    }
+  }
   const savedTraceIds = new Set<string>();
   const failedTraceIds = new Set<string>();
   const fallbackTraceIds = new Set<string>();
@@ -833,10 +912,10 @@ export const writeTraceArtifacts = async ({
     ref: PerfTraceRef,
     result: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
   ) => {
-    const stepShape = normalizeTraceStepShape(ref.stepId);
+    const requestShape = traceRequestShape(ref);
     skippedTraceErrors.set(
       ref.traceId,
-      `Selected trace was not saved because Jaeger fetch failed (${result.error}); saved another trace from step shape ${stepShape}`,
+      `Selected trace was not saved because Jaeger fetch failed (${result.error}); saved another trace from request shape ${requestShape}`,
     );
   };
 
@@ -846,25 +925,23 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_FALLBACK_MAX_ATTEMPTS",
     3,
   );
-  const fallbackRefs =
-    fallbackPatterns.length > 0
-      ? runRefs.filter(
-          (ref) =>
-            ref.sampled &&
-            !selectedTraceIds.has(ref.traceId) &&
-            matchesTraceIncludePattern(fallbackPatterns, ref),
-        )
-      : [];
+  const fallbackRefs = runRefs.filter(
+    (ref) =>
+      ref.sampled &&
+      !selectedTraceIds.has(ref.traceId) &&
+      (fallbackPatterns.length === 0 ||
+        matchesTraceIncludePattern(fallbackPatterns, ref)),
+  );
 
   const fetchFallbackTrace = async (
     failedRef: PerfTraceRef,
     failedResult: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
   ) => {
-    // A fallback may only stand in for a ref of the *same* normalized shape:
+    // A fallback may only stand in for a ref of the same request shape:
     // substituting a different operation would mark a real Jaeger failure as
-    // skipped without any representative coverage for the failed step. The
+    // skipped without any representative coverage for the failed request. The
     // fallback pattern is a coarse opt-in filter; this is the safety invariant.
-    const failedShape = normalizeTraceStepShape(failedRef.stepId);
+    const failedRequestShape = traceRequestShape(failedRef);
     let attempts = 0;
     for (const fallbackRef of sortFallbackRefsForFailedRef(
       failedRef,
@@ -873,7 +950,7 @@ export const writeTraceArtifacts = async ({
       if (attempts >= maxFallbackAttempts) {
         break;
       }
-      if (normalizeTraceStepShape(fallbackRef.stepId) !== failedShape) {
+      if (traceRequestShape(fallbackRef) !== failedRequestShape) {
         continue;
       }
       if (
@@ -925,14 +1002,15 @@ export const writeTraceArtifacts = async ({
 
     // A non-"saved" result means the trace never showed up in Jaeger, so the
     // fetch polled until timing out. Record that wasted wall-clock even though
-    // the ref ends up "skipped" (covered by a same-shape trace) or "failed".
+    // the ref ends up "skipped" (covered by a same-request-shape trace) or
+    // "failed".
     summary.missingFetchCount += 1;
     summary.wastedFetchMs += result.durationMs;
     failedFetchResults.push({ ref, result });
   }
 
   for (const { ref, result } of failedFetchResults) {
-    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+    if (hasSavedTraceRequestShape(ref, runRefs, savedTraceIds)) {
       markCoveredFailedTraceSkipped(ref, result);
       continue;
     }
@@ -943,7 +1021,7 @@ export const writeTraceArtifacts = async ({
       continue;
     }
 
-    if (hasSavedTraceStepShape(ref, runRefs, savedTraceIds)) {
+    if (hasSavedTraceRequestShape(ref, runRefs, savedTraceIds)) {
       markCoveredFailedTraceSkipped(ref, result);
       continue;
     }
@@ -953,13 +1031,35 @@ export const writeTraceArtifacts = async ({
 
   const includePattern = getTraceIncludeStepPattern(perfCase, engine);
   const includePatterns = parseTraceStepPatterns(includePattern);
+  const savedRepresentativeByRequestShape = new Map<string, PerfTraceRef>();
+  for (const ref of runRefs) {
+    const requestShape = traceRequestShape(ref);
+    if (
+      savedTraceIds.has(ref.traceId) &&
+      !savedRepresentativeByRequestShape.has(requestShape)
+    ) {
+      savedRepresentativeByRequestShape.set(requestShape, ref);
+    }
+  }
+
   for (const ref of runRefs) {
     if (savedTraceIds.has(ref.traceId) || failedTraceIds.has(ref.traceId)) {
       continue;
     }
 
+    const requestShape = traceRequestShape(ref);
+    const savedRepresentative =
+      savedRepresentativeByRequestShape.get(requestShape);
+    const selectedRepresentative =
+      selectedRepresentativeByRequestShape.get(requestShape);
+    const representative = savedRepresentative ?? selectedRepresentative;
     const skippedByIncludePattern =
       ref.sampled && !matchesTraceIncludePattern(includePatterns, ref);
+    const skippedByRepresentative =
+      ref.sampled &&
+      !skippedByIncludePattern &&
+      representative != null &&
+      representative.traceId !== ref.traceId;
     addSkippedTrace(
       ref,
       skippedTraceErrors.get(ref.traceId) ??
@@ -967,7 +1067,11 @@ export const writeTraceArtifacts = async ({
           ? "Traceparent is not sampled, so Jaeger is not expected to store it"
           : skippedByIncludePattern
             ? `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`
-            : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`),
+            : skippedByRepresentative
+              ? `Sampled trace was not fetched because ${representative.traceId} from ${representative.stepId} was ${
+                  savedRepresentative ? "saved" : "selected"
+                } as the representative for request shape ${requestShape}`
+              : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`),
     );
   }
 
