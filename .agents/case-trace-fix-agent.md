@@ -13,8 +13,8 @@ proven wrong.
 The performance monitor should treat trace warnings with these shapes:
 
 - `Failed_Trace_Count > 0`: trace refs were captured, but Jaeger fetch failed
-  and no same-shape saved snapshot or bounded fallback covered that selected
-  trace.
+  and no same-request-shape saved snapshot or bounded fallback covered that
+  selected trace.
 - `Failed_Trace_Count = 0` and
   `Trace_Ref_Count > Saved_Trace_Count + skippedTraceCount` means trace refs were
   captured, but the manifest does not explain every unsaved raw trace snapshot.
@@ -24,9 +24,10 @@ The performance monitor should treat trace warnings with these shapes:
 - `traceFetchSkippedReason` set and `Failed_Trace_Count = 0`: the Trace service
   was unavailable before Jaeger fetch began, so the collector skipped polling
   instead of wasting time on trace ids that could not have been exported.
-- Repeated sampled refs with a successful same-shape raw snapshot may be marked
-  `skipped` when a sibling trace 404s in Jaeger. If no same-shape trace saves,
-  the fetch must stay failed so the monitor still alerts.
+- Repeated sampled `GET` refs with a successful same-request-shape raw snapshot
+  may be marked `skipped` when a sibling trace 404s in Jaeger. Write requests
+  are still selected individually. If no representative trace saves for that
+  request shape, the fetch must stay failed so the monitor still alerts.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
@@ -71,10 +72,11 @@ The performance monitor should treat trace warnings with these shapes:
    - High-repeat case only needs representative raw snapshots -> use
      `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
      `skippedTraceCount` explains the unsaved refs.
-   - One selected representative sampled ref is unstable in Jaeger -> use
-     `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` so another same-shape ref can save
-     the representative raw snapshot while the failed selection is skipped with
-     an explicit replacement reason.
+   - One selected representative sampled `GET` ref is unstable in Jaeger -> use
+     `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` when the default same-request-shape
+     fallback pool needs narrowing, so another equivalent read ref can save the
+     representative raw snapshot while the failed selection is skipped with an
+     explicit replacement reason.
    - Unsampled refs -> verify sampling expectation, not case failure.
    - Missing `withPerfTraceStep` around important case op -> wrap operation.
    - Runner generates noisy API refs -> narrow step scope or priority rules.
@@ -88,8 +90,9 @@ The performance monitor should treat trace warnings with these shapes:
 - Do not reduce trace refs only to make counts pass; keep refs useful for
   debugging the performance operation. If raw snapshots are intentionally
   narrowed to representative refs, record the rest as skipped.
-- If using fallback representative refs, keep the fallback scope same-shape and
-  bounded so real Jaeger outages still show as failed trace fetches.
+- If using fallback representative refs, keep the fallback scope
+  same-request-shape and bounded so real Jaeger outages still show as failed
+  trace fetches.
 - Producer contract for `stepId`: a trailing number or `sample-N` means "an
   interchangeable repeat of the same operation" (iteration/batch/sample). Steps
   that do structurally different work MUST be told apart by a name, not a bare

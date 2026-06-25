@@ -59,6 +59,10 @@ activation, or `seedReady`; those are reported as diagnostic metrics such as
 `seedOnHostMs`, `createLookupFieldsMs`, `activateSearchIndexOnHostMs`, and
 `seedReadyMs`.
 
+Trace capture saves representative raw Jaeger snapshots for samples 1, 15, and
+30 of each keyword; all 30 samples still participate in the p95 metric and are
+kept in the result JSON.
+
 ## Notes
 
 Keywords:

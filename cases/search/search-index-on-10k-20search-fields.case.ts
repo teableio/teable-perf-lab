@@ -9,6 +9,10 @@ export default definePerfCase({
   // minutes of total server silence means the V2 search path hung — fail fast
   // with a diagnostic instead of waiting out the 600s case timeout.
   watchdogMs: 120_000,
+  runtimeEnv: {
+    PERF_LAB_TRACE_INCLUDE_STEP_PATTERN: "^on:.+:sample-(1|15|30)$",
+    PERF_LAB_TRACE_FALLBACK_STEP_PATTERN: "^on:.+:sample-\\d+$",
+  },
   config: {
     baseId: "seed-base",
     sourceTableNamePrefix: "perf-lookup-search-index-source-10k",
