@@ -162,11 +162,12 @@ only if you are not already holding the payload.
 Count relationships (a healthy run): `savedTraceCount + failedTraceCount +
 skippedTraceCount` accounts for every fetched/skipped ref. `skipped` covers
 unsampled refs, sampled refs above `maxSnapshotCount`, sampled refs outside a
-case include pattern, repeated sampled refs whose Jaeger fetch failed after a
-same-shape trace already saved a raw snapshot, and whole-case fetch skips when
-the Trace service was unavailable before Jaeger fetch began. Each skipped entry
-carries an `error` string explaining why it was not fetched. `refs[]` lists every
-captured request; `savedTraces[]` lists the fetch outcome per selected trace.
+case include pattern, repeated sampled `GET` refs covered by a saved
+representative for the same request shape (`stepId` shape + method + URL path
+shape), and whole-case fetch skips when the Trace service was unavailable before
+Jaeger fetch began. Each skipped entry carries an `error` string explaining why
+it was not fetched. `refs[]` lists every captured request; `savedTraces[]` lists
+the fetch outcome per selected trace plus skipped refs.
 `traceFetchSkippedReason` is set only when the collector skipped Jaeger fetch for
 the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.

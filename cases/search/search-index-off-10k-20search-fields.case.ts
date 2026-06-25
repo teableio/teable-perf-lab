@@ -5,6 +5,10 @@ export default definePerfCase({
   title: "10k lookup global search without table search index",
   runner: "lookup-search-index",
   timeoutMs: 600_000,
+  runtimeEnv: {
+    PERF_LAB_TRACE_INCLUDE_STEP_PATTERN: "^off:.+:sample-(1|15|30)$",
+    PERF_LAB_TRACE_FALLBACK_STEP_PATTERN: "^off:.+:sample-\\d+$",
+  },
   config: {
     baseId: "seed-base",
     sourceTableNamePrefix: "perf-lookup-search-index-source-10k",

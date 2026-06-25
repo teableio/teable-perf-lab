@@ -31,8 +31,11 @@ try {
   await writeFile(
     classificationFile,
     [
-      "export const normalizeTraceStepShape = (stepId) => stepId;",
-      "export const hasSavedTraceStepShape = () => false;",
+      "export const normalizeTraceStepShape = (stepId) => stepId.replace(/\\bsample-\\d+\\b/g, 'sample-#').replace(/:\\d+$/g, ':#').replace(/-\\d+$/g, '-#');",
+      "export const hasSavedTraceStepShape = (ref, refs, savedTraceIds) => {",
+      "  const shape = normalizeTraceStepShape(ref.stepId);",
+      "  return refs.some((candidate) => savedTraceIds.has(candidate.traceId) && normalizeTraceStepShape(candidate.stepId) === shape);",
+      "};",
     ].join("\n"),
   );
   await writeFile(
@@ -61,6 +64,12 @@ try {
     PERF_LAB_TRACE_ENABLED: process.env.PERF_LAB_TRACE_ENABLED,
     PERF_LAB_TRACE_MAX_SNAPSHOTS: process.env.PERF_LAB_TRACE_MAX_SNAPSHOTS,
     PERF_LAB_TRACE_FETCH_SETTLE_MS: process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS,
+    PERF_LAB_TRACE_FETCH_TIMEOUT_MS:
+      process.env.PERF_LAB_TRACE_FETCH_TIMEOUT_MS,
+    PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS:
+      process.env.PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS,
+    PERF_LAB_TRACE_FETCH_CONCURRENCY:
+      process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY,
     PERF_LAB_JAEGER_API_BASE_URL: process.env.PERF_LAB_JAEGER_API_BASE_URL,
   };
   const previousFetch = globalThis.fetch;
@@ -116,6 +125,110 @@ try {
       /Trace service unavailable; skipped Jaeger fetch/,
     );
     assert.deepEqual(manifest, JSON.parse(JSON.stringify(summary)));
+
+    setPerfTraceFlush(undefined);
+    resetPerfTraceRefs();
+    process.env.PERF_LAB_TRACE_FETCH_TIMEOUT_MS = "1";
+    process.env.PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS = "1";
+    process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY = "1";
+
+    const fetchedTraceIds = [];
+    globalThis.fetch = async (url) => {
+      const traceId = String(url).split("/").at(-1);
+      fetchedTraceIds.push(traceId);
+      if (
+        traceId === "22222222222222222222222222222222" ||
+        traceId === "44444444444444444444444444444444" ||
+        traceId === "55555555555555555555555555555555" ||
+        traceId === "66666666666666666666666666666666"
+      ) {
+        return new Response(JSON.stringify({ data: [{ traceID: traceId }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 404 });
+    };
+
+    for (const traceId of [
+      "11111111111111111111111111111111",
+      "22222222222222222222222222222222",
+      "33333333333333333333333333333333",
+    ]) {
+      recordPerfTraceRefFromHeaders({
+        context,
+        perfCase,
+        stepId: "verifyRepeatedStep",
+        headers: {
+          traceparent: `00-${traceId}-2222222222222222-01`,
+          link: `<http://jaeger.example/trace/${traceId}>; rel=trace`,
+        },
+        method: "GET",
+        url: "http://127.0.0.1/api/table/tblTraceShape001/record",
+        status: 200,
+      });
+    }
+    recordPerfTraceRefFromHeaders({
+      context,
+      perfCase,
+      stepId: "verifyRepeatedStep",
+      headers: {
+        traceparent: "00-44444444444444444444444444444444-2222222222222222-01",
+        link: "<http://jaeger.example/trace/44444444444444444444444444444444>; rel=trace",
+      },
+      method: "GET",
+      url: "http://127.0.0.1/api/table/tblTraceShape001/field",
+      status: 200,
+    });
+    for (const traceId of [
+      "55555555555555555555555555555555",
+      "66666666666666666666666666666666",
+    ]) {
+      recordPerfTraceRefFromHeaders({
+        context,
+        perfCase,
+        stepId: "createRepeatedField",
+        headers: {
+          traceparent: `00-${traceId}-2222222222222222-01`,
+          link: `<http://jaeger.example/trace/${traceId}>; rel=trace`,
+        },
+        method: "POST",
+        url: "http://127.0.0.1/api/table/tblTraceShape001/field",
+        status: 201,
+      });
+    }
+
+    const representativeSummary = await writeTraceArtifacts({
+      artifactDir,
+      perfCase,
+      engine: "v2",
+    });
+
+    assert.equal(representativeSummary.traceRefCount, 6);
+    assert.equal(representativeSummary.selectedTraceCount, 4);
+    assert.equal(representativeSummary.savedTraceCount, 4);
+    assert.equal(representativeSummary.failedTraceCount, 0);
+    assert.equal(representativeSummary.skippedTraceCount, 2);
+    assert.equal(representativeSummary.missingFetchCount, 1);
+    assert.deepEqual(new Set(fetchedTraceIds), new Set([
+      "11111111111111111111111111111111",
+      "22222222222222222222222222222222",
+      "44444444444444444444444444444444",
+      "55555555555555555555555555555555",
+      "66666666666666666666666666666666",
+    ]));
+    assert.equal(
+      representativeSummary.savedTraces.find(
+        (trace) => trace.traceId === "33333333333333333333333333333333",
+      )?.status,
+      "skipped",
+    );
+    assert.match(
+      representativeSummary.savedTraces.find(
+        (trace) => trace.traceId === "33333333333333333333333333333333",
+      )?.error,
+      /representative for request shape verifyRepeatedStep GET \/api\/table\/:tbl\/record/,
+    );
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries(previousEnv)) {
