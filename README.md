@@ -204,6 +204,9 @@ workload.
   comparison.
 - `field-delete/mixed-10k-delete-19-fields`: Measure the bulk field delete path
   for removing 19 mixed-type fields from a 10,000-row table in one request.
+- `field-restore/10k-description-field`: Measure restoring one deleted populated
+  text field on a 10,000-row mixed table, including the field schema restore and
+  every row's cell value restoration.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
   lookup field from the `lookup/conditional-10k` workload.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field

@@ -17,6 +17,7 @@ export interface PerfCaseConfigByRunner {
   "field-convert-link": FieldConvertLinkCaseConfig;
   "field-update": FieldUpdateCaseConfig;
   "field-delete": FieldDeleteCaseConfig;
+  "field-restore": FieldRestoreCaseConfig;
   "field-duplicate": FieldDuplicateCaseConfig;
   "duplicate-table": DuplicateTableCaseConfig;
   "duplicate-base": DuplicateBaseCaseConfig;
@@ -971,6 +972,16 @@ export interface FieldDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   };
   threshold: {
     metric: "delete19FieldsMs";
+    maxMs: number;
+  };
+}
+
+export interface FieldRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  restore: {
+    fieldName: string;
+  };
+  threshold: {
+    metric: "restoreFieldMs";
     maxMs: number;
   };
 }
