@@ -14,6 +14,8 @@ import { runFieldCreateCase } from "./runners/field-create.runner";
 import { seedFieldCreateCase } from "./runners/field-create.runner";
 import { runFieldDeleteCase } from "./runners/field-delete.runner";
 import { seedFieldDeleteCase } from "./runners/field-delete.runner";
+import { runFieldRestoreCase } from "./runners/field-restore.runner";
+import { seedFieldRestoreCase } from "./runners/field-restore.runner";
 import { runFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { seedFieldDuplicateCase } from "./runners/field-duplicate.runner";
 import { runFieldUpdateCase } from "./runners/field-update.runner";
@@ -164,6 +166,10 @@ export const runnerRegistry: Record<PerfRunnerKind, RunnerRegistryEntry> = {
   "field-delete": {
     execute: (perfCase, context) => runFieldDeleteCase(perfCase, context),
     seed: (perfCase, context) => seedFieldDeleteCase(perfCase, context),
+  },
+  "field-restore": {
+    execute: (perfCase, context) => runFieldRestoreCase(perfCase, context),
+    seed: (perfCase, context) => seedFieldRestoreCase(perfCase, context),
   },
   "field-duplicate": {
     execute: (perfCase, context) => runFieldDuplicateCase(perfCase, context),

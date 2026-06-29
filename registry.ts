@@ -15,6 +15,7 @@ import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-
 import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
 import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
+import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
@@ -76,6 +77,7 @@ const cases = [
   fieldConvert10kTextToLinkCase,
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
+  fieldRestore10kDescriptionFieldCase,
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
@@ -163,6 +165,9 @@ const caseAliases = new Map([
   ],
   ["field-delete", "field-delete/mixed-10k-delete-19-fields"],
   ["field-delete/19-fields", "field-delete/mixed-10k-delete-19-fields"],
+  ["field-restore", "field-restore/10k-description-field"],
+  ["field-restore/10k", "field-restore/10k-description-field"],
+  ["restore-field/10k", "field-restore/10k-description-field"],
   ["field-duplicate", "field-duplicate/conditional-lookup-10k"],
   ["field-duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
   ["duplicate/lookup", "field-duplicate/conditional-lookup-10k"],
