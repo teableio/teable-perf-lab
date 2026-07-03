@@ -122,7 +122,10 @@ const groupLabel = (caseId) => caseId.split("/")[0] || caseId;
 
 export const buildCaseRows = (
   payloads,
-  { regressionRatioThreshold = DEFAULT_REGRESSION_RATIO_THRESHOLD } = {},
+  {
+    comparisonBaselines = {},
+    regressionRatioThreshold = DEFAULT_REGRESSION_RATIO_THRESHOLD,
+  } = {},
 ) => {
   const grouped = new Map();
   for (const payload of payloads) {
@@ -139,9 +142,27 @@ export const buildCaseRows = (
         v1 && v1.result !== "skipped" ? primaryMetricValue(v1) : undefined;
       const v2Value =
         v2 && v2.result !== "skipped" ? primaryMetricValue(v2) : undefined;
+      const historicalBaseline =
+        comparisonBaselines instanceof Map
+          ? comparisonBaselines.get(caseId)
+          : comparisonBaselines[caseId];
+      const historicalBaselineValue = Number(historicalBaseline?.value);
+      const hasV1Baseline = Number.isFinite(v1Value) && v1Value > 0;
+      const hasHistoricalBaseline =
+        Number.isFinite(historicalBaselineValue) && historicalBaselineValue > 0;
+      const baselineValue = hasV1Baseline
+        ? v1Value
+        : hasHistoricalBaseline
+          ? historicalBaselineValue
+          : undefined;
+      const baselineLabel = hasV1Baseline
+        ? "V1"
+        : hasHistoricalBaseline
+          ? (historicalBaseline.label ?? "Baseline")
+          : undefined;
       const hasBaseline =
-        Number.isFinite(v1Value) && Number.isFinite(v2Value) && v1Value > 0;
-      const ratio = hasBaseline ? v1Value / v2Value : undefined;
+        Number.isFinite(baselineValue) && Number.isFinite(v2Value);
+      const ratio = hasBaseline ? baselineValue / v2Value : undefined;
       const thresholdFailed = [v1, v2]
         .filter(Boolean)
         .some((payload) =>
@@ -149,7 +170,7 @@ export const buildCaseRows = (
             ? payload.thresholds.some((threshold) => threshold.passed === false)
             : payload.result === "fail",
         );
-      const regressionRatio = hasBaseline ? v2Value / v1Value : undefined;
+      const regressionRatio = hasBaseline ? v2Value / baselineValue : undefined;
       const hasRegression =
         Number.isFinite(regressionRatio) &&
         regressionRatio >= regressionRatioThreshold;
@@ -165,7 +186,7 @@ export const buildCaseRows = (
           : ratio >= 1
             ? "faster"
             : "slower";
-      let comparison = "无 V1 基线";
+      let comparison = v1?.result === "skipped" ? "无 baseline" : "无 V1 基线";
       if (hasBaseline) {
         comparison =
           ratio > 1
@@ -182,9 +203,13 @@ export const buildCaseRows = (
         direction,
         ratio: hasBaseline ? ratio : undefined,
         regressionRatio,
-        slowness: hasBaseline ? v2Value / v1Value : Number.NEGATIVE_INFINITY,
+        slowness: hasBaseline
+          ? v2Value / baselineValue
+          : Number.NEGATIVE_INFINITY,
         thresholdFailed,
         group: groupLabel(caseId),
+        baseline: formatMetricSeconds(baselineValue),
+        baselineLabel,
         v1: v1?.result === "skipped" ? "skip" : formatMetricSeconds(v1Value),
         v2: v2?.result === "skipped" ? "skip" : formatMetricSeconds(v2Value),
       };
@@ -258,6 +283,7 @@ export const buildPerfSummaryCard = ({
   payloads,
   timings,
   context,
+  comparisonBaselines,
   regressionRatioThreshold,
 }) => {
   const counts = resultCounts(payloads);
@@ -273,7 +299,10 @@ export const buildPerfSummaryCard = ({
     .sort((a, b) => b[1].skippedFetchCount - a[1].skippedFetchCount)
     .map(([engine, value]) => `${engine} ${value.skippedFetchCount}`)
     .join(" · ");
-  const rows = buildCaseRows(payloads, { regressionRatioThreshold });
+  const rows = buildCaseRows(payloads, {
+    comparisonBaselines,
+    regressionRatioThreshold,
+  });
   const regressionRows = rows.filter((row) => row.status === "attention");
   const regressionCount = regressionRows.length;
   const executeResult = context.executeResult ?? "";
@@ -289,8 +318,13 @@ export const buildPerfSummaryCard = ({
         : "green";
   const dot = (status) =>
     status === "attention" ? "🔴" : status === "neutral" ? "⚪" : "🟢";
-  const formatCaseLine = (row) =>
-    `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)})**  V1 ${row.v1} → V2 ${row.v2}  **${row.comparison}**`;
+  const formatCaseLine = (row) => {
+    const source =
+      row.baselineLabel === "V1"
+        ? `V1 ${row.v1}`
+        : `${row.baselineLabel ?? "V1"} ${row.baseline}`;
+    return `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)})**  ${source} → V2 ${row.v2}  **${row.comparison}**`;
+  };
   const regressionText =
     regressionRows.length > 0
       ? regressionRows.map(formatCaseLine).join("\n")
