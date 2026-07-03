@@ -130,6 +130,84 @@ assert.deepEqual(
   ],
 );
 
+const [v2OnlyRow] = buildCaseRows(
+  [
+    {
+      caseId: "import-base/v2-only",
+      engine: "v1",
+      result: "skipped",
+      durationMs: 1,
+      thresholds: [],
+    },
+    {
+      caseId: "import-base/v2-only",
+      engine: "v2",
+      result: "pass",
+      durationMs: 1500,
+      thresholds: [{ metric: "importBaseStreamMs", actual: 1500, passed: true }],
+    },
+  ],
+  {
+    comparisonBaselines: {
+      "import-base/v2-only": { value: 1000, label: "Baseline" },
+    },
+  },
+);
+assert.deepEqual(
+  {
+    caseId: v2OnlyRow.caseId,
+    status: v2OnlyRow.status,
+    baselineLabel: v2OnlyRow.baselineLabel,
+    baseline: v2OnlyRow.baseline,
+    v1: v2OnlyRow.v1,
+    v2: v2OnlyRow.v2,
+    comparison: v2OnlyRow.comparison,
+  },
+  {
+    caseId: "import-base/v2-only",
+    status: "attention",
+    baselineLabel: "Baseline",
+    baseline: "1.00s",
+    v1: "skip",
+    v2: "1.50s",
+    comparison: "慢 1.5x",
+  },
+);
+
+const v2OnlyCard = buildPerfSummaryCard({
+  payloads: [
+    {
+      caseId: "import-base/v2-only",
+      engine: "v1",
+      result: "skipped",
+      durationMs: 1,
+      thresholds: [],
+    },
+    {
+      caseId: "import-base/v2-only",
+      engine: "v2",
+      result: "pass",
+      durationMs: 1500,
+      thresholds: [{ metric: "importBaseStreamMs", actual: 1500, passed: true }],
+    },
+  ],
+  timings: {},
+  comparisonBaselines: {
+    "import-base/v2-only": { value: 1000, label: "Baseline" },
+  },
+  context: {
+    chartUrl: "https://charts.example",
+    executeResult: "success",
+  },
+});
+const v2OnlyRegressionText = v2OnlyCard.card.elements.find(
+  (element) => element.tag === "collapsible_panel",
+).elements[0].text.content;
+assert.match(
+  v2OnlyRegressionText,
+  /Baseline 1\.00s → V2 1\.50s\s+\*\*慢 1\.5x\*\*/,
+);
+
 const card = buildPerfSummaryCard({
   payloads,
   timings: resolveRunTimingFromJobs(jobs),
