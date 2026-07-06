@@ -226,7 +226,7 @@ assert.equal(card.msg_type, "interactive");
 assert.equal(card.card.header.template, "red");
 assert.equal(
   card.card.header.title.content,
-  "Teable EE 性能回归 · 用例失败 · 2 项退化",
+  "Teable EE 性能回归 · 用例失败 · 退化 2",
 );
 assert.match(card.card.elements[0].text.content, /4 通过 \/ 1 跳过 \/ 1 失败/);
 assert.match(card.card.elements[1].text.content, /Trace 抓取浪费 40s/);
@@ -242,6 +242,11 @@ assert.equal(
   card.card.elements.at(-1).actions[2].url,
   "https://charts.example",
 );
+const panels = card.card.elements.filter(
+  (element) => element.tag === "collapsible_panel",
+);
+assert.equal(panels[0].header.title.content, "**退化 2**");
+assert.equal(panels[1].header.title.content, "**未达退化阈值 2**");
 
 const outageCard = buildPerfSummaryCard({
   payloads: [

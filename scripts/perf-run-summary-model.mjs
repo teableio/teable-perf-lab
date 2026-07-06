@@ -328,7 +328,7 @@ export const buildPerfSummaryCard = ({
   const regressionText =
     regressionRows.length > 0
       ? regressionRows.map(formatCaseLine).join("\n")
-      : "未发现达到阈值的性能退化。";
+      : "无";
   const regressionCaseIds = new Set(regressionRows.map((row) => row.caseId));
   const remainingRows = rows.filter(
     (row) => !regressionCaseIds.has(row.caseId),
@@ -336,7 +336,7 @@ export const buildPerfSummaryCard = ({
   const remainingText =
     remainingRows.length > 0
       ? remainingRows.map(formatCaseLine).join("\n")
-      : "无其余对比项。";
+      : "无";
   const statusText = workflowFailed
     ? "执行失败"
     : counts.fail > 0
@@ -355,7 +355,7 @@ export const buildPerfSummaryCard = ({
         template: headerTemplate,
         title: {
           tag: "plain_text",
-          content: `Teable EE 性能回归 · ${statusText} · ${regressionCount} 项退化`,
+          content: `Teable EE 性能回归 · ${statusText} · 退化 ${regressionCount}`,
         },
       },
       elements: [
@@ -427,7 +427,7 @@ export const buildPerfSummaryCard = ({
               elements: [
                 {
                   tag: "markdown",
-                  content: `**退化项** ${regressionCount}`,
+                  content: `**退化** ${regressionCount}`,
                 },
               ],
             },
@@ -445,7 +445,7 @@ export const buildPerfSummaryCard = ({
           ],
         },
         collapsiblePanel({
-          title: `性能退化项 ${regressionCount}`,
+          title: `退化 ${regressionCount}`,
           expanded: true,
           elements: [
             {
@@ -458,7 +458,7 @@ export const buildPerfSummaryCard = ({
           ],
         }),
         collapsiblePanel({
-          title: `其余对比项 ${remainingRows.length}`,
+          title: `未达退化阈值 ${remainingRows.length}`,
           expanded: false,
           elements: [
             {
