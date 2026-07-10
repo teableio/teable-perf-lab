@@ -11,6 +11,7 @@ export interface PerfCaseConfigByRunner {
   "formula-table": FormulaTableCaseConfig;
   "conditional-lookup": ConditionalLookupCaseConfig;
   "conditional-rollup": ConditionalRollupCaseConfig;
+  "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
   "field-create": FieldCreateCaseConfig;
@@ -213,6 +214,63 @@ export interface ConditionalRollupCaseConfig
   };
   threshold: {
     metric: "conditionalRollupReadyMs";
+    maxMs: number;
+  };
+}
+
+export type ConditionalQueryValueField = "text" | "amount" | "active";
+export type ConditionalQueryFilterProfile = "group" | "group-and-active";
+interface ConditionalQueryFieldBase {
+  name: string;
+  filter: ConditionalQueryFilterProfile;
+  sort?: { field: "amount"; order: "asc" | "desc" };
+  limit?: number;
+}
+type ConditionalQueryFieldConfig =
+  | (ConditionalQueryFieldBase & {
+      kind: "lookup";
+      valueField: ConditionalQueryValueField;
+    })
+  | (ConditionalQueryFieldBase & {
+      kind: "rollup";
+      valueField: ConditionalQueryValueField;
+      expression: "countall({values})";
+    })
+  | (ConditionalQueryFieldBase & {
+      kind: "rollup";
+      valueField: "amount";
+      expression: "sum({values})" | "average({values})" | "max({values})";
+    })
+  | (ConditionalQueryFieldBase & {
+      kind: "rollup";
+      valueField: "text";
+      expression: "array_join({values})";
+    });
+
+export interface ConditionalQueryCaseConfig {
+  baseId: "seed-base";
+  sourceTableNamePrefix: string;
+  hostTableNamePrefix: string;
+  sourceRecordCount: number;
+  hostRecordCount: number;
+  groupCount: number;
+  batchSize: number;
+  generator: {
+    type: "grouped-fanout";
+    groupPrefix: string;
+    sourceTextPrefix: string;
+    hostKeyPrefix: string;
+    permutation: { multiplier: number; offset: number };
+  };
+  field: ConditionalQueryFieldConfig;
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  threshold: {
+    metric: "conditionalQueryReadyMs";
     maxMs: number;
   };
 }

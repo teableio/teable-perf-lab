@@ -2,6 +2,10 @@ import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runConditionalRollupCase } from "./runners/conditional-rollup.runner";
 import { seedConditionalRollupCase } from "./runners/conditional-rollup.runner";
+import {
+  runConditionalQueryCase,
+  seedConditionalQueryCase,
+} from "./runners/conditional-query.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
 import { seedCsvImportCase } from "./runners/csv-import.runner";
 import { runDuplicateBaseCase } from "./runners/duplicate-base.runner";
@@ -142,6 +146,10 @@ export const runnerRegistry: Record<PerfRunnerKind, RunnerRegistryEntry> = {
   "conditional-rollup": {
     execute: (perfCase, context) => runConditionalRollupCase(perfCase, context),
     seed: (perfCase, context) => seedConditionalRollupCase(perfCase, context),
+  },
+  "conditional-query": {
+    execute: (perfCase, context) => runConditionalQueryCase(perfCase, context),
+    seed: (perfCase, context) => seedConditionalQueryCase(perfCase, context),
   },
   "link-computed-propagation": {
     execute: (perfCase, context) =>

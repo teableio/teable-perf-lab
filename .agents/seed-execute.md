@@ -108,7 +108,7 @@ perf-lab source hashes are unchanged. Prisma schema/migration changes change the
 key and force a new dump.
 
 All runners with a seed fixture are cache-aware today (formula-table,
-conditional-lookup, conditional-rollup, lookup-search-index, field-create, field-delete,
+conditional-lookup, conditional-rollup, conditional-query, lookup-search-index, field-create, field-delete,
 field-convert, field-duplicate, csv-import inplace, record-create,
 record-update, record-reorder, record-delete, record-undo, record-redo,
 selection-clear):
@@ -195,7 +195,7 @@ measured operation do to the seed fixture?_ — and use the matching class:
 | Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                             |
 | ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                            |
-| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                             |
+| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                          |
 | C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | record-create (delete created rows), record-update (rewrite seed values), record-reorder (move rows back), selection-clear (refill cells), record-delete/undo/redo (real undo path) |
 | D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                     |
 

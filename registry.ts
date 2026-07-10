@@ -3,6 +3,14 @@ import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
+import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
+import conditionalLookupGroupNumberTop3_10kCase from "./cases/lookup/conditional-group-number-top3-10k.case";
+import conditionalLookupGroupTextFanout10_10kCase from "./cases/lookup/conditional-group-text-fanout10-10k.case";
+import conditionalRollupGroupActiveMax10kCase from "./cases/rollup/conditional-group-active-max-10k.case";
+import conditionalRollupGroupAverageFanout10_10kCase from "./cases/rollup/conditional-group-average-fanout10-10k.case";
+import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/conditional-group-countall-fanout10-10k.case";
+import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditional-group-sum-fanout10-10k.case";
+import conditionalRollupGroupTextTop3_10kCase from "./cases/rollup/conditional-group-text-top3-10k.case";
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
@@ -65,6 +73,14 @@ const cases = [
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
   conditionalRollup10kCase,
+  conditionalLookupGroupTextFanout10_10kCase,
+  conditionalLookupGroupNumberTop3_10kCase,
+  conditionalLookupGroupActiveText10kCase,
+  conditionalRollupGroupCountallFanout10_10kCase,
+  conditionalRollupGroupSumFanout10_10kCase,
+  conditionalRollupGroupAverageFanout10_10kCase,
+  conditionalRollupGroupActiveMax10kCase,
+  conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
   dualLinkComputedRepoint2kCase,
   searchIndexOff10k20SearchFieldsCase,
