@@ -137,6 +137,31 @@ workload.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
+- `rollup/conditional-10k`: Measure conditional rollup creation on two 10k-row
+  tables where every host row aggregates a different source row through a
+  unique-key condition, paired with `lookup/conditional-10k` for V1/V2
+  comparison.
+- `lookup/conditional-group-text-fanout10-10k`: Measure adding a conditional
+  text lookup to a 10k-row host where every row resolves 10 records from a
+  10k-row source.
+- `lookup/conditional-group-number-top3-10k`: Measure adding a conditional
+  number lookup that selects the top three of 10 matching source rows for every
+  row of a 10k host.
+- `lookup/conditional-group-active-text-10k`: Measure adding a conditional text
+  lookup with a dynamic group condition plus a static active-state condition on a
+  10k host.
+- `rollup/conditional-group-countall-fanout10-10k`: Measure adding a conditional
+  count-all rollup over 10 matching source rows for every row of a 10k host.
+- `rollup/conditional-group-sum-fanout10-10k`: Measure adding a conditional
+  numeric sum over 10 matching source rows for every row of a 10k host.
+- `rollup/conditional-group-average-fanout10-10k`: Measure adding a conditional
+  numeric average over 10 matching source rows for every row of a 10k host.
+- `rollup/conditional-group-active-max-10k`: Measure adding a conditional
+  maximum with dynamic group matching and a static active-state condition on a
+  10k host.
+- `rollup/conditional-group-text-top3-10k`: Measure adding a conditional text
+  array-join over the top three of 10 matching source rows for every row of a 10k
+  host.
 - `lookup/dual-link-computed-first-link-4k`: Measure how long after a data write
   the V2 dependency graph becomes readable, on a deep, customer-mirrored schema.
   After the order links are written, every dependent lookup, multi-level formula,

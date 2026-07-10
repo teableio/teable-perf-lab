@@ -30,25 +30,27 @@ reuse existing runner -> extend a runner -> new runner
 
 ## Catalog
 
-| Runner                | Measures                                                                                | Use when                              |
-| --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------- |
-| `http-endpoint`       | repeated requests to one authenticated endpoint, p95                                    | simple GET latency, smoke timing      |
-| `formula-table`       | create table + numeric rows, add formula field(s), wait until computed                  | formula / computed-field readiness    |
-| `conditional-lookup`  | source + host tables, add conditional lookup, verify values                             | lookup / cross-table computed fields  |
-| `lookup-search-index` | source + host lookup tables, search index on/off, repeated global search-index requests | lookup global search with table index |
-| `field-create`        | empty table, create one field, verify field metadata                                    | field metadata creation               |
-| `field-duplicate`     | source + host conditional lookup tables, create lookup setup, duplicate lookup field    | field metadata/data duplication       |
-| `duplicate-base`      | seeded multi-table base, duplicate/export base, verify copied records/link/workflows    | duplicate/export whole-base behavior  |
-| `import-base`         | seeded source base, export/upload as setup, import `.tea` through SSE, verify tables    | whole-base import behavior            |
-| `csv-import`          | empty table, upload CSV, import into existing table, verify records                     | CSV import into an existing table     |
-| `record-paste`        | empty table, paste deterministic clipboard content via paste API                        | paste / bulk insert through selection |
-| `record-create`       | empty mixed table, create typed records through OpenAPI                                 | direct bulk record create             |
-| `record-update`       | seeded mixed table, update typed records through OpenAPI                                | direct bulk record update             |
-| `record-reorder`      | seeded mixed table, move a visible record block through OpenAPI                         | manual row order mutation             |
-| `selection-clear`     | seeded table, call selection clear stream, verify cells empty                           | clearing a large cell range           |
-| `record-delete`       | mixed 1k table, delete all rows via selection delete                                    | row delete throughput                 |
-| `record-undo`         | delete as setup, then measure undo-stream                                               | undo replay                           |
-| `record-redo`         | delete + undo as setup, then measure redo-stream                                        | redo replay                           |
+| Runner                | Measures                                                                                | Use when                               |
+| --------------------- | --------------------------------------------------------------------------------------- | -------------------------------------- |
+| `http-endpoint`       | repeated requests to one authenticated endpoint, p95                                    | simple GET latency, smoke timing       |
+| `formula-table`       | create table + numeric rows, add formula field(s), wait until computed                  | formula / computed-field readiness     |
+| `conditional-lookup`  | source + host tables, add conditional lookup, verify values                             | lookup / cross-table computed fields   |
+| `conditional-rollup`  | source + host tables, add conditional rollup, verify aggregated values                  | conditional cross-table aggregation    |
+| `conditional-query`   | grouped source + host tables, add lookup/rollup with fanout/filter/sort/limit           | conditional query configuration matrix |
+| `lookup-search-index` | source + host lookup tables, search index on/off, repeated global search-index requests | lookup global search with table index  |
+| `field-create`        | empty table, create one field, verify field metadata                                    | field metadata creation                |
+| `field-duplicate`     | source + host conditional lookup tables, create lookup setup, duplicate lookup field    | field metadata/data duplication        |
+| `duplicate-base`      | seeded multi-table base, duplicate/export base, verify copied records/link/workflows    | duplicate/export whole-base behavior   |
+| `import-base`         | seeded source base, export/upload as setup, import `.tea` through SSE, verify tables    | whole-base import behavior             |
+| `csv-import`          | empty table, upload CSV, import into existing table, verify records                     | CSV import into an existing table      |
+| `record-paste`        | empty table, paste deterministic clipboard content via paste API                        | paste / bulk insert through selection  |
+| `record-create`       | empty mixed table, create typed records through OpenAPI                                 | direct bulk record create              |
+| `record-update`       | seeded mixed table, update typed records through OpenAPI                                | direct bulk record update              |
+| `record-reorder`      | seeded mixed table, move a visible record block through OpenAPI                         | manual row order mutation              |
+| `selection-clear`     | seeded table, call selection clear stream, verify cells empty                           | clearing a large cell range            |
+| `record-delete`       | mixed 1k table, delete all rows via selection delete                                    | row delete throughput                  |
+| `record-undo`         | delete as setup, then measure undo-stream                                               | undo replay                            |
+| `record-redo`         | delete + undo as setup, then measure redo-stream                                        | redo replay                            |
 
 ## Config Shapes
 
@@ -57,6 +59,8 @@ The exact interfaces are in `framework/types.ts`. Key fields per runner:
 - **http-endpoint**: `method:"GET"`, `path`, `samples`, `threshold{metric:"p95Ms",maxMs}`, optional `validateSeedUser`.
 - **formula-table**: `baseId:"seed-base"`, `tableNamePrefix`, `recordCount`, `batchSize`, `fields[]`, `generator{type:"numeric-sequence",titlePrefix}`, `formula` or `formulas[]`, `verify{sampleRows,...}`, `threshold{metric:"formula(s)(Full)ReadyMs",maxMs}`.
 - **conditional-lookup**: source/host prefixes, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `verify`, `threshold{metric:"conditionalLookupReadyMs"}`. The `permutation` has a coprime constraint — see Deterministic Data in [checklist.md](checklist.md).
+- **conditional-rollup**: the same deterministic source/host seed shape as `conditional-lookup`, plus `rollup{name,expression:"array_join({values})",limit}`, `verify`, `threshold{metric:"conditionalRollupReadyMs"}`. The paired 10k cases share one synthetic seed identity but measure and verify their field types independently.
+- **conditional-query**: shared 10k source/10k host grouped fixture, `groupCount`, `field{kind:"lookup"|"rollup",valueField,filter,expression?,sort?,limit?}`, `verify`, `threshold{metric:"conditionalQueryReadyMs"}`. Use it for fanout, multi-filter, value-type, aggregation, and sort/limit variants; all configs with the same seed shape share one fixture.
 - **lookup-search-index**: source/host prefixes, `tableIndexMode:"off"|"on"`, `recordCount`, `batchSize`, `userCount`, `samples`, `generator{type:"lookup-search-index-20-fields",...,permutation{multiplier,offset}}`, `keywords[]`, `verify`, `threshold{metric:"lookupSearchIndexP95Ms"}`. Seed creates lookup fields and turns table search index on only for the ON host; execute measures repeated `aggregation/search-index` requests for the selected mode only.
 - **field-create**: `tableNamePrefix`, `baseFields[]`, `field`, `verify{optionCount,sampleOptionIndexes}`, `threshold{metric:"singleSelectCreateOptionsMs"}`. Seed creates an empty base table; execute creates the configured field and verifies field metadata.
 - **field-duplicate**: `sourceTableNamePrefix`, `hostTableNamePrefix`, `recordCount`, `batchSize`, `generator{type:"permuted-unique-key-sequence",...,permutation{multiplier,offset}}`, `lookup{name,limit}`, `duplicate{name}`, `verify`, `threshold{metric:"conditionalLookupDuplicateReadyMs"}`. Seed reuses the conditional lookup 10k table shape; execute creates the source lookup field as setup, duplicates it, then verifies the duplicated lookup values.

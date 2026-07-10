@@ -1,4 +1,5 @@
-import { FieldKeyType, FieldType } from "@teable/core";
+import { FieldKeyType, FieldType, type IFieldRo } from "@teable/core";
+import { createField as apiCreateField } from "@teable/openapi";
 import {
   createField,
   createRecords,
@@ -15,6 +16,11 @@ import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import {
+  assertEngineRouting,
+  pickRoutingResponseHeaders,
+  type EngineRouting,
+} from "../routing";
+import {
   collectSampleRecords,
   type SeededSampleRecord,
 } from "../sample-records";
@@ -26,6 +32,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  ConditionalComputedSeedConfig,
   ConditionalLookupCaseConfig,
   ConditionalLookupSharedConfig,
   PerfCase,
@@ -79,6 +86,9 @@ const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup A Key";
 
 const sourceFieldNames = [SOURCE_KEY_FIELD_NAME, SOURCE_VALUE_FIELD_NAME];
 const hostSeedFieldNames = [HOST_KEY_FIELD_NAME, HOST_LOOKUP_KEY_FIELD_NAME];
+const CONDITIONAL_COMPUTED_FIXTURE_VERSION = "conditional-computed-v1";
+const SHARED_CONDITIONAL_COMPUTED_SEED_ID =
+  "conditional-computed/shared-10k-seed";
 
 const getGreatestCommonDivisor = (left: number, right: number): number => {
   let a = Math.abs(left);
@@ -91,7 +101,7 @@ const getGreatestCommonDivisor = (left: number, right: number): number => {
   return a;
 };
 
-const assertPermutationConfig = (config: ConditionalLookupSharedConfig) => {
+const assertPermutationConfig = (config: ConditionalComputedSeedConfig) => {
   const { multiplier, offset } = config.generator.permutation;
   if (
     !Number.isInteger(multiplier) ||
@@ -111,9 +121,9 @@ const assertPermutationConfig = (config: ConditionalLookupSharedConfig) => {
   }
 };
 
-const getSourceRowNumberForHostRow = (
+export const getSourceRowNumberForHostRow = (
   hostRowNumber: number,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => {
   const { multiplier, offset } = config.generator.permutation;
   const hostRowOffset = hostRowNumber - 1;
@@ -122,18 +132,21 @@ const getSourceRowNumberForHostRow = (
 
 const getSourceKey = (
   rowNumber: number,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => `${config.generator.sourceKeyPrefix}-${rowNumber}`;
 
-const getHostKey = (rowNumber: number, config: ConditionalLookupSharedConfig) =>
+const getHostKey = (rowNumber: number, config: ConditionalComputedSeedConfig) =>
   `${config.generator.hostKeyPrefix}-${rowNumber}`;
 
-const getExpectedValue = (
+export const getExpectedValue = (
   sourceRowNumber: number,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => `${config.generator.sourceValuePrefix}-${sourceRowNumber}`;
 
-const parseRowNumber = (value: unknown, prefix: string) => {
+export const parseConditionalSeedRowNumber = (
+  value: unknown,
+  prefix: string,
+) => {
   if (typeof value !== "string") {
     throw new Error(
       `Expected ${prefix} value to be a string, got ${String(value)}`,
@@ -149,7 +162,7 @@ const parseRowNumber = (value: unknown, prefix: string) => {
 };
 
 const buildSourceRecords = (
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ): SeedRecordInput[] =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
@@ -163,7 +176,7 @@ const buildSourceRecords = (
     };
   });
 
-const buildHostRecords = (config: ConditionalLookupSharedConfig) =>
+const buildHostRecords = (config: ConditionalComputedSeedConfig) =>
   Array.from({ length: config.recordCount }, (_, index) => {
     const rowNumber = index + 1;
     return {
@@ -180,7 +193,7 @@ const buildHostRecords = (config: ConditionalLookupSharedConfig) =>
   });
 
 const getConditionalLookupSeedConfig = (
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => ({
   baseId: config.baseId,
   sourceTableNamePrefix: config.sourceTableNamePrefix,
@@ -191,11 +204,11 @@ const getConditionalLookupSeedConfig = (
   sourceFields: sourceFieldNames,
   hostFields: hostSeedFieldNames,
   verifySampleRows: config.verify.sampleRows,
-  fixtureVersion: "conditional-lookup-v1",
+  fixtureVersion: CONDITIONAL_COMPUTED_FIXTURE_VERSION,
 });
 
 const getRequiredSampleRecords = (
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   seededSampleRecordByOffset: Map<number, SeededSampleRecord>,
 ) =>
   config.verify.sampleRows.map((rowOffset) => {
@@ -251,6 +264,36 @@ const resolveHostFields = (
   };
 };
 
+const buildConditionalLookupFieldInput = (
+  sourceTableId: string,
+  sourceFields: ConditionalLookupSourceFields,
+  hostFields: ConditionalLookupHostFields,
+  config: ConditionalLookupSharedConfig,
+): IFieldRo => ({
+  name: config.lookup.name,
+  type: FieldType.SingleLineText,
+  isLookup: true,
+  isConditionalLookup: true,
+  lookupOptions: {
+    foreignTableId: sourceTableId,
+    lookupFieldId: sourceFields.valueFieldId,
+    filter: {
+      conjunction: "and",
+      filterSet: [
+        {
+          fieldId: sourceFields.keyFieldId,
+          operator: "is",
+          value: {
+            type: "field",
+            fieldId: hostFields.lookupKeyFieldId,
+          },
+        },
+      ],
+    },
+    limit: config.lookup.limit,
+  },
+});
+
 export const createConditionalLookupField = (
   hostTableId: string,
   sourceTableId: string,
@@ -258,32 +301,49 @@ export const createConditionalLookupField = (
   hostFields: ConditionalLookupHostFields,
   config: ConditionalLookupSharedConfig,
 ) =>
-  createField(hostTableId, {
-    name: config.lookup.name,
-    type: FieldType.SingleLineText,
-    isLookup: true,
-    isConditionalLookup: true,
-    lookupOptions: {
-      foreignTableId: sourceTableId,
-      lookupFieldId: sourceFields.valueFieldId,
-      filter: {
-        conjunction: "and",
-        filterSet: [
-          {
-            fieldId: sourceFields.keyFieldId,
-            operator: "is",
-            value: {
-              type: "field",
-              fieldId: hostFields.lookupKeyFieldId,
-            },
-          },
-        ],
-      },
-      limit: config.lookup.limit,
-    },
-  });
+  createField(
+    hostTableId,
+    buildConditionalLookupFieldInput(
+      sourceTableId,
+      sourceFields,
+      hostFields,
+      config,
+    ),
+  );
 
-const cleanupHostLookupFields = async (
+const createConditionalLookupFieldWithRouting = async (
+  context: PerfRunContext,
+  hostTableId: string,
+  sourceTableId: string,
+  sourceFields: ConditionalLookupSourceFields,
+  hostFields: ConditionalLookupHostFields,
+  config: ConditionalLookupCaseConfig,
+) => {
+  const response = await apiCreateField(
+    hostTableId,
+    buildConditionalLookupFieldInput(
+      sourceTableId,
+      sourceFields,
+      hostFields,
+      config,
+    ),
+  );
+  expect(response.status).toBe(201);
+  const responseHeaders = pickRoutingResponseHeaders(
+    response.headers as Record<string, unknown>,
+  );
+  const routing = assertEngineRouting(context, responseHeaders, {
+    feature: "createField",
+    operation: "Conditional lookup field create",
+  });
+  return {
+    field: response.data as { id: string },
+    responseHeaders,
+    routing,
+  };
+};
+
+export const cleanupConditionalComputedFields = async (
   hostTableId: string,
   fields: Array<{ id: string; name: string }>,
 ) => {
@@ -305,10 +365,16 @@ const createEmptyMeasurement = <T>(
   result,
 });
 
+type ConditionalLookupFieldCreation = {
+  field: { id: string };
+  responseHeaders: Record<string, string>;
+  routing: EngineRouting;
+};
+
 const getCachedHostSampleRecords = async (
   tableId: string,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ): Promise<SeededSampleRecord[]> => {
   const sampleRecords = [];
   for (const rowOffset of config.verify.sampleRows) {
@@ -326,7 +392,7 @@ const getCachedHostSampleRecords = async (
       );
     }
 
-    const rowNumber = parseRowNumber(
+    const rowNumber = parseConditionalSeedRowNumber(
       record.fields[hostFields.keyFieldId],
       config.generator.hostKeyPrefix,
     );
@@ -359,7 +425,7 @@ const getCachedHostSampleRecords = async (
 const assertLookupSamples = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
   const verifiedSamples = [];
@@ -397,7 +463,7 @@ const assertLookupSamples = async (
 const waitForLookupSamples = (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   sampleRecords: SeededSampleRecord[],
 ) =>
   pollUntilReady(
@@ -412,7 +478,7 @@ const waitForLookupSamples = (
 const assertLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   hostFields: ConditionalLookupHostFields,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
@@ -437,7 +503,7 @@ const assertLookupFullScan = async (
         }),
     },
     (record) => {
-      const hostRowNumber = parseRowNumber(
+      const hostRowNumber = parseConditionalSeedRowNumber(
         record.fields[hostFields.keyFieldId],
         config.generator.hostKeyPrefix,
       );
@@ -512,7 +578,7 @@ const assertLookupFullScan = async (
 export const waitForConditionalLookupFullScan = (
   tableId: string,
   lookupFieldId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   hostFields: ConditionalLookupHostFields,
 ) =>
   pollUntilReady(
@@ -529,7 +595,7 @@ export const assertConditionalLookupSeedReady = async (
   hostTableId: string,
   sourceFields: ConditionalLookupSourceFields,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   sampleRecords: SeededSampleRecord[],
 ) => {
   const verifiedSamples = [];
@@ -658,11 +724,11 @@ export const assertConditionalLookupSeedReady = async (
     );
   }
 
-  const lastHostRowNumber = parseRowNumber(
+  const lastHostRowNumber = parseConditionalSeedRowNumber(
     lastHostRecord.fields[hostFields.keyFieldId],
     config.generator.hostKeyPrefix,
   );
-  const lastSourceRowNumber = parseRowNumber(
+  const lastSourceRowNumber = parseConditionalSeedRowNumber(
     lastSourceRecord.fields[sourceFields.keyFieldId],
     config.generator.sourceKeyPrefix,
   );
@@ -694,7 +760,7 @@ const seedSourceTable = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   sourceTableId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => {
   const sourceBatches = chunk(buildSourceRecords(config), config.batchSize);
   const sourceBatchDurations: number[] = [];
@@ -730,7 +796,7 @@ const seedHostTable = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   hostTableId: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
 ) => {
   const hostBatches = chunk(buildHostRecords(config), config.batchSize);
   const hostBatchDurations: number[] = [];
@@ -780,7 +846,7 @@ const createConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   seedCacheInfo: SeedCacheInfo,
 ): Promise<ConditionalLookupSeedFixture> => {
   const createdTableIds: string[] = [];
@@ -873,7 +939,7 @@ const restoreConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   seedCacheInfo: SeedCacheInfo,
   options: { cleanupHostLookupFields?: boolean } = {},
 ): Promise<ConditionalLookupSeedFixture | undefined> => {
@@ -903,7 +969,7 @@ const restoreConditionalLookupSeedFixture = async (
     const shouldCleanupHostLookupFields =
       options.cleanupHostLookupFields ?? true;
     if (shouldCleanupHostLookupFields) {
-      await cleanupHostLookupFields(hostTable.id, hostTableFields);
+      await cleanupConditionalComputedFields(hostTable.id, hostTableFields);
     }
     const cleanedHostTableFields = shouldCleanupHostLookupFields
       ? await getFields(hostTable.id)
@@ -968,7 +1034,7 @@ export const buildConditionalLookupSeedFixture = async (
   baseId: string,
   sourceTableName: string,
   hostTableName: string,
-  config: ConditionalLookupSharedConfig,
+  config: ConditionalComputedSeedConfig,
   seedCacheInfo: SeedCacheInfo,
   options?: { cleanupHostLookupFields?: boolean },
 ) =>
@@ -989,6 +1055,54 @@ export const buildConditionalLookupSeedFixture = async (
     config,
     seedCacheInfo,
   );
+
+export const prepareConditionalComputedSeedFixture = async ({
+  perfCase,
+  context,
+  baseId,
+  config,
+  seedMode,
+}: {
+  perfCase: PerfCase;
+  context: PerfRunContext;
+  baseId: string;
+  config: ConditionalComputedSeedConfig;
+  seedMode: boolean;
+}) => {
+  const timestamp = Date.now();
+  const seedPerfCase = {
+    ...perfCase,
+    id: SHARED_CONDITIONAL_COMPUTED_SEED_ID,
+  };
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase: seedPerfCase,
+    runner: "conditional-lookup",
+    fixtureVersion: CONDITIONAL_COMPUTED_FIXTURE_VERSION,
+    seedConfig: getConditionalLookupSeedConfig(config),
+    seedCodeFiles: [
+      new URL(import.meta.url),
+      new URL("../seed-cache.ts", import.meta.url),
+    ],
+  });
+  const suffix = seedMode ? "-seed-" : "-";
+  const sourceTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "source")
+    : `${config.sourceTableNamePrefix}${suffix}${timestamp}`;
+  const hostTableName = seedCacheInfo.enabled
+    ? buildSeedTableName(seedCacheInfo, "host")
+    : `${config.hostTableNamePrefix}${suffix}${timestamp}`;
+
+  assertPermutationConfig(config);
+  return buildConditionalLookupSeedFixture(
+    perfCase,
+    context,
+    baseId,
+    sourceTableName,
+    hostTableName,
+    config,
+    seedCacheInfo,
+  );
+};
 
 const buildConditionalLookupCaseResult = ({
   config,
@@ -1027,7 +1141,7 @@ const buildConditionalLookupCaseResult = ({
   seedReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
   >;
-  createLookupFieldMeasurement?: Measurement<{ id: string }>;
+  createLookupFieldMeasurement?: Measurement<ConditionalLookupFieldCreation>;
   fullLookupScanReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
   >;
@@ -1156,6 +1270,8 @@ const buildConditionalLookupCaseResult = ({
       fieldId: lookupField?.id,
       name: config.lookup.name,
       limit: config.lookup.limit,
+      responseHeaders: createLookupFieldMeasurement?.result.responseHeaders,
+      routing: createLookupFieldMeasurement?.result.routing,
     },
     fullScan: fullLookupScanReadyMeasurement?.result
       ? {
@@ -1180,7 +1296,7 @@ type ConditionalLookupSeedReadyResult = Awaited<
 >;
 
 type ConditionalLookupPrimary = {
-  createLookupFieldMeasurement: Measurement<{ id: string }>;
+  createLookupFieldMeasurement: Measurement<ConditionalLookupFieldCreation>;
   fullLookupScanReadyMeasurement: Measurement<
     Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
   >;
@@ -1199,37 +1315,7 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
   ConditionalLookupSeedReadyResult,
   ConditionalLookupPrimary
 > = {
-  prepareFixture: async ({ perfCase, context, baseId, config, seedMode }) => {
-    const timestamp = Date.now();
-    const seedCacheInfo = await buildSeedCacheInfo({
-      perfCase,
-      runner: "conditional-lookup",
-      fixtureVersion: "conditional-lookup-v1",
-      seedConfig: getConditionalLookupSeedConfig(config),
-      seedCodeFiles: [
-        new URL(import.meta.url),
-        new URL("../seed-cache.ts", import.meta.url),
-      ],
-    });
-    const suffix = seedMode ? "-seed-" : "-";
-    const sourceTableName = seedCacheInfo.enabled
-      ? buildSeedTableName(seedCacheInfo, "source")
-      : `${config.sourceTableNamePrefix}${suffix}${timestamp}`;
-    const hostTableName = seedCacheInfo.enabled
-      ? buildSeedTableName(seedCacheInfo, "host")
-      : `${config.hostTableNamePrefix}${suffix}${timestamp}`;
-
-    assertPermutationConfig(config);
-    return buildConditionalLookupSeedFixture(
-      perfCase,
-      context,
-      baseId,
-      sourceTableName,
-      hostTableName,
-      config,
-      seedCacheInfo,
-    );
-  },
+  prepareFixture: prepareConditionalComputedSeedFixture,
   assertSeedReady: ({ fixture, config }) =>
     assertConditionalLookupSeedReady(
       fixture.sourceTableId,
@@ -1246,7 +1332,8 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
       "createLookupField",
       () =>
         measureAsync("createLookupField", () =>
-          createConditionalLookupField(
+          createConditionalLookupFieldWithRouting(
+            context,
             fixture.hostTableId,
             fixture.sourceTableId,
             fixture.sourceFields,
@@ -1260,7 +1347,7 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
       () =>
         waitForConditionalLookupFullScan(
           fixture.hostTableId,
-          createLookupFieldMeasurement.result.id,
+          createLookupFieldMeasurement.result.field.id,
           config,
           fixture.hostFields,
         ),
@@ -1268,7 +1355,7 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
     return {
       createLookupFieldMeasurement,
       fullLookupScanReadyMeasurement,
-      lookupField: createLookupFieldMeasurement.result,
+      lookupField: createLookupFieldMeasurement.result.field,
     };
   },
   buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) =>
@@ -1319,7 +1406,7 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
       // the host fields and drop every non-seed field — idempotent, and a no-op
       // when the field-add failed before creating anything.
       try {
-        await cleanupHostLookupFields(
+        await cleanupConditionalComputedFields(
           fixture.hostTableId,
           await getFields(fixture.hostTableId),
         );
