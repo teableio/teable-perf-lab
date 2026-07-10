@@ -2,6 +2,7 @@ import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
@@ -63,6 +64,7 @@ const cases = [
   formula10kCalcCase,
   formula10k5ConcurrentCase,
   conditionalLookup10kCase,
+  conditionalRollup10kCase,
   dualLinkComputedFirstLink4kCase,
   dualLinkComputedRepoint2kCase,
   searchIndexOff10k20SearchFieldsCase,
@@ -129,6 +131,8 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  ["rollup/conditional", "rollup/conditional-10k"],
+  ["conditional-rollup", "rollup/conditional-10k"],
   ["lookup/dual-link-first-link", "lookup/dual-link-computed-first-link-4k"],
   ["lookup/dual-link-repoint", "lookup/dual-link-computed-repoint-2k"],
   ["lookup/search-index", "search/search-index-on-10k-20search-fields"],

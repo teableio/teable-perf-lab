@@ -10,6 +10,7 @@ export interface PerfCaseConfigByRunner {
   "http-endpoint": HttpEndpointCaseConfig;
   "formula-table": FormulaTableCaseConfig;
   "conditional-lookup": ConditionalLookupCaseConfig;
+  "conditional-rollup": ConditionalRollupCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
   "field-create": FieldCreateCaseConfig;
@@ -167,7 +168,7 @@ export interface FormulaTableCaseConfig {
   };
 }
 
-export interface ConditionalLookupCaseConfig {
+export interface ConditionalComputedSeedConfig {
   baseId: "seed-base";
   sourceTableNamePrefix: string;
   hostTableNamePrefix: string;
@@ -183,18 +184,35 @@ export interface ConditionalLookupCaseConfig {
       offset: number;
     };
   };
-  lookup: {
-    name: string;
-    limit: number;
-  };
   verify: {
     sampleRows: number[];
     timeoutMs?: number;
     pollIntervalMs?: number;
     fullScanPageSize?: number;
   };
+}
+
+export interface ConditionalLookupCaseConfig
+  extends ConditionalComputedSeedConfig {
+  lookup: {
+    name: string;
+    limit: number;
+  };
   threshold: {
     metric: "conditionalLookupReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface ConditionalRollupCaseConfig
+  extends ConditionalComputedSeedConfig {
+  rollup: {
+    name: string;
+    expression: "array_join({values})";
+    limit: number;
+  };
+  threshold: {
+    metric: "conditionalRollupReadyMs";
     maxMs: number;
   };
 }

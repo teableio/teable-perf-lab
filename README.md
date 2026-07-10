@@ -137,6 +137,10 @@ workload.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
+- `rollup/conditional-10k`: Measure conditional rollup creation on two 10k-row
+  tables where every host row aggregates a different source row through a
+  unique-key condition, paired with `lookup/conditional-10k` for V1/V2
+  comparison.
 - `lookup/dual-link-computed-first-link-4k`: Measure how long after a data write
   the V2 dependency graph becomes readable, on a deep, customer-mirrored schema.
   After the order links are written, every dependent lookup, multi-level formula,

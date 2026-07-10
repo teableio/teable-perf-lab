@@ -62,9 +62,14 @@ values to become ready:
 - Conditional lookup across two seeded tables:
   - `cases/lookup/conditional-10k.case.ts`
   - `cases/lookup/conditional-10k.md`
+- Conditional rollup across the same deterministic source/host shape:
+  - `cases/rollup/conditional-10k.case.ts`
+  - `cases/rollup/conditional-10k.md`
 
 Notice how these cases keep deterministic source rows in seed, create the
-computed field in execute, and verify readiness by scanning records.
+computed field in execute, and verify readiness by scanning records. The paired
+conditional lookup/rollup cases share a seed identity so selecting both does not
+rebuild the same two 10k-row tables.
 
 ## Field Lifecycle
 
