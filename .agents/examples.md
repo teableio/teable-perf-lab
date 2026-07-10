@@ -62,9 +62,19 @@ values to become ready:
 - Conditional lookup across two seeded tables:
   - `cases/lookup/conditional-10k.case.ts`
   - `cases/lookup/conditional-10k.md`
+- Conditional rollup across the same deterministic source/host shape:
+  - `cases/rollup/conditional-10k.case.ts`
+  - `cases/rollup/conditional-10k.md`
+- Grouped fanout conditional query variants:
+  - `cases/lookup/conditional-group-text-fanout10-10k.case.ts`
+  - `cases/lookup/conditional-group-number-top3-10k.case.ts`
+  - `cases/lookup/conditional-group-active-text-10k.case.ts`
+  - `cases/rollup/conditional-group-*-10k.case.ts`
 
 Notice how these cases keep deterministic source rows in seed, create the
-computed field in execute, and verify readiness by scanning records.
+computed field in execute, and verify readiness by scanning records. The paired
+conditional lookup/rollup cases share a seed identity so selecting both does not
+rebuild the same two 10k-row tables.
 
 ## Field Lifecycle
 
