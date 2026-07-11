@@ -86,10 +86,11 @@ export default definePerfCase({
     ],
     selfLink: {
       name: "Related",
-      // One-way avoids symmetric-field writes during seed; still exercises
-      // self-link physical bulk on the host table + junction.
+      // One-way + sparse links: full 10k link updates exceed CI timeouts;
+      // 500 rows still populate junction/cell jsonb for physical bulk.
       isOneWay: true,
-      batchSize: 100,
+      batchSize: 50,
+      maxLinks: 500,
     },
     generator: {
       type: "mixed-duplicate-table",

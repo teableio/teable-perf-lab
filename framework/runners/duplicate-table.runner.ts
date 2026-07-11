@@ -430,18 +430,21 @@ const seedSelfLinkIfConfigured = async (
     },
   );
 
-  // Link updates are much heavier than plain cell writes (junction + symmetric
-  // field). Keep batches small so CI seed stays under Prisma transaction timeout.
-  const linkBatchSize = Math.min(config.selfLink.batchSize ?? 100, 200);
-  for (const batch of chunk(
-    recordIds.map((recordId, index) => ({
-      id: recordId,
-      fields: {
-        [linkField.id]: [{ id: recordIds[(index + 1) % recordIds.length] }],
-      },
-    })),
-    linkBatchSize,
-  )) {
+  // Link updates are much heavier than plain cell writes (junction + optional
+  // symmetric field). Cap density and keep batches small so CI seed stays under
+  // Prisma interactive-transaction timeout (30s) and case timeout.
+  const maxLinks = Math.min(
+    config.selfLink.maxLinks ?? recordIds.length,
+    recordIds.length,
+  );
+  const linkBatchSize = Math.min(config.selfLink.batchSize ?? 50, 100);
+  const linkUpdates = recordIds.slice(0, maxLinks).map((recordId, index) => ({
+    id: recordId,
+    fields: {
+      [linkField.id]: [{ id: recordIds[(index + 1) % recordIds.length] }],
+    },
+  }));
+  for (const batch of chunk(linkUpdates, linkBatchSize)) {
     const response = await updateRecords(tableId, {
       fieldKeyType: FieldKeyType.Id,
       typecast: false,

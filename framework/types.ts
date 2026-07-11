@@ -647,8 +647,14 @@ export interface DuplicateTableCaseConfig {
   selfLink?: {
     name: string;
     isOneWay?: boolean;
-    /** Override batch size for link cell updates (default 100). */
+    /** Override batch size for link cell updates (default 50). */
     batchSize?: number;
+    /**
+     * Cap how many records get self-link values during seed.
+     * Full 10k two-way link updates blow past CI transaction + case timeouts;
+     * a few hundred rows still exercises junction + cell jsonb bulk copy.
+     */
+    maxLinks?: number;
   };
   generator: {
     type: "mixed-duplicate-table";
