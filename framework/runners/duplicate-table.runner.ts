@@ -430,6 +430,9 @@ const seedSelfLinkIfConfigured = async (
     },
   );
 
+  // Link updates are much heavier than plain cell writes (junction + symmetric
+  // field). Keep batches small so CI seed stays under Prisma transaction timeout.
+  const linkBatchSize = Math.min(config.selfLink.batchSize ?? 100, 200);
   for (const batch of chunk(
     recordIds.map((recordId, index) => ({
       id: recordId,
@@ -437,7 +440,7 @@ const seedSelfLinkIfConfigured = async (
         [linkField.id]: [{ id: recordIds[(index + 1) % recordIds.length] }],
       },
     })),
-    config.batchSize,
+    linkBatchSize,
   )) {
     const response = await updateRecords(tableId, {
       fieldKeyType: FieldKeyType.Id,

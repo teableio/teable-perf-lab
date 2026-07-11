@@ -86,7 +86,10 @@ export default definePerfCase({
     ],
     selfLink: {
       name: "Related",
-      isOneWay: false,
+      // One-way avoids symmetric-field writes during seed; still exercises
+      // self-link physical bulk on the host table + junction.
+      isOneWay: true,
+      batchSize: 100,
     },
     generator: {
       type: "mixed-duplicate-table",

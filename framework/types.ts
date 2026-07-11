@@ -647,6 +647,8 @@ export interface DuplicateTableCaseConfig {
   selfLink?: {
     name: string;
     isOneWay?: boolean;
+    /** Override batch size for link cell updates (default 100). */
+    batchSize?: number;
   };
   generator: {
     type: "mixed-duplicate-table";
