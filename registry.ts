@@ -29,6 +29,7 @@ import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/cond
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
+import duplicateTable10k20FSelflinkCase from "./cases/duplicate-table/10k-20f-selflink.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
 import duplicateBase10k3TablesLink2WorkflowStreamCase from "./cases/duplicate-base/10k-3tables-link-2workflow-stream.case";
 import importBaseV2OnlySimple1x1kTableStreamCase from "./cases/import-base/v2-only-simple-1x1k-table-stream.case";
@@ -99,6 +100,7 @@ const cases = [
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
+  duplicateTable10k20FSelflinkCase,
   duplicateBase10k3TablesLink2WorkflowCase,
   duplicateBase10k3TablesLink2WorkflowStreamCase,
   importBaseV2OnlySimple1x1kTableStreamCase,

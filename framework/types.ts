@@ -639,6 +639,15 @@ export interface DuplicateTableCaseConfig {
       | "quantityPlusPercent"
       | "amountTimesPercent";
   }>;
+  /**
+   * Optional self manyMany link on the source table (exercises T6156 physical
+   * path for self-links). Seeded after records: row i → row i+1 (wrap last→first).
+   * Not included in row-value verification of base fields.
+   */
+  selfLink?: {
+    name: string;
+    isOneWay?: boolean;
+  };
   generator: {
     type: "mixed-duplicate-table";
     titlePrefix: string;
