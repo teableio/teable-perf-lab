@@ -1,5 +1,10 @@
-import { FieldKeyType, FieldType } from "@teable/core";
-import { axios, createField, updateTableDescription } from "@teable/openapi";
+import { FieldKeyType, FieldType, Relationship } from "@teable/core";
+import {
+  axios,
+  createField,
+  updateRecords,
+  updateTableDescription,
+} from "@teable/openapi";
 import {
   createRecords,
   createTable,
@@ -92,7 +97,7 @@ type DuplicateTablePrimaryResult = {
   verifiedRows: Awaited<ReturnType<typeof waitForDuplicatedRows>>;
 };
 
-const DUPLICATE_TABLE_FIXTURE_VERSION = "duplicate-table-v1";
+const DUPLICATE_TABLE_FIXTURE_VERSION = "duplicate-table-v2-self-link";
 const DUPLICATE_TABLE_METADATA_PREFIX = "perf-lab-duplicate-table:";
 
 const STATUS_CHOICES = ["Todo", "Doing", "Done"];
@@ -371,6 +376,88 @@ const compileFormulaExpression = (
     return `{${field.id}}`;
   });
 
+
+const seedSelfLinkIfConfigured = async (
+  tableId: string,
+  fields: DuplicateField[],
+  config: DuplicateTableCaseConfig,
+) => {
+  if (!config.selfLink) {
+    return;
+  }
+  const primary = fields.find((field) => field.name === "Title") ?? fields[0];
+  if (!primary) {
+    throw new Error("selfLink seed requires at least one field");
+  }
+  const createResponse = await createField(tableId, {
+    name: config.selfLink.name,
+    type: FieldType.Link,
+    options: {
+      relationship: Relationship.ManyMany,
+      foreignTableId: tableId,
+      lookupFieldId: primary.id,
+      isOneWay: config.selfLink.isOneWay ?? false,
+    },
+  });
+  if (createResponse.status !== 201) {
+    throw new Error(
+      `Failed to create self link field: status ${createResponse.status}`,
+    );
+  }
+  const tableFields = await getFields(tableId);
+  const linkField = tableFields.find((field) => field.name === config.selfLink!.name);
+  if (!linkField) {
+    throw new Error(`Self link field ${config.selfLink.name} missing after create`);
+  }
+
+  // Fetch all record ids in stable order, then link i -> i+1.
+  const recordIds: string[] = [];
+  await forEachRecordPage(
+    {
+      totalRows: config.rowCount,
+      pageSize: config.batchSize,
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [primary.id],
+          skip,
+          take,
+        }),
+      pageNoun: "self-link seed records",
+    },
+    (record) => {
+      recordIds.push(record.id);
+    },
+  );
+
+  // Link updates are much heavier than plain cell writes (junction + optional
+  // symmetric field). Cap density and keep batches small so CI seed stays under
+  // Prisma interactive-transaction timeout (30s) and case timeout.
+  const maxLinks = Math.min(
+    config.selfLink.maxLinks ?? recordIds.length,
+    recordIds.length,
+  );
+  const linkBatchSize = Math.min(config.selfLink.batchSize ?? 50, 100);
+  const linkUpdates = recordIds.slice(0, maxLinks).map((recordId, index) => ({
+    id: recordId,
+    fields: {
+      [linkField.id]: [{ id: recordIds[(index + 1) % recordIds.length] }],
+    },
+  }));
+  for (const batch of chunk(linkUpdates, linkBatchSize)) {
+    const response = await updateRecords(tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      typecast: false,
+      records: batch,
+    });
+    if (response.status !== 200 && response.status !== 201) {
+      throw new Error(
+        `Failed to seed self-link values: status ${response.status}`,
+      );
+    }
+  }
+};
+
 const createFormulaFields = async (
   tableId: string,
   fields: DuplicateField[],
@@ -611,6 +698,7 @@ const getDuplicateTableSeedConfig = (config: DuplicateTableCaseConfig) => ({
   batchSize: config.batchSize,
   fields: config.fields,
   formulas: config.formulas,
+  selfLink: config.selfLink,
   generator: config.generator,
   fixtureVersion: DUPLICATE_TABLE_FIXTURE_VERSION,
 });
@@ -715,6 +803,7 @@ const prepareDuplicateTableFixture = async (
     }
 
     await createFormulaFields(table.id, fields, config);
+    await seedSelfLinkIfConfigured(table.id, fields, config);
     tableFields = await getFields(table.id);
     fields = resolveFields(tableFields, config);
     const formulas = resolveFormulas(tableFields, config);

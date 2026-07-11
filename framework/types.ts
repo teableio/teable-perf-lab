@@ -639,6 +639,23 @@ export interface DuplicateTableCaseConfig {
       | "quantityPlusPercent"
       | "amountTimesPercent";
   }>;
+  /**
+   * Optional self manyMany link on the source table (exercises T6156 physical
+   * path for self-links). Seeded after records: row i → row i+1 (wrap last→first).
+   * Not included in row-value verification of base fields.
+   */
+  selfLink?: {
+    name: string;
+    isOneWay?: boolean;
+    /** Override batch size for link cell updates (default 50). */
+    batchSize?: number;
+    /**
+     * Cap how many records get self-link values during seed.
+     * Full 10k two-way link updates blow past CI transaction + case timeouts;
+     * a few hundred rows still exercises junction + cell jsonb bulk copy.
+     */
+    maxLinks?: number;
+  };
   generator: {
     type: "mixed-duplicate-table";
     titlePrefix: string;
