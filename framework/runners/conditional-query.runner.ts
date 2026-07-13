@@ -308,6 +308,13 @@ const prepareFixture = async (
 
 const valueField = (f: ConditionalQueryCaseConfig["field"], x: FieldIds) =>
   x[f.valueField];
+const retainedValuesPerHost = (c: ConditionalQueryCaseConfig) => {
+  const filtered =
+    c.field.filter === "group"
+      ? rowsPerGroup(c)
+      : Math.ceil(rowsPerGroup(c) / 2);
+  return c.field.limit == null ? filtered : Math.min(filtered, c.field.limit);
+};
 const expected = (row: number, c: ConditionalQueryCaseConfig): unknown => {
   const g = groupForHost(row, c);
   const slots = Array.from({ length: rowsPerGroup(c) }, (_, i) => i + 1).filter(
@@ -490,6 +497,10 @@ const runCase = async (
         hostRecordCount: c.hostRecordCount,
         groupCount: c.groupCount,
         fanout: rowsPerGroup(c),
+        groupMatchesPerHost: rowsPerGroup(c),
+        retainedValuesPerHost: retainedValuesPerHost(c),
+        groupMatchPairCount: c.hostRecordCount * rowsPerGroup(c),
+        retainedValueCount: c.hostRecordCount * retainedValuesPerHost(c),
         field,
         fieldId: createdId,
         routing,

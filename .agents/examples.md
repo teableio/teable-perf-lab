@@ -70,6 +70,11 @@ values to become ready:
   - `cases/lookup/conditional-group-number-top3-10k.case.ts`
   - `cases/lookup/conditional-group-active-text-10k.case.ts`
   - `cases/rollup/conditional-group-*-10k.case.ts`
+  - Controlled fanout scale curve for a multi-filter amount sum:
+    `cases/rollup/conditional-group-active-sum-fanout{10,50,100}-10k.case.ts`
+  - Controlled conditional lookup curves for result width, active filtering,
+    and fixed-width top-three sorting:
+    `cases/lookup/conditional-group-*-fanout{10,50,100}-10k.case.ts`
 
 Notice how these cases keep deterministic source rows in seed, create the
 computed field in execute, and verify readiness by scanning records. The paired

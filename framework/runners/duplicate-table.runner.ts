@@ -376,7 +376,6 @@ const compileFormulaExpression = (
     return `{${field.id}}`;
   });
 
-
 const seedSelfLinkIfConfigured = async (
   tableId: string,
   fields: DuplicateField[],
@@ -405,9 +404,13 @@ const seedSelfLinkIfConfigured = async (
     );
   }
   const tableFields = await getFields(tableId);
-  const linkField = tableFields.find((field) => field.name === config.selfLink!.name);
+  const linkField = tableFields.find(
+    (field) => field.name === config.selfLink!.name,
+  );
   if (!linkField) {
-    throw new Error(`Self link field ${config.selfLink.name} missing after create`);
+    throw new Error(
+      `Self link field ${config.selfLink.name} missing after create`,
+    );
   }
 
   // Fetch all record ids in stable order, then link i -> i+1.
