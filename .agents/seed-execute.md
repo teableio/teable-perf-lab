@@ -184,20 +184,21 @@ the table:
    on a durable database creates silent dirty cache, the worst failure mode.
    (Three defenses back this up: the hash-derived table name, the cache-hit
    `seedReady` revalidation, and delete-on-failed-restore.)
-2. **On an isolated database (`PERF_LAB_EXECUTE_DB_ISOLATED=true`) skip all
-   cleanup, unconditionally.** The whole database is dropped after the job;
-   any restore or delete there is wasted work. Every `finally` block starts
-   with this check before anything else.
+2. **On an isolated database (`PERF_LAB_EXECUTE_DB_ISOLATED=true`) skip cleanup
+   unless sibling cases in the same process reuse a fixture mutated by
+   execute.** The whole database is dropped after the job, so restore or delete
+   is normally wasted work. The exception must restore and revalidate the seed
+   between sibling cases so their workloads remain independent.
 
 To pick a strategy for a new case, answer one question — _what does the
 measured operation do to the seed fixture?_ — and use the matching class:
 
-| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                             |
-| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                            |
-| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                          |
-| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | record-create (delete created rows), record-update (rewrite seed values), record-reorder (move rows back), selection-clear (refill cells), record-delete/undo/redo (real undo path) |
-| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                     |
+| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                 |
+| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                |
+| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query create cases, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean) |
+| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | conditional-query propagation cases, record-create (delete created rows), record-update (rewrite seed values), record-reorder, selection-clear, record-delete/undo/redo |
+| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                         |
 
 Decision order when writing a new runner:
 
@@ -207,15 +208,17 @@ Decision order when writing a new runner:
 
 Rules that apply to every class:
 
-- The isolated short-circuit comes first in `finally` and takes no extra
-  conditions (not even the seed cache flag).
+- The isolated short-circuit comes first in `finally` unless multiple selected
+  cases share an execute-mutated fixture in the same engine process. That
+  runner must restore and revalidate between cases even in an isolated job.
 - Any local restore must be verified at `seedReady` level afterwards; on any
   failure, delete the table rather than keep a possibly-dirty fixture.
 - Cache-hit paths must self-heal leftovers from crashed or isolated runs:
   B-class runners delete leftover non-seed fields before reuse; D-class
   runners detect the mutated column during revalidation and rebuild.
-- Class choice is about the _local_ durable database only. On CI all four
-  classes behave identically: do nothing, the database is discarded.
+- Class choice is normally about the _local_ durable database only. On CI all
+  four classes skip cleanup because the database is discarded, except a shared
+  fixture must still be restored between sibling cases in the same process.
 
 Note the asymmetry this creates between environments: on CI, "cache hit"
 means the seed job built the table once into the dump and every engine job

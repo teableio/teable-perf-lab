@@ -1,4 +1,4 @@
-import type { ConditionalQueryCaseConfig } from "../framework/types";
+import type { ConditionalQueryBaseCaseConfig } from "../framework/types";
 
 export const groupedConditionalQueryBase = {
   baseId: "seed-base",
@@ -21,4 +21,21 @@ export const groupedConditionalQueryBase = {
     pollIntervalMs: 500,
     fullScanPageSize: 1_000,
   },
-} satisfies Omit<ConditionalQueryCaseConfig, "field" | "threshold">;
+} satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
+
+export const groupedConditionalQueryFanout100Base = {
+  ...groupedConditionalQueryBase,
+  sourceTableNamePrefix: "perf-conditional-query-source-100k",
+  hostTableNamePrefix: "perf-conditional-query-host-10k-fanout100",
+  sourceRecordCount: 100_000,
+  verify: {
+    ...groupedConditionalQueryBase.verify,
+    timeoutMs: 600_000,
+  },
+} satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
+
+export const groupedConditionalQueryFanout100Host30kBase = {
+  ...groupedConditionalQueryFanout100Base,
+  hostTableNamePrefix: "perf-conditional-query-host-30k-fanout100",
+  hostRecordCount: 30_000,
+} satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;

@@ -6,16 +6,22 @@ import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
 import conditionalLookupGroupActiveTextFanout50_10kCase from "./cases/lookup/conditional-group-active-text-fanout50-10k.case";
 import conditionalLookupGroupActiveTextFanout100_10kCase from "./cases/lookup/conditional-group-active-text-fanout100-10k.case";
+import conditionalLookupGroupActiveFlip1kFanout100_10kCase from "./cases/lookup/conditional-group-active-flip-1k-fanout100-10k.case";
+import conditionalLookupGroupActiveFlip1kFanout100_30kCase from "./cases/lookup/conditional-group-active-flip-1k-fanout100-30k.case";
 import conditionalLookupGroupNumberTop3_10kCase from "./cases/lookup/conditional-group-number-top3-10k.case";
 import conditionalLookupGroupNumberTop3Fanout50_10kCase from "./cases/lookup/conditional-group-number-top3-fanout50-10k.case";
 import conditionalLookupGroupNumberTop3Fanout100_10kCase from "./cases/lookup/conditional-group-number-top3-fanout100-10k.case";
 import conditionalLookupGroupTextFanout10_10kCase from "./cases/lookup/conditional-group-text-fanout10-10k.case";
 import conditionalLookupGroupTextFanout50_10kCase from "./cases/lookup/conditional-group-text-fanout50-10k.case";
 import conditionalLookupGroupTextFanout100_10kCase from "./cases/lookup/conditional-group-text-fanout100-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout100_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout100_30kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-30k.case";
 import conditionalRollupGroupActiveMax10kCase from "./cases/rollup/conditional-group-active-max-10k.case";
 import conditionalRollupGroupActiveSumFanout10_10kCase from "./cases/rollup/conditional-group-active-sum-fanout10-10k.case";
 import conditionalRollupGroupActiveSumFanout50_10kCase from "./cases/rollup/conditional-group-active-sum-fanout50-10k.case";
 import conditionalRollupGroupActiveSumFanout100_10kCase from "./cases/rollup/conditional-group-active-sum-fanout100-10k.case";
+import conditionalRollupGroupActiveSumUpdate1kFanout100_10kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout100-10k.case";
+import conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout100-30k.case";
 import conditionalRollupGroupAverageFanout10_10kCase from "./cases/rollup/conditional-group-average-fanout10-10k.case";
 import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/conditional-group-countall-fanout10-10k.case";
 import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditional-group-sum-fanout10-10k.case";
@@ -86,12 +92,16 @@ const cases = [
   conditionalLookupGroupTextFanout10_10kCase,
   conditionalLookupGroupTextFanout50_10kCase,
   conditionalLookupGroupTextFanout100_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout100_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout100_30kCase,
   conditionalLookupGroupNumberTop3_10kCase,
   conditionalLookupGroupNumberTop3Fanout50_10kCase,
   conditionalLookupGroupNumberTop3Fanout100_10kCase,
   conditionalLookupGroupActiveText10kCase,
   conditionalLookupGroupActiveTextFanout50_10kCase,
   conditionalLookupGroupActiveTextFanout100_10kCase,
+  conditionalLookupGroupActiveFlip1kFanout100_10kCase,
+  conditionalLookupGroupActiveFlip1kFanout100_30kCase,
   conditionalRollupGroupCountallFanout10_10kCase,
   conditionalRollupGroupSumFanout10_10kCase,
   conditionalRollupGroupAverageFanout10_10kCase,
@@ -99,6 +109,8 @@ const cases = [
   conditionalRollupGroupActiveSumFanout10_10kCase,
   conditionalRollupGroupActiveSumFanout50_10kCase,
   conditionalRollupGroupActiveSumFanout100_10kCase,
+  conditionalRollupGroupActiveSumUpdate1kFanout100_10kCase,
+  conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase,
   conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
   dualLinkComputedRepoint2kCase,
