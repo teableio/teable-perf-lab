@@ -75,6 +75,11 @@ values to become ready:
   - Controlled conditional lookup curves for result width, active filtering,
     and fixed-width top-three sorting:
     `cases/lookup/conditional-group-*-fanout{10,50,100}-10k.case.ts`
+  - Source-update propagation curves that keep a 100k-row source, fanout 100,
+    and one 1k-record bulk update fixed while scaling the host from 10k to 30k:
+    `cases/lookup/conditional-group-{text-update,active-flip}-1k-fanout100-{10k,30k}.case.ts`
+    and
+    `cases/rollup/conditional-group-active-sum-update-1k-fanout100-{10k,30k}.case.ts`
 
 Notice how these cases keep deterministic source rows in seed, create the
 computed field in execute, and verify readiness by scanning records. The paired

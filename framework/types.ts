@@ -247,7 +247,7 @@ type ConditionalQueryFieldConfig =
       expression: "array_join({values})";
     });
 
-export interface ConditionalQueryCaseConfig {
+export interface ConditionalQueryBaseCaseConfig {
   baseId: "seed-base";
   sourceTableNamePrefix: string;
   hostTableNamePrefix: string;
@@ -269,11 +269,41 @@ export interface ConditionalQueryCaseConfig {
     pollIntervalMs?: number;
     fullScanPageSize?: number;
   };
-  threshold: {
-    metric: "conditionalQueryReadyMs";
-    maxMs: number;
-  };
 }
+
+export type ConditionalQueryMutationConfig =
+  | {
+      kind: "text-update";
+      recordCount: number;
+      updatedSuffix: string;
+    }
+  | {
+      kind: "amount-update";
+      recordCount: number;
+      amountDelta: number;
+    }
+  | {
+      kind: "active-flip";
+      recordCount: number;
+    };
+
+export type ConditionalQueryCaseConfig = ConditionalQueryBaseCaseConfig &
+  (
+    | {
+        mutation?: never;
+        threshold: {
+          metric: "conditionalQueryReadyMs";
+          maxMs: number;
+        };
+      }
+    | {
+        mutation: ConditionalQueryMutationConfig;
+        threshold: {
+          metric: "conditionalQueryPropagationReadyMs";
+          maxMs: number;
+        };
+      }
+  );
 
 // Mirrors (a bounded version of) the customer "orders" schema to stress the V2
 // async-compute pipeline on a data write. The orders host table has two many-one
