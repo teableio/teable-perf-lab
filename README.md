@@ -150,6 +150,12 @@ workload.
 - `lookup/conditional-group-text-fanout100-10k`: Measure a customer-like
   high-volume conditional text lookup that returns 100 matching values for every
   row of a 10k host.
+- `lookup/conditional-group-text-update-1k-fanout100-10k`: Measure how long a
+  populated conditional text lookup takes to become fully correct after 1,000
+  source values change.
+- `lookup/conditional-group-text-update-1k-fanout100-30k`: Measure conditional
+  text-lookup propagation when the same 1,000-record bulk update fans out across
+  a 30,000-row host.
 - `lookup/conditional-group-number-top3-10k`: Measure adding a conditional
   number lookup that selects the top three of 10 matching source rows for every
   row of a 10k host.
@@ -168,6 +174,11 @@ workload.
 - `lookup/conditional-group-active-text-fanout100-10k`: Measure a high-volume
   multi-condition text lookup where half of 100 group matches remain active for
   every row of a 10k host.
+- `lookup/conditional-group-active-flip-1k-fanout100-10k`: Measure conditional
+  lookup propagation when 1,000 source records stop matching the active-state
+  predicate.
+- `lookup/conditional-group-active-flip-1k-fanout100-30k`: Measure conditional
+  lookup propagation when 1,000 predicate changes invalidate a 30,000-row host.
 - `rollup/conditional-group-countall-fanout10-10k`: Measure adding a conditional
   count-all rollup over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-sum-fanout10-10k`: Measure adding a conditional
@@ -186,6 +197,12 @@ workload.
 - `rollup/conditional-group-active-sum-fanout100-10k`: Measure a customer-like
   high-computation conditional amount sum on 110k total records without
   reproducing the full 120k-plus customer table.
+- `rollup/conditional-group-active-sum-update-1k-fanout100-10k`: Measure how
+  long an existing conditional sum takes to recompute after 1,000 active source
+  amounts change.
+- `rollup/conditional-group-active-sum-update-1k-fanout100-30k`: Measure
+  conditional sum propagation when the same 1,000 amount changes invalidate
+  30,000 host aggregates.
 - `rollup/conditional-group-text-top3-10k`: Measure adding a conditional text
   array-join over the top three of 10 matching source rows for every row of a 10k
   host.
