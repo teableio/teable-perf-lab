@@ -144,12 +144,30 @@ workload.
 - `lookup/conditional-group-text-fanout10-10k`: Measure adding a conditional
   text lookup to a 10k-row host where every row resolves 10 records from a
   10k-row source.
+- `lookup/conditional-group-text-fanout50-10k`: Measure the middle of the
+  conditional text-lookup scale curve by returning 50 matching values for every
+  row of a 10k host.
+- `lookup/conditional-group-text-fanout100-10k`: Measure a customer-like
+  high-volume conditional text lookup that returns 100 matching values for every
+  row of a 10k host.
 - `lookup/conditional-group-number-top3-10k`: Measure adding a conditional
   number lookup that selects the top three of 10 matching source rows for every
   row of a 10k host.
+- `lookup/conditional-group-number-top3-fanout50-10k`: Measure conditional
+  top-three lookup cost when each row of a 10k host sorts 50 candidates but still
+  returns only three numbers.
+- `lookup/conditional-group-number-top3-fanout100-10k`: Measure a high-volume
+  conditional top-three lookup where each row of a 10k host sorts 100 candidates
+  but returns only three numbers.
 - `lookup/conditional-group-active-text-10k`: Measure adding a conditional text
   lookup with a dynamic group condition plus a static active-state condition on a
   10k host.
+- `lookup/conditional-group-active-text-fanout50-10k`: Measure the middle of a
+  multi-condition text-lookup scale curve where half of 50 group matches remain
+  active for every row of a 10k host.
+- `lookup/conditional-group-active-text-fanout100-10k`: Measure a high-volume
+  multi-condition text lookup where half of 100 group matches remain active for
+  every row of a 10k host.
 - `rollup/conditional-group-countall-fanout10-10k`: Measure adding a conditional
   count-all rollup over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-sum-fanout10-10k`: Measure adding a conditional
@@ -159,6 +177,15 @@ workload.
 - `rollup/conditional-group-active-max-10k`: Measure adding a conditional
   maximum with dynamic group matching and a static active-state condition on a
   10k host.
+- `rollup/conditional-group-active-sum-fanout10-10k`: Measure the baseline of a
+  customer-like conditional amount sum on a 10k-row host, using dynamic group
+  matching plus an active-state condition.
+- `rollup/conditional-group-active-sum-fanout50-10k`: Measure the middle of the
+  conditional amount-sum scale curve by increasing source fanout to 50 while
+  keeping the 10k host and field configuration unchanged.
+- `rollup/conditional-group-active-sum-fanout100-10k`: Measure a customer-like
+  high-computation conditional amount sum on 110k total records without
+  reproducing the full 120k-plus customer table.
 - `rollup/conditional-group-text-top3-10k`: Measure adding a conditional text
   array-join over the top three of 10 matching source rows for every row of a 10k
   host.
@@ -239,6 +266,9 @@ workload.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
   complex mixed table with 25 stored fields, 5 formula fields, and records
   included.
+- `duplicate-table/10k-20f-selflink`: Measure duplicating a 10,000-record mixed
+  20-field table that includes a self manyMany link with records. Exercises the
+  V2 physical bulk path for self-link tables (T6156 follow-up).
 - `duplicate-base/10k-3tables-link-2workflow`: Measure duplicating a base that
   contains a 10,000-record mixed 20-field main table, a 1,000-record table linked
   to it, a 100-record small table, and 2 workflows, with records included.
