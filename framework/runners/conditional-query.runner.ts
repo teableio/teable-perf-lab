@@ -1,5 +1,5 @@
 import { FieldKeyType, FieldType, SortFunc, type IFieldRo } from "@teable/core";
-import { createField as apiCreateField } from "@teable/openapi";
+import { createField as apiCreateField, updateRecords } from "@teable/openapi";
 import {
   createRecords,
   createTable,
@@ -27,6 +27,7 @@ import {
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   ConditionalQueryCaseConfig,
+  ConditionalQueryMutationConfig,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -110,6 +111,55 @@ const fixtureFields = (
 const assertConfig = (c: ConditionalQueryCaseConfig) => {
   if (c.sourceRecordCount % c.groupCount !== 0 || rowsPerGroup(c) < 2)
     throw new Error("Grouped fanout requires an integral fanout >= 2");
+  if (!c.mutation) return;
+  if (
+    !Number.isInteger(c.mutation.recordCount) ||
+    c.mutation.recordCount <= 0 ||
+    c.mutation.recordCount % c.groupCount !== 0
+  ) {
+    throw new Error(
+      "Conditional query mutation recordCount must be a positive multiple of groupCount",
+    );
+  }
+  const slotsPerGroup = c.mutation.recordCount / c.groupCount;
+  const activeSlotsPerGroup = Math.ceil(rowsPerGroup(c) / 2);
+  if (c.mutation.kind === "text-update" && slotsPerGroup > rowsPerGroup(c)) {
+    throw new Error("Text mutation exceeds the available rows per group");
+  }
+  if (
+    c.mutation.kind !== "text-update" &&
+    slotsPerGroup > activeSlotsPerGroup
+  ) {
+    throw new Error("Active-row mutation exceeds the active rows per group");
+  }
+  if (
+    c.mutation.kind === "text-update" &&
+    !(c.field.kind === "lookup" && c.field.valueField === "text")
+  ) {
+    throw new Error("Text mutation requires a text lookup field");
+  }
+  if (
+    c.mutation.kind === "amount-update" &&
+    !(
+      c.field.kind === "rollup" &&
+      c.field.valueField === "amount" &&
+      !c.field.sort
+    )
+  ) {
+    throw new Error("Amount mutation requires an unsorted amount rollup field");
+  }
+  if (
+    c.mutation.kind === "active-flip" &&
+    !(
+      c.field.kind === "lookup" &&
+      c.field.valueField === "text" &&
+      c.field.filter === "group-and-active"
+    )
+  ) {
+    throw new Error(
+      "Active mutation requires an active-filtered text lookup field",
+    );
+  }
 };
 
 const assertFixtureReady = async (
@@ -308,44 +358,113 @@ const prepareFixture = async (
 
 const valueField = (f: ConditionalQueryCaseConfig["field"], x: FieldIds) =>
   x[f.valueField];
-const retainedValuesPerHost = (c: ConditionalQueryCaseConfig) => {
-  const filtered =
-    c.field.filter === "group"
-      ? rowsPerGroup(c)
-      : Math.ceil(rowsPerGroup(c) / 2);
+
+type ConditionalValuePhase = "seed" | "mutated";
+type ConditionalQueryPropagationCaseConfig = Extract<
+  ConditionalQueryCaseConfig,
+  { mutation: ConditionalQueryMutationConfig }
+>;
+type MutationTarget = {
+  recordId: string;
+  group: number;
+  slot: number;
+};
+
+const mutationSlotsPerGroup = (c: ConditionalQueryCaseConfig) =>
+  c.mutation ? c.mutation.recordCount / c.groupCount : 0;
+
+const isMutationTargetSlot = (slot: number, c: ConditionalQueryCaseConfig) => {
+  if (!c.mutation) return false;
+  const slots = mutationSlotsPerGroup(c);
+  return c.mutation.kind === "text-update"
+    ? slot <= slots
+    : slot % 2 === 1 && slot <= slots * 2 - 1;
+};
+
+const isActiveSlot = (
+  slot: number,
+  c: ConditionalQueryCaseConfig,
+  phase: ConditionalValuePhase,
+) =>
+  slot % 2 === 1 &&
+  !(
+    phase === "mutated" &&
+    c.mutation?.kind === "active-flip" &&
+    isMutationTargetSlot(slot, c)
+  );
+
+const textValue = (
+  group: number,
+  slot: number,
+  c: ConditionalQueryCaseConfig,
+  phase: ConditionalValuePhase,
+) => {
+  const base = `${c.generator.sourceTextPrefix}-${group}-${slot}`;
+  return phase === "mutated" &&
+    c.mutation?.kind === "text-update" &&
+    isMutationTargetSlot(slot, c)
+    ? `${base}-${c.mutation.updatedSuffix}`
+    : base;
+};
+
+const amountValue = (
+  group: number,
+  slot: number,
+  c: ConditionalQueryCaseConfig,
+  phase: ConditionalValuePhase,
+) =>
+  group * 100 +
+  slot +
+  (phase === "mutated" &&
+  c.mutation?.kind === "amount-update" &&
+  isMutationTargetSlot(slot, c)
+    ? c.mutation.amountDelta
+    : 0);
+
+const retainedValuesPerHost = (
+  c: ConditionalQueryCaseConfig,
+  phase: ConditionalValuePhase,
+) => {
+  const filtered = Array.from(
+    { length: rowsPerGroup(c) },
+    (_, i) => i + 1,
+  ).filter(
+    (slot) => c.field.filter === "group" || isActiveSlot(slot, c, phase),
+  ).length;
   return c.field.limit == null ? filtered : Math.min(filtered, c.field.limit);
 };
-const expected = (row: number, c: ConditionalQueryCaseConfig): unknown => {
+
+const expected = (
+  row: number,
+  c: ConditionalQueryCaseConfig,
+  phase: ConditionalValuePhase,
+): unknown => {
   const g = groupForHost(row, c);
   const slots = Array.from({ length: rowsPerGroup(c) }, (_, i) => i + 1).filter(
-    (s) => c.field.filter === "group" || s % 2 === 1,
+    (s) => c.field.filter === "group" || isActiveSlot(s, c, phase),
   );
   const ordered = c.field.sort?.order === "desc" ? [...slots].reverse() : slots;
   const limited = c.field.limit ? ordered.slice(0, c.field.limit) : ordered;
   if (c.field.kind === "lookup")
     return c.field.valueField === "text"
-      ? limited.map((s) => `${c.generator.sourceTextPrefix}-${g}-${s}`)
+      ? limited.map((s) => textValue(g, s, c, phase))
       : c.field.valueField === "amount"
-        ? limited.map((s) => g * 100 + s)
-        : limited.map((s) => s % 2 === 1);
+        ? limited.map((s) => amountValue(g, s, c, phase))
+        : limited.map((s) => isActiveSlot(s, c, phase));
   if (c.field.expression === "countall({values})") return limited.length;
-  const nums = limited.map((s) => g * 100 + s);
+  const nums = limited.map((s) => amountValue(g, s, c, phase));
   if (c.field.expression === "sum({values})")
     return nums.reduce((a, b) => a + b, 0);
   if (c.field.expression === "average({values})")
     return nums.reduce((a, b) => a + b, 0) / nums.length;
   if (c.field.expression === "max({values})") return Math.max(...nums);
-  return limited
-    .map((s) => `${c.generator.sourceTextPrefix}-${g}-${s}`)
-    .join(", ");
+  return limited.map((s) => textValue(g, s, c, phase)).join(", ");
 };
 
-const runCase = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const c = perfCase.config as ConditionalQueryCaseConfig;
-  const fixture = await prepareFixture(perfCase, context, c);
+const buildConditionalFieldInput = (
+  fixture: Fixture,
+  c: ConditionalQueryCaseConfig,
+): IFieldRo => {
   const sf = fixture.sourceFields;
   const field = c.field;
   const filterSet: Array<Record<string, unknown>> = [
@@ -371,87 +490,278 @@ const runCase = async (
       : {}),
     ...(field.limit ? { limit: field.limit } : {}),
   };
-  const input: IFieldRo =
-    field.kind === "lookup"
-      ? {
-          name: field.name,
-          type:
-            field.valueField === "amount"
-              ? FieldType.Number
-              : field.valueField === "active"
-                ? FieldType.Checkbox
-                : FieldType.SingleLineText,
-          isLookup: true,
-          isConditionalLookup: true,
-          lookupOptions: options,
-        }
-      : {
-          name: field.name,
-          type: FieldType.ConditionalRollup,
-          options: { ...options, expression: field.expression },
-        };
-  let createdId = "";
-  let routing: EngineRouting | undefined;
-  try {
-    const create = await withPerfTraceStep(
-      context,
-      perfCase,
-      "createConditionalField",
-      () =>
-        measureAsync("createConditionalField", async () => {
-          const response = await apiCreateField(fixture.hostTableId, input);
-          expect(response.status).toBe(201);
-          createdId = response.data.id;
-          routing = assertEngineRouting(
-            context,
-            pickRoutingResponseHeaders(
-              response.headers as Record<string, unknown>,
-            ),
-            {
-              feature: "createField",
-              operation: "Conditional query field create",
-            },
-          );
-        }),
-    );
-    const ready = await measureAsync("fullConditionalQueryScanReady", () =>
-      pollUntilReady(
+  return field.kind === "lookup"
+    ? {
+        name: field.name,
+        type:
+          field.valueField === "amount"
+            ? FieldType.Number
+            : field.valueField === "active"
+              ? FieldType.Checkbox
+              : FieldType.SingleLineText,
+        isLookup: true,
+        isConditionalLookup: true,
+        lookupOptions: options,
+      }
+    : {
+        name: field.name,
+        type: FieldType.ConditionalRollup,
+        options: { ...options, expression: field.expression },
+      };
+};
+
+const createConditionalField = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  fixture: Fixture,
+  c: ConditionalQueryCaseConfig,
+  stepName: "createConditionalField" | "setupConditionalField",
+) =>
+  withPerfTraceStep(context, perfCase, stepName, () =>
+    measureAsync(stepName, async () => {
+      const response = await apiCreateField(
+        fixture.hostTableId,
+        buildConditionalFieldInput(fixture, c),
+      );
+      expect(response.status).toBe(201);
+      return {
+        fieldId: response.data.id,
+        routing: assertEngineRouting(
+          context,
+          pickRoutingResponseHeaders(
+            response.headers as Record<string, unknown>,
+          ),
+          {
+            feature: "createField",
+            operation: "Conditional query field create",
+          },
+        ),
+      };
+    }),
+  );
+
+const scanConditionalResults = (
+  fixture: Fixture,
+  c: ConditionalQueryCaseConfig,
+  fieldId: string,
+  phase: ConditionalValuePhase,
+  description: string,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: c.verify.timeoutMs ?? 120_000,
+      pollIntervalMs: c.verify.pollIntervalMs ?? 500,
+      description,
+    },
+    async () => {
+      const seen = new Set<number>();
+      const pageSize = c.verify.fullScanPageSize ?? 1_000;
+      const scan = await forEachRecordPage(
         {
-          timeoutMs: c.verify.timeoutMs ?? 120_000,
-          pollIntervalMs: c.verify.pollIntervalMs ?? 500,
-          description: "conditional query full scan",
+          totalRows: c.hostRecordCount,
+          pageSize,
+          fetchPage: (skip, take) =>
+            getRecords(fixture.hostTableId, {
+              fieldKeyType: FieldKeyType.Id,
+              projection: [fixture.hostFields.key, fieldId],
+              skip,
+              take,
+            }),
         },
-        async () => {
-          const seen = new Set<number>();
-          const pageSize = c.verify.fullScanPageSize ?? 1_000;
-          const scan = await forEachRecordPage(
-            {
-              totalRows: c.hostRecordCount,
-              pageSize,
-              fetchPage: (skip, take) =>
-                getRecords(fixture.hostTableId, {
-                  fieldKeyType: FieldKeyType.Id,
-                  projection: [fixture.hostFields.key, createdId],
-                  skip,
-                  take,
-                }),
-            },
-            (record) => {
-              const row = Number(
-                String(record.fields[fixture.hostFields.key]).slice(
-                  `${c.generator.hostKeyPrefix}-`.length,
-                ),
-              );
-              seen.add(row);
-              expect(record.fields[createdId]).toEqual(expected(row, c));
-            },
+        (record) => {
+          const row = Number(
+            String(record.fields[fixture.hostFields.key]).slice(
+              `${c.generator.hostKeyPrefix}-`.length,
+            ),
           );
-          if (seen.size !== c.hostRecordCount)
-            throw new Error(
-              `Expected ${c.hostRecordCount} rows, got ${seen.size}`,
-            );
-          return scan;
+          seen.add(row);
+          expect(record.fields[fieldId]).toEqual(expected(row, c, phase));
         },
+      );
+      if (seen.size !== c.hostRecordCount)
+        throw new Error(`Expected ${c.hostRecordCount} rows, got ${seen.size}`);
+      return scan;
+    },
+  );
+
+const collectMutationTargets = async (
+  fixture: Fixture,
+  c: ConditionalQueryPropagationCaseConfig,
+): Promise<MutationTarget[]> => {
+  const slotsPerGroup = mutationSlotsPerGroup(c);
+  const lastTargetSlot =
+    c.mutation.kind === "text-update" ? slotsPerGroup : slotsPerGroup * 2 - 1;
+  const scanRows = lastTargetSlot * c.groupCount;
+  const targets: MutationTarget[] = [];
+  await forEachRecordPage(
+    {
+      totalRows: scanRows,
+      pageSize: c.batchSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.sourceTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.sourceFields.group],
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
+      const group = ((rowNumber - 1) % c.groupCount) + 1;
+      const slot = Math.floor((rowNumber - 1) / c.groupCount) + 1;
+      expect(record.fields[fixture.sourceFields.group]).toBe(
+        groupKey(group, c),
+      );
+      if (isMutationTargetSlot(slot, c))
+        targets.push({ recordId: record.id, group, slot });
+    },
+  );
+  if (targets.length !== c.mutation.recordCount)
+    throw new Error(
+      `Expected ${c.mutation.recordCount} mutation targets, got ${targets.length}`,
+    );
+  return targets;
+};
+
+const assertMutationTargetsRestored = async (
+  fixture: Fixture,
+  c: ConditionalQueryPropagationCaseConfig,
+) => {
+  const slotsPerGroup = mutationSlotsPerGroup(c);
+  const lastTargetSlot =
+    c.mutation.kind === "text-update" ? slotsPerGroup : slotsPerGroup * 2 - 1;
+  const mutationFieldId =
+    c.mutation.kind === "text-update"
+      ? fixture.sourceFields.text
+      : c.mutation.kind === "amount-update"
+        ? fixture.sourceFields.amount
+        : fixture.sourceFields.active;
+  let restoredTargets = 0;
+  await forEachRecordPage(
+    {
+      totalRows: lastTargetSlot * c.groupCount,
+      pageSize: c.batchSize,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.sourceTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [fixture.sourceFields.group, mutationFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record, rowNumber) => {
+      const group = ((rowNumber - 1) % c.groupCount) + 1;
+      const slot = Math.floor((rowNumber - 1) / c.groupCount) + 1;
+      if (!isMutationTargetSlot(slot, c)) return;
+      const target = { recordId: record.id, group, slot };
+      const expectedFields = mutationFields(fixture, c, target, "seed");
+      expect(record.fields[fixture.sourceFields.group]).toBe(
+        groupKey(group, c),
+      );
+      expect(record.fields[mutationFieldId]).toEqual(
+        expectedFields[mutationFieldId],
+      );
+      restoredTargets += 1;
+    },
+  );
+  expect(restoredTargets).toBe(c.mutation.recordCount);
+};
+
+const mutationFields = (
+  fixture: Fixture,
+  c: ConditionalQueryPropagationCaseConfig,
+  target: MutationTarget,
+  phase: ConditionalValuePhase,
+) => {
+  switch (c.mutation.kind) {
+    case "text-update":
+      return {
+        [fixture.sourceFields.text]: textValue(
+          target.group,
+          target.slot,
+          c,
+          phase,
+        ),
+      };
+    case "amount-update":
+      return {
+        [fixture.sourceFields.amount]: amountValue(
+          target.group,
+          target.slot,
+          c,
+          phase,
+        ),
+      };
+    case "active-flip":
+      return {
+        [fixture.sourceFields.active]: isActiveSlot(target.slot, c, phase),
+      };
+  }
+};
+
+const updatedRecordCount = (data: unknown) =>
+  Array.isArray(data)
+    ? data.length
+    : ((data as { records?: unknown[] } | undefined)?.records?.length ?? 0);
+
+const applyMutation = async (
+  fixture: Fixture,
+  c: ConditionalQueryPropagationCaseConfig,
+  targets: MutationTarget[],
+  phase: ConditionalValuePhase,
+  context?: PerfRunContext,
+) => {
+  const response = await updateRecords(fixture.sourceTableId, {
+    fieldKeyType: FieldKeyType.Id,
+    typecast: false,
+    records: targets.map((target) => ({
+      id: target.recordId,
+      fields: mutationFields(fixture, c, target, phase),
+    })),
+  });
+  const updatedRecords = updatedRecordCount(response.data as unknown);
+  expect(response.status).toBe(200);
+  expect(updatedRecords).toBe(targets.length);
+  const routing = context
+    ? assertEngineRouting(
+        context,
+        pickRoutingResponseHeaders(response.headers as Record<string, unknown>),
+        {
+          feature: "updateRecords",
+          operation: "Conditional query source record update",
+        },
+      )
+    : undefined;
+  return {
+    requestedRecords: targets.length,
+    updatedRecords,
+    batchCount: 1,
+    routing,
+  };
+};
+
+const runCreateCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  c: ConditionalQueryCaseConfig,
+  fixture: Fixture,
+): Promise<PerfRunResult> => {
+  let createdId = "";
+  try {
+    const create = await createConditionalField(
+      perfCase,
+      context,
+      fixture,
+      c,
+      "createConditionalField",
+    );
+    createdId = create.result.fieldId;
+    const ready = await measureAsync("fullConditionalQueryScanReady", () =>
+      scanConditionalResults(
+        fixture,
+        c,
+        createdId,
+        "seed",
+        "conditional query full scan",
       ),
     );
     const primary = roundMetric(create.durationMs + ready.durationMs);
@@ -498,12 +808,13 @@ const runCase = async (
         groupCount: c.groupCount,
         fanout: rowsPerGroup(c),
         groupMatchesPerHost: rowsPerGroup(c),
-        retainedValuesPerHost: retainedValuesPerHost(c),
+        retainedValuesPerHost: retainedValuesPerHost(c, "seed"),
         groupMatchPairCount: c.hostRecordCount * rowsPerGroup(c),
-        retainedValueCount: c.hostRecordCount * retainedValuesPerHost(c),
-        field,
+        retainedValueCount:
+          c.hostRecordCount * retainedValuesPerHost(c, "seed"),
+        field: c.field,
         fieldId: createdId,
-        routing,
+        routing: create.result.routing,
         fullScan: {
           scannedRecords: ready.result.scannedRecords,
           pageCount: ready.result.pageCount,
@@ -525,6 +836,205 @@ const runCase = async (
       }
     }
   }
+};
+
+const deleteFixtureTables = async (fixture: Fixture) => {
+  for (const tableId of [fixture.hostTableId, fixture.sourceTableId]) {
+    try {
+      await permanentDeleteTable(globalThis.testConfig.baseId, tableId);
+    } catch (error) {
+      console.warn(
+        `Failed to discard conditional query table ${tableId}`,
+        error,
+      );
+    }
+  }
+};
+
+const runPropagationCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  c: ConditionalQueryPropagationCaseConfig,
+  fixture: Fixture,
+): Promise<PerfRunResult> => {
+  let createdId = "";
+  let targets: MutationTarget[] = [];
+  try {
+    const setup = await createConditionalField(
+      perfCase,
+      context,
+      fixture,
+      c,
+      "setupConditionalField",
+    );
+    createdId = setup.result.fieldId;
+    const initialReady = await measureAsync("initialFullScanReady", () =>
+      scanConditionalResults(
+        fixture,
+        c,
+        createdId,
+        "seed",
+        "initial conditional query full scan",
+      ),
+    );
+    const prepareMutation = await measureAsync("prepareMutationRecords", () =>
+      collectMutationTargets(fixture, c),
+    );
+    targets = prepareMutation.result;
+    const update = await withPerfTraceStep(
+      context,
+      perfCase,
+      "updateConditionalSourceRecords",
+      () =>
+        measureAsync("updateConditionalSourceRecords", () =>
+          applyMutation(fixture, c, targets, "mutated", context),
+        ),
+    );
+    if (!update.result.routing)
+      throw new Error("Conditional query mutation routing was not captured");
+    const propagationReady = await measureAsync(
+      "propagationFullScanReady",
+      () =>
+        scanConditionalResults(
+          fixture,
+          c,
+          createdId,
+          "mutated",
+          "conditional query propagation full scan",
+        ),
+    );
+    const primary = roundMetric(
+      update.durationMs + propagationReady.durationMs,
+    );
+    const slotsPerGroup = mutationSlotsPerGroup(c);
+    return {
+      result: "pass",
+      metrics: {
+        seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+        seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+        ...(fixture.seedCacheHit ? { seedRestoreMs: 0 } : {}),
+        seedBuildMs: roundMetric(fixture.seedBuildMs),
+        maxSeedBatchMs: roundMetric(fixture.seedBatchMs),
+        seedReadyMs: roundMetric(fixture.seedReadyMs),
+        setupConditionalFieldMs: setup.durationMs,
+        initialFullScanReadyMs: initialReady.durationMs,
+        prepareMutationRecordsMs: prepareMutation.durationMs,
+        sourceUpdateRequestMs: update.durationMs,
+        propagationFullScanReadyMs: propagationReady.durationMs,
+        conditionalQueryPropagationReadyMs: primary,
+      },
+      thresholds: [
+        {
+          metric: c.threshold.metric,
+          max: getPrimaryThresholdMs(c.threshold.maxMs),
+          unit: "ms",
+        },
+      ],
+      phases: [
+        { name: setup.name, durationMs: setup.durationMs },
+        { name: initialReady.name, durationMs: initialReady.durationMs },
+        { name: prepareMutation.name, durationMs: prepareMutation.durationMs },
+        { name: update.name, durationMs: update.durationMs },
+        {
+          name: propagationReady.name,
+          durationMs: propagationReady.durationMs,
+        },
+      ],
+      details: {
+        seed: {
+          enabled: fixture.seedCacheInfo.enabled,
+          seedHash: fixture.seedCacheInfo.seedHash,
+          seedHashShort: fixture.seedCacheInfo.seedHashShort,
+          seedNamePrefix: fixture.seedCacheInfo.seedNamePrefix,
+          sourceTableName: fixture.sourceTableName,
+          hostTableName: fixture.hostTableName,
+          cacheHit: fixture.seedCacheHit,
+          reusable: fixture.reusable,
+          schemaSignature: fixture.seedCacheInfo.schemaSignature,
+        },
+        sourceTableId: fixture.sourceTableId,
+        hostTableId: fixture.hostTableId,
+        sourceRecordCount: c.sourceRecordCount,
+        hostRecordCount: c.hostRecordCount,
+        groupCount: c.groupCount,
+        fanout: rowsPerGroup(c),
+        groupMatchesPerHost: rowsPerGroup(c),
+        retainedValuesPerHostBefore: retainedValuesPerHost(c, "seed"),
+        retainedValuesPerHostAfter: retainedValuesPerHost(c, "mutated"),
+        groupMatchPairCount: c.hostRecordCount * rowsPerGroup(c),
+        mutation: {
+          ...c.mutation,
+          recordsPerGroup: slotsPerGroup,
+          affectedGroupCount: c.groupCount,
+          affectedHostRecordCount: c.hostRecordCount,
+          changedInputValueCount: c.mutation.recordCount,
+          affectedMatchContributionCount: c.hostRecordCount * slotsPerGroup,
+          updateRequestCount: update.result.batchCount,
+          requestedRecords: update.result.requestedRecords,
+          updatedRecords: update.result.updatedRecords,
+        },
+        request: {
+          method: "PATCH",
+          path: `/api/table/${fixture.sourceTableId}/record`,
+          fieldKeyType: "id",
+          typecast: false,
+          recordCount: c.mutation.recordCount,
+          requestCount: update.result.batchCount,
+        },
+        field: c.field,
+        fieldId: createdId,
+        setupRouting: setup.result.routing,
+        routing: update.result.routing,
+        initialFullScan: {
+          scannedRecords: initialReady.result.scannedRecords,
+          pageCount: initialReady.result.pageCount,
+        },
+        fullScan: {
+          scannedRecords: propagationReady.result.scannedRecords,
+          pageCount: propagationReady.result.pageCount,
+        },
+      },
+    };
+  } finally {
+    if (createdId) {
+      try {
+        await deleteField(fixture.hostTableId, createdId);
+      } catch (error) {
+        console.warn(
+          `Failed to delete propagation field ${createdId} during cleanup`,
+          error,
+        );
+      }
+    }
+    if (targets.length) {
+      try {
+        await applyMutation(fixture, c, targets, "seed");
+        await assertMutationTargetsRestored(fixture, c);
+      } catch (error) {
+        console.warn(
+          "Failed to restore conditional query mutation seed; discarding fixture",
+          error,
+        );
+        await deleteFixtureTables(fixture);
+      }
+    }
+  }
+};
+
+const runCase = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+): Promise<PerfRunResult> => {
+  const c = perfCase.config as ConditionalQueryCaseConfig;
+  const fixture = await prepareFixture(perfCase, context, c);
+  return c.mutation
+    ? runPropagationCase(
+        perfCase,
+        context,
+        c as ConditionalQueryPropagationCaseConfig,
+        fixture,
+      )
+    : runCreateCase(perfCase, context, c, fixture);
 };
 
 export const seedConditionalQueryCase = (
