@@ -4,9 +4,18 @@ import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
+import conditionalLookupGroupActiveTextFanout50_10kCase from "./cases/lookup/conditional-group-active-text-fanout50-10k.case";
+import conditionalLookupGroupActiveTextFanout100_10kCase from "./cases/lookup/conditional-group-active-text-fanout100-10k.case";
 import conditionalLookupGroupNumberTop3_10kCase from "./cases/lookup/conditional-group-number-top3-10k.case";
+import conditionalLookupGroupNumberTop3Fanout50_10kCase from "./cases/lookup/conditional-group-number-top3-fanout50-10k.case";
+import conditionalLookupGroupNumberTop3Fanout100_10kCase from "./cases/lookup/conditional-group-number-top3-fanout100-10k.case";
 import conditionalLookupGroupTextFanout10_10kCase from "./cases/lookup/conditional-group-text-fanout10-10k.case";
+import conditionalLookupGroupTextFanout50_10kCase from "./cases/lookup/conditional-group-text-fanout50-10k.case";
+import conditionalLookupGroupTextFanout100_10kCase from "./cases/lookup/conditional-group-text-fanout100-10k.case";
 import conditionalRollupGroupActiveMax10kCase from "./cases/rollup/conditional-group-active-max-10k.case";
+import conditionalRollupGroupActiveSumFanout10_10kCase from "./cases/rollup/conditional-group-active-sum-fanout10-10k.case";
+import conditionalRollupGroupActiveSumFanout50_10kCase from "./cases/rollup/conditional-group-active-sum-fanout50-10k.case";
+import conditionalRollupGroupActiveSumFanout100_10kCase from "./cases/rollup/conditional-group-active-sum-fanout100-10k.case";
 import conditionalRollupGroupAverageFanout10_10kCase from "./cases/rollup/conditional-group-average-fanout10-10k.case";
 import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/conditional-group-countall-fanout10-10k.case";
 import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditional-group-sum-fanout10-10k.case";
@@ -75,12 +84,21 @@ const cases = [
   conditionalLookup10kCase,
   conditionalRollup10kCase,
   conditionalLookupGroupTextFanout10_10kCase,
+  conditionalLookupGroupTextFanout50_10kCase,
+  conditionalLookupGroupTextFanout100_10kCase,
   conditionalLookupGroupNumberTop3_10kCase,
+  conditionalLookupGroupNumberTop3Fanout50_10kCase,
+  conditionalLookupGroupNumberTop3Fanout100_10kCase,
   conditionalLookupGroupActiveText10kCase,
+  conditionalLookupGroupActiveTextFanout50_10kCase,
+  conditionalLookupGroupActiveTextFanout100_10kCase,
   conditionalRollupGroupCountallFanout10_10kCase,
   conditionalRollupGroupSumFanout10_10kCase,
   conditionalRollupGroupAverageFanout10_10kCase,
   conditionalRollupGroupActiveMax10kCase,
+  conditionalRollupGroupActiveSumFanout10_10kCase,
+  conditionalRollupGroupActiveSumFanout50_10kCase,
+  conditionalRollupGroupActiveSumFanout100_10kCase,
   conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
   dualLinkComputedRepoint2kCase,
