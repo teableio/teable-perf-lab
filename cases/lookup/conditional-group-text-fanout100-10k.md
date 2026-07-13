@@ -17,7 +17,7 @@ Create a 100k-row source and a 10k-row host. The source has 1,000 groups with 10
 
 ## Execute Phase
 
-Match `A Group` to the current row's `B Lookup Group`, sort by `A Amount`, create a conditional lookup that returns all 100 `A Text` values, and verify every host result.
+Match `A Group` to the current row's `Lookup Group`, sort by `A Amount`, create a conditional lookup that returns all 100 `A Text` values, and verify every host result.
 
 The workload contains 1,000,000 group-match pairs and returns 1,000,000 text values across the host table.
 
