@@ -814,7 +814,10 @@ export interface TableCreateCaseConfig {
     titlePrefix: string;
   };
   threshold: {
-    metric: "createTables10xTotalMs" | "createTable1x1kRecordsMs";
+    metric:
+      | "createTables10xTotalMs"
+      | "createTable1x1kRecordsMs"
+      | "createTable1x5kRecordsMs";
     maxMs: number;
   };
 }
@@ -962,7 +965,9 @@ export interface RecordUpdateAttachmentCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "bulkUpdate100AttachmentCellsP95Ms";
+    metric:
+      | "bulkUpdate100AttachmentCellsP95Ms"
+      | "bulkUpdate1kAttachmentCellsP95Ms";
     maxMs: number;
   };
 }
