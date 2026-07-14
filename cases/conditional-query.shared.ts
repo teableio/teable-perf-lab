@@ -39,3 +39,9 @@ export const groupedConditionalQueryFanout100Host30kBase = {
   hostTableNamePrefix: "perf-conditional-query-host-30k-fanout100",
   hostRecordCount: 30_000,
 } satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
+
+export const groupedConditionalQueryFanout100Host20kBase = {
+  ...groupedConditionalQueryFanout100Base,
+  hostTableNamePrefix: "perf-conditional-query-host-20k-fanout100",
+  hostRecordCount: 20_000,
+} satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
