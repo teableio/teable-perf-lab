@@ -170,6 +170,7 @@ const prepareFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   c: ConditionalQueryCaseConfig,
+  uncachedSourceTableName?: string,
 ): Promise<Fixture> => {
   const workload = createConditionalQueryWorkload(c);
   const seedCase = { ...perfCase, id: SHARED_SEED_ID };
@@ -190,12 +191,25 @@ const prepareFixture = async (
     ],
   });
   const timestamp = Date.now();
+  const expectedSourcePrefix = `${c.sourceTableNamePrefix}-`;
+  if (
+    uncachedSourceTableName != null &&
+    !uncachedSourceTableName.startsWith(expectedSourcePrefix)
+  ) {
+    throw new Error(
+      `Conditional query source table name must start with ${expectedSourcePrefix}`,
+    );
+  }
+  const uncachedNameSuffix =
+    uncachedSourceTableName?.slice(expectedSourcePrefix.length) ??
+    String(timestamp);
   const sourceTableName = seedCacheInfo.enabled
     ? buildSeedTableName(seedCacheInfo, "source")
-    : `${c.sourceTableNamePrefix}-${timestamp}`;
+    : (uncachedSourceTableName ??
+      `${c.sourceTableNamePrefix}-${uncachedNameSuffix}`);
   const hostTableName = seedCacheInfo.enabled
     ? buildSeedTableName(seedCacheInfo, "host")
-    : `${c.hostTableNamePrefix}-${timestamp}`;
+    : `${c.hostTableNamePrefix}-${uncachedNameSuffix}`;
   const [cachedSource, cachedHost] = seedCacheInfo.enabled
     ? await Promise.all([
         findSeedTable(globalThis.testConfig.baseId, sourceTableName),
@@ -891,8 +905,8 @@ const conditionalQueryPropagationSpec: RecordMutationLifecycleSpec<
   ConditionalPropagationPrimary
 > = {
   resolveTableNamePrefix: (config) => config.sourceTableNamePrefix,
-  prepareFixture: async ({ perfCase, context, config }) => ({
-    fixture: await prepareFixture(perfCase, context, config),
+  prepareFixture: async ({ perfCase, context, config, tableName }) => ({
+    fixture: await prepareFixture(perfCase, context, config, tableName),
     createdFieldId: "",
     targets: [],
   }),
