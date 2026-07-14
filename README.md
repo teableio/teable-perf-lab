@@ -150,9 +150,24 @@ workload.
 - `lookup/conditional-group-text-fanout100-10k`: Measure a customer-like
   high-volume conditional text lookup that returns 100 matching values for every
   row of a 10k host.
+- `lookup/conditional-group-text-update-1k-fanout10-10k`: Measure conditional
+  text-lookup propagation when each of 10,000 host rows resolves 10 source values
+  and 1,000 source values change.
+- `lookup/conditional-group-text-update-1k-fanout50-10k`: Measure conditional
+  text-lookup propagation when each of 10,000 host rows resolves 50 source values
+  and 1,000 source values change.
 - `lookup/conditional-group-text-update-1k-fanout100-10k`: Measure how long a
   populated conditional text lookup takes to become fully correct after 1,000
   source values change.
+- `lookup/conditional-group-text-update-1k-fanout100-limit10-10k`: Measure
+  propagation when every host row sorts 100 matching source records but stores
+  only the first 10 text values after a source update.
+- `lookup/conditional-group-text-update-1k-fanout100-limit50-10k`: Measure
+  propagation when every host row sorts 100 matching source records but stores
+  only the first 50 text values after a source update.
+- `lookup/conditional-group-text-update-1k-fanout100-20k`: Measure conditional
+  text-lookup propagation when the same 1,000-record source update invalidates a
+  20,000-row host.
 - `lookup/conditional-group-text-update-1k-fanout100-30k`: Measure conditional
   text-lookup propagation when the same 1,000-record bulk update fans out across
   a 30,000-row host.
@@ -197,9 +212,18 @@ workload.
 - `rollup/conditional-group-active-sum-fanout100-10k`: Measure a customer-like
   high-computation conditional amount sum on 110k total records without
   reproducing the full 120k-plus customer table.
+- `rollup/conditional-group-active-sum-update-1k-fanout10-10k`: Measure
+  conditional sum propagation when each of 10,000 host rows aggregates five
+  active values from 10 group matches and 1,000 source amounts change.
+- `rollup/conditional-group-active-sum-update-1k-fanout50-10k`: Measure
+  conditional sum propagation when each of 10,000 host rows aggregates 25 active
+  values from 50 group matches and 1,000 source amounts change.
 - `rollup/conditional-group-active-sum-update-1k-fanout100-10k`: Measure how
   long an existing conditional sum takes to recompute after 1,000 active source
   amounts change.
+- `rollup/conditional-group-active-sum-update-1k-fanout100-20k`: Measure
+  conditional sum propagation when the same 1,000-record source update
+  invalidates 20,000 host aggregates.
 - `rollup/conditional-group-active-sum-update-1k-fanout100-30k`: Measure
   conditional sum propagation when the same 1,000 amount changes invalidate
   30,000 host aggregates.
