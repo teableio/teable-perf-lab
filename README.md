@@ -255,6 +255,12 @@ workload.
 - `search/search-index-on-10k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 10k-row host table whose
   `TableIndex.search` is enabled.
+- `search/search-index-off-50k-20search-fields`: Measure global
+  `aggregation/search-index` latency on the 50k-row host table whose
+  `TableIndex.search` is disabled.
+- `search/search-index-on-50k-20search-fields`: Measure global
+  `aggregation/search-index` latency on the 50k-row host table whose
+  `TableIndex.search` is enabled.
 - `field-create/10k-create-5-simple-fields`: Measure create-request latency for
   adding 5 simple fields to a 10,000-record table. This case is paired with
   `field-create/10k-create-5-formula-fields` to compare whether the request
@@ -320,6 +326,9 @@ workload.
 - `import-base/v2-only-simple-1x1k-table-stream`: Measure importing a simple
   `.tea` base file through the V2 product SSE progress path when the imported
   base contains one independent 1,000-record table.
+- `import-base/v2-only-simple-1x10k-table-stream`: Measure importing a simple
+  `.tea` base file through the V2 product SSE progress path when the imported
+  base contains one independent 10,000-record table.
 - `import-base/v2-only-complex-3x10k-3tables-2workflow-stream`: Measure
   importing a more complex `.tea` base file through the V2 product SSE progress
   path when the imported base contains three independent 10,000-record tables and
@@ -338,6 +347,9 @@ workload.
   create one mixed 20-field table whose `POST /api/base/{baseId}/table` request
   body carries **1,000 inline records**, so the measured cost includes the record
   insertion that the no-records variant deliberately excludes.
+- `table-create/1x-20f-5k-records`: Scale `table-create/1x-20f-1k-records` by
+  5x: create one mixed 20-field table whose measured request carries 5,000
+  deterministic inline records.
 - `table-delete/10k-20f`: Measure repeated archive-to-trash requests for 10
   independent 10,000-record mixed 20-field tables in one run.
 - `table-delete/10k-20f-link-detach`: The data-scaling path of `deleteTable`:
@@ -412,6 +424,9 @@ workload.
   references into 100 existing records. This isolates attachment payload
   validation and attachment cell serialization from the scalar bulk-update path,
   matching the product action of attaching files to many records at once.
+- `record-update/attachment-insert-1k`: Measure bulk insertion of two attachment
+  references into 1,000 existing records, providing a higher-signal sibling to
+  the 100-record attachment case.
 - `record-update/1k-link-cells-bulk-update`: Measure bulk editing of 1,000
   many-one link cells. Updating link cells stresses link-target resolution,
   relationship writes, and link display-value refresh differently from the scalar
