@@ -64,12 +64,17 @@ surface is a red flag.
 
 ### 1. Registry Dispatch
 
-Goal: one dispatch table maps each `PerfRunnerKind` to `{ execute, seed }`.
+Goal: one canonical typed inventory maps each `PerfRunnerKind` to its
+runner-specific `{ execute, seed }` operations and lifecycle/direct metadata.
 
 Rules:
 
 - One table entry per runner kind, no more and no less.
+- Runner exports accept `PerfCaseFor<"runner-kind">`; pairing an execute or seed
+  handler with the wrong inventory key must fail `pnpm check:types`.
 - Execute and seed callers look up the table; they do not keep runner switches.
+- The unavoidable dynamic narrowing stays inside `runner-registry.ts`; callers
+  cross only `executeRegisteredRunner` or `seedRegisteredRunner`.
 - Legacy entries call the exact same functions with the exact same arguments as
   the old switch arms.
 - Seedless entries return the same skipped result shape every time.
@@ -81,6 +86,10 @@ Proof:
 - `pnpm check` passes.
 - Execute and seed dispatch files contain no runner switch.
 - Registry coverage matches the `PerfRunnerKind` union exactly.
+- The negative type check wires the real formula handler into the HTTP slot and
+  proves the mismatch fails compilation.
+- `tasks/runner-migration-tracker.md` is projected from the inventory and current
+  registered cases by `pnpm sync:readme`; `pnpm check:readme` catches drift.
 - For pure dispatch changes, old switch arms and registry entries are equivalent:
   same kind, same function, same arguments, same skipped result objects.
 - Run at least one seedful runner and one seedless runner when the dispatch
@@ -185,6 +194,13 @@ Proof:
 ### 5. G2 Contract Checks
 
 Goal: make source-level framework contract drift fail in `pnpm check`.
+
+Status: BUILT for runner/config dispatch and lifecycle metadata.
+`PerfCaseFor<K>` carries the config relationship into runner exports and the
+canonical inventory. `framework/runner-inventory.type-test.ts` contains the
+wrong-handler negative check, while the inventory's mapped type requires every
+runner kind and a non-empty driver tuple for lifecycle entries. The generated
+migration tracker is checked by `check:readme`.
 
 Target failures:
 

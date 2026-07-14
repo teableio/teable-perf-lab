@@ -58,12 +58,26 @@ export type RecordMutationLifecycleBuildResultArgs<
   error?: unknown;
 };
 
+type RecordMutationTableNameContract<TConfig> = [TConfig] extends [
+  { tableNamePrefix: string },
+]
+  ? {
+      // Traditional mutation configs already carry the lifecycle's conventional
+      // name, but may still override how it is resolved.
+      resolveTableNamePrefix?: (config: TConfig) => string;
+    }
+  : {
+      // Domain configs without the conventional property must declare the seam
+      // explicitly; omitting both is a compile-time error.
+      resolveTableNamePrefix: (config: TConfig) => string;
+    };
+
 export type RecordMutationLifecycleSpec<
-  TConfig extends RecordMutationLifecycleConfig,
+  TConfig extends object,
   TFixture,
   TSeedReady,
   TPrimary,
-> = {
+> = RecordMutationTableNameContract<TConfig> & {
   // When true the measured operation runs inside withRecordWindowId so the
   // mutation is grouped under one record window id (record-update). Omit for
   // runners that have no window (record-create).
@@ -116,8 +130,26 @@ export type RecordMutationLifecycleSpec<
   }) => Promise<void>;
 };
 
+const resolveTableNamePrefix = <
+  TConfig extends object,
+  TFixture,
+  TSeedReady,
+  TPrimary,
+>(
+  config: TConfig,
+  spec: RecordMutationLifecycleSpec<TConfig, TFixture, TSeedReady, TPrimary>,
+) => {
+  const prefix =
+    spec.resolveTableNamePrefix?.(config) ??
+    (config as { tableNamePrefix?: unknown }).tableNamePrefix;
+  if (typeof prefix !== "string" || !prefix) {
+    throw new Error("Record mutation lifecycle requires a table name prefix");
+  }
+  return prefix;
+};
+
 export const seedRecordMutationLifecycle = async <
-  TConfig extends RecordMutationLifecycleConfig,
+  TConfig extends object,
   TFixture,
   TSeedReady,
   TPrimary,
@@ -128,7 +160,7 @@ export const seedRecordMutationLifecycle = async <
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as unknown as TConfig;
   const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
+  const tableName = `${resolveTableNamePrefix(config, spec)}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
     spec.prepareFixture({ baseId, tableName, config, perfCase, context }),
   );
@@ -152,7 +184,7 @@ export const seedRecordMutationLifecycle = async <
 };
 
 export const runRecordMutationLifecycle = async <
-  TConfig extends RecordMutationLifecycleConfig,
+  TConfig extends object,
   TFixture,
   TSeedReady,
   TPrimary,
@@ -163,7 +195,7 @@ export const runRecordMutationLifecycle = async <
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as unknown as TConfig;
   const baseId = globalThis.testConfig.baseId;
-  const tableName = `${config.tableNamePrefix}-${Date.now()}`;
+  const tableName = `${resolveTableNamePrefix(config, spec)}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);
   let prepareMeasurement: Measurement<TFixture> | undefined;
   let seedReadyMeasurement: Measurement<TSeedReady> | undefined;

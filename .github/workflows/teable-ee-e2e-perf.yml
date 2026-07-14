@@ -43,7 +43,10 @@ permissions:
   actions: write
 
 concurrency:
-  group: teable-ee-e2e-perf-${{ github.ref }}-${{ inputs.case_filter }}
+  # A comma-separated case list can exceed GitHub's 256-character concurrency
+  # key limit before any job starts. Keep single-case keys descriptive and
+  # collapse multi-case runs to one bounded key per ref.
+  group: teable-ee-e2e-perf-${{ github.ref }}-${{ contains(inputs.case_filter, ',') && 'multi-case' || inputs.case_filter }}
   cancel-in-progress: false
 
 env:

@@ -1,59 +1,21 @@
 import { dirname, join } from "node:path";
 import {
-  compactTraceManifest,
-  jsonText,
-  numberOrUndefined,
   readArtifactPayloads,
   readJsonFileIfExists,
   readTextFileIfExists,
   resolvePrimaryTraceUrl,
   sanitizeCaseId,
-  stringOrUndefined,
   summaryMarkdownName,
 } from "./perf-artifact-read-model.mjs";
+import {
+  buildPerformanceTrackResultRecord,
+  createPerformanceTrackRecordModule,
+  createTeablePerformanceTrackAdapter,
+} from "./performance-track-record-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
 const DEFAULT_TABLE_ID = "tblwPqrcchUzvyEOqLo";
-
-const REQUIRED_FIELD_NAMES = [
-  "Run Key",
-  "Run ID",
-  "Run Attempt",
-  "Job ID",
-  "Workflow",
-  "Teable EE Ref",
-  "Commit SHA",
-  "Case ID",
-  "Case Title",
-  "Engine",
-  "Result",
-  "Started At",
-  "Finished At",
-  "Duration Ms",
-  "Threshold Passed",
-  "Primary Metric",
-  "Primary Metric Value",
-  "Primary Threshold",
-  "Trace Ref Count",
-  "Saved Trace Count",
-  "Failed Trace Count",
-  "Artifact Name",
-  "Artifact URL",
-  "Run URL",
-  "Trace URL",
-  "Manifest Path",
-  "Metrics JSON",
-  "Thresholds JSON",
-  "Phases JSON",
-  "Trace Manifest JSON",
-  "Summary Markdown",
-  "Error",
-];
-
-const FIELD_IDS = {
-  "Run Key": "fldBtUJjGxgsPWsqLua",
-};
 
 const env = (name, fallback = "") => process.env[name] ?? fallback;
 
@@ -216,95 +178,6 @@ const teableRequest = async ({ endpoint, token, method, path, body }) => {
   }
 };
 
-const getFields = async ({ endpoint, token, tableId }) =>
-  teableRequest({
-    endpoint,
-    token,
-    method: "GET",
-    path: `/table/${tableId}/field`,
-  });
-
-const ensureFields = async ({ endpoint, token, tableId }) => {
-  const fields = await getFields({ endpoint, token, tableId });
-  const names = new Set((fields ?? []).map((field) => field.name));
-  const missing = REQUIRED_FIELD_NAMES.filter((name) => !names.has(name));
-  if (missing.length > 0) {
-    throw new Error(`Missing Teable report fields: ${missing.join(", ")}`);
-  }
-};
-
-const findExistingRecordId = async ({ endpoint, token, tableId, runKey }) => {
-  const params = new URLSearchParams({
-    fieldKeyType: "name",
-    take: "1",
-    projection: "Run Key",
-    filter: JSON.stringify({
-      conjunction: "and",
-      filterSet: [
-        {
-          fieldId: FIELD_IDS["Run Key"],
-          operator: "is",
-          value: runKey,
-        },
-      ],
-    }),
-  });
-
-  const data = await teableRequest({
-    endpoint,
-    token,
-    method: "GET",
-    path: `/table/${tableId}/record?${params.toString()}`,
-  });
-
-  const record = data?.records?.find(
-    (item) => item.fields?.["Run Key"] === runKey,
-  );
-  return record?.id;
-};
-
-const upsertRecord = async ({ endpoint, token, tableId, runKey, fields }) => {
-  const existingRecordId = await findExistingRecordId({
-    endpoint,
-    token,
-    tableId,
-    runKey,
-  });
-
-  if (existingRecordId) {
-    await teableRequest({
-      endpoint,
-      token,
-      method: "PATCH",
-      path: `/table/${tableId}/record`,
-      body: {
-        fieldKeyType: "name",
-        typecast: true,
-        records: [{ id: existingRecordId, fields }],
-      },
-    });
-    return { action: "updated", recordId: existingRecordId };
-  }
-
-  const data = await teableRequest({
-    endpoint,
-    token,
-    method: "POST",
-    path: `/table/${tableId}/record`,
-    body: {
-      fieldKeyType: "name",
-      typecast: true,
-      records: [{ fields }],
-    },
-  });
-  return { action: "created", recordId: data?.records?.[0]?.id };
-};
-
-const compactFields = (fields) =>
-  Object.fromEntries(
-    Object.entries(fields).filter(([, value]) => value !== undefined),
-  );
-
 const buildReportFields = async ({
   caseId,
   payload,
@@ -313,14 +186,7 @@ const buildReportFields = async ({
   artifactName,
 }) => {
   const runId = env("GITHUB_RUN_ID");
-  const runAttempt = numberOrUndefined(env("GITHUB_RUN_ATTEMPT"));
   const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
-  const runKey = [
-    runId || payload.runId,
-    env("GITHUB_RUN_ATTEMPT") || "0",
-    payload.caseId,
-    engine,
-  ].join("-");
   const runUrl = buildRunUrl();
   const resolvedArtifactName =
     artifactName ||
@@ -344,14 +210,6 @@ const buildReportFields = async ({
     artifactName: resolvedArtifactName,
     runUrl,
   });
-  const thresholds = Array.isArray(payload.thresholds)
-    ? payload.thresholds
-    : [];
-  const primaryThreshold = thresholds[0];
-  const traces = payload.details?.observability?.traces ?? {};
-  const traceManifestPath =
-    stringOrUndefined(traces.manifestPath) ||
-    stringOrUndefined(traceManifest?.manifestPath);
   const traceUrl = resolvePrimaryTraceUrl({
     payload,
     traceManifest,
@@ -359,48 +217,24 @@ const buildReportFields = async ({
       env("TRACE_LINK_BASE_URL") || env("PERF_LAB_JAEGER_API_BASE_URL"),
   });
 
-  return {
-    runKey,
-    fields: compactFields({
-      "Run Key": runKey,
-      "Run ID": stringOrUndefined(runId || payload.runId),
-      "Run Attempt": runAttempt,
-      "Job ID": stringOrUndefined(
-        env("PERF_LAB_JOB_ID") || env("GITHUB_JOB") || env("CI_JOB_ID"),
-      ),
-      Workflow: stringOrUndefined(env("GITHUB_WORKFLOW")),
-      "Teable EE Ref": stringOrUndefined(env("PERF_LAB_TEABLE_EE_REF")),
-      "Commit SHA": stringOrUndefined(env("GITHUB_SHA")),
-      "Case ID": stringOrUndefined(payload.caseId),
-      "Case Title": stringOrUndefined(payload.title),
-      Engine: stringOrUndefined(engine),
-      Result: stringOrUndefined(payload.result),
-      "Started At": stringOrUndefined(payload.startedAt),
-      "Finished At": stringOrUndefined(payload.finishedAt),
-      "Duration Ms": numberOrUndefined(payload.durationMs),
-      "Threshold Passed":
-        thresholds.length > 0
-          ? thresholds.every((threshold) => threshold.passed)
-          : undefined,
-      "Primary Metric": stringOrUndefined(primaryThreshold?.metric),
-      "Primary Metric Value": numberOrUndefined(primaryThreshold?.actual),
-      "Primary Threshold": numberOrUndefined(primaryThreshold?.max),
-      "Trace Ref Count": numberOrUndefined(traces.traceRefCount),
-      "Saved Trace Count": numberOrUndefined(traces.savedTraceCount),
-      "Failed Trace Count": numberOrUndefined(traces.failedTraceCount),
-      "Artifact Name": stringOrUndefined(resolvedArtifactName),
-      "Artifact URL": stringOrUndefined(artifactUrl),
-      "Run URL": stringOrUndefined(runUrl),
-      "Trace URL": stringOrUndefined(traceUrl),
-      "Manifest Path": stringOrUndefined(traceManifestPath),
-      "Metrics JSON": jsonText(payload.metrics),
-      "Thresholds JSON": jsonText(payload.thresholds),
-      "Phases JSON": jsonText(payload.phases),
-      "Trace Manifest JSON": jsonText(compactTraceManifest(traceManifest)),
-      "Summary Markdown": summaryMarkdown,
-      Error: payload.error ? jsonText(payload.error) : undefined,
-    }),
-  };
+  return buildPerformanceTrackResultRecord({
+    payload,
+    traceManifest,
+    summaryMarkdown,
+    context: {
+      runId,
+      runAttempt: env("GITHUB_RUN_ATTEMPT"),
+      engine,
+      jobId: env("PERF_LAB_JOB_ID") || env("GITHUB_JOB") || env("CI_JOB_ID"),
+      workflow: env("GITHUB_WORKFLOW"),
+      teableEeRef: env("PERF_LAB_TEABLE_EE_REF"),
+      commitSha: env("GITHUB_SHA"),
+      artifactName: resolvedArtifactName,
+      artifactUrl,
+      runUrl,
+      traceUrl,
+    },
+  });
 };
 
 const main = async () => {
@@ -421,7 +255,14 @@ const main = async () => {
     buildMissingPayload,
   });
 
-  await ensureFields({ endpoint, token, tableId });
+  const performanceTrack = createPerformanceTrackRecordModule(
+    createTeablePerformanceTrackAdapter({
+      tableId,
+      request: ({ method, path, body }) =>
+        teableRequest({ endpoint, token, method, path, body }),
+    }),
+  );
+  await performanceTrack.assertContract();
 
   const reportPayloads = payloads.filter(
     ({ payload }) => payload.engine !== "seed",
@@ -457,13 +298,7 @@ const main = async () => {
       artifactName: env("PERF_LAB_ARTIFACT_NAME") || artifactName,
     });
 
-    const result = await upsertRecord({
-      endpoint,
-      token,
-      tableId,
-      runKey,
-      fields,
-    });
+    const result = await performanceTrack.upsertResult({ fields });
 
     console.log(
       `Teable perf report ${result.action}: ${result.recordId ?? "(unknown record id)"}`,

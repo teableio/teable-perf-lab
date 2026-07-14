@@ -63,17 +63,21 @@ interface PerfCaseBase {
   runtimeEnv?: Record<string, string | number | boolean>;
 }
 
+// A runner-specific view of a perf case. Keeping this relationship named lets
+// the dispatch seam carry the runner literal and its config together instead
+// of widening both back to the full PerfCase union.
+export type PerfCaseFor<K extends PerfRunnerKind> = {
+  [P in K]: PerfCaseBase & {
+    runner: P;
+    config: PerfCaseConfigByRunner[P];
+  };
+}[K];
+
 // Discriminated on `runner`: each runner literal binds to its matching config
 // from PerfCaseConfigByRunner, so a case that pairs the wrong two does not
-// type-check. The union still exposes the same `runner`/`config`/base fields to
-// generic framework code (run-perf-case, artifacts), which reads them without
-// narrowing.
-export type PerfCase = {
-  [K in PerfRunnerKind]: PerfCaseBase & {
-    runner: K;
-    config: PerfCaseConfigByRunner[K];
-  };
-}[PerfRunnerKind];
+// type-check. Generic framework code can use the full union, while dispatch
+// code narrows through PerfCaseFor<K> without losing that relationship.
+export type PerfCase = PerfCaseFor<PerfRunnerKind>;
 
 export interface PerfRunContext {
   app: INestApplication;

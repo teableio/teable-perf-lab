@@ -29,6 +29,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -1457,13 +1458,13 @@ const recordReadSpec: ReadLifecycleSpec<
 };
 
 export const runRecordReadCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-read">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runReadLifecycle(perfCase, context, recordReadSpec);
 
 export const seedRecordReadCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-read">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedReadLifecycle(perfCase, context, recordReadSpec);

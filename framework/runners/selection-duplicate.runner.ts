@@ -11,6 +11,7 @@ import { assertEngineRouting } from "../routing";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -367,13 +368,13 @@ const selectionDuplicateSpec: RecordDuplicateSpec<
 };
 
 export const runSelectionDuplicateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"selection-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordDuplicateLifecycle(perfCase, context, selectionDuplicateSpec);
 
 export const seedSelectionDuplicateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"selection-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordDuplicateLifecycle(perfCase, context, selectionDuplicateSpec);

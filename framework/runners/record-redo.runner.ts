@@ -1,5 +1,10 @@
 import { measureAsync } from "../metrics";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { runRecordReplayLifecycle } from "./record-replay-lifecycle";
 import {
   assertDeleted,
@@ -14,7 +19,7 @@ import {
 // redo has something to replay. Measured operation: redo via the redo-stream.
 // Verify the rows are deleted again.
 export const runRecordRedoCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-redo">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordReplayLifecycle(perfCase, context, {

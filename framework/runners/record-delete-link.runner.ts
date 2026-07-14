@@ -2,6 +2,7 @@ import { FieldKeyType } from "@teable/core";
 import { getRecords } from "../../../utils/init-app";
 import { getPrimaryThresholdMs } from "../env";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -176,7 +177,7 @@ const buildDeleteLinkResult = ({
 };
 
 export const runRecordDeleteLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-delete-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordDeleteLinkLifecycle(perfCase, context, {
@@ -189,7 +190,7 @@ export const runRecordDeleteLinkCase = async (
   });
 
 export const seedRecordDeleteLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-delete-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedTableLinkLifecycleCase(perfCase, context, "record-delete-link");

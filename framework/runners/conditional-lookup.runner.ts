@@ -32,6 +32,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   ConditionalComputedSeedConfig,
   ConditionalLookupCaseConfig,
   ConditionalLookupSharedConfig,
@@ -1431,13 +1432,13 @@ const conditionalLookupFieldAddSpec: FieldAddLifecycleSpec<
 };
 
 export const seedConditionalLookupCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"conditional-lookup">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldAddLifecycle(perfCase, context, conditionalLookupFieldAddSpec);
 
 export const runConditionalLookupCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"conditional-lookup">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldAddLifecycle(perfCase, context, conditionalLookupFieldAddSpec);

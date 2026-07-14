@@ -1,4 +1,9 @@
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { runRecordReplayLifecycle } from "./record-replay-lifecycle";
 import { assertDeleted, deleteAllRowsByEngine } from "./record-replay.shared";
 
@@ -7,7 +12,7 @@ import { assertDeleted, deleteAllRowsByEngine } from "./record-replay.shared";
 // by range (DELETE /selection/delete), V2 deletes by id (POST
 // /selection/delete-by-id). No setup phases. Verify that no records remain.
 export const runRecordDeleteCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-delete">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordReplayLifecycle(perfCase, context, {

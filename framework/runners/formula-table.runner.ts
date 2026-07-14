@@ -25,6 +25,7 @@ import {
 } from "../sample-records";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FormulaFieldCaseConfig,
   FormulaExpectedKind,
   FormulaTableCaseConfig,
@@ -1182,13 +1183,13 @@ const formulaTableFieldAddSpec: FieldAddLifecycleSpec<
 };
 
 export const seedFormulaTableCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"formula-table">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldAddLifecycle(perfCase, context, formulaTableFieldAddSpec);
 
 export const runFormulaTableCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"formula-table">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldAddLifecycle(perfCase, context, formulaTableFieldAddSpec);

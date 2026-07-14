@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
-import { normalizeTraceStepShape } from "./trace-classification";
+import { createTraceEvidencePolicy } from "./trace-evidence-policy";
 import type { PerfCase, PerfRunContext } from "./types";
 
 type HeaderBag = Record<string, unknown> & {
@@ -372,18 +372,6 @@ const uniqueTraceRefsForRun = (perfCase: PerfCase, engine: string) =>
     (ref) => ref.caseId === perfCase.id && ref.engine === engine,
   );
 
-const parseTraceStepPatterns = (value: unknown) => {
-  if (typeof value !== "string" || value.trim() === "") {
-    return [];
-  }
-
-  return value
-    .split(",")
-    .map((pattern) => pattern.trim())
-    .filter(Boolean)
-    .map((pattern) => new RegExp(pattern));
-};
-
 // Trace step patterns may be scoped to one engine: an engine-suffixed key
 // (e.g. PERF_LAB_TRACE_INCLUDE_STEP_PATTERN_V1) wins for that engine, and the
 // bare key applies to every engine. This lets a case narrow trace capture for
@@ -411,156 +399,6 @@ const getTraceFallbackStepPattern = (perfCase: PerfCase, engine: string) =>
     "PERF_LAB_TRACE_FALLBACK_STEP_PATTERN",
     engine,
   );
-
-const matchesTraceIncludePattern = (patterns: RegExp[], ref: PerfTraceRef) =>
-  patterns.length === 0 || patterns.some((pattern) => pattern.test(ref.stepId));
-
-const getStepNumber = (stepId: string) => {
-  const match = stepId.match(/^(.*):(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    prefix: match[1],
-    number: Number(match[2]),
-  };
-};
-
-const sortFallbackRefsForFailedRef = (
-  failedRef: PerfTraceRef,
-  refs: PerfTraceRef[],
-) => {
-  const failedStepNumber = getStepNumber(failedRef.stepId);
-  if (!failedStepNumber) {
-    return refs;
-  }
-
-  return [...refs].sort((left, right) => {
-    const leftStepNumber = getStepNumber(left.stepId);
-    const rightStepNumber = getStepNumber(right.stepId);
-    const leftDistance =
-      leftStepNumber?.prefix === failedStepNumber.prefix
-        ? Math.abs(leftStepNumber.number - failedStepNumber.number)
-        : Number.POSITIVE_INFINITY;
-    const rightDistance =
-      rightStepNumber?.prefix === failedStepNumber.prefix
-        ? Math.abs(rightStepNumber.number - failedStepNumber.number)
-        : Number.POSITIVE_INFINITY;
-
-    return leftDistance - rightDistance;
-  });
-};
-
-const isPriorityTraceRef = (ref: PerfTraceRef) =>
-  /create.*field|formula|lookup/i.test(ref.stepId) ||
-  /\/field\//i.test(ref.url ?? "");
-
-const normalizeTracePathSegment = (segment: string) => {
-  if (
-    /^(bse|tbl|rec|fld|viw|spc|usr|org|app)[a-zA-Z0-9_-]{6,}$/.test(segment)
-  ) {
-    return `:${segment.slice(0, 3)}`;
-  }
-  if (/^[a-zA-Z0-9_-]{16,}$/.test(segment) && /[A-Z_-]/.test(segment)) {
-    return ":id";
-  }
-  return segment;
-};
-
-const normalizeTraceUrlShape = (url?: string) => {
-  if (!url) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname
-      .split("/")
-      .map(normalizeTracePathSegment)
-      .join("/");
-    const queryKeys = Array.from(new Set(parsed.searchParams.keys())).sort();
-    return queryKeys.length > 0 ? `${path}?${queryKeys.join("&")}` : path;
-  } catch {
-    return url;
-  }
-};
-
-const traceRequestShape = (ref: PerfTraceRef) =>
-  [
-    normalizeTraceStepShape(ref.stepId),
-    ref.method?.toUpperCase() ?? "",
-    normalizeTraceUrlShape(ref.url),
-  ].join(" ");
-
-const traceFetchSelectionKey = (ref: PerfTraceRef) =>
-  ref.method?.toUpperCase() === "GET"
-    ? [
-        ref.stepId,
-        ref.method?.toUpperCase() ?? "",
-        normalizeTraceUrlShape(ref.url),
-      ].join(" ")
-    : ref.traceId;
-
-const hasSavedTraceRequestShape = (
-  ref: PerfTraceRef,
-  refs: PerfTraceRef[],
-  savedTraceIds: ReadonlySet<string>,
-) => {
-  const requestShape = traceRequestShape(ref);
-  return refs.some(
-    (candidate) =>
-      savedTraceIds.has(candidate.traceId) &&
-      traceRequestShape(candidate) === requestShape,
-  );
-};
-
-const selectTraceRefsToSave = (perfCase: PerfCase, engine: string) => {
-  const maxSnapshots = getPositiveIntegerEnv(
-    "PERF_LAB_TRACE_MAX_SNAPSHOTS",
-    100,
-  );
-  const uniqueRefs = uniqueTraceRefsForRun(perfCase, engine).filter(
-    (ref) => ref.sampled,
-  );
-  const includePatterns = parseTraceStepPatterns(
-    getTraceIncludeStepPattern(perfCase, engine),
-  );
-  const candidateRefs = uniqueRefs.filter((ref) =>
-    matchesTraceIncludePattern(includePatterns, ref),
-  );
-  const priorityRefs = candidateRefs.filter(isPriorityTraceRef);
-  const selected: PerfTraceRef[] = [];
-  const selectedTraceIds = new Set<string>();
-  const selectedFetchKeys = new Set<string>();
-
-  const selectRef = (ref: PerfTraceRef) => {
-    if (selected.length >= maxSnapshots || selectedTraceIds.has(ref.traceId)) {
-      return;
-    }
-
-    const fetchKey = traceFetchSelectionKey(ref);
-    if (selectedFetchKeys.has(fetchKey)) {
-      return;
-    }
-
-    selected.push(ref);
-    selectedTraceIds.add(ref.traceId);
-    selectedFetchKeys.add(fetchKey);
-  };
-
-  for (const ref of candidateRefs) {
-    if (isPriorityTraceRef(ref)) {
-      selectRef(ref);
-    }
-  }
-
-  for (const ref of candidateRefs) {
-    selectRef(ref);
-  }
-
-  return selected;
-};
 
 const runWithConcurrency = async <T, R>(
   items: T[],
@@ -743,16 +581,17 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_FETCH_CONCURRENCY",
     8,
   );
-  const selectedRefs = enabled ? selectTraceRefsToSave(perfCase, engine) : [];
   const runRefs = uniqueTraceRefsForRun(perfCase, engine);
+  const evidencePolicy = enabled
+    ? createTraceEvidencePolicy({
+        refs: runRefs,
+        includePattern: getTraceIncludeStepPattern(perfCase, engine),
+        fallbackPattern: getTraceFallbackStepPattern(perfCase, engine),
+        maxSnapshots: maxSnapshotCount,
+      })
+    : undefined;
+  const selectedRefs = evidencePolicy?.selectedRefs ?? [];
   const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
-  const selectedRepresentativeByRequestShape = new Map<string, PerfTraceRef>();
-  for (const ref of selectedRefs) {
-    const requestShape = traceRequestShape(ref);
-    if (!selectedRepresentativeByRequestShape.has(requestShape)) {
-      selectedRepresentativeByRequestShape.set(requestShape, ref);
-    }
-  }
   const savedTraceIds = new Set<string>();
   const failedTraceIds = new Set<string>();
   const fallbackTraceIds = new Set<string>();
@@ -782,6 +621,11 @@ export const writeTraceArtifacts = async ({
 
   if (!artifactDir || !enabled) {
     return summary;
+  }
+  if (!evidencePolicy) {
+    throw new Error(
+      "Trace evidence policy is unavailable while tracing is enabled",
+    );
   }
 
   const traceRelativeDir = join(
@@ -912,27 +756,17 @@ export const writeTraceArtifacts = async ({
     ref: PerfTraceRef,
     result: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
   ) => {
-    const requestShape = traceRequestShape(ref);
+    const requestShape = evidencePolicy.requestShape(ref);
     skippedTraceErrors.set(
       ref.traceId,
       `Selected trace was not saved because Jaeger fetch failed (${result.error}); saved another trace from request shape ${requestShape}`,
     );
   };
 
-  const fallbackPattern = getTraceFallbackStepPattern(perfCase, engine);
-  const fallbackPatterns = parseTraceStepPatterns(fallbackPattern);
   const maxFallbackAttempts = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FALLBACK_MAX_ATTEMPTS",
     3,
   );
-  const fallbackRefs = runRefs.filter(
-    (ref) =>
-      ref.sampled &&
-      !selectedTraceIds.has(ref.traceId) &&
-      (fallbackPatterns.length === 0 ||
-        matchesTraceIncludePattern(fallbackPatterns, ref)),
-  );
-
   const fetchFallbackTrace = async (
     failedRef: PerfTraceRef,
     failedResult: Exclude<JaegerTraceFetchResult, { status: "saved" }>,
@@ -941,17 +775,10 @@ export const writeTraceArtifacts = async ({
     // substituting a different operation would mark a real Jaeger failure as
     // skipped without any representative coverage for the failed request. The
     // fallback pattern is a coarse opt-in filter; this is the safety invariant.
-    const failedRequestShape = traceRequestShape(failedRef);
     let attempts = 0;
-    for (const fallbackRef of sortFallbackRefsForFailedRef(
-      failedRef,
-      fallbackRefs,
-    )) {
+    for (const fallbackRef of evidencePolicy.fallbackCandidates(failedRef)) {
       if (attempts >= maxFallbackAttempts) {
         break;
-      }
-      if (traceRequestShape(fallbackRef) !== failedRequestShape) {
-        continue;
       }
       if (
         fallbackTraceIds.has(fallbackRef.traceId) ||
@@ -1010,7 +837,7 @@ export const writeTraceArtifacts = async ({
   }
 
   for (const { ref, result } of failedFetchResults) {
-    if (hasSavedTraceRequestShape(ref, runRefs, savedTraceIds)) {
+    if (evidencePolicy.hasSavedRepresentative(ref, savedTraceIds)) {
       markCoveredFailedTraceSkipped(ref, result);
       continue;
     }
@@ -1021,7 +848,7 @@ export const writeTraceArtifacts = async ({
       continue;
     }
 
-    if (hasSavedTraceRequestShape(ref, runRefs, savedTraceIds)) {
+    if (evidencePolicy.hasSavedRepresentative(ref, savedTraceIds)) {
       markCoveredFailedTraceSkipped(ref, result);
       continue;
     }
@@ -1029,49 +856,17 @@ export const writeTraceArtifacts = async ({
     addFailedTrace(ref, result);
   }
 
-  const includePattern = getTraceIncludeStepPattern(perfCase, engine);
-  const includePatterns = parseTraceStepPatterns(includePattern);
-  const savedRepresentativeByRequestShape = new Map<string, PerfTraceRef>();
-  for (const ref of runRefs) {
-    const requestShape = traceRequestShape(ref);
-    if (
-      savedTraceIds.has(ref.traceId) &&
-      !savedRepresentativeByRequestShape.has(requestShape)
-    ) {
-      savedRepresentativeByRequestShape.set(requestShape, ref);
-    }
-  }
-
   for (const ref of runRefs) {
     if (savedTraceIds.has(ref.traceId) || failedTraceIds.has(ref.traceId)) {
       continue;
     }
 
-    const requestShape = traceRequestShape(ref);
-    const savedRepresentative =
-      savedRepresentativeByRequestShape.get(requestShape);
-    const selectedRepresentative =
-      selectedRepresentativeByRequestShape.get(requestShape);
-    const representative = savedRepresentative ?? selectedRepresentative;
-    const skippedByIncludePattern =
-      ref.sampled && !matchesTraceIncludePattern(includePatterns, ref);
-    const skippedByRepresentative =
-      ref.sampled &&
-      !skippedByIncludePattern &&
-      representative != null &&
-      representative.traceId !== ref.traceId;
     addSkippedTrace(
       ref,
-      skippedTraceErrors.get(ref.traceId) ??
-        (!ref.sampled
-          ? "Traceparent is not sampled, so Jaeger is not expected to store it"
-          : skippedByIncludePattern
-            ? `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`
-            : skippedByRepresentative
-              ? `Sampled trace was not fetched because ${representative.traceId} from ${representative.stepId} was ${
-                  savedRepresentative ? "saved" : "selected"
-                } as the representative for request shape ${requestShape}`
-              : `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshotCount}`),
+      evidencePolicy.explainUnfetched(ref, {
+        savedTraceIds,
+        error: skippedTraceErrors.get(ref.traceId),
+      }),
     );
   }
 

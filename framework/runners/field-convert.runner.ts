@@ -29,6 +29,7 @@ import {
 } from "../sample-records";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldConvertCaseConfig,
   FieldConvertExpectedKind,
   PerfCase,
@@ -890,13 +891,13 @@ const fieldConvertLifecycleSpec: FieldConvertLifecycleSpec<
 };
 
 export const seedFieldConvertCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-convert">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldConvertLifecycle(perfCase, context, fieldConvertLifecycleSpec);
 
 export const runFieldConvertCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-convert">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldConvertLifecycle(perfCase, context, fieldConvertLifecycleSpec);

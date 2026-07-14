@@ -2,7 +2,12 @@ import { FieldType } from "@teable/core";
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { waitForRowsRestored } from "./record-replay.shared";
 import {
   archiveTable,
@@ -86,7 +91,7 @@ const cleanupSample = async ({
 };
 
 export const runTableDeleteLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-delete-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runTableLinkSamplesLifecycle<DeleteLinkLifecycleState>(perfCase, context, {
@@ -229,7 +234,7 @@ export const runTableDeleteLinkCase = async (
   });
 
 export const seedTableDeleteLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-delete-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedTableLinkLifecycleCase(perfCase, context, "table-delete-link");

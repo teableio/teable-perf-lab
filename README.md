@@ -35,9 +35,13 @@ ready.
 - `framework/runners/*-model.ts`: pure workload models for runner-owned naming,
   fixture shape, expected values, and config validation. Keep Teable I/O in the
   runner adapter; keep deterministic model logic here.
-- `framework/runner-registry.ts`: the `runnerRegistry` dispatch table mapping each
-  runner kind to its `{ execute, seed }` fns; `run-perf-case.ts`/`run-perf-seed.ts`
-  look up the runner here (no switch statement).
+- `framework/runners/conditional-query-workload.ts`: the grouped-fanout workload
+  model shared by conditional-query seed generation, mutation targeting,
+  expected values, and result-shape metrics.
+- `framework/runner-registry.ts`: the canonical typed runner inventory. Each
+  entry keeps its runner-specific `{ execute, seed }` functions together with
+  lifecycle/direct metadata; execute and seed cross one dynamic dispatch seam,
+  and the migration tracker is generated from this inventory.
 - `framework/types.ts`: the `PerfCaseConfigByRunner` map that binds each runner kind
   to its case config interface, plus `PerfRunnerKind`, the `PerfCase` discriminated
   union derived from that map, and result types.
@@ -49,6 +53,12 @@ ready.
   report adapters.
 - `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
   keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
+- `framework/trace-evidence-policy.ts`: pure trace selection, request-shape,
+  fallback, and unfetched-evidence policy; the collector owns capture, fetch,
+  and filesystem I/O.
+- `scripts/performance-track-record-model.mjs`: Performance Track field
+  contract, result-record construction, upsert, and baseline selection shared
+  by Teable and in-memory adapters.
 - `scripts/perf-artifact-diff-model.mjs`: artifact normalization and mask profile
   for behavior-preserving artifact diffs; keep CLI file I/O in
   `scripts/diff-artifacts.mjs`.
