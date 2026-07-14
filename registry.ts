@@ -14,13 +14,21 @@ import conditionalLookupGroupNumberTop3Fanout100_10kCase from "./cases/lookup/co
 import conditionalLookupGroupTextFanout10_10kCase from "./cases/lookup/conditional-group-text-fanout10-10k.case";
 import conditionalLookupGroupTextFanout50_10kCase from "./cases/lookup/conditional-group-text-fanout50-10k.case";
 import conditionalLookupGroupTextFanout100_10kCase from "./cases/lookup/conditional-group-text-fanout100-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout10_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout10-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout50_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout50-10k.case";
 import conditionalLookupGroupTextUpdate1kFanout100_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout100Limit10_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-limit10-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout100Limit50_10kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-limit50-10k.case";
+import conditionalLookupGroupTextUpdate1kFanout100_20kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-20k.case";
 import conditionalLookupGroupTextUpdate1kFanout100_30kCase from "./cases/lookup/conditional-group-text-update-1k-fanout100-30k.case";
 import conditionalRollupGroupActiveMax10kCase from "./cases/rollup/conditional-group-active-max-10k.case";
 import conditionalRollupGroupActiveSumFanout10_10kCase from "./cases/rollup/conditional-group-active-sum-fanout10-10k.case";
 import conditionalRollupGroupActiveSumFanout50_10kCase from "./cases/rollup/conditional-group-active-sum-fanout50-10k.case";
 import conditionalRollupGroupActiveSumFanout100_10kCase from "./cases/rollup/conditional-group-active-sum-fanout100-10k.case";
+import conditionalRollupGroupActiveSumUpdate1kFanout10_10kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout10-10k.case";
+import conditionalRollupGroupActiveSumUpdate1kFanout50_10kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout50-10k.case";
 import conditionalRollupGroupActiveSumUpdate1kFanout100_10kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout100-10k.case";
+import conditionalRollupGroupActiveSumUpdate1kFanout100_20kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout100-20k.case";
 import conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase from "./cases/rollup/conditional-group-active-sum-update-1k-fanout100-30k.case";
 import conditionalRollupGroupAverageFanout10_10kCase from "./cases/rollup/conditional-group-average-fanout10-10k.case";
 import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/conditional-group-countall-fanout10-10k.case";
@@ -92,7 +100,12 @@ const cases = [
   conditionalLookupGroupTextFanout10_10kCase,
   conditionalLookupGroupTextFanout50_10kCase,
   conditionalLookupGroupTextFanout100_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout10_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout50_10kCase,
   conditionalLookupGroupTextUpdate1kFanout100_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout100Limit10_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout100Limit50_10kCase,
+  conditionalLookupGroupTextUpdate1kFanout100_20kCase,
   conditionalLookupGroupTextUpdate1kFanout100_30kCase,
   conditionalLookupGroupNumberTop3_10kCase,
   conditionalLookupGroupNumberTop3Fanout50_10kCase,
@@ -109,7 +122,10 @@ const cases = [
   conditionalRollupGroupActiveSumFanout10_10kCase,
   conditionalRollupGroupActiveSumFanout50_10kCase,
   conditionalRollupGroupActiveSumFanout100_10kCase,
+  conditionalRollupGroupActiveSumUpdate1kFanout10_10kCase,
+  conditionalRollupGroupActiveSumUpdate1kFanout50_10kCase,
   conditionalRollupGroupActiveSumUpdate1kFanout100_10kCase,
+  conditionalRollupGroupActiveSumUpdate1kFanout100_20kCase,
   conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase,
   conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
