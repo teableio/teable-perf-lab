@@ -30,6 +30,7 @@ import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   DuplicateBaseCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -1509,13 +1510,13 @@ const duplicateBaseSpec: DuplicateLifecycleSpec<
 };
 
 export const runDuplicateBaseCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"duplicate-base">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runDuplicateLifecycle(perfCase, context, duplicateBaseSpec);
 
 export const seedDuplicateBaseCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"duplicate-base">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedDuplicateLifecycle(perfCase, context, duplicateBaseSpec);

@@ -27,6 +27,7 @@ import {
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -933,7 +934,7 @@ const selectionClearLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runSelectionClearCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"selection-clear">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, selectionClearLifecycleSpec);
@@ -944,10 +945,10 @@ export const runSelectionClearCase = async (
 // execute path omits. Routing both modes through one shared spec would force
 // that asymmetry into the driver, so seed keeps its own thin orchestration here.
 export const seedSelectionClearCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"selection-clear">,
   _context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as SelectionClearCaseConfig;
+  const config = perfCase.config;
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>

@@ -1,20 +1,9 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
-import { runnerRegistry } from "./runner-registry";
+import { seedRegisteredRunner } from "./runner-registry";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
-
-const seedCaseByKind = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const entry = runnerRegistry[perfCase.runner];
-  if (!entry) {
-    throw new Error(`Unsupported perf seed runner: ${perfCase.runner}`);
-  }
-  return entry.seed(perfCase, context);
-};
 
 const normalizeError = (error: unknown) => {
   if (error instanceof Error) {
@@ -63,7 +52,7 @@ export const seedPerfCase = async (
   };
 
   try {
-    const result = await seedCaseByKind(perfCase, context);
+    const result = await seedRegisteredRunner(perfCase, context);
     const skipped = result.result === "skipped";
     const payload: PerfArtifactPayload = {
       caseId: perfCase.id,

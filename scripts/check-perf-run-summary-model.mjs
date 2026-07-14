@@ -7,6 +7,13 @@ import {
   resolveRunTimingFromJobs,
   resultCounts,
 } from "./perf-run-summary-model.mjs";
+import {
+  buildPerformanceTrackResultRecord,
+  createInMemoryPerformanceTrackAdapter,
+  createPerformanceTrackRecordModule,
+  createTeablePerformanceTrackAdapter,
+} from "./performance-track-record-model.mjs";
+import { PERFORMANCE_TRACK_CONTRACT_FIELDS } from "./performance-track-contract.fixture.mjs";
 
 assert.equal(formatDuration(undefined), "-");
 assert.equal(formatDuration(999), "999ms");
@@ -144,7 +151,9 @@ const [v2OnlyRow] = buildCaseRows(
       engine: "v2",
       result: "pass",
       durationMs: 1500,
-      thresholds: [{ metric: "importBaseStreamMs", actual: 1500, passed: true }],
+      thresholds: [
+        { metric: "importBaseStreamMs", actual: 1500, passed: true },
+      ],
     },
   ],
   {
@@ -188,7 +197,9 @@ const v2OnlyCard = buildPerfSummaryCard({
       engine: "v2",
       result: "pass",
       durationMs: 1500,
-      thresholds: [{ metric: "importBaseStreamMs", actual: 1500, passed: true }],
+      thresholds: [
+        { metric: "importBaseStreamMs", actual: 1500, passed: true },
+      ],
     },
   ],
   timings: {},
@@ -289,9 +300,381 @@ const outageText = outageCard.card.elements[1].text.content;
 assert.match(outageText, /Trace 服务不可用，本轮跳过 Trace 抓取/);
 assert.match(outageText, /observability-stack \/ teable-perf-jaeger/);
 assert.doesNotMatch(outageText, /OTLP/);
-assert.doesNotMatch(
-  JSON.stringify(outageCard.card.elements),
-  /Trace 抓取浪费/,
+assert.doesNotMatch(JSON.stringify(outageCard.card.elements), /Trace 抓取浪费/);
+
+const resultRecord = buildPerformanceTrackResultRecord({
+  payload: {
+    caseId: "formula/fast",
+    title: "Fast formula",
+    runId: "payload-run",
+    engine: "v2",
+    result: "pass",
+    startedAt: "2026-07-14T01:00:00.000Z",
+    finishedAt: "2026-07-14T01:00:01.000Z",
+    durationMs: 1000,
+    metrics: { readyMs: 900 },
+    thresholds: [{ metric: "readyMs", actual: 900, max: 1200, passed: true }],
+    phases: [{ name: "ready", durationMs: 900 }],
+    details: {
+      observability: {
+        traces: {
+          traceRefCount: 2,
+          savedTraceCount: 1,
+          failedTraceCount: 0,
+          manifestPath: "traces/formula-fast-v2/manifest.json",
+        },
+      },
+    },
+  },
+  traceManifest: {
+    enabled: true,
+    traceRefCount: 2,
+    savedTraceCount: 1,
+    failedTraceCount: 0,
+    manifestPath: "traces/formula-fast-v2/manifest.json",
+  },
+  summaryMarkdown: "# Formula fast",
+  context: {
+    runId: "901",
+    runAttempt: "2",
+    engine: "v2",
+    jobId: "execute-v2",
+    workflow: "Teable EE perf",
+    teableEeRef: "main",
+    commitSha: "abcdef123",
+    artifactName: "teable-ee-e2e-perf-v2-901-2",
+    artifactUrl: "https://github.example/artifact/1",
+    runUrl: "https://github.example/run/901",
+    traceUrl: "https://jaeger.example/trace/abc",
+  },
+});
+assert.equal(resultRecord.runKey, "901-2-formula/fast-v2");
+assert.deepEqual(
+  {
+    runKey: resultRecord.fields["Run Key"],
+    runId: resultRecord.fields["Run ID"],
+    runAttempt: resultRecord.fields["Run Attempt"],
+    caseId: resultRecord.fields["Case ID"],
+    metric: resultRecord.fields["Primary Metric"],
+    metricValue: resultRecord.fields["Primary Metric Value"],
+    traceRefCount: resultRecord.fields["Trace Ref Count"],
+    manifestPath: resultRecord.fields["Manifest Path"],
+  },
+  {
+    runKey: "901-2-formula/fast-v2",
+    runId: "901",
+    runAttempt: 2,
+    caseId: "formula/fast",
+    metric: "readyMs",
+    metricValue: 900,
+    traceRefCount: 2,
+    manifestPath: "traces/formula-fast-v2/manifest.json",
+  },
 );
 
-console.log("Perf run summary model checks ok");
+const writeAdapter = createInMemoryPerformanceTrackAdapter({
+  fields: PERFORMANCE_TRACK_CONTRACT_FIELDS,
+});
+const writeModule = createPerformanceTrackRecordModule(writeAdapter);
+await writeModule.assertContract();
+await assert.rejects(
+  createPerformanceTrackRecordModule(
+    createInMemoryPerformanceTrackAdapter({ fields: [{ name: "Run Key" }] }),
+  ).assertContract(),
+  /Missing Teable report fields: Run ID/,
+);
+assert.deepEqual(
+  await writeModule.upsertResult({
+    fields: resultRecord.fields,
+  }),
+  { action: "created", recordId: "rec-memory-1" },
+);
+assert.deepEqual(
+  await writeModule.upsertResult({
+    fields: { ...resultRecord.fields, Result: "fail" },
+  }),
+  { action: "updated", recordId: "rec-memory-1" },
+);
+assert.equal(writeAdapter.snapshot().length, 1);
+assert.equal(writeAdapter.snapshot()[0].fields.Result, "fail");
+await assert.rejects(
+  writeModule.upsertResult({ fields: { Result: "pass" } }),
+  /requires a non-empty "Run Key" field/,
+);
+await assert.rejects(
+  writeModule.upsertResult({ fields: { "Run Key": "   " } }),
+  /requires a non-empty "Run Key" field/,
+);
+
+const updateRequests = [];
+const updateTrack = createPerformanceTrackRecordModule(
+  createTeablePerformanceTrackAdapter({
+    tableId: "tbl-performance-track",
+    request: async (request) => {
+      updateRequests.push(request);
+      if (request.method === "GET") {
+        return {
+          records: [
+            {
+              id: "rec-existing",
+              fields: { "Run Key": "run-existing" },
+            },
+          ],
+        };
+      }
+      if (request.method === "PATCH") {
+        return {};
+      }
+      throw new Error(`Unexpected request ${request.method} ${request.path}`);
+    },
+  }),
+);
+assert.deepEqual(
+  await updateTrack.upsertResult({
+    fields: { "Run Key": "run-existing", Result: "fail" },
+  }),
+  { action: "updated", recordId: "rec-existing" },
+);
+const updateQuery = new URL(updateRequests[0].path, "https://teable.example");
+assert.equal(updateRequests[0].method, "GET");
+assert.equal(updateQuery.pathname, "/table/tbl-performance-track/record");
+assert.equal(updateQuery.searchParams.get("fieldKeyType"), "name");
+assert.equal(updateQuery.searchParams.get("take"), "1");
+assert.equal(updateQuery.searchParams.get("projection"), "Run Key");
+assert.deepEqual(JSON.parse(updateQuery.searchParams.get("filter")), {
+  conjunction: "and",
+  filterSet: [
+    {
+      fieldId: "fldBtUJjGxgsPWsqLua",
+      operator: "is",
+      value: "run-existing",
+    },
+  ],
+});
+assert.deepEqual(updateRequests[1], {
+  method: "PATCH",
+  path: "/table/tbl-performance-track/record",
+  body: {
+    fieldKeyType: "name",
+    typecast: true,
+    records: [
+      {
+        id: "rec-existing",
+        fields: { "Run Key": "run-existing", Result: "fail" },
+      },
+    ],
+  },
+});
+
+const createRequests = [];
+const createTrack = createPerformanceTrackRecordModule(
+  createTeablePerformanceTrackAdapter({
+    tableId: "tbl-performance-track",
+    request: async (request) => {
+      createRequests.push(request);
+      if (request.method === "GET") {
+        return { records: [] };
+      }
+      if (request.method === "POST") {
+        return { records: [{ id: "rec-created" }] };
+      }
+      throw new Error(`Unexpected request ${request.method} ${request.path}`);
+    },
+  }),
+);
+assert.deepEqual(
+  await createTrack.upsertResult({
+    fields: { "Run Key": "run-created", Result: "pass" },
+  }),
+  { action: "created", recordId: "rec-created" },
+);
+assert.deepEqual(createRequests[1], {
+  method: "POST",
+  path: "/table/tbl-performance-track/record",
+  body: {
+    fieldKeyType: "name",
+    typecast: true,
+    records: [
+      {
+        fields: { "Run Key": "run-created", Result: "pass" },
+      },
+    ],
+  },
+});
+
+const baselineAdapter = createInMemoryPerformanceTrackAdapter({
+  records: [
+    {
+      id: "rec-current-run",
+      fields: {
+        "Case ID": "import-base/v2-only",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "importBaseStreamMs",
+        "Primary Metric Value": 700,
+        "Run ID": "900",
+        "Finished At": "2026-07-14T03:00:00.000Z",
+      },
+    },
+    {
+      id: "rec-current-payload",
+      fields: {
+        "Case ID": "import-base/v2-only",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "importBaseStreamMs",
+        "Primary Metric Value": 800,
+        "Run ID": "900-1-v2",
+        "Finished At": "2026-07-14T02:00:00.000Z",
+      },
+    },
+    {
+      id: "rec-older",
+      fields: {
+        "Case ID": "import-base/v2-only",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "importBaseStreamMs",
+        "Primary Metric Value": 1200,
+        "Run ID": "899",
+        "Finished At": "2026-07-12T00:00:00.000Z",
+      },
+    },
+    {
+      id: "rec-latest-previous",
+      fields: {
+        "Case ID": "import-base/v2-only",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "importBaseStreamMs",
+        "Primary Metric Value": 1100,
+        "Run ID": "898",
+        "Finished At": "2026-07-13T00:00:00.000Z",
+      },
+    },
+  ],
+});
+const baselineModule = createPerformanceTrackRecordModule(baselineAdapter);
+assert.deepEqual(
+  await baselineModule.comparisonBaselines({
+    currentRunId: "900",
+    payloads: [
+      {
+        caseId: "import-base/v2-only",
+        engine: "v1",
+        result: "skipped",
+        runId: "900-1-v1",
+        thresholds: [],
+      },
+      {
+        caseId: "import-base/v2-only",
+        engine: "v2",
+        result: "pass",
+        runId: "900-1-v2",
+        thresholds: [
+          {
+            metric: "importBaseStreamMs",
+            actual: 1000,
+            passed: true,
+          },
+        ],
+      },
+    ],
+  }),
+  {
+    "import-base/v2-only": {
+      label: "Baseline",
+      metric: "importBaseStreamMs",
+      runId: "898",
+      value: 1100,
+    },
+  },
+);
+
+const baselineRequests = [];
+const teableBaselineModule = createPerformanceTrackRecordModule(
+  createTeablePerformanceTrackAdapter({
+    tableId: "tbl-performance-track",
+    request: async (request) => {
+      baselineRequests.push(request);
+      return {
+        records: [
+          {
+            id: "rec-baseline",
+            fields: {
+              "Run ID": "899",
+              "Primary Metric Value": 950,
+              "Finished At": "2026-07-13T00:00:00.000Z",
+            },
+          },
+        ],
+      };
+    },
+  }),
+);
+assert.deepEqual(
+  await teableBaselineModule.comparisonBaselines({
+    currentRunId: "900",
+    payloads: [
+      {
+        caseId: "import-base/v2-only",
+        engine: "v1",
+        result: "skipped",
+        runId: "900-1-v1",
+        thresholds: [],
+      },
+      {
+        caseId: "import-base/v2-only",
+        engine: "v2",
+        result: "pass",
+        runId: "900-1-v2",
+        thresholds: [
+          {
+            metric: "importBaseStreamMs",
+            actual: 1000,
+            passed: true,
+          },
+        ],
+      },
+    ],
+  }),
+  {
+    "import-base/v2-only": {
+      label: "Baseline",
+      metric: "importBaseStreamMs",
+      runId: "899",
+      value: 950,
+    },
+  },
+);
+assert.equal(baselineRequests.length, 1);
+assert.equal(baselineRequests[0].method, "GET");
+const baselineQuery = new URL(
+  baselineRequests[0].path,
+  "https://teable.example",
+);
+assert.equal(baselineQuery.pathname, "/table/tbl-performance-track/record");
+assert.equal(baselineQuery.searchParams.get("fieldKeyType"), "name");
+assert.equal(baselineQuery.searchParams.get("take"), "20");
+assert.deepEqual(JSON.parse(baselineQuery.searchParams.get("filter")), {
+  conjunction: "and",
+  filterSet: [
+    {
+      fieldId: "Case ID",
+      operator: "is",
+      value: "import-base/v2-only",
+    },
+    { fieldId: "Engine", operator: "is", value: "v2" },
+    { fieldId: "Result", operator: "is", value: "pass" },
+    {
+      fieldId: "Primary Metric",
+      operator: "is",
+      value: "importBaseStreamMs",
+    },
+  ],
+});
+assert.deepEqual(JSON.parse(baselineQuery.searchParams.get("orderBy")), [
+  { fieldId: "Finished At", order: "desc" },
+]);
+
+console.log("Perf run summary and Performance Track record checks ok");

@@ -25,6 +25,7 @@ import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldConvertLinkCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -841,13 +842,13 @@ const fieldConvertLinkLifecycleSpec: FieldConvertLifecycleSpec<
 };
 
 export const seedFieldConvertLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-convert-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldConvertLifecycle(perfCase, context, fieldConvertLinkLifecycleSpec);
 
 export const runFieldConvertLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-convert-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldConvertLifecycle(perfCase, context, fieldConvertLinkLifecycleSpec);

@@ -24,6 +24,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -874,13 +875,13 @@ const recordUpdateLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordUpdateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-update">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordUpdateLifecycleSpec);
 
 export const seedRecordUpdateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-update">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, recordUpdateLifecycleSpec);

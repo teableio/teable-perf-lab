@@ -16,6 +16,7 @@ import {
 } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   ConditionalRollupCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -464,13 +465,13 @@ const conditionalRollupFieldAddSpec: FieldAddLifecycleSpec<
 };
 
 export const seedConditionalRollupCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"conditional-rollup">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldAddLifecycle(perfCase, context, conditionalRollupFieldAddSpec);
 
 export const runConditionalRollupCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"conditional-rollup">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldAddLifecycle(perfCase, context, conditionalRollupFieldAddSpec);

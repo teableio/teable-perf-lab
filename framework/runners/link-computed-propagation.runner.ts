@@ -31,6 +31,7 @@ import { pollUntilReady, sleep } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   LinkComputedPropagationCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -1793,7 +1794,7 @@ const toLifecyclePerfCase = (perfCase: PerfCase): PerfCase => {
 };
 
 export const runLinkComputedPropagationCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"link-computed-propagation">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(
@@ -1803,7 +1804,7 @@ export const runLinkComputedPropagationCase = async (
   );
 
 export const seedLinkComputedPropagationCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"link-computed-propagation">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(

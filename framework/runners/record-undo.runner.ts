@@ -1,5 +1,10 @@
 import { measureAsync } from "../metrics";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { runRecordReplayLifecycle } from "./record-replay-lifecycle";
 import {
   assertDeleted,
@@ -13,7 +18,7 @@ import {
 // Measured operation: undo that delete via the undo-stream. Verify the rows are
 // restored, including sampled cell values.
 export const runRecordUndoCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-undo">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordReplayLifecycle(perfCase, context, {

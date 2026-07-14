@@ -2,10 +2,20 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
+import {
+  buildRunnerInventorySection,
+  RUNNER_INVENTORY_END,
+  RUNNER_INVENTORY_START,
+} from "./runner-inventory-projection.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, "..");
 const readmePath = join(repoRoot, "README.md");
+const runnerTrackerPath = join(
+  repoRoot,
+  "tasks",
+  "runner-migration-tracker.md",
+);
 
 const SECTION_HEADING = "## Available Cases";
 const GENERATED_NOTE =
@@ -49,7 +59,9 @@ const parseGoalSummary = async (casePath) => {
     `${basename(casePath, ".case.ts")}.md`,
   );
   const markdown = await readText(markdownPath);
-  const goalMatch = markdown.match(/(?:^|\n)## Goal\s*\n([\s\S]*?)(?=\n## |\s*$)/);
+  const goalMatch = markdown.match(
+    /(?:^|\n)## Goal\s*\n([\s\S]*?)(?=\n## |\s*$)/,
+  );
   if (!goalMatch) {
     throw new Error(`Missing "## Goal" section: ${markdownPath}`);
   }
@@ -66,8 +78,7 @@ const parseGoalSummary = async (casePath) => {
 
 // Split into wrap-safe tokens, keeping inline code spans atomic even when they
 // contain spaces (e.g. `PUT /table/{tableId}/field/{fieldId}/convert`).
-const tokenize = (text) =>
-  text.match(/`[^`]*`[^\s]*|\S+/g) ?? [];
+const tokenize = (text) => text.match(/`[^`]*`[^\s]*|\S+/g) ?? [];
 
 const wrapBullet = (text) => {
   const lines = [];
@@ -85,14 +96,27 @@ const wrapBullet = (text) => {
   return lines.join("\n ");
 };
 
-const buildSection = async () => {
+const buildSection = async (casePaths) => {
   const bullets = [];
-  for (const casePath of await findRegisteredCasePaths()) {
+  for (const casePath of casePaths) {
     const caseId = await parseCaseId(casePath);
     const summary = await parseGoalSummary(casePath);
     bullets.push(wrapBullet(`\`${caseId}\`: ${summary}`));
   }
   return `${SECTION_HEADING}\n\n${GENERATED_NOTE}\n\n${bullets.join("\n")}\n`;
+};
+
+const replaceGeneratedBlock = (document, startMarker, endMarker, section) => {
+  const startIndex = document.indexOf(startMarker);
+  const endIndex = document.indexOf(endMarker, startIndex);
+  if (startIndex === -1 || endIndex === -1) {
+    throw new Error(`Missing generated block markers: ${startMarker}`);
+  }
+  return (
+    document.slice(0, startIndex) +
+    section +
+    document.slice(endIndex + endMarker.length)
+  );
 };
 
 const replaceSection = (readme, section) => {
@@ -107,29 +131,40 @@ const replaceSection = (readme, section) => {
   if (nextHeadingIndex === -1) {
     return readme.slice(0, startIndex) + section;
   }
-  return (
-    readme.slice(0, startIndex) + section + readme.slice(nextHeadingIndex)
-  );
+  return readme.slice(0, startIndex) + section + readme.slice(nextHeadingIndex);
 };
 
 const main = async () => {
   const checkOnly = process.argv.includes("--check");
-  const readme = await readText(readmePath);
-  const updated = replaceSection(readme, await buildSection());
+  const casePaths = await findRegisteredCasePaths();
+  const [readme, runnerTracker] = await Promise.all([
+    readText(readmePath),
+    readText(runnerTrackerPath),
+  ]);
+  const updated = replaceSection(readme, await buildSection(casePaths));
+  const updatedRunnerTracker = replaceGeneratedBlock(
+    runnerTracker,
+    RUNNER_INVENTORY_START,
+    RUNNER_INVENTORY_END,
+    await buildRunnerInventorySection(repoRoot, casePaths),
+  );
 
-  if (updated === readme) {
-    console.log("README.md Available Cases list is up to date.");
+  if (updated === readme && updatedRunnerTracker === runnerTracker) {
+    console.log("README and runner inventory projections are up to date.");
     return;
   }
 
   if (checkOnly) {
     throw new Error(
-      "README.md Available Cases list is out of date. Run `pnpm sync:readme` and commit the result.",
+      "Generated README or runner inventory content is out of date. Run `pnpm sync:readme` and commit the result.",
     );
   }
 
-  await writeFile(readmePath, updated);
-  console.log("README.md Available Cases list regenerated.");
+  await Promise.all([
+    writeFile(readmePath, updated),
+    writeFile(runnerTrackerPath, updatedRunnerTracker),
+  ]);
+  console.log("README and runner inventory projections regenerated.");
 };
 
 main().catch((error) => {

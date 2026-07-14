@@ -2,7 +2,12 @@ import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { waitForRowsRestored } from "./record-replay.shared";
 import { runTableSamplesLifecycle } from "./table-lifecycle";
 import {
@@ -58,7 +63,7 @@ const restoreDeletedSample = async ({
 };
 
 export const runTableDeleteCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-delete">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runTableSamplesLifecycle(perfCase, context, {
@@ -197,7 +202,7 @@ export const runTableDeleteCase = async (
   });
 
 export const seedTableDeleteCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-delete">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedTableLifecycleCase(perfCase, context, "table-delete");

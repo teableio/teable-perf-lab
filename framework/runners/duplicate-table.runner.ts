@@ -30,6 +30,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   DuplicateTableCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -1250,13 +1251,13 @@ const duplicateTableSpec: DuplicateLifecycleSpec<
 };
 
 export const runDuplicateTableCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"duplicate-table">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runDuplicateLifecycle(perfCase, context, duplicateTableSpec);
 
 export const seedDuplicateTableCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"duplicate-table">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedDuplicateLifecycle(perfCase, context, duplicateTableSpec);

@@ -35,7 +35,7 @@ import { forEachRecordPage } from "../record-page-scan";
 import { buildSeedCacheInfo, type SeedCacheInfo } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
-import { PerfRunDiagnosticError } from "../types";
+import { PerfCaseFor, PerfRunDiagnosticError } from "../types";
 import type {
   ImportBaseCaseConfig,
   PerfCase,
@@ -1578,10 +1578,10 @@ const buildImportBaseResult = ({
 // comment below) is easier to keep correct inline than behind a driver seam.
 // See tasks/runner-migration-tracker.md.
 export const runImportBaseCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"import-base">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as ImportBaseCaseConfig;
+  const config = perfCase.config;
   if (context.engine !== "v2") {
     return {
       result: "skipped",
@@ -1737,10 +1737,10 @@ export const runImportBaseCase = async (
 };
 
 export const seedImportBaseCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"import-base">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as ImportBaseCaseConfig;
+  const config = perfCase.config;
   if (isTeaFileImportCase(config)) {
     const spaceId = globalThis.testConfig.spaceId;
     const prepareMeasurement = await measureAsync("prepare", () =>
