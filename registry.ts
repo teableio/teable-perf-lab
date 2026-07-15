@@ -37,7 +37,9 @@ import conditionalRollupGroupTextTop3_10kCase from "./cases/rollup/conditional-g
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
+import searchIndexOff50k20SearchFieldsCase from "./cases/search/search-index-off-50k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
+import searchIndexOn50k20SearchFieldsCase from "./cases/search/search-index-on-50k-20search-fields.case";
 import fieldCreateFormula10kCreate5FieldsCase from "./cases/field-create/10k-create-5-formula-fields.case";
 import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
 import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
@@ -56,11 +58,13 @@ import duplicateTable10k20FSelflinkCase from "./cases/duplicate-table/10k-20f-se
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
 import duplicateBase10k3TablesLink2WorkflowStreamCase from "./cases/duplicate-base/10k-3tables-link-2workflow-stream.case";
 import importBaseV2OnlySimple1x1kTableStreamCase from "./cases/import-base/v2-only-simple-1x1k-table-stream.case";
+import importBaseV2OnlySimple1x10kTableStreamCase from "./cases/import-base/v2-only-simple-1x10k-table-stream.case";
 import importBaseV2OnlyComplex3x10k3Tables2WorkflowStreamCase from "./cases/import-base/v2-only-complex-3x10k-3tables-2workflow-stream.case";
 import importBaseV2OnlyUserT2377TeaStreamCase from "./cases/import-base/v2-only-user-t2377-tea-stream.case";
 import exportBase10k3TablesLink2WorkflowStreamCase from "./cases/export-base/10k-3tables-link-2workflow-stream.case";
 import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
 import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-records.case";
+import tableCreate1x20F5kRecordsCase from "./cases/table-create/1x-20f-5k-records.case";
 import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
 import tableDelete10k20FLinkDetachCase from "./cases/table-delete/10k-20f-link-detach.case";
 import tableRestore10k20FCase from "./cases/table-restore/10k-20f.case";
@@ -81,6 +85,7 @@ import selectionPaste10kExpandRowsAndFieldsStreamCase from "./cases/selection-pa
 import recordReorder10kMoveLast1kToFrontCase from "./cases/record-reorder/10k-move-last-1k-to-front.case";
 import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mixed-1k-20fields-bulk-update.case";
 import recordUpdateAttachmentInsert100Case from "./cases/record-update/attachment-insert-100.case";
+import recordUpdateAttachmentInsert1kCase from "./cases/record-update/attachment-insert-1k.case";
 import recordUpdate1kLinkCellsBulkUpdateCase from "./cases/record-update/1k-link-cells-bulk-update.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
@@ -132,6 +137,8 @@ const cases = [
   dualLinkComputedRepoint2kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
+  searchIndexOff50k20SearchFieldsCase,
+  searchIndexOn50k20SearchFieldsCase,
   fieldCreateSimple10kCreate5FieldsCase,
   fieldCreateFormula10kCreate5FieldsCase,
   fieldCreateMixed10kCreate19FieldsCase,
@@ -150,11 +157,13 @@ const cases = [
   duplicateBase10k3TablesLink2WorkflowCase,
   duplicateBase10k3TablesLink2WorkflowStreamCase,
   importBaseV2OnlySimple1x1kTableStreamCase,
+  importBaseV2OnlySimple1x10kTableStreamCase,
   importBaseV2OnlyComplex3x10k3Tables2WorkflowStreamCase,
   importBaseV2OnlyUserT2377TeaStreamCase,
   exportBase10k3TablesLink2WorkflowStreamCase,
   tableCreate10x20FNoRecordsCase,
   tableCreate1x20F1kRecordsCase,
+  tableCreate1x20F5kRecordsCase,
   tableDelete10k20FCase,
   tableDelete10k20FLinkDetachCase,
   tableRestore10k20FCase,
@@ -175,6 +184,7 @@ const cases = [
   recordDuplicateSingleRecordSequential100Case,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
   recordUpdateAttachmentInsert100Case,
+  recordUpdateAttachmentInsert1kCase,
   recordUpdate1kLinkCellsBulkUpdateCase,
   recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
@@ -206,6 +216,8 @@ const caseAliases = new Map([
   ["search/search-index/off", "search/search-index-off-10k-20search-fields"],
   ["search/search-index/on", "search/search-index-on-10k-20search-fields"],
   ["search-index/lookup", "search/search-index-on-10k-20search-fields"],
+  ["search-index/50k/off", "search/search-index-off-50k-20search-fields"],
+  ["search-index/50k/on", "search/search-index-on-50k-20search-fields"],
   ["field-create", "field-create/10k-create-5-simple-fields"],
   ["field-create/5-simple", "field-create/10k-create-5-simple-fields"],
   ["field-create/simple", "field-create/10k-create-5-simple-fields"],
@@ -251,6 +263,7 @@ const caseAliases = new Map([
     "import-base/v2-only-complex-3x10k-3tables-2workflow-stream",
   ],
   ["import-base/simple", "import-base/v2-only-simple-1x1k-table-stream"],
+  ["import-base/simple-10k", "import-base/v2-only-simple-1x10k-table-stream"],
   [
     "import-base/complex",
     "import-base/v2-only-complex-3x10k-3tables-2workflow-stream",
@@ -261,6 +274,7 @@ const caseAliases = new Map([
   ["table-create", "table-create/10x-20f-no-records"],
   ["table-create/10x", "table-create/10x-20f-no-records"],
   ["table-create/1k-records", "table-create/1x-20f-1k-records"],
+  ["table-create/5k-records", "table-create/1x-20f-5k-records"],
   ["table-create/inline-records", "table-create/1x-20f-1k-records"],
   ["table-delete", "table-delete/10k-20f"],
   ["table-delete/10k", "table-delete/10k-20f"],
@@ -323,6 +337,7 @@ const caseAliases = new Map([
   ["update/1k-mixed-20fields", "record-update/mixed-1k-20fields-bulk-update"],
   ["record-update/attachment", "record-update/attachment-insert-100"],
   ["update/attachment-100", "record-update/attachment-insert-100"],
+  ["update/attachment-1k", "record-update/attachment-insert-1k"],
   ["record-update/link", "record-update/1k-link-cells-bulk-update"],
   ["update/1k-link", "record-update/1k-link-cells-bulk-update"],
   ["record-reorder", "record-reorder/10k-move-last-1k-to-front"],
