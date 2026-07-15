@@ -34,6 +34,7 @@ import {
   withPerfTraceStep,
 } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldUpdateCaseConfig,
   FieldUpdateComputedExpectedKind,
   PerfCase,
@@ -1192,16 +1193,16 @@ const fieldUpdateLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const seedFieldUpdateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-update">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, fieldUpdateLifecycleSpec);
 
 export const runFieldUpdateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-update">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldUpdateCaseConfig;
+  const config = perfCase.config;
 
   // V2-only diagnostic: the legacy PATCH updateField schema cannot express
   // select options, so there is no equivalent V1 workload to compare against.

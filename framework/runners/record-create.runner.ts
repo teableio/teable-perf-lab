@@ -26,6 +26,7 @@ import {
 import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   RecordCreateCaseConfig,
@@ -786,13 +787,13 @@ const recordCreateLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordCreateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-create">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordCreateLifecycleSpec);
 
 export const seedRecordCreateCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-create">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, recordCreateLifecycleSpec);

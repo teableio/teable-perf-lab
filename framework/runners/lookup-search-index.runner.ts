@@ -31,6 +31,7 @@ import {
 import { pollUntilReady, sleep } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   LookupSearchIndexCaseConfig,
   LookupSearchKeywordConfig,
   PerfCase,
@@ -1231,13 +1232,13 @@ const lookupSearchIndexSpec: ReadLifecycleSpec<
 };
 
 export const runLookupSearchIndexCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"lookup-search-index">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runReadLifecycle(perfCase, context, lookupSearchIndexSpec);
 
 export const seedLookupSearchIndexCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"lookup-search-index">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedReadLifecycle(perfCase, context, lookupSearchIndexSpec);

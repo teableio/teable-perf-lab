@@ -13,6 +13,7 @@ import {
 } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -387,13 +388,13 @@ const recordDuplicateSingleSpec: RecordDuplicateSpec<
 };
 
 export const runRecordDuplicateSingleCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-duplicate-single">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordDuplicateLifecycle(perfCase, context, recordDuplicateSingleSpec);
 
 export const seedRecordDuplicateSingleCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-duplicate-single">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordDuplicateLifecycle(perfCase, context, recordDuplicateSingleSpec);

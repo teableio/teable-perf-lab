@@ -11,6 +11,7 @@ import { type Measurement, measureAsync, summarizeDurations } from "../metrics";
 import { assertEngineRouting, type EngineRouting } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -431,7 +432,7 @@ const tableCreateSpec: TableCreateLifecycleSpec<
 };
 
 export const runTableCreateCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-create">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runTableCreateLifecycle(perfCase, context, tableCreateSpec);

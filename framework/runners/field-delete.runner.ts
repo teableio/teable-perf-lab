@@ -8,6 +8,7 @@ import {
 } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldDeleteCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -337,13 +338,13 @@ const fieldDeleteLifecycleSpec: FieldDeleteLifecycleSpec<
 };
 
 export const seedFieldDeleteCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-delete">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldDeleteLifecycle(perfCase, context, fieldDeleteLifecycleSpec);
 
 export const runFieldDeleteCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-delete">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldDeleteLifecycle(perfCase, context, fieldDeleteLifecycleSpec);

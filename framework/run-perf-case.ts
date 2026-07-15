@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
-import { runnerRegistry } from "./runner-registry";
+import { executeRegisteredRunner } from "./runner-registry";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import { runWithWatchdog } from "./watchdog";
 import { PerfRunDiagnosticError } from "./types";
@@ -11,17 +11,6 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "./types";
-
-const runCaseByKind = async (
-  perfCase: PerfCase,
-  context: PerfRunContext,
-): Promise<PerfRunResult> => {
-  const entry = runnerRegistry[perfCase.runner];
-  if (!entry) {
-    throw new Error(`Unsupported perf runner: ${perfCase.runner}`);
-  }
-  return entry.execute(perfCase, context);
-};
 
 const evaluateThresholds = (
   metrics: Record<string, number>,
@@ -94,9 +83,9 @@ export const runPerfCase = async (
               context.signal = signal;
             },
           },
-          () => runCaseByKind(perfCase, context),
+          () => executeRegisteredRunner(perfCase, context),
         )
-      : await runCaseByKind(perfCase, context);
+      : await executeRegisteredRunner(perfCase, context);
     const thresholdResults = evaluateThresholds(
       result.metrics,
       result.thresholds,

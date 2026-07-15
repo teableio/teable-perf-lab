@@ -38,6 +38,7 @@ import { chunk } from "../chunk";
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -902,13 +903,13 @@ const recordUpdateAttachmentSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordUpdateAttachmentCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-update-attachment">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordUpdateAttachmentSpec);
 
 export const seedRecordUpdateAttachmentCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-update-attachment">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, recordUpdateAttachmentSpec);

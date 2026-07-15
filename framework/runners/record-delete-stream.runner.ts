@@ -12,6 +12,7 @@ import { assertEngineRouting } from "../routing";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -299,13 +300,13 @@ const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordDeleteStreamCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-delete-stream">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordDeleteStreamSpec);
 
 export const seedRecordDeleteStreamCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-delete-stream">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, recordDeleteStreamSpec);

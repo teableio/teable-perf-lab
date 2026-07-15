@@ -6,6 +6,10 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const source = await readFile("framework/trace-collector.ts", "utf8");
+const evidencePolicySource = await readFile(
+  "framework/trace-evidence-policy.ts",
+  "utf8",
+);
 const output = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.ESNext,
@@ -14,15 +18,24 @@ const output = ts.transpileModule(source, {
   fileName: "framework/trace-collector.ts",
   reportDiagnostics: true,
 });
+const evidencePolicyOutput = ts.transpileModule(evidencePolicySource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "framework/trace-evidence-policy.ts",
+  reportDiagnostics: true,
+});
 
-const errors = (output.diagnostics ?? []).filter(
-  (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
-);
+const errors = [output, evidencePolicyOutput]
+  .flatMap((result) => result.diagnostics ?? [])
+  .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
 assert.equal(errors.length, 0);
 
 const tempDir = await mkdtemp(join(tmpdir(), "perf-lab-trace-collector-"));
 const collectorFile = join(tempDir, "trace-collector.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
+const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const artifactDir = join(tempDir, "artifacts");
 const traceDir = join(artifactDir, "traces", "smoke-auth-user-v2");
 const manifestPath = join(traceDir, "manifest.json");
@@ -42,7 +55,17 @@ try {
     collectorFile,
     output.outputText
       .replace('from "@teable/openapi"', 'from "./teable-openapi.mjs"')
-      .replace('from "./trace-classification"', 'from "./trace-classification.mjs"'),
+      .replace(
+        'from "./trace-evidence-policy"',
+        'from "./trace-evidence-policy.mjs"',
+      ),
+  );
+  await writeFile(
+    evidencePolicyFile,
+    evidencePolicyOutput.outputText.replace(
+      'from "./trace-classification"',
+      'from "./trace-classification.mjs"',
+    ),
   );
   await writeFile(
     join(tempDir, "teable-openapi.mjs"),
@@ -210,13 +233,16 @@ try {
     assert.equal(representativeSummary.failedTraceCount, 0);
     assert.equal(representativeSummary.skippedTraceCount, 2);
     assert.equal(representativeSummary.missingFetchCount, 1);
-    assert.deepEqual(new Set(fetchedTraceIds), new Set([
-      "11111111111111111111111111111111",
-      "22222222222222222222222222222222",
-      "44444444444444444444444444444444",
-      "55555555555555555555555555555555",
-      "66666666666666666666666666666666",
-    ]));
+    assert.deepEqual(
+      new Set(fetchedTraceIds),
+      new Set([
+        "11111111111111111111111111111111",
+        "22222222222222222222222222222222",
+        "44444444444444444444444444444444",
+        "55555555555555555555555555555555",
+        "66666666666666666666666666666666",
+      ]),
+    );
     assert.equal(
       representativeSummary.savedTraces.find(
         (trace) => trace.traceId === "33333333333333333333333333333333",

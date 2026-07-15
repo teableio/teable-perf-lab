@@ -23,6 +23,7 @@ import {
 import { perfStreamSse, type PerfSseEvent } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldRestoreCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -589,10 +590,10 @@ const buildFieldRestoreResult = ({
 });
 
 export const seedFieldRestoreCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-restore">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldRestoreCaseConfig;
+  const config = perfCase.config;
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
   const prepareMeasurement = await measureAsync("prepare", () =>
@@ -618,10 +619,10 @@ export const seedFieldRestoreCase = async (
 };
 
 export const runFieldRestoreCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-restore">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as FieldRestoreCaseConfig;
+  const config = perfCase.config;
   const baseId = globalThis.testConfig.baseId;
   const tableName = `${config.tableNamePrefix}-${Date.now()}`;
   const windowId = buildRecordWindowId(context, perfCase);

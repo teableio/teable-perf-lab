@@ -29,6 +29,7 @@ import { forEachRecordPage } from "../record-page-scan";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
@@ -918,7 +919,7 @@ const recordPasteLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordPasteCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-paste">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordPasteLifecycleSpec);
