@@ -28,6 +28,7 @@ import {
 import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldCreateCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -1315,13 +1316,13 @@ const fieldCreateFieldAddSpec: FieldAddLifecycleSpec<
 };
 
 export const seedFieldCreateCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-create">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldAddLifecycle(perfCase, context, fieldCreateFieldAddSpec);
 
 export const runFieldCreateCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-create">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldAddLifecycle(perfCase, context, fieldCreateFieldAddSpec);

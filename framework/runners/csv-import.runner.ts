@@ -31,6 +31,7 @@ import { pollUntilReady, sleep } from "../readiness";
 import { queryPerfDb } from "../sql";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   CsvImportCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -1289,13 +1290,13 @@ const csvImportLifecycleSpec: CsvImportLifecycleSpec<
 };
 
 export const runCsvImportCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"csv-import">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runCsvImportLifecycle(perfCase, context, csvImportLifecycleSpec);
 
 export const seedCsvImportCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"csv-import">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedCsvImportLifecycle(perfCase, context, csvImportLifecycleSpec);

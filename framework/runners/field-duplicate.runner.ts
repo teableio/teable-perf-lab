@@ -18,6 +18,7 @@ import {
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FieldDuplicateCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -478,13 +479,13 @@ const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
 };
 
 export const seedFieldDuplicateCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 
 export const runFieldDuplicateCase = (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);

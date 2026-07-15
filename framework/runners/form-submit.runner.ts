@@ -24,6 +24,7 @@ import {
 } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   FormSubmitCaseConfig,
   PerfCase,
   PerfRunContext,
@@ -709,13 +710,13 @@ const formSubmitLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runFormSubmitCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"form-submit">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, formSubmitLifecycleSpec);
 
 export const seedFormSubmitCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"form-submit">,
   _context: PerfRunContext,
 ): Promise<PerfRunResult> => ({
   result: "skipped",

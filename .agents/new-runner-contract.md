@@ -12,14 +12,20 @@ A new runner needs these edits:
   (key = the kind string, value = its `*CaseConfig` interface). `PerfRunnerKind`
   and the `PerfCase` discriminated union are both derived from that map, so
   pairing a runner with the wrong config now fails `pnpm check:types`.
-- `framework/runners/<runner>.runner.ts`: export `run<Runner>Case(perfCase,
-context): Promise<PerfRunResult>` (and a `seed<Runner>Case` if the runner has a
-  reusable seed).
+- `framework/runners/<runner>.runner.ts`: export
+  `run<Runner>Case(perfCase: PerfCaseFor<"runner-kind">, context): Promise<PerfRunResult>`
+  (and a same-narrowed `seed<Runner>Case` if the runner has a reusable seed).
+  The runner-specific input is what makes a handler wired to the wrong kind fail
+  `pnpm check:types`.
 - `framework/runner-registry.ts`: import the run/seed fns and add one entry to
-  the `runnerRegistry` map (`{ execute, seed }`, keyed by the kind). Dispatch is
-  this registry table, not a switch — `framework/run-perf-case.ts` and
-  `run-perf-seed.ts` just look the kind up. Use `seedlessRunner` for the `seed`
-  slot when there is no reusable seed phase.
+  the canonical `runnerInventory` (`{ implementation, execute, seed }`, keyed
+  by the kind). Declare `implementation: { mode: "lifecycle", drivers: [...] }`
+  with a non-empty driver list, or `{ mode: "direct" }` when no lifecycle seam
+  fits. Dispatch crosses this inventory, not a switch;
+  `framework/run-perf-case.ts` and `run-perf-seed.ts` call the registered-runner
+  boundary. Use the existing seedless adapter for the `seed` slot when there is
+  no reusable seed phase. Run `pnpm sync:readme` to refresh the generated runner
+  projection.
 - `registry.ts`: register concrete cases that use the new runner.
 - `cases/<group>/<name>.case.ts` and `cases/<group>/<name>.md`: executable case
   and matching description. `pnpm check:catalog` fails loud unless the
@@ -32,8 +38,9 @@ driver in `framework/runners/*-lifecycle.ts` (e.g. `record-mutation-lifecycle`,
 `field-convert-lifecycle`, `field-delete-lifecycle`, `csv-import-lifecycle`,
 `duplicate-lifecycle`, `table-create-lifecycle`). A migrated runner declares only
 its seed/execute/verify/cleanup hooks and the driver owns the protocol. Most
-kinds are migrated; `http-endpoint` and `import-base` are intentionally left
-legacy.
+kinds use lifecycle drivers; the generated projection in
+`tasks/runner-migration-tracker.md` is the current source for lifecycle/direct
+status and case counts.
 
 Reuse the shared helpers instead of re-deriving them in a new runner:
 

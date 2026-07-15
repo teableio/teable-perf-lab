@@ -4,12 +4,7 @@ import { axios } from "@teable/openapi";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
 import { roundMetric, summarizeDurations } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
-import type {
-  HttpEndpointCaseConfig,
-  PerfCase,
-  PerfRunContext,
-  PerfRunResult,
-} from "../types";
+import type { PerfCaseFor, PerfRunContext, PerfRunResult } from "../types";
 
 // Intentionally NOT on a lifecycle driver — legacy by design, not yet-to-do.
 //
@@ -23,10 +18,10 @@ import type {
 // purpose — revisit only if a second bare-HTTP-sampling kind ever appears.
 // See tasks/runner-migration-tracker.md.
 export const runHttpEndpointCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"http-endpoint">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
-  const config = perfCase.config as HttpEndpointCaseConfig;
+  const config = perfCase.config;
   const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
   const thresholdMs = getPrimaryThresholdMs(config.threshold.maxMs);
 

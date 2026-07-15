@@ -1,7 +1,12 @@
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync } from "../metrics";
 import { withPerfTraceStep } from "../trace-collector";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
+import type {
+  PerfCaseFor,
+  PerfCase,
+  PerfRunContext,
+  PerfRunResult,
+} from "../types";
 import { waitForRowsRestored } from "./record-replay.shared";
 import {
   archiveTable,
@@ -57,7 +62,7 @@ const restoreArchivedSample = async ({
 };
 
 export const runTableRestoreLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-restore-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runTableLinkSamplesLifecycle<RestoreLinkLifecycleState>(perfCase, context, {
@@ -223,7 +228,7 @@ export const runTableRestoreLinkCase = async (
   });
 
 export const seedTableRestoreLinkCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"table-restore-link">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedTableLinkLifecycleCase(perfCase, context, "table-restore-link");

@@ -25,6 +25,7 @@ import {
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
+  PerfCaseFor,
   MetricThreshold,
   PerfCase,
   PerfRunContext,
@@ -1177,13 +1178,13 @@ const recordReorderLifecycleSpec: RecordMutationLifecycleSpec<
 };
 
 export const runRecordReorderCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-reorder">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   runRecordMutationLifecycle(perfCase, context, recordReorderLifecycleSpec);
 
 export const seedRecordReorderCase = async (
-  perfCase: PerfCase,
+  perfCase: PerfCaseFor<"record-reorder">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
   seedRecordMutationLifecycle(perfCase, context, recordReorderLifecycleSpec);
