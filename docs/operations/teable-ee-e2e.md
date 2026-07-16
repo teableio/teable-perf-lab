@@ -45,14 +45,15 @@ Manual inputs:
   exercise the production outbox + polling-worker path (`HybridWithOutboxStrategy`)
   so a case can measure the real async propagation window after a write. Only run
   async-tolerant cases (those that poll until computed values settle, e.g.
-  `lookup/dual-link-computed-*` and the computed-chain mutation cases) with
+  `lookup/dual-link-computed-*`, the computed-chain mutation cases, and the
+  customer upsert computed-flow cases) with
   `hybrid`, because the mode is per execute job and applies to every selected
   case in that run. The perf spec applies it after the e2e setup and before
   `initApp()` builds the V2 container.
   When `case_filter=all` and this input is empty, the workflow automatically
   splits V2 execution: all normal cases run with the default sync mode, while
-  the four registered `lookup/dual-link-computed-*` cases plus all registered
-  computed-chain mutation cases run in a separate V2 hybrid job. Passing an
+  the registered dual-link, computed-chain mutation, and customer upsert
+  computed-flow cases run in a separate V2 hybrid job. Passing an
   explicit
   `computed_update_mode` disables that automatic split and applies the requested
   mode to every selected V2 case in the run.

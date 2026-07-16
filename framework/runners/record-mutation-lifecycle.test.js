@@ -55,6 +55,7 @@ registerHooks({
 const { runRecordMutationLifecycle } = await import(
   "./record-mutation-lifecycle.ts"
 );
+const { PerfRunDiagnosticError } = await import("../types.ts");
 
 test("domain table-name resolver reaches the real lifecycle fixture adapter", async () => {
   globalThis.testConfig = { baseId: "base-contract" };
@@ -105,4 +106,65 @@ test("domain table-name resolver reaches the real lifecycle fixture adapter", as
   assert.equal(result.result, "pass");
   assert.equal(result.metrics.mutationMs, 7);
   assert.equal(cleanupArgs.fixture.tableName, preparedTableName);
+});
+
+test("measured diagnostic failures preserve partial primary evidence", async () => {
+  globalThis.testConfig = { baseId: "base-contract" };
+  const partialPrimaryMeasurement = {
+    name: "customerFlowReadyTotalMs",
+    durationMs: 5432,
+    result: { completedWrites: 2, targetReadAttempts: 31 },
+  };
+  let cleanupArgs;
+
+  const perfCase = {
+    id: "lookup/customer-diagnostic-contract",
+    title: "Customer diagnostic contract",
+    runner: "customer-upsert-computed-flow",
+    timeoutMs: 1_000,
+    config: { tableNamePrefix: "customer-diagnostic" },
+  };
+  const context = {
+    app: {},
+    appUrl: "http://localhost",
+    runId: "run-diagnostic-contract",
+    engine: "v2",
+  };
+  const spec = {
+    prepareFixture: async ({ tableName }) => ({ tableName }),
+    runMeasuredOperation: async () => {
+      throw new PerfRunDiagnosticError("computed propagation timed out", {
+        metrics: {},
+        thresholds: [],
+        details: { partialPrimaryMeasurement },
+      });
+    },
+    buildResult: ({ primaryMeasurement, error }) => ({
+      result: error ? "fail" : "pass",
+      metrics: {
+        customerFlowReadyTotalMs: primaryMeasurement?.durationMs ?? 0,
+        completedWrites: primaryMeasurement?.result.completedWrites ?? 0,
+        targetReadAttempts: primaryMeasurement?.result.targetReadAttempts ?? 0,
+      },
+      thresholds: [],
+    }),
+    cleanup: async (args) => {
+      cleanupArgs = args;
+    },
+  };
+
+  await assert.rejects(
+    runRecordMutationLifecycle(perfCase, context, spec),
+    (error) => {
+      assert.equal(error.name, "PerfRunDiagnosticError");
+      assert.equal(error.result.metrics.customerFlowReadyTotalMs, 5432);
+      assert.equal(error.result.metrics.completedWrites, 2);
+      assert.equal(error.result.metrics.targetReadAttempts, 31);
+      return true;
+    },
+  );
+  assert.equal(
+    cleanupArgs.primaryMeasurement.durationMs,
+    partialPrimaryMeasurement.durationMs,
+  );
 });
