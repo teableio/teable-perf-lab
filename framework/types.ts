@@ -204,8 +204,21 @@ export type ComputedOutboxCaseConfig = ComputedOutboxBaseCaseConfig &
     | {
         operation: "record-update";
         updateCount: number;
+        scenario?:
+          | {
+              kind: "bullmq-pause-recovery";
+              holdMs: number;
+              evidencePollIntervalMs: number;
+            }
+          | {
+              kind: "observer-polling-ab";
+              treatmentOrder: [50, 5];
+            };
         threshold: {
-          metric: "computedOutboxPropagationReadyMs";
+          metric:
+            | "computedOutboxPropagationReadyMs"
+            | "computedOutboxRecoveryReadyMs"
+            | "computedOutboxObserverAbMaxReadyMs";
           maxMs: number;
         };
       }

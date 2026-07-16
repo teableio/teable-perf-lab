@@ -24,6 +24,7 @@ import ts from "typescript";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const EXTERNAL_MODULES = [
+  "@nestjs/bullmq",
   "@nestjs/common",
   "@opentelemetry/api",
   "@teable/core",
@@ -55,6 +56,7 @@ const RELATIVE_MODULE_STUBS = [
   "src/features/table/table-index.service",
   "src/features/v2/v2-container.service",
   "src/features/v2/v2-execution-context.factory",
+  "src/features/v2/computed-outbox-trigger/computed-outbox-monitor.service",
 ];
 
 const collectTsFiles = async (dir) => {

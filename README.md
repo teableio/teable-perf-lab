@@ -144,6 +144,11 @@ workload.
 - `formula/10k-5-concurrent`: Measure concurrent creation of five formula fields
   on the same 10k-row table and verify that all computed values become fully
   readable.
+- `computed-outbox/bullmq-pause-recovery-20k`: Prove that a temporary BullMQ
+  pause becomes visible in the Computed Outbox monitor while a 20,000-record
+  depth-four formula update is waiting, then prove that resuming the queue drains
+  the durable backlog without failed jobs or dead letters and makes every
+  computed value correct.
 - `computed-outbox/formula-chain-update-1k-depth4`: Measure the baseline V2
   hybrid seed-task path: one external bulk update of 1,000 records beneath a
   four-level same-table formula chain is durably queued before the Worker plans
@@ -164,6 +169,10 @@ workload.
   populated 20,000-row table and prove that V2 hybrid uses a Computed Outbox
   field-backfill task once the table-size estimate is beyond the current
   10,000-row asynchronous threshold.
+- `computed-outbox/observer-polling-ab-10k`: Measure whether sampling the
+  Computed Outbox database every 5 ms materially changes the observed propagation
+  time of the same 10,000-record depth-four formula update compared with a 50 ms
+  observer interval.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
