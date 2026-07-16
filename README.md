@@ -270,6 +270,14 @@ workload.
   recompute. It reproduces the customer "orders" scenario where the link targets
   change but the lookups (`user_email`, `shipping_first_name`, ...) and the
   `${first_name} ${last_name}` formula lag for a window.
+- `lookup/foreign-select-flip-1of40-fanout100-4k`: Measure the customer-visible
+  propagation gap when one cell on a linked foreign record changes while every
+  order link record id stays unchanged. One User Status update fans out through
+  lookups, five formula levels, purchase rollups, and purchase formulas.
+- `lookup/foreign-first-name-update-1of40-fanout100-4k`: Measure the same
+  unchanged-link propagation path for a normal one-cell text edit. This matches
+  the user operation: edit one field once, rather than sending a synthetic
+  multi-field update.
 - `search/search-index-off-10k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 10k-row host table whose
   `TableIndex.search` is disabled.
@@ -316,6 +324,11 @@ workload.
   `field-convert/10k-link-to-text`. It turns text values that name foreign
   records into real linked records, stressing text-title matching, link
   relationship creation, and relationship value rewrite.
+- `field-convert/formula-expression-update-4k-depth5-cascade`: Measure a real
+  one-field schema edit at the head of a long dependency chain. The formula keeps
+  the same lookup dependencies; only its literal output prefix changes. This
+  isolates recomputation of an existing graph from dependency-graph rebuild
+  cases.
 - `field-update/v2-only-10k-select-option-rename-computed-cascade`: Catch
   regressions in the V2 field update path when renaming a populated single-select
   option forces dependent computed fields to recalculate across a 10,000-row

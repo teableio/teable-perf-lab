@@ -13,6 +13,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
+  "computed-chain-mutation": ComputedChainMutationCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
   "field-create": FieldCreateCaseConfig;
   "field-convert": FieldConvertCaseConfig;
@@ -380,6 +381,38 @@ export interface LinkComputedPropagationCaseConfig {
   };
   threshold: {
     metric: "lookupReadyTotalMs" | "lookupPropagationMs";
+    maxMs: number;
+  };
+}
+
+// Three customer-shaped mutations share one deterministic dependency graph:
+// 40 Users -> 4,000 Orders (100 consecutive orders per user) -> 400 Purchases
+// (10 consecutive orders per purchase). Orders carry four lookups followed by
+// five formula levels; Purchases roll up the final formula and derive one more
+// formula. Each case edits exactly one field: either the head formula schema,
+// one foreign single-select cell, or one foreign text cell.
+export interface ComputedChainMutationCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  mutation: "formula-expression" | "foreign-select" | "foreign-first-name";
+  userCount: number;
+  orderCount: number;
+  ordersPerUser: number;
+  purchaseGroupSize: number;
+  targetUserRow: number;
+  batchSize: number;
+  userBatchSize: number;
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    // User-cell cases turn the customer-reported empty read window into a hard
+    // response-after-write threshold in addition to the primary total metric.
+    maxPostResponseMs?: number;
+  };
+  threshold: {
+    metric: "fullCascadeReadyTotalMs" | "firstOrderReadyTotalMs";
     maxMs: number;
   };
 }

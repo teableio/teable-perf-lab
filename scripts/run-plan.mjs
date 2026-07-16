@@ -6,6 +6,9 @@ export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-1of4k-get-record",
   "lookup/dual-link-computed-first-link-1of4k-get-records",
   "lookup/dual-link-computed-repoint-2k",
+  "field-convert/formula-expression-update-4k-depth5-cascade",
+  "lookup/foreign-select-flip-1of40-fanout100-4k",
+  "lookup/foreign-first-name-update-1of40-fanout100-4k",
 ];
 
 const VALID_ENGINES = new Set(["v1", "v2"]);
