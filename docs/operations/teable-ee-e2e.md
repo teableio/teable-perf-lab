@@ -45,15 +45,17 @@ Manual inputs:
   exercise the production outbox + polling-worker path (`HybridWithOutboxStrategy`)
   so a case can measure the real async propagation window after a write. Only run
   async-tolerant cases (those that poll until computed values settle, e.g.
-  `lookup/dual-link-computed-*`) with `hybrid`, because the mode is per execute
-  job and applies to every selected case in that run. The perf spec applies it
-  after the e2e setup and before `initApp()` builds the V2 container.
+  `lookup/dual-link-computed-*` and the computed-chain mutation cases) with
+  `hybrid`, because the mode is per execute job and applies to every selected
+  case in that run. The perf spec applies it after the e2e setup and before
+  `initApp()` builds the V2 container.
   When `case_filter=all` and this input is empty, the workflow automatically
   splits V2 execution: all normal cases run with the default sync mode, while
-  `lookup/dual-link-computed-first-link-4k` and
-  `lookup/dual-link-computed-repoint-2k` run in a separate V2 hybrid job. Passing
-  an explicit `computed_update_mode` disables that automatic split and applies
-  the requested mode to every selected V2 case in the run.
+  the four registered `lookup/dual-link-computed-*` cases plus the formula,
+  foreign-select, and foreign-text computed-chain cases run in a separate V2
+  hybrid job. Passing an explicit
+  `computed_update_mode` disables that automatic split and applies the requested
+  mode to every selected V2 case in the run.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on
   that repository and store the private key in this repository as
   `TEABLE_EE_CHECKOUT_SSH_KEY`.

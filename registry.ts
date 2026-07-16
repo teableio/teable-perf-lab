@@ -35,7 +35,11 @@ import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/condi
 import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditional-group-sum-fanout10-10k.case";
 import conditionalRollupGroupTextTop3_10kCase from "./cases/rollup/conditional-group-text-top3-10k.case";
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
+import dualLinkComputedFirstLink1of4kGetRecordCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-record.case";
+import dualLinkComputedFirstLink1of4kGetRecordsCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-records.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
+import foreignSelectFlip1of40Fanout100_4kCase from "./cases/lookup/foreign-select-flip-1of40-fanout100-4k.case";
+import foreignFirstNameUpdate1of40Fanout100_4kCase from "./cases/lookup/foreign-first-name-update-1of40-fanout100-4k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOff50k20SearchFieldsCase from "./cases/search/search-index-off-50k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
@@ -48,6 +52,7 @@ import fieldConvert10kMultiSelectToTextCase from "./cases/field-convert/10k-mult
 import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
 import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
 import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
+import formulaExpressionUpdate4kDepth5CascadeCase from "./cases/field-convert/formula-expression-update-4k-depth5-cascade.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
@@ -134,7 +139,11 @@ const cases = [
   conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase,
   conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
+  dualLinkComputedFirstLink1of4kGetRecordCase,
+  dualLinkComputedFirstLink1of4kGetRecordsCase,
   dualLinkComputedRepoint2kCase,
+  foreignSelectFlip1of40Fanout100_4kCase,
+  foreignFirstNameUpdate1of40Fanout100_4kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
   searchIndexOff50k20SearchFieldsCase,
@@ -147,6 +156,7 @@ const cases = [
   fieldConvert10kTextToFormulaCase,
   fieldConvert10kLinkToTextCase,
   fieldConvert10kTextToLinkCase,
+  formulaExpressionUpdate4kDepth5CascadeCase,
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldRestore10kDescriptionFieldCase,
@@ -208,6 +218,14 @@ const caseAliases = new Map([
   ["rollup/conditional", "rollup/conditional-10k"],
   ["conditional-rollup", "rollup/conditional-10k"],
   ["lookup/dual-link-first-link", "lookup/dual-link-computed-first-link-4k"],
+  [
+    "lookup/dual-link-first-link/get-record",
+    "lookup/dual-link-computed-first-link-1of4k-get-record",
+  ],
+  [
+    "lookup/dual-link-first-link/get-records",
+    "lookup/dual-link-computed-first-link-1of4k-get-records",
+  ],
   ["lookup/dual-link-repoint", "lookup/dual-link-computed-repoint-2k"],
   ["lookup/search-index", "search/search-index-on-10k-20search-fields"],
   ["lookup/search-index/off", "search/search-index-off-10k-20search-fields"],
