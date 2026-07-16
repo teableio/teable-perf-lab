@@ -14,6 +14,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "computed-chain-mutation": ComputedChainMutationCaseConfig;
+  "customer-upsert-computed-flow": CustomerUpsertComputedFlowCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
   "field-create": FieldCreateCaseConfig;
   "field-convert": FieldConvertCaseConfig;
@@ -420,6 +421,37 @@ export interface ComputedChainMutationCaseConfig {
   };
   threshold: {
     metric: "fullCascadeReadyTotalMs" | "firstOrderReadyTotalMs";
+    maxMs: number;
+  };
+}
+
+// Customer-import shaped two-write flows over a deterministic dependency graph:
+// 40 Users -> 4,000 Orders -> 400 Purchases. The primary measurement starts at
+// the User write and ends when the target Order is readable with all ten
+// lookups and five formula levels. Full-table controls run after that timer.
+export interface CustomerUpsertComputedFlowCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  scenario:
+    | "update-user-create-order"
+    | "update-user-update-order"
+    | "create-user-create-order";
+  userCount: number;
+  orderCount: number;
+  ordersPerUser: number;
+  purchaseGroupSize: number;
+  targetUserRow: number;
+  batchSize: number;
+  userBatchSize: number;
+  verify: {
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    maxPostOrderResponseMs: number;
+    outboxPollIntervalMs: number;
+  };
+  threshold: {
+    metric: "customerFlowReadyTotalMs";
     maxMs: number;
   };
 }

@@ -40,6 +40,9 @@ import dualLinkComputedFirstLink1of4kGetRecordsCase from "./cases/lookup/dual-li
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import foreignSelectFlip1of40Fanout100_4kCase from "./cases/lookup/foreign-select-flip-1of40-fanout100-4k.case";
 import foreignFirstNameUpdate1of40Fanout100_4kCase from "./cases/lookup/foreign-first-name-update-1of40-fanout100-4k.case";
+import customerUpdateUserCreateOrder4kDepth5Case from "./cases/lookup/customer-update-user-create-order-4k-depth5.case";
+import customerUpdateUserUpdateOrder4kDepth5Case from "./cases/lookup/customer-update-user-update-order-4k-depth5.case";
+import customerCreateUserCreateOrder4kDepth5Case from "./cases/lookup/customer-create-user-create-order-4k-depth5.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOff50k20SearchFieldsCase from "./cases/search/search-index-off-50k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
@@ -147,6 +150,9 @@ const cases = [
   dualLinkComputedRepoint2kCase,
   foreignSelectFlip1of40Fanout100_4kCase,
   foreignFirstNameUpdate1of40Fanout100_4kCase,
+  customerUpdateUserCreateOrder4kDepth5Case,
+  customerUpdateUserUpdateOrder4kDepth5Case,
+  customerCreateUserCreateOrder4kDepth5Case,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
   searchIndexOff50k20SearchFieldsCase,

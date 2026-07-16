@@ -278,6 +278,20 @@ workload.
   unchanged-link propagation path for a normal one-cell text edit. This matches
   the user operation: edit one field once, rather than sending a synthetic
   multi-field update.
+- `lookup/customer-update-user-create-order-4k-depth5`: Reproduce the customer
+  import order: update an existing User, immediately create a linked Order, then
+  read that Order. This tests whether the second write can observe and propagate
+  the first write through a long computed dependency chain without an artificial
+  delay.
+- `lookup/customer-update-user-update-order-4k-depth5`: Reproduce a customer
+  upsert where an existing User is updated and an existing linked Order is
+  immediately updated. The link record id does not change, so the case exercises
+  propagation from both a foreign-table value change and a host record value
+  change rather than link creation.
+- `lookup/customer-create-user-create-order-4k-depth5`: Reproduce the
+  new-customer branch: create a User and immediately create an Order that links
+  to the returned record id. This covers a dependency target that did not exist
+  when the fixture's computed graph became ready.
 - `search/search-index-off-10k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 10k-row host table whose
   `TableIndex.search` is disabled.
