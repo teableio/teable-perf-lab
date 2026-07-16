@@ -315,11 +315,13 @@ export type ConditionalQueryCaseConfig = ConditionalQueryBaseCaseConfig &
 // each fanning out into a full attribute set of lookups, a multi-level formula
 // chain over those lookups, and a many-one `purchase_fk` into a downstream
 // `purchase` table that rolls up and re-derives the orders' computed values
-// (a second cross-table hop). The measured operation writes BOTH links for every
-// order, then waits until every dependent lookup, formula, rollup, and
-// downstream computed value recomputes. Cases can gate either the end-to-end
-// write-to-readable window or the post-write propagation window; both
-// `linkWriteMs` and the non-primary readiness metric are still reported as
+// (a second cross-table hop). The measured operation writes BOTH links for a
+// deterministic order window (all rows by default). Bulk cases wait for every
+// dependent lookup, formula, rollup, and downstream computed value; customer
+// read-after-write cases can poll the mutated records through one concrete read
+// API and verify the full cascade after the timer. Cases can gate either the
+// end-to-end write-to-readable window or the post-write propagation window;
+// both `linkWriteMs` and the non-primary readiness metric are still reported as
 // diagnostics. All computed fields live in the seed; the foreign tables share
 // `foreignRowCount`.
 export interface LinkComputedPropagationCaseConfig {
@@ -342,6 +344,13 @@ export interface LinkComputedPropagationCaseConfig {
   purchase: {
     groupSize: number;
   };
+  // Execute-only mutation window. Omit to keep the existing all-record write.
+  // Partial first-link cases leave rows outside this deterministic window
+  // unlinked; partial repoint cases leave them on their seed targets.
+  mutation?: {
+    startOffset?: number;
+    recordCount: number;
+  };
   link: {
     isOneWay: boolean;
     // Both map order row i to foreign row
@@ -360,6 +369,11 @@ export interface LinkComputedPropagationCaseConfig {
   };
   verify: {
     sampleRows: number[];
+    // Existing bulk cases wait for the full orders + purchase cascade inside
+    // the primary metric. Single-record customer-path cases can instead poll
+    // the mutated record through either read API, then run the full cascade
+    // verification after the primary timer stops.
+    readinessReadPath?: "full-scan" | "get-record" | "get-records";
     fullScanPageSize?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;

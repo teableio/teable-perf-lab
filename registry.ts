@@ -35,6 +35,8 @@ import conditionalRollupGroupCountallFanout10_10kCase from "./cases/rollup/condi
 import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditional-group-sum-fanout10-10k.case";
 import conditionalRollupGroupTextTop3_10kCase from "./cases/rollup/conditional-group-text-top3-10k.case";
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
+import dualLinkComputedFirstLink1of4kGetRecordCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-record.case";
+import dualLinkComputedFirstLink1of4kGetRecordsCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-records.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOff50k20SearchFieldsCase from "./cases/search/search-index-off-50k-20search-fields.case";
@@ -134,6 +136,8 @@ const cases = [
   conditionalRollupGroupActiveSumUpdate1kFanout100_30kCase,
   conditionalRollupGroupTextTop3_10kCase,
   dualLinkComputedFirstLink4kCase,
+  dualLinkComputedFirstLink1of4kGetRecordCase,
+  dualLinkComputedFirstLink1of4kGetRecordsCase,
   dualLinkComputedRepoint2kCase,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
@@ -208,6 +212,14 @@ const caseAliases = new Map([
   ["rollup/conditional", "rollup/conditional-10k"],
   ["conditional-rollup", "rollup/conditional-10k"],
   ["lookup/dual-link-first-link", "lookup/dual-link-computed-first-link-4k"],
+  [
+    "lookup/dual-link-first-link/get-record",
+    "lookup/dual-link-computed-first-link-1of4k-get-record",
+  ],
+  [
+    "lookup/dual-link-first-link/get-records",
+    "lookup/dual-link-computed-first-link-1of4k-get-records",
+  ],
   ["lookup/dual-link-repoint", "lookup/dual-link-computed-repoint-2k"],
   ["lookup/search-index", "search/search-index-on-10k-20search-fields"],
   ["lookup/search-index/off", "search/search-index-off-10k-20search-fields"],

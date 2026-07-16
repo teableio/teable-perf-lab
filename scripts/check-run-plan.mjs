@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { buildCaseFilterKey, resolveRunPlan } from "./run-plan.mjs";
 
 const hybridComputedCases =
-  "lookup/dual-link-computed-first-link-4k,lookup/dual-link-computed-repoint-2k";
+  "lookup/dual-link-computed-first-link-4k,lookup/dual-link-computed-first-link-1of4k-get-record,lookup/dual-link-computed-first-link-1of4k-get-records,lookup/dual-link-computed-repoint-2k";
 
 const assertThrowsMessage = (label, fn, expectedMessage) => {
   assert.throws(

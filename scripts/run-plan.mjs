@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
+  "lookup/dual-link-computed-first-link-1of4k-get-record",
+  "lookup/dual-link-computed-first-link-1of4k-get-records",
   "lookup/dual-link-computed-repoint-2k",
 ];
 

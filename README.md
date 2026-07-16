@@ -250,6 +250,17 @@ workload.
   producing `undefined undefined`. This `first-link` variant is the closest to
   the customer "new record first association" worst case: orders start with no
   customer/guest link at all.
+- `lookup/dual-link-computed-first-link-1of4k-get-record`: Measure the
+  customer-visible lookup gap after first-linking one order inside a 4,000-row
+  deep computed graph, using the direct single-record API as the readiness path.
+  This separates single-write fixed latency from the bulk throughput measured by
+  `lookup/dual-link-computed-first-link-4k`.
+- `lookup/dual-link-computed-first-link-1of4k-get-records`: Measure the
+  customer-visible lookup gap after first-linking one order inside a 4,000-row
+  deep computed graph, using the filtered record-list API that matches the
+  customer's write-then-query pattern. Paired with the direct-record variant,
+  this tests whether `getRecords` observes computed readiness later than
+  `getRecord` under otherwise identical conditions.
 - `lookup/dual-link-computed-repoint-2k`: Measure how long after a data write
   the V2 dependency graph becomes readable, on a deep, customer-mirrored schema,
   when the links already exist and are re-pointed to different records. This is
