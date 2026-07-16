@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { buildCaseFilterKey, resolveRunPlan } from "./run-plan.mjs";
 
 const hybridComputedCases =
-  "lookup/dual-link-computed-first-link-4k,lookup/dual-link-computed-repoint-2k";
+  "computed-outbox/formula-chain-update-1k-depth4,computed-outbox/formula-chain-update-1k-depth8,computed-outbox/formula-chain-update-20k-depth4-backlog,computed-outbox/formula-chain-update-5001-depth2,computed-outbox/formula-backfill-20k,lookup/dual-link-computed-first-link-4k,lookup/dual-link-computed-repoint-2k";
 
 const assertThrowsMessage = (label, fn, expectedMessage) => {
   assert.throws(

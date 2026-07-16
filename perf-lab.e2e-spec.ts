@@ -165,7 +165,7 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
   const previousOtelServiceName = process.env.OTEL_SERVICE_NAME;
   // The teable-ee e2e setup file unconditionally forces
   // V2_COMPUTED_UPDATE_MODE=sync for deterministic tests. When the workflow asks
-  // for a specific mode (e.g. hybrid, the production outbox + polling-worker
+  // for a specific mode (e.g. hybrid, the production outbox + BullMQ worker
   // path), override it here — this runs after the setup file and before
   // initApp() builds the V2 container, which reads the env once at creation.
   // The V2 container only reads it; V1 ignores it. Leave it untouched (sync)

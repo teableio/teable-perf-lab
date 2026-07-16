@@ -9,6 +9,7 @@ import type { IFieldRo } from "@teable/core";
 export interface PerfCaseConfigByRunner {
   "http-endpoint": HttpEndpointCaseConfig;
   "formula-table": FormulaTableCaseConfig;
+  "computed-outbox": ComputedOutboxCaseConfig;
   "conditional-lookup": ConditionalLookupCaseConfig;
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
@@ -172,6 +173,50 @@ export interface FormulaTableCaseConfig {
     maxMs: number;
   };
 }
+
+interface ComputedOutboxBaseCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  recordCount: number;
+  batchSize: number;
+  formulaDepth: number;
+  generator: {
+    type: "numeric-sequence";
+    titlePrefix: string;
+    updateDelta: number;
+  };
+  verify: {
+    sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    fullScanPageSize?: number;
+  };
+  outbox: {
+    expectedInV2Hybrid: "none" | "task";
+    expectedChangeType?: string;
+    minimumPeakPending?: number;
+    pollIntervalMs?: number;
+  };
+}
+
+export type ComputedOutboxCaseConfig = ComputedOutboxBaseCaseConfig &
+  (
+    | {
+        operation: "record-update";
+        updateCount: number;
+        threshold: {
+          metric: "computedOutboxPropagationReadyMs";
+          maxMs: number;
+        };
+      }
+    | {
+        operation: "field-backfill";
+        threshold: {
+          metric: "computedOutboxBackfillReadyMs";
+          maxMs: number;
+        };
+      }
+  );
 
 export interface ConditionalComputedSeedConfig {
   baseId: "seed-base";

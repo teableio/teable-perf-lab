@@ -144,6 +144,26 @@ workload.
 - `formula/10k-5-concurrent`: Measure concurrent creation of five formula fields
   on the same 10k-row table and verify that all computed values become fully
   readable.
+- `computed-outbox/formula-chain-update-1k-depth4`: Measure the baseline V2
+  hybrid seed-task path: one external bulk update of 1,000 records beneath a
+  four-level same-table formula chain is durably queued before the Worker plans
+  and executes the computed dependency graph.
+- `computed-outbox/formula-chain-update-1k-depth8`: Measure the real
+  write-to-readable window when V2 hybrid queues a 1,000-record `seed` task and
+  the Worker plans and executes an eight-level same-table formula chain.
+- `computed-outbox/formula-chain-update-20k-depth4-backlog`: Measure whether one
+  20,000-record source update beneath a four-level formula chain creates a
+  visible V2 hybrid Computed Outbox backlog, then prove that the Worker catches
+  up, the queue drains without dead letters, and every computed value becomes
+  correct.
+- `computed-outbox/formula-chain-update-5001-depth2`: Measure the V2 hybrid
+  task-splitting path caused by one bulk user write carrying 5,001 seed records,
+  one record beyond the current 5,000-record maximum per Outbox task, while
+  keeping the same-table formula chain only two levels deep.
+- `computed-outbox/formula-backfill-20k`: Measure formula-field creation on a
+  populated 20,000-row table and prove that V2 hybrid uses a Computed Outbox
+  field-backfill task once the table-size estimate is beyond the current
+  10,000-row asynchronous threshold.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
