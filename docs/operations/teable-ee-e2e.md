@@ -51,9 +51,9 @@ Manual inputs:
   `initApp()` builds the V2 container.
   When `case_filter=all` and this input is empty, the workflow automatically
   splits V2 execution: all normal cases run with the default sync mode, while
-  the four registered `lookup/dual-link-computed-*` cases plus the formula,
-  foreign-select, and foreign-text computed-chain cases run in a separate V2
-  hybrid job. Passing an explicit
+  the four registered `lookup/dual-link-computed-*` cases plus all registered
+  computed-chain mutation cases run in a separate V2 hybrid job. Passing an
+  explicit
   `computed_update_mode` disables that automatic split and applies the requested
   mode to every selected V2 case in the run.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on

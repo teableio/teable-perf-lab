@@ -53,6 +53,9 @@ import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-
 import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
 import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
 import formulaExpressionUpdate4kDepth5CascadeCase from "./cases/field-convert/formula-expression-update-4k-depth5-cascade.case";
+import formulaDependencyAdd4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-add-4k-depth5-cascade.case";
+import formulaDependencyReplace4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-replace-4k-depth5-cascade.case";
+import formulaDependencyRemove4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-remove-4k-depth5-cascade.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
@@ -157,6 +160,9 @@ const cases = [
   fieldConvert10kLinkToTextCase,
   fieldConvert10kTextToLinkCase,
   formulaExpressionUpdate4kDepth5CascadeCase,
+  formulaDependencyAdd4kDepth5CascadeCase,
+  formulaDependencyReplace4kDepth5CascadeCase,
+  formulaDependencyRemove4kDepth5CascadeCase,
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldRestore10kDescriptionFieldCase,

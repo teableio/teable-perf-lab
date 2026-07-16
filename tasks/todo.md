@@ -243,34 +243,33 @@ Parallel-work guardrails:
 
 ### Computed dependency-graph follow-ups
 
-These cases are deliberately deferred from the current three-case customer
-computed-propagation batch. They should reuse that batch's deterministic
+These cases were implemented after the three-case customer
+computed-propagation batch. They reuse that batch's deterministic
 40-user / 4,000-order / 400-purchase fixture and its chain from user fields
 through order lookups and formulas into purchase rollups. Keeping the seed
 identical isolates dependency-graph mutation from data scale and topology.
 
-- [ ] `field-update/v2-only-4k-formula-add-lookup-dependency-cascade`
+- [x] `field-convert/formula-dependency-add-4k-depth5-cascade`
   - Update the first order formula so it adds a reference to an existing,
     already-populated lookup field that the formula did not previously use.
   - Why: measures dependency-graph widening plus recomputation without also
     creating a field.
   - Verification: all 4,000 orders and 400 purchases reflect the new formula;
     the previously unused lookup stays unchanged.
-- [ ] `field-update/v2-only-4k-formula-replace-lookup-dependency-cascade`
+- [x] `field-convert/formula-dependency-replace-4k-depth5-cascade`
   - Replace the first order formula's existing lookup reference with a second
     existing lookup reference.
   - Why: measures removing one dependency edge and adding another in the same
     field update.
-  - Verification: the new dependency controls every downstream value, while a
-    later mutation of the old source no longer changes the formula chain.
-- [ ] `field-update/v2-only-4k-formula-remove-lookup-dependency-cascade`
-  - Remove one of two existing lookup references from the first order formula.
-  - Why: measures dependency-graph narrowing and catches stale invalidation
-    edges that keep scheduling unnecessary recomputation.
-  - Verification: all downstream values converge, and a later mutation of the
-    removed source leaves the formula chain unchanged.
+  - Verification: the exact old/new dependency-id diff is recorded, and the
+    new dependency controls every downstream value.
+- [x] `field-convert/formula-dependency-remove-4k-depth5-cascade`
+  - Remove one existing lookup reference from the first order formula.
+  - Why: measures dependency-graph narrowing plus recomputation.
+  - Verification: the exact removed dependency id is recorded, and all
+    downstream values converge without the removed source value.
 
-For all three, split `updateFieldRequestMs` from computed readiness and use a
+For all three, split `mutationRequestMs` from computed readiness and use a
 full order/purchase scan. Do not combine add, replace, and remove in one measured
 operation; each produces a different dependency diff and must remain
 independently diagnosable.
