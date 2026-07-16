@@ -7,6 +7,10 @@ import {
   seedComputedChainMutationCase,
 } from "./runners/computed-chain-mutation.runner";
 import {
+  runCustomerUpsertComputedFlowCase,
+  seedCustomerUpsertComputedFlowCase,
+} from "./runners/customer-upsert-computed-flow.runner";
+import {
   runConditionalQueryCase,
   seedConditionalQueryCase,
 } from "./runners/conditional-query.runner";
@@ -216,6 +220,14 @@ const runnerInventory = {
     },
     execute: runComputedChainMutationCase,
     seed: seedComputedChainMutationCase,
+  },
+  "customer-upsert-computed-flow": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runCustomerUpsertComputedFlowCase,
+    seed: seedCustomerUpsertComputedFlowCase,
   },
   "lookup-search-index": {
     implementation: {

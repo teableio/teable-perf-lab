@@ -12,6 +12,9 @@ export const HYBRID_COMPUTED_CASES = [
   "field-convert/formula-dependency-remove-4k-depth5-cascade",
   "lookup/foreign-select-flip-1of40-fanout100-4k",
   "lookup/foreign-first-name-update-1of40-fanout100-4k",
+  "lookup/customer-update-user-create-order-4k-depth5",
+  "lookup/customer-update-user-update-order-4k-depth5",
+  "lookup/customer-create-user-create-order-4k-depth5",
 ];
 
 const VALID_ENGINES = new Set(["v1", "v2"]);
