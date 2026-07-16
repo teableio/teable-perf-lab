@@ -37,12 +37,13 @@ import {
   type SeedCacheInfo,
 } from "../seed-cache";
 import { withPerfTraceStep } from "../trace-collector";
-import type {
-  CustomerUpsertComputedFlowCaseConfig,
-  PerfCase,
-  PerfCaseFor,
-  PerfRunContext,
-  PerfRunResult,
+import {
+  PerfRunDiagnosticError,
+  type CustomerUpsertComputedFlowCaseConfig,
+  type PerfCase,
+  type PerfCaseFor,
+  type PerfRunContext,
+  type PerfRunResult,
 } from "../types";
 import {
   buildExpectedOrderState,
@@ -61,6 +62,7 @@ import {
   orderTitle,
   purchaseChildOrderRows,
   purchaseTitle,
+  resolveCachedCompanionTableIds,
   resolveImpact,
   targetOrderRow,
   targetPurchaseRow,
@@ -192,18 +194,18 @@ type TargetReadEvidence = {
 };
 
 type PrimaryResult = {
-  userWriteMs: number;
-  orderWriteMs: number;
-  postOrderResponseReadyMs: number;
-  userWrite: WriteEvidence;
-  orderWrite: WriteEvidence;
-  targetRead: TargetReadEvidence;
-  usersScan: ScanResult;
-  ordersScan: ScanResult;
-  purchasesScan: ScanResult;
-  usersVerificationMs: number;
-  ordersVerificationMs: number;
-  purchasesVerificationMs: number;
+  userWriteMs?: number;
+  orderWriteMs?: number;
+  postOrderResponseReadyMs?: number;
+  userWrite?: WriteEvidence;
+  orderWrite?: WriteEvidence;
+  targetRead?: TargetReadEvidence;
+  usersScan?: ScanResult;
+  ordersScan?: ScanResult;
+  purchasesScan?: ScanResult;
+  usersVerificationMs?: number;
+  ordersVerificationMs?: number;
+  purchasesVerificationMs?: number;
   outbox?: ComputedOutboxObserverSummary;
   outboxError?: string;
 };
@@ -324,6 +326,21 @@ const parseRowNumber = (value: unknown, prefix: string) => {
     throw new Error(`Expected integer row in ${text}`);
   }
   return row;
+};
+
+const safeErrorSummary = (error: unknown) => {
+  const code =
+    error instanceof Error ? (error as Error & { code?: unknown }).code : null;
+  return {
+    name: error instanceof Error ? error.name : "UnknownError",
+    message:
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown error",
+    ...(typeof code === "string" || typeof code === "number" ? { code } : {}),
+  };
 };
 
 const parseCachedSeed = (
@@ -528,7 +545,10 @@ const deleteFixtureTables = async (baseId: string, fixture: Fixture) => {
     try {
       await permanentDeleteTable(baseId, tableId);
     } catch (error) {
-      console.warn(`Failed to delete customer-upsert table ${tableId}`, error);
+      console.warn(
+        `Failed to delete customer-upsert table ${tableId}`,
+        safeErrorSummary(error),
+      );
     }
   }
 };
@@ -719,7 +739,7 @@ const createFixture = async (
       } catch (cleanupError) {
         console.warn(
           `Failed to clean incomplete table ${tableId}`,
-          cleanupError,
+          safeErrorSummary(cleanupError),
         );
       }
     }
@@ -735,12 +755,21 @@ const restoreFixture = async (
   if (!seedCacheInfo.enabled) return;
   const orders = await findSeedTable(baseId, seedCacheInfo.seedTableName);
   if (!orders) return;
+  const companionTableNames = [
+    buildSeedTableName(seedCacheInfo, "users"),
+    buildSeedTableName(seedCacheInfo, "purchases"),
+  ];
   try {
+    const [users, purchases] = await Promise.all(
+      companionTableNames.map((name) => findSeedTable(baseId, name)),
+    );
     const metadata = parseCachedSeed(
       (await getTable(baseId, orders.id)).description,
     );
     if (
       !metadata ||
+      !users ||
+      !purchases ||
       metadata.fixtureVersion !== FIXTURE_VERSION ||
       metadata.userCount !== config.userCount ||
       metadata.orderCount !== config.orderCount ||
@@ -751,19 +780,25 @@ const restoreFixture = async (
     ) {
       throw new Error("cached metadata is missing or stale");
     }
+    const companionIds = resolveCachedCompanionTableIds({
+      metadataUsersTableId: metadata.usersTableId,
+      metadataPurchaseTableId: metadata.purchaseTableId,
+      discoveredUsersTableId: users.id,
+      discoveredPurchaseTableId: purchases.id,
+    });
     return {
-      usersTableId: metadata.usersTableId,
+      usersTableId: companionIds.usersTableId,
       ordersTableId: orders.id,
       ordersTableName: orders.name,
-      purchaseTableId: metadata.purchaseTableId,
+      purchaseTableId: companionIds.purchaseTableId,
       userFields: resolveUserFields(
-        (await getFields(metadata.usersTableId)) as NamedField[],
+        (await getFields(users.id)) as NamedField[],
       ),
       orderFields: resolveOrderFields(
         (await getFields(orders.id)) as NamedField[],
       ),
       purchaseFields: resolvePurchaseFields(
-        (await getFields(metadata.purchaseTableId)) as NamedField[],
+        (await getFields(purchases.id)) as NamedField[],
       ),
       userRecords: metadata.userRecordIds.map((recordId, index) => ({
         rowNumber: index + 1,
@@ -786,21 +821,30 @@ const restoreFixture = async (
   } catch (error) {
     console.warn(
       `Invalid customer-upsert seed ${seedCacheInfo.seedTableName}; rebuilding`,
-      error,
+      safeErrorSummary(error),
     );
-    const metadata = parseCachedSeed(
-      (await getTable(baseId, orders.id).catch(() => null))?.description,
-    );
-    for (const tableId of [
-      orders.id,
-      metadata?.usersTableId,
-      metadata?.purchaseTableId,
-    ]) {
-      if (tableId) {
+    const companionTables = await Promise.all(
+      companionTableNames.map(async (name) => {
         try {
-          await permanentDeleteTable(baseId, tableId);
+          return await findSeedTable(baseId, name);
+        } catch (companionError) {
+          console.warn(
+            `Failed to resolve stale companion table ${name}`,
+            safeErrorSummary(companionError),
+          );
+          return undefined;
+        }
+      }),
+    );
+    for (const table of [orders, ...companionTables]) {
+      if (table) {
+        try {
+          await permanentDeleteTable(baseId, table.id);
         } catch (cleanupError) {
-          console.warn(`Failed to delete stale table ${tableId}`, cleanupError);
+          console.warn(
+            `Failed to delete stale table ${table.id}`,
+            safeErrorSummary(cleanupError),
+          );
         }
       }
     }
@@ -1446,6 +1490,7 @@ const waitForTargetOrder = async (
   config: CustomerUpsertComputedFlowCaseConfig,
   targetRecordId: string,
   orderResponseAt: number,
+  onProgress?: (evidence: TargetReadEvidence) => void,
 ): Promise<TargetReadEvidence> => {
   const row = isOrderCreateScenario(config.scenario)
     ? createdOrderRow(shapeFor(config))
@@ -1506,6 +1551,13 @@ const waitForTargetOrder = async (
           ...classification,
           elapsedMs: Math.max(0, performance.now() - orderResponseAt),
         };
+        onProgress?.({
+          recordId: targetRecordId,
+          attempts,
+          firstRead,
+          responseHeaders,
+          routing,
+        });
         if (classification.state !== "correct") {
           throw new Error(
             `Target order is ${classification.state}: matching=${classification.matchingCells}/${classification.totalCells}`,
@@ -1554,6 +1606,8 @@ const runMeasuredOperation = async (
   let targetRead: TargetReadEvidence | undefined;
   let postOrderResponseReadyMs = 0;
   let primaryMeasurement: Measurement<void> | undefined;
+  let primaryStartedAt = performance.now();
+  let orderResponseAt: number | undefined;
   let usersVerification: Measurement<ScanResult> | undefined;
   let ordersVerification: Measurement<ScanResult> | undefined;
   let purchasesVerification: Measurement<ScanResult> | undefined;
@@ -1567,14 +1621,51 @@ const runMeasuredOperation = async (
       observer = undefined;
     }
   };
+  const currentPrimaryResult = (): PrimaryResult => ({
+    ...(userWriteMeasurement
+      ? {
+          userWriteMs: userWriteMeasurement.durationMs,
+          userWrite: userWriteMeasurement.result,
+        }
+      : {}),
+    ...(orderWriteMeasurement
+      ? {
+          orderWriteMs: orderWriteMeasurement.durationMs,
+          orderWrite: orderWriteMeasurement.result,
+          postOrderResponseReadyMs,
+        }
+      : {}),
+    ...(targetRead ? { targetRead } : {}),
+    ...(usersVerification
+      ? {
+          usersScan: usersVerification.result,
+          usersVerificationMs: usersVerification.durationMs,
+        }
+      : {}),
+    ...(ordersVerification
+      ? {
+          ordersScan: ordersVerification.result,
+          ordersVerificationMs: ordersVerification.durationMs,
+        }
+      : {}),
+    ...(purchasesVerification
+      ? {
+          purchasesScan: purchasesVerification.result,
+          purchasesVerificationMs: purchasesVerification.durationMs,
+        }
+      : {}),
+    ...(outbox ? { outbox } : {}),
+    ...(outboxError ? { outboxError } : {}),
+  });
 
   try {
     primaryMeasurement = await withPerfTraceStep(
       context,
       perfCase,
       config.threshold.metric,
-      () =>
-        measureAsync(config.threshold.metric, async () => {
+      () => {
+        primaryStartedAt = performance.now();
+        return measureAsync(config.threshold.metric, async () => {
           userWriteMeasurement = await runUserWrite(
             perfCase,
             context,
@@ -1587,7 +1678,7 @@ const runMeasuredOperation = async (
             fixture,
             config,
           );
-          const orderResponseAt = performance.now();
+          orderResponseAt = performance.now();
           const propagationMeasurement = await measureAsync(
             "postOrderResponseReady",
             () =>
@@ -1598,12 +1689,16 @@ const runMeasuredOperation = async (
                 config,
                 (orderWriteMeasurement as Measurement<WriteEvidence>).result
                   .recordId,
-                orderResponseAt,
+                orderResponseAt as number,
+                (evidence) => {
+                  targetRead = evidence;
+                },
               ),
           );
           postOrderResponseReadyMs = propagationMeasurement.durationMs;
           targetRead = propagationMeasurement.result;
-        }),
+        });
+      },
     );
 
     usersVerification = await withPerfTraceStep(
@@ -1640,8 +1735,26 @@ const runMeasuredOperation = async (
         ),
     );
   } catch (error) {
+    const failedAt = performance.now();
+    if (orderResponseAt != null && postOrderResponseReadyMs === 0) {
+      postOrderResponseReadyMs = roundMetric(failedAt - orderResponseAt);
+    }
     await stopObserver();
-    throw error;
+    const partialPrimaryMeasurement: Measurement<PrimaryResult> = {
+      name: config.threshold.metric,
+      durationMs:
+        primaryMeasurement?.durationMs ??
+        roundMetric(failedAt - primaryStartedAt),
+      result: currentPrimaryResult(),
+    };
+    throw new PerfRunDiagnosticError(
+      error instanceof Error ? error.message : String(error),
+      {
+        metrics: {},
+        thresholds: [],
+        details: { partialPrimaryMeasurement },
+      },
+    );
   }
 
   await stopObserver();
@@ -1658,22 +1771,7 @@ const runMeasuredOperation = async (
   }
   return {
     ...primaryMeasurement,
-    result: {
-      userWriteMs: userWriteMeasurement.durationMs,
-      orderWriteMs: orderWriteMeasurement.durationMs,
-      postOrderResponseReadyMs,
-      userWrite: userWriteMeasurement.result,
-      orderWrite: orderWriteMeasurement.result,
-      targetRead,
-      usersScan: usersVerification.result,
-      ordersScan: ordersVerification.result,
-      purchasesScan: purchasesVerification.result,
-      usersVerificationMs: usersVerification.durationMs,
-      ordersVerificationMs: ordersVerification.durationMs,
-      purchasesVerificationMs: purchasesVerification.durationMs,
-      outbox,
-      outboxError,
-    },
+    result: currentPrimaryResult(),
   };
 };
 
@@ -1714,15 +1812,33 @@ const buildResult = ({
       ...(primaryMeasurement && primary
         ? {
             [config.threshold.metric]: primaryMeasurement.durationMs,
-            userWriteMs: primary.userWriteMs,
-            orderWriteMs: primary.orderWriteMs,
-            postOrderResponseReadyMs: primary.postOrderResponseReadyMs,
-            readyWithin3s: primary.postOrderResponseReadyMs <= 3_000 ? 1 : 0,
-            readyWithin10s: primary.postOrderResponseReadyMs <= 10_000 ? 1 : 0,
-            usersVerificationMs: primary.usersVerificationMs,
-            ordersVerificationMs: primary.ordersVerificationMs,
-            purchasesVerificationMs: primary.purchasesVerificationMs,
-            targetReadAttempts: primary.targetRead.attempts,
+            ...(primary.userWriteMs != null
+              ? { userWriteMs: primary.userWriteMs }
+              : {}),
+            ...(primary.orderWriteMs != null
+              ? { orderWriteMs: primary.orderWriteMs }
+              : {}),
+            ...(primary.postOrderResponseReadyMs != null
+              ? {
+                  postOrderResponseReadyMs: primary.postOrderResponseReadyMs,
+                  readyWithin3s:
+                    primary.postOrderResponseReadyMs <= 3_000 ? 1 : 0,
+                  readyWithin10s:
+                    primary.postOrderResponseReadyMs <= 10_000 ? 1 : 0,
+                }
+              : {}),
+            ...(primary.usersVerificationMs != null
+              ? { usersVerificationMs: primary.usersVerificationMs }
+              : {}),
+            ...(primary.ordersVerificationMs != null
+              ? { ordersVerificationMs: primary.ordersVerificationMs }
+              : {}),
+            ...(primary.purchasesVerificationMs != null
+              ? { purchasesVerificationMs: primary.purchasesVerificationMs }
+              : {}),
+            ...(primary.targetRead
+              ? { targetReadAttempts: primary.targetRead.attempts }
+              : {}),
             ...(primary.outbox
               ? {
                   outboxSamples: primary.outbox.sampleCount,
@@ -1745,13 +1861,17 @@ const buildResult = ({
             {
               metric: config.threshold.metric,
               max: getPrimaryThresholdMs(config.threshold.maxMs),
-              unit: "ms",
+              unit: "ms" as const,
             },
-            {
-              metric: "postOrderResponseReadyMs",
-              max: config.verify.maxPostOrderResponseMs,
-              unit: "ms",
-            },
+            ...(primary.postOrderResponseReadyMs != null
+              ? [
+                  {
+                    metric: "postOrderResponseReadyMs",
+                    max: config.verify.maxPostOrderResponseMs,
+                    unit: "ms" as const,
+                  },
+                ]
+              : []),
           ]
         : [],
     phases: [
@@ -1779,16 +1899,24 @@ const buildResult = ({
             },
           ]
         : []),
-      ...(primary
+      ...(primary?.usersVerificationMs != null
         ? [
             {
               name: "verifyUsersFullScan",
               durationMs: primary.usersVerificationMs,
             },
+          ]
+        : []),
+      ...(primary?.ordersVerificationMs != null
+        ? [
             {
               name: "verifyOrdersFullScan",
               durationMs: primary.ordersVerificationMs,
             },
+          ]
+        : []),
+      ...(primary?.purchasesVerificationMs != null
+        ? [
             {
               name: "verifyPurchasesFullScan",
               durationMs: primary.purchasesVerificationMs,
@@ -1827,84 +1955,118 @@ const buildResult = ({
       impact,
       requests: primary
         ? {
-            user: {
-              method: primary.userWrite.method,
-              path: `/api/table/${primary.userWrite.tableId}/record`,
-              payloadRecords: 1,
-              payloadFieldCount: USER_ATTRIBUTE_NAMES.length + 1,
-              logicallyChangedFields: isUserCreateScenario(config.scenario)
-                ? USER_ATTRIBUTE_NAMES.length + 1
-                : 1,
-              logicallyChangedFieldNames: isUserCreateScenario(config.scenario)
-                ? [USER_TITLE, ...USER_ATTRIBUTE_NAMES]
-                : ["first_name"],
-            },
-            order: {
-              method: primary.orderWrite.method,
-              path: `/api/table/${primary.orderWrite.tableId}/record`,
-              payloadRecords: 1,
-              payloadFieldCount: ORDER_VALUE_NAMES.length + 2,
-              logicallyChangedFieldNames: isOrderCreateScenario(config.scenario)
-                ? [...ORDER_VALUE_NAMES, ORDER_USER_LINK, ORDER_PURCHASE_LINK]
-                : ["status"],
-              sameUserLinkResubmitted:
-                config.scenario === "update-user-update-order",
-              guestLinkSubmitted: false,
-            },
-            read: {
-              method: "GET",
-              path: `/api/table/${primary.orderWrite.tableId}/record`,
-              api: "getRecords",
-              exactTitleFilter: true,
-              take: 2,
-            },
+            ...(primary.userWrite
+              ? {
+                  user: {
+                    method: primary.userWrite.method,
+                    path: `/api/table/${primary.userWrite.tableId}/record`,
+                    payloadRecords: 1,
+                    payloadFieldCount: USER_ATTRIBUTE_NAMES.length + 1,
+                    logicallyChangedFields: isUserCreateScenario(
+                      config.scenario,
+                    )
+                      ? USER_ATTRIBUTE_NAMES.length + 1
+                      : 1,
+                    logicallyChangedFieldNames: isUserCreateScenario(
+                      config.scenario,
+                    )
+                      ? [USER_TITLE, ...USER_ATTRIBUTE_NAMES]
+                      : ["first_name"],
+                  },
+                }
+              : {}),
+            ...(primary.orderWrite
+              ? {
+                  order: {
+                    method: primary.orderWrite.method,
+                    path: `/api/table/${primary.orderWrite.tableId}/record`,
+                    payloadRecords: 1,
+                    payloadFieldCount: ORDER_VALUE_NAMES.length + 2,
+                    logicallyChangedFieldNames: isOrderCreateScenario(
+                      config.scenario,
+                    )
+                      ? [
+                          ...ORDER_VALUE_NAMES,
+                          ORDER_USER_LINK,
+                          ORDER_PURCHASE_LINK,
+                        ]
+                      : ["status"],
+                    sameUserLinkResubmitted:
+                      config.scenario === "update-user-update-order",
+                    guestLinkSubmitted: false,
+                  },
+                  read: {
+                    method: "GET",
+                    path: `/api/table/${primary.orderWrite.tableId}/record`,
+                    api: "getRecords",
+                    exactTitleFilter: true,
+                    take: 2,
+                  },
+                }
+              : {}),
           }
         : undefined,
-      routing: primary?.orderWrite.routing,
+      routing: primary?.orderWrite?.routing,
       routings: primary
         ? {
-            userWrite: primary.userWrite.routing,
-            orderWrite: primary.orderWrite.routing,
-            targetGetRecords: primary.targetRead.routing,
+            ...(primary.userWrite
+              ? { userWrite: primary.userWrite.routing }
+              : {}),
+            ...(primary.orderWrite
+              ? { orderWrite: primary.orderWrite.routing }
+              : {}),
+            ...(primary.targetRead
+              ? { targetGetRecords: primary.targetRead.routing }
+              : {}),
           }
         : undefined,
       responseHeaders: primary
         ? {
-            userWrite: primary.userWrite.responseHeaders,
-            orderWrite: primary.orderWrite.responseHeaders,
-            targetGetRecords: primary.targetRead.responseHeaders,
+            ...(primary.userWrite
+              ? { userWrite: primary.userWrite.responseHeaders }
+              : {}),
+            ...(primary.orderWrite
+              ? { orderWrite: primary.orderWrite.responseHeaders }
+              : {}),
+            ...(primary.targetRead
+              ? { targetGetRecords: primary.targetRead.responseHeaders }
+              : {}),
           }
         : undefined,
       targetRead: primary?.targetRead,
-      readiness: primary
-        ? {
-            fixedDelayMs: 0,
-            pollIntervalMs: config.verify.pollIntervalMs ?? 100,
-            postOrderResponseReadyMs: primary.postOrderResponseReadyMs,
-            readyWithin3s: primary.postOrderResponseReadyMs <= 3_000,
-            readyWithin10s: primary.postOrderResponseReadyMs <= 10_000,
-          }
-        : undefined,
+      readiness:
+        primary?.postOrderResponseReadyMs != null
+          ? {
+              fixedDelayMs: 0,
+              pollIntervalMs: config.verify.pollIntervalMs ?? 100,
+              postOrderResponseReadyMs: primary.postOrderResponseReadyMs,
+              readyWithin3s: primary.postOrderResponseReadyMs <= 3_000,
+              readyWithin10s: primary.postOrderResponseReadyMs <= 10_000,
+            }
+          : undefined,
       scans: primary
         ? {
-            users: primary.usersScan,
-            orders: primary.ordersScan,
-            purchases: primary.purchasesScan,
+            ...(primary.usersScan ? { users: primary.usersScan } : {}),
+            ...(primary.ordersScan ? { orders: primary.ordersScan } : {}),
+            ...(primary.purchasesScan
+              ? { purchases: primary.purchasesScan }
+              : {}),
           }
         : undefined,
-      outbox: primary
-        ? {
-            observerIsAssertion: false,
-            summary: primary.outbox,
-            error: primary.outboxError,
-            tableLabels: fixture
-              ? {
-                  users: fixture.usersTableId,
-                  orders: fixture.ordersTableId,
-                }
-              : undefined,
-          }
-        : undefined,
+      outbox:
+        primary && (primary.outbox || primary.outboxError)
+          ? {
+              observerIsAssertion: false,
+              summary: primary.outbox,
+              error: primary.outboxError,
+              tableLabels: fixture
+                ? {
+                    users: fixture.usersTableId,
+                    orders: fixture.ordersTableId,
+                  }
+                : undefined,
+            }
+          : undefined,
       seedReady: seedReadyMeasurement?.result,
       error:
         error instanceof Error
@@ -1993,7 +2155,7 @@ const cleanupFixture = async ({
   } catch (error) {
     console.warn(
       `Failed to restore customer-upsert seed ${fixture.ordersTableId}; deleting it`,
-      error,
+      safeErrorSummary(error),
     );
     await deleteFixtureTables(baseId, fixture);
   }

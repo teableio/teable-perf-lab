@@ -8,6 +8,7 @@ import {
   finalOrderCount,
   finalUserCount,
   purchaseChildOrderRows,
+  resolveCachedCompanionTableIds,
   resolveImpact,
   targetOrderRow,
   targetPurchaseRow,
@@ -20,6 +21,28 @@ const shape = {
   purchaseGroupSize: 10,
   targetUserRow: 20,
 };
+
+test("cached companion ids must match the deterministic seed table names", () => {
+  assert.deepEqual(
+    resolveCachedCompanionTableIds({
+      metadataUsersTableId: "tbl-users",
+      metadataPurchaseTableId: "tbl-purchases",
+      discoveredUsersTableId: "tbl-users",
+      discoveredPurchaseTableId: "tbl-purchases",
+    }),
+    { usersTableId: "tbl-users", purchaseTableId: "tbl-purchases" },
+  );
+  assert.throws(
+    () =>
+      resolveCachedCompanionTableIds({
+        metadataUsersTableId: "tbl-unrelated-victim",
+        metadataPurchaseTableId: "tbl-purchases",
+        discoveredUsersTableId: "tbl-users",
+        discoveredPurchaseTableId: "tbl-purchases",
+      }),
+    /do not match seed table names/,
+  );
+});
 
 test("update user then create order changes 100 existing orders plus the new order", () => {
   const scenario = "update-user-create-order";

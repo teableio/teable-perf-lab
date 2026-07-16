@@ -116,23 +116,28 @@ export class ComputedOutboxObserver {
   }
 
   async start() {
-    await this.client.connect();
-    const baseline = await this.querySnapshot(false);
-    if (baseline.total > 0 || baseline.dead > 0) {
-      await this.client.end();
-      throw new Error(
-        `Computed Outbox observer requires a clean table scope: tables=${this.input.seedTableIds.join(",")}, total=${baseline.total}, dead=${baseline.dead}`,
-      );
-    }
+    try {
+      await this.client.connect();
+      const baseline = await this.querySnapshot(false);
+      if (baseline.total > 0 || baseline.dead > 0) {
+        throw new Error(
+          `Computed Outbox observer requires a clean table scope: tables=${this.input.seedTableIds.join(",")}, total=${baseline.total}, dead=${baseline.dead}`,
+        );
+      }
 
-    this.startedAt = new Date();
-    this.startedAtPerformance = performance.now();
-    this.running = true;
-    await this.sampleNow();
-    this.loopPromise = this.runLoop().catch((error) => {
-      this.loopError = error;
+      this.startedAt = new Date();
+      this.startedAtPerformance = performance.now();
+      this.running = true;
+      await this.sampleNow();
+      this.loopPromise = this.runLoop().catch((error) => {
+        this.loopError = error;
+        this.running = false;
+      });
+    } catch (error) {
       this.running = false;
-    });
+      await this.client.end().catch(() => undefined);
+      throw error;
+    }
   }
 
   async sampleNow(): Promise<ComputedOutboxSnapshot> {

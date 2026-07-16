@@ -5,6 +5,24 @@ export type CustomerUpsertScenario =
 
 export type CustomerUpsertPhase = "seed" | "final";
 
+export const resolveCachedCompanionTableIds = (input: {
+  metadataUsersTableId: string;
+  metadataPurchaseTableId: string;
+  discoveredUsersTableId: string;
+  discoveredPurchaseTableId: string;
+}) => {
+  if (
+    input.metadataUsersTableId !== input.discoveredUsersTableId ||
+    input.metadataPurchaseTableId !== input.discoveredPurchaseTableId
+  ) {
+    throw new Error("cached companion table ids do not match seed table names");
+  }
+  return {
+    usersTableId: input.discoveredUsersTableId,
+    purchaseTableId: input.discoveredPurchaseTableId,
+  };
+};
+
 export type CustomerUpsertFixtureShape = {
   userCount: number;
   orderCount: number;

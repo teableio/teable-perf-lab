@@ -148,6 +148,23 @@ const resolveTableNamePrefix = <
   return prefix;
 };
 
+const partialPrimaryMeasurementFrom = <TPrimary>(
+  error: unknown,
+): Measurement<TPrimary> | undefined => {
+  if (!(error instanceof PerfRunDiagnosticError)) return;
+  const candidate = error.result.details?.partialPrimaryMeasurement;
+  if (
+    !candidate ||
+    typeof candidate !== "object" ||
+    typeof (candidate as Measurement<TPrimary>).name !== "string" ||
+    typeof (candidate as Measurement<TPrimary>).durationMs !== "number" ||
+    !("result" in candidate)
+  ) {
+    return;
+  }
+  return candidate as Measurement<TPrimary>;
+};
+
 export const seedRecordMutationLifecycle = async <
   TConfig extends object,
   TFixture,
@@ -231,6 +248,7 @@ export const runRecordMutationLifecycle = async <
         await invokeMeasured();
       }
     } catch (error) {
+      primaryMeasurement ??= partialPrimaryMeasurementFrom<TPrimary>(error);
       throw new PerfRunDiagnosticError(
         error instanceof Error ? error.message : String(error),
         spec.buildResult({
