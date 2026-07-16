@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildExpectedOrderState,
+  resolveFormulaDependencyPlan,
   resolveCascadeImpact,
 } from "./computed-chain-mutation-model.ts";
 
@@ -80,5 +81,55 @@ test("formula expression update changes all orders without changing dependencies
       phase: "updated",
     }).orderCard,
     "ORDER Order 4000|V2:Pending:First-040 Last-040|user-040@example.test|L3|L4|L5",
+  );
+});
+
+test("formula dependency mutations expose exact graph edge diffs", () => {
+  assert.deepEqual(resolveFormulaDependencyPlan("formula-dependency-add"), {
+    before: ["lookup_first_name", "lookup_last_name", "lookup_status"],
+    after: [
+      "lookup_email",
+      "lookup_first_name",
+      "lookup_last_name",
+      "lookup_status",
+    ],
+    added: ["lookup_email"],
+    removed: [],
+  });
+  assert.deepEqual(resolveFormulaDependencyPlan("formula-dependency-replace"), {
+    before: ["lookup_first_name", "lookup_last_name", "lookup_status"],
+    after: ["lookup_email", "lookup_first_name", "lookup_status"],
+    added: ["lookup_email"],
+    removed: ["lookup_last_name"],
+  });
+  assert.deepEqual(resolveFormulaDependencyPlan("formula-dependency-remove"), {
+    before: ["lookup_first_name", "lookup_last_name", "lookup_status"],
+    after: ["lookup_first_name", "lookup_status"],
+    added: [],
+    removed: ["lookup_last_name"],
+  });
+});
+
+test("formula dependency mutations propagate distinct values through the full chain", () => {
+  assert.equal(
+    buildExpectedOrderState(fixture, 1, {
+      mutation: "formula-dependency-add",
+      phase: "updated",
+    }).orderCard,
+    "ORDER Order 1|V2:Pending:First-001 Last-001|user-001@example.test|user-001@example.test|L3|L4|L5",
+  );
+  assert.equal(
+    buildExpectedOrderState(fixture, 1, {
+      mutation: "formula-dependency-replace",
+      phase: "updated",
+    }).orderCard,
+    "ORDER Order 1|V2:Pending:First-001 user-001@example.test|user-001@example.test|L3|L4|L5",
+  );
+  assert.equal(
+    buildExpectedOrderState(fixture, 1, {
+      mutation: "formula-dependency-remove",
+      phase: "updated",
+    }).orderCard,
+    "ORDER Order 1|V2:Pending:First-001|user-001@example.test|L3|L4|L5",
   );
 });

@@ -63,5 +63,5 @@ Diagnostics split the window into `mutationRequestMs` and
 
 ## Notes
 
-Adding, replacing, or removing a lookup dependency changes the dependency
-graph and is tracked separately in `tasks/todo.md`.
+The dependency-add, dependency-replace, and dependency-remove cases reuse this
+scale and topology as explicit graph-mutation comparisons.
