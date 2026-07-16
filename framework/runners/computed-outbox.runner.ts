@@ -1,5 +1,7 @@
+import { getQueueToken } from "@nestjs/bullmq";
 import { FieldKeyType, FieldType } from "@teable/core";
 import { createField as apiCreateField, updateRecords } from "@teable/openapi";
+import { ComputedOutboxMonitorService } from "../../../../src/features/v2/computed-outbox-trigger/computed-outbox-monitor.service";
 import {
   createField,
   createRecords,
@@ -16,7 +18,7 @@ import {
 } from "../computed-outbox-observer";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, roundMetric, type Measurement } from "../metrics";
-import { pollUntilReady } from "../readiness";
+import { pollUntilReady, sleep } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import {
   assertEngineRouting,
@@ -43,6 +45,12 @@ import {
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
 import {
+  assertPausedBacklogEvidence,
+  buildObserverAbComparison,
+  type ObserverAbComparison,
+  type PausedBacklogEvidence,
+} from "./computed-outbox-experiment";
+import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
@@ -50,6 +58,7 @@ import {
 
 const FIXTURE_VERSION = "computed-outbox-formula-v1";
 const SOURCE_FIELD_NAMES = ["Title", "A"] as const;
+const COMPUTED_OUTBOX_WAKEUP_QUEUE = "v2-computed-outbox-wakeup";
 
 type NamedField = { id: string; name: string };
 type SourceFields = { Title: NamedField; A: NamedField };
@@ -65,6 +74,40 @@ type ScanResult = {
     sourceValue: number;
     finalFormulaValue?: number;
   }>;
+};
+
+type QueueSnapshot = {
+  paused: boolean;
+  waiting: number;
+  active: number;
+  pausedJobs: number;
+  failed: number;
+};
+
+type ComputedOutboxQueue = {
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  isPaused(): Promise<boolean>;
+  getJobCounts(
+    ...types: Array<"waiting" | "active" | "paused" | "failed">
+  ): Promise<Record<string, number>>;
+};
+
+type MonitorSnapshot = Awaited<
+  ReturnType<ComputedOutboxMonitorService["getOverview"]>
+>;
+
+type ObserverTreatmentEvidence = {
+  pollIntervalMs: 5 | 50;
+  propagationReadyMs: number;
+  requestMs: number;
+  computedReadyMs: number;
+  outboxDrainMs: number;
+  routing: EngineRouting;
+  fullScan: ScanResult;
+  outbox: ComputedOutboxObserverSummary;
+  requestedRecords?: number;
+  updatedRecords?: number;
 };
 
 type Fixture = {
@@ -94,6 +137,21 @@ type PrimaryEvidence = {
   fieldId?: string;
   requestedRecords?: number;
   updatedRecords?: number;
+  pauseRecovery?: {
+    faultVisibleMs: number;
+    holdMs: number;
+    monitorVisibleMs: number;
+    pausedBacklog: PausedBacklogEvidence;
+    pausedQueue: QueueSnapshot;
+    pausedMonitor: MonitorSnapshot;
+    recoveredQueue: QueueSnapshot;
+    recoveredMonitor: MonitorSnapshot;
+  };
+  observerAb?: {
+    comparison: ObserverAbComparison;
+    resetMs: number;
+    treatments: ObserverTreatmentEvidence[];
+  };
 };
 
 type PrimaryMeasurement = Measurement<PrimaryEvidence>;
@@ -569,6 +627,158 @@ const currentOutboxCounts = async (baseId: string, seedTableId: string) => {
   };
 };
 
+const getComputedOutboxQueue = (context: PerfRunContext) =>
+  context.app.get<ComputedOutboxQueue>(
+    getQueueToken(COMPUTED_OUTBOX_WAKEUP_QUEUE),
+  );
+
+const getQueueSnapshot = async (
+  queue: ComputedOutboxQueue,
+): Promise<QueueSnapshot> => {
+  const [paused, counts] = await Promise.all([
+    queue.isPaused(),
+    queue.getJobCounts("waiting", "active", "paused", "failed"),
+  ]);
+  return {
+    paused,
+    waiting: counts.waiting ?? 0,
+    active: counts.active ?? 0,
+    pausedJobs: counts.paused ?? 0,
+    failed: counts.failed ?? 0,
+  };
+};
+
+const getMonitorSnapshot = (context: PerfRunContext) =>
+  context.app.get(ComputedOutboxMonitorService).getOverview({ force: true });
+
+const getCommittedButStaleEvidence = async (
+  fixture: Fixture,
+  config: RecordUpdateConfig,
+) => {
+  const finalFormula = fixture.formulas.at(-1);
+  if (!finalFormula) {
+    throw new Error("BullMQ pause recovery requires a formula chain");
+  }
+  const records = await getRecords(fixture.tableId, {
+    fieldKeyType: FieldKeyType.Id,
+    projection: [
+      fixture.sourceFields.Title.id,
+      fixture.sourceFields.A.id,
+      finalFormula.id,
+    ],
+    skip: 0,
+    take: 1,
+  });
+  const record = records.records[0];
+  if (!record) {
+    throw new Error("BullMQ pause recovery could not read the first record");
+  }
+  const rowNumber = parseRowNumber(
+    record.fields[fixture.sourceFields.Title.id],
+    config,
+  );
+  const sourceValue = record.fields[fixture.sourceFields.A.id];
+  const formulaValue = record.fields[finalFormula.id];
+  return {
+    recordId: record.id,
+    rowNumber,
+    sourceValue,
+    formulaValue,
+    sourceCommitted:
+      sourceValue === expectedSourceValue(rowNumber, config, "mutated"),
+    formulaStillStale: formulaValue === rowNumber + finalFormula.level,
+  };
+};
+
+const assertPausedMonitorSnapshot = (snapshot: MonitorSnapshot) => {
+  if (
+    snapshot.status === "healthy" ||
+    !snapshot.reasons.includes("overdue_pending") ||
+    !snapshot.queue.reachable ||
+    snapshot.queue.paused <= 0 ||
+    snapshot.queue.active !== 0 ||
+    snapshot.queue.failed !== 0 ||
+    snapshot.outbox.duePending <= 0 ||
+    snapshot.outbox.dead !== 0 ||
+    snapshot.outbox.oldestDueAgeMs <= snapshot.config.monitorIntervalMs * 2
+  ) {
+    throw new Error(
+      `Computed Outbox monitor did not expose the paused backlog: ${JSON.stringify(snapshot)}`,
+    );
+  }
+};
+
+const assertRecoveredMonitorSnapshot = (snapshot: MonitorSnapshot) => {
+  if (
+    snapshot.status !== "healthy" ||
+    snapshot.queue.paused !== 0 ||
+    snapshot.queue.active !== 0 ||
+    snapshot.queue.failed !== 0 ||
+    snapshot.outbox.duePending !== 0 ||
+    snapshot.outbox.activeProcessing !== 0 ||
+    snapshot.outbox.staleProcessing !== 0 ||
+    snapshot.outbox.dead !== 0
+  ) {
+    throw new Error(
+      `Computed Outbox monitor did not recover cleanly: ${JSON.stringify(snapshot)}`,
+    );
+  }
+};
+
+const waitForPausedMonitorSnapshot = async (
+  context: PerfRunContext,
+  config: RecordUpdateConfig,
+) => {
+  const initialSnapshot = await getMonitorSnapshot(context);
+  const monitorThresholdMs = initialSnapshot.config.monitorIntervalMs * 2;
+  return pollUntilReady(
+    {
+      timeoutMs: Math.min(
+        config.verify.timeoutMs ?? 120_000,
+        Math.max(30_000, monitorThresholdMs + 15_000),
+      ),
+      pollIntervalMs: config.verify.pollIntervalMs ?? 100,
+      description: "Computed Outbox paused monitor snapshot",
+    },
+    async () => {
+      const snapshot = await getMonitorSnapshot(context);
+      assertPausedMonitorSnapshot(snapshot);
+      return snapshot;
+    },
+  );
+};
+
+const waitForRecoveredMonitorSnapshot = (
+  context: PerfRunContext,
+  queue: ComputedOutboxQueue,
+  config: RecordUpdateConfig,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: Math.min(config.verify.timeoutMs ?? 120_000, 30_000),
+      pollIntervalMs: config.verify.pollIntervalMs ?? 100,
+      description: "Computed Outbox recovered queue and monitor snapshot",
+    },
+    async () => {
+      const [queueSnapshot, monitorSnapshot] = await Promise.all([
+        getQueueSnapshot(queue),
+        getMonitorSnapshot(context),
+      ]);
+      assertRecoveredMonitorSnapshot(monitorSnapshot);
+      if (
+        queueSnapshot.paused ||
+        queueSnapshot.active > 0 ||
+        queueSnapshot.pausedJobs > 0 ||
+        queueSnapshot.failed > 0
+      ) {
+        throw new Error(
+          `BullMQ queue did not recover cleanly: ${JSON.stringify(queueSnapshot)}`,
+        );
+      }
+      return { queueSnapshot, monitorSnapshot };
+    },
+  );
+
 const waitForOutboxDrain = (
   observer: ComputedOutboxObserver,
   config: ComputedOutboxCaseConfig,
@@ -654,11 +864,15 @@ const observePrimary = async (
     requestedRecords?: number;
     updatedRecords?: number;
   }>,
+  options?: {
+    pollIntervalMs?: number;
+    traceStepId?: string;
+  },
 ) => {
   const observer = new ComputedOutboxObserver({
     baseId,
     seedTableId: fixture.tableId,
-    pollIntervalMs: config.outbox.pollIntervalMs,
+    pollIntervalMs: options?.pollIntervalMs ?? config.outbox.pollIntervalMs,
   });
   await observer.start();
   let stopped = false;
@@ -667,9 +881,10 @@ const observePrimary = async (
       const requestMeasurement = await withPerfTraceStep(
         context,
         perfCase,
-        config.operation === "record-update"
-          ? "updateFormulaChainSource"
-          : "createBackfillFormula",
+        options?.traceStepId ??
+          (config.operation === "record-update"
+            ? "updateFormulaChainSource"
+            : "createBackfillFormula"),
         () => measureAsync("request", request),
       );
       fixture.partial = {
@@ -722,6 +937,300 @@ const observePrimary = async (
   }
 };
 
+const resetRecordUpdateFixture = (
+  baseId: string,
+  fixture: Fixture,
+  config: RecordUpdateConfig,
+) =>
+  measureAsync("observerAbReset", async () => {
+    await applySourceValues(fixture, config, "seed");
+    const fullScan = await waitForExpectedState(fixture, config, "seed");
+    await pollUntilReady(
+      {
+        timeoutMs: config.verify.timeoutMs ?? 120_000,
+        pollIntervalMs: config.verify.pollIntervalMs ?? 100,
+        description: "computed Outbox observer A/B reset drain",
+      },
+      async () => {
+        const counts = await currentOutboxCounts(baseId, fixture.tableId);
+        if (counts.total > 0 || counts.dead > 0) {
+          throw new Error(
+            `Computed Outbox observer A/B reset not drained: total=${counts.total}, dead=${counts.dead}`,
+          );
+        }
+        return counts;
+      },
+    );
+    return fullScan;
+  });
+
+const runBullMqPauseRecovery = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  fixture: Fixture,
+  config: RecordUpdateConfig,
+): Promise<PrimaryMeasurement> => {
+  if (config.scenario?.kind !== "bullmq-pause-recovery") {
+    throw new Error("Expected BullMQ pause recovery scenario");
+  }
+  const scenario = config.scenario;
+  const queue = getComputedOutboxQueue(context);
+  const initialQueue = await getQueueSnapshot(queue);
+  const initialOutbox = await currentOutboxCounts(baseId, fixture.tableId);
+  if (
+    initialQueue.paused ||
+    initialQueue.active > 0 ||
+    initialQueue.failed > 0 ||
+    initialOutbox.total > 0 ||
+    initialOutbox.dead > 0
+  ) {
+    throw new Error(
+      `BullMQ pause recovery requires a clean start: queue=${JSON.stringify(initialQueue)}, outbox=${JSON.stringify(initialOutbox)}`,
+    );
+  }
+
+  const observer = new ComputedOutboxObserver({
+    baseId,
+    seedTableId: fixture.tableId,
+    pollIntervalMs: config.outbox.pollIntervalMs,
+  });
+  await observer.start();
+  let observerStopped = false;
+  let queueResumed = false;
+  try {
+    await queue.pause();
+    const pausedBeforeWrite = await getQueueSnapshot(queue);
+    if (!pausedBeforeWrite.paused) {
+      throw new Error(
+        "BullMQ computed Outbox queue did not enter paused state",
+      );
+    }
+
+    const requestMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      "pauseRecoveryUpdateFormulaChainSource",
+      () =>
+        measureAsync("request", async () => {
+          const result = await applySourceValues(
+            fixture,
+            config,
+            "mutated",
+            context,
+          );
+          if (!result.routing) {
+            throw new Error("Computed Outbox update routing was not captured");
+          }
+          return result as typeof result & { routing: EngineRouting };
+        }),
+    );
+    fixture.partial = {
+      requestMs: requestMeasurement.durationMs,
+      routing: requestMeasurement.result.routing,
+      requestedRecords: requestMeasurement.result.requestedRecords,
+      updatedRecords: requestMeasurement.result.updatedRecords,
+    };
+
+    const faultVisible = await measureAsync("faultVisible", () =>
+      pollUntilReady(
+        {
+          timeoutMs: Math.min(config.verify.timeoutMs ?? 120_000, 60_000),
+          pollIntervalMs: scenario.evidencePollIntervalMs,
+          description: "paused BullMQ computed Outbox backlog",
+        },
+        async () => {
+          const [outboxSnapshot, queueSnapshot, stale] = await Promise.all([
+            observer.sampleNow(),
+            getQueueSnapshot(queue),
+            getCommittedButStaleEvidence(fixture, config),
+          ]);
+          const pausedBacklog: PausedBacklogEvidence = {
+            queuePaused: queueSnapshot.paused,
+            queuePausedJobs: queueSnapshot.pausedJobs,
+            queueActiveJobs: queueSnapshot.active,
+            outboxPending: outboxSnapshot.pending,
+            outboxProcessing: outboxSnapshot.processing,
+            outboxDead: outboxSnapshot.dead,
+            oldestTaskAgeMs: outboxSnapshot.oldestTaskAgeMs,
+            sourceCommitted: stale.sourceCommitted,
+            formulaStillStale: stale.formulaStillStale,
+          };
+          assertPausedBacklogEvidence(pausedBacklog);
+          return { pausedBacklog, queueSnapshot, stale };
+        },
+      ),
+    );
+
+    await sleep(scenario.holdMs);
+    const pausedMonitorMeasurement = await measureAsync("monitorVisible", () =>
+      waitForPausedMonitorSnapshot(context, config),
+    );
+    const pausedMonitor = pausedMonitorMeasurement.result;
+
+    await queue.resume();
+    queueResumed = true;
+    const recovery = await measureAsync(config.threshold.metric, async () => {
+      const readyMeasurement = await measureAsync("computedReady", () =>
+        waitForExpectedState(fixture, config, "mutated"),
+      );
+      const drainMeasurement = await measureAsync("outboxDrain", () =>
+        waitForOutboxDrain(observer, config),
+      );
+      const outbox = await observer.stop();
+      observerStopped = true;
+      assertOutboxEvidence(context, config, outbox);
+      const recovered = await waitForRecoveredMonitorSnapshot(
+        context,
+        queue,
+        config,
+      );
+      const recoveredQueue = recovered.queueSnapshot;
+      const recoveredMonitor = recovered.monitorSnapshot;
+      const evidence: PrimaryEvidence = {
+        requestMs: requestMeasurement.durationMs,
+        computedReadyMs: readyMeasurement.durationMs,
+        outboxDrainMs: drainMeasurement.durationMs,
+        routing: requestMeasurement.result.routing,
+        fullScan: readyMeasurement.result,
+        outbox,
+        requestedRecords: requestMeasurement.result.requestedRecords,
+        updatedRecords: requestMeasurement.result.updatedRecords,
+        pauseRecovery: {
+          faultVisibleMs: faultVisible.durationMs,
+          holdMs: scenario.holdMs,
+          monitorVisibleMs: pausedMonitorMeasurement.durationMs,
+          pausedBacklog: faultVisible.result.pausedBacklog,
+          pausedQueue: faultVisible.result.queueSnapshot,
+          pausedMonitor,
+          recoveredQueue,
+          recoveredMonitor,
+        },
+      };
+      fixture.partial = evidence;
+      return evidence;
+    });
+    return recovery;
+  } finally {
+    if (!queueResumed || (await queue.isPaused())) {
+      await queue
+        .resume()
+        .catch((error) =>
+          console.warn("Failed to resume Computed Outbox BullMQ queue", error),
+        );
+    }
+    if (!observerStopped) {
+      try {
+        fixture.partial = {
+          ...fixture.partial,
+          outbox: await observer.stop(),
+        };
+      } catch (error) {
+        console.warn("Failed to stop Computed Outbox observer", error);
+      }
+    }
+  }
+};
+
+const runObserverTreatment = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  fixture: Fixture,
+  config: RecordUpdateConfig,
+  pollIntervalMs: 5 | 50,
+): Promise<ObserverTreatmentEvidence> => {
+  const primary = await observePrimary(
+    perfCase,
+    context,
+    baseId,
+    fixture,
+    config,
+    async () => {
+      const result = await applySourceValues(
+        fixture,
+        config,
+        "mutated",
+        context,
+      );
+      if (!result.routing) {
+        throw new Error("Computed Outbox update routing was not captured");
+      }
+      return result as typeof result & { routing: EngineRouting };
+    },
+    {
+      pollIntervalMs,
+      traceStepId: `observer${pollIntervalMs}msUpdateFormulaChainSource`,
+    },
+  );
+  return {
+    pollIntervalMs,
+    propagationReadyMs: primary.durationMs,
+    ...primary.result,
+  };
+};
+
+const runObserverPollingAb = async (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  baseId: string,
+  fixture: Fixture,
+  config: RecordUpdateConfig,
+): Promise<PrimaryMeasurement> => {
+  if (config.scenario?.kind !== "observer-polling-ab") {
+    throw new Error("Expected observer polling A/B scenario");
+  }
+  const treatments: ObserverTreatmentEvidence[] = [];
+  let resetMs = 0;
+  for (const [
+    index,
+    pollIntervalMs,
+  ] of config.scenario.treatmentOrder.entries()) {
+    treatments.push(
+      await runObserverTreatment(
+        perfCase,
+        context,
+        baseId,
+        fixture,
+        config,
+        pollIntervalMs,
+      ),
+    );
+    if (index < config.scenario.treatmentOrder.length - 1) {
+      const reset = await resetRecordUpdateFixture(baseId, fixture, config);
+      resetMs += reset.durationMs;
+    }
+  }
+  const comparison = buildObserverAbComparison(
+    treatments.map((treatment) => ({
+      pollIntervalMs: treatment.pollIntervalMs,
+      propagationReadyMs: treatment.propagationReadyMs,
+      sampleCount: treatment.outbox.sampleCount,
+    })),
+  );
+  const fiveMs = treatments.find((treatment) => treatment.pollIntervalMs === 5);
+  if (!fiveMs) {
+    throw new Error("Computed Outbox observer A/B produced no 5 ms treatment");
+  }
+  const evidence: PrimaryEvidence = {
+    requestMs: fiveMs.requestMs,
+    computedReadyMs: fiveMs.computedReadyMs,
+    outboxDrainMs: fiveMs.outboxDrainMs,
+    routing: fiveMs.routing,
+    fullScan: fiveMs.fullScan,
+    outbox: fiveMs.outbox,
+    requestedRecords: fiveMs.requestedRecords,
+    updatedRecords: fiveMs.updatedRecords,
+    observerAb: { comparison, resetMs, treatments },
+  };
+  fixture.partial = evidence;
+  return {
+    name: config.threshold.metric,
+    durationMs: comparison.maxPropagationReadyMs,
+    result: evidence,
+  };
+};
+
 const seedMetrics = (fixture: Fixture) => ({
   seedCacheHit: fixture.seedCacheHit ? 1 : 0,
   seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
@@ -739,21 +1248,29 @@ const buildResult = (
 ): PerfRunResult => {
   const evidence = primary?.result ?? fixture?.partial;
   const outbox = evidence?.outbox;
+  const pauseRecovery = evidence?.pauseRecovery;
+  const observerAb = evidence?.observerAb;
+  const fiveMs = observerAb?.treatments.find(
+    (treatment) => treatment.pollIntervalMs === 5,
+  );
+  const fiftyMs = observerAb?.treatments.find(
+    (treatment) => treatment.pollIntervalMs === 50,
+  );
   return {
     ...(!error && primary ? { result: "pass" as const } : {}),
     metrics: {
       ...(fixture ? seedMetrics(fixture) : {}),
       ...(primary ? { [config.threshold.metric]: primary.durationMs } : {}),
-      ...(evidence?.requestMs != null
+      ...(!observerAb && evidence?.requestMs != null
         ? { computedRequestMs: roundMetric(evidence.requestMs) }
         : {}),
-      ...(evidence?.computedReadyMs != null
+      ...(!observerAb && evidence?.computedReadyMs != null
         ? { computedReadyMs: roundMetric(evidence.computedReadyMs) }
         : {}),
-      ...(evidence?.outboxDrainMs != null
+      ...(!observerAb && evidence?.outboxDrainMs != null
         ? { outboxDrainMs: roundMetric(evidence.outboxDrainMs) }
         : {}),
-      ...(outbox
+      ...(!observerAb && outbox
         ? {
             outboxSawTask: outbox.sawTask ? 1 : 0,
             outboxSampleCount: outbox.sampleCount,
@@ -776,6 +1293,57 @@ const buildResult = (
               : {}),
           }
         : {}),
+      ...(pauseRecovery
+        ? {
+            outboxFaultVisibleMs: roundMetric(pauseRecovery.faultVisibleMs),
+            outboxPausedHoldMs: pauseRecovery.holdMs,
+            outboxPausedMonitorVisibleMs: roundMetric(
+              pauseRecovery.monitorVisibleMs,
+            ),
+            outboxPausedQueueJobs: pauseRecovery.pausedQueue.pausedJobs,
+            outboxPausedPending: pauseRecovery.pausedBacklog.outboxPending,
+            outboxPausedOldestTaskAgeMs: roundMetric(
+              pauseRecovery.pausedBacklog.oldestTaskAgeMs,
+            ),
+          }
+        : {}),
+      ...(observerAb && fiveMs && fiftyMs
+        ? {
+            observer5msPropagationReadyMs: roundMetric(
+              fiveMs.propagationReadyMs,
+            ),
+            observer50msPropagationReadyMs: roundMetric(
+              fiftyMs.propagationReadyMs,
+            ),
+            observer5msRequestMs: roundMetric(fiveMs.requestMs),
+            observer50msRequestMs: roundMetric(fiftyMs.requestMs),
+            observer5msComputedReadyMs: roundMetric(fiveMs.computedReadyMs),
+            observer50msComputedReadyMs: roundMetric(fiftyMs.computedReadyMs),
+            observer5msOutboxDrainMs: roundMetric(fiveMs.outboxDrainMs),
+            observer50msOutboxDrainMs: roundMetric(fiftyMs.outboxDrainMs),
+            observer5msOutboxSampleCount: fiveMs.outbox.sampleCount,
+            observer50msOutboxSampleCount: fiftyMs.outbox.sampleCount,
+            observer5msOutboxLifetimeMs: roundMetric(
+              (fiveMs.outbox.lastSeenMs ?? 0) -
+                (fiveMs.outbox.firstSeenMs ?? 0),
+            ),
+            observer50msOutboxLifetimeMs: roundMetric(
+              (fiftyMs.outbox.lastSeenMs ?? 0) -
+                (fiftyMs.outbox.firstSeenMs ?? 0),
+            ),
+            observerPropagationDeltaMs: roundMetric(
+              observerAb.comparison.propagationDeltaMs,
+            ),
+            observerPropagationRatio: roundMetric(
+              observerAb.comparison.propagationRatio,
+            ),
+            observerSampleCountDelta: observerAb.comparison.sampleCountDelta,
+            observerSampleCountRatio: roundMetric(
+              observerAb.comparison.sampleCountRatio,
+            ),
+            observerAbResetMs: roundMetric(observerAb.resetMs),
+          }
+        : {}),
     },
     thresholds: [
       {
@@ -785,17 +1353,60 @@ const buildResult = (
       },
     ],
     phases: primary
-      ? [
-          { name: "request", durationMs: primary.result.requestMs },
-          {
-            name: "computedReady",
-            durationMs: primary.result.computedReadyMs,
-          },
-          { name: "outboxDrain", durationMs: primary.result.outboxDrainMs },
-        ]
+      ? observerAb
+        ? [
+            ...observerAb.treatments.flatMap((treatment) => [
+              {
+                name: `observer${treatment.pollIntervalMs}msRequest`,
+                durationMs: treatment.requestMs,
+              },
+              {
+                name: `observer${treatment.pollIntervalMs}msComputedReady`,
+                durationMs: treatment.computedReadyMs,
+              },
+              {
+                name: `observer${treatment.pollIntervalMs}msOutboxDrain`,
+                durationMs: treatment.outboxDrainMs,
+              },
+            ]),
+            { name: "observerAbReset", durationMs: observerAb.resetMs },
+          ]
+        : pauseRecovery
+          ? [
+              { name: "request", durationMs: primary.result.requestMs },
+              {
+                name: "faultVisible",
+                durationMs: pauseRecovery.faultVisibleMs,
+              },
+              { name: "pausedHold", durationMs: pauseRecovery.holdMs },
+              {
+                name: "monitorVisible",
+                durationMs: pauseRecovery.monitorVisibleMs,
+              },
+              {
+                name: "computedReady",
+                durationMs: primary.result.computedReadyMs,
+              },
+              {
+                name: "outboxDrain",
+                durationMs: primary.result.outboxDrainMs,
+              },
+            ]
+          : [
+              { name: "request", durationMs: primary.result.requestMs },
+              {
+                name: "computedReady",
+                durationMs: primary.result.computedReadyMs,
+              },
+              { name: "outboxDrain", durationMs: primary.result.outboxDrainMs },
+            ]
       : undefined,
     details: {
       operation: config.operation,
+      scenario:
+        config.operation === "record-update"
+          ? config.scenario?.kind
+          : undefined,
       recordCount: config.recordCount,
       formulaDepth: config.formulaDepth,
       updateCount:
@@ -809,6 +1420,8 @@ const buildResult = (
       routing: evidence?.routing,
       fullScan: evidence?.fullScan,
       outbox,
+      pauseRecovery,
+      observerAb,
       seed: fixture
         ? {
             seedHash: fixture.seedCacheInfo.seedHash,
@@ -884,6 +1497,12 @@ const recordUpdateSpec: RecordMutationLifecycleSpec<
     config,
   }) => {
     fixture.mutationTargets = await collectMutationTargets(fixture, config);
+    if (config.scenario?.kind === "bullmq-pause-recovery") {
+      return runBullMqPauseRecovery(perfCase, context, baseId, fixture, config);
+    }
+    if (config.scenario?.kind === "observer-polling-ab") {
+      return runObserverPollingAb(perfCase, context, baseId, fixture, config);
+    }
     return observePrimary(
       perfCase,
       context,
@@ -964,10 +1583,30 @@ const backfillSpec: FieldAddLifecycleSpec<
 export const runComputedOutboxCase = (
   perfCase: PerfCaseFor<"computed-outbox">,
   context: PerfRunContext,
-): Promise<PerfRunResult> =>
-  perfCase.config.operation === "record-update"
+): Promise<PerfRunResult> => {
+  const scenario =
+    perfCase.config.operation === "record-update"
+      ? perfCase.config.scenario
+      : undefined;
+  if (scenario && context.engine !== "v2") {
+    return Promise.resolve({
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        operation: perfCase.config.operation,
+        scenario: scenario.kind,
+        skipped: true,
+        skippedReason:
+          "Computed Outbox fault and observer experiments require the V2 hybrid BullMQ path",
+        requestedEngine: context.engine,
+      },
+    });
+  }
+  return perfCase.config.operation === "record-update"
     ? runRecordMutationLifecycle(perfCase, context, recordUpdateSpec)
     : runFieldAddLifecycle(perfCase, context, backfillSpec);
+};
 
 export const seedComputedOutboxCase = (
   perfCase: PerfCaseFor<"computed-outbox">,
