@@ -389,12 +389,19 @@ export interface LinkComputedPropagationCaseConfig {
 // 40 Users -> 4,000 Orders (100 consecutive orders per user) -> 400 Purchases
 // (10 consecutive orders per purchase). Orders carry four lookups followed by
 // five formula levels; Purchases roll up the final formula and derive one more
-// formula. Each case edits exactly one field: either the head formula schema,
-// one foreign single-select cell, or one foreign text cell.
+// formula. Each case edits exactly one field: either the head formula schema
+// (with unchanged, added, replaced, or removed dependencies), one foreign
+// single-select cell, or one foreign text cell.
 export interface ComputedChainMutationCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
-  mutation: "formula-expression" | "foreign-select" | "foreign-first-name";
+  mutation:
+    | "formula-expression"
+    | "formula-dependency-add"
+    | "formula-dependency-replace"
+    | "formula-dependency-remove"
+    | "foreign-select"
+    | "foreign-first-name";
   userCount: number;
   orderCount: number;
   ordersPerUser: number;

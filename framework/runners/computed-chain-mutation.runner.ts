@@ -43,8 +43,11 @@ import {
   buildExpectedUserState,
   purchaseRowForOrder,
   resolveCascadeImpact,
+  resolveFormulaDependencyPlan,
   userRowForOrder,
+  type ComputedChainFormulaDependencyMutation,
   type ComputedChainFixtureShape,
+  type ComputedChainMutation,
   type ComputedChainPhase,
 } from "./computed-chain-mutation-model";
 import {
@@ -87,6 +90,19 @@ const FORMULA_NAMES = [
   PROFILE_L4,
   ORDER_CARD,
 ] as const;
+
+type FormulaMutation = Extract<ComputedChainMutation, `formula-${string}`>;
+
+const isFormulaMutation = (
+  mutation: ComputedChainMutationCaseConfig["mutation"],
+): mutation is FormulaMutation => mutation.startsWith("formula-");
+
+const isFormulaDependencyMutation = (
+  mutation: ComputedChainMutationCaseConfig["mutation"],
+): mutation is ComputedChainFormulaDependencyMutation =>
+  mutation === "formula-dependency-add" ||
+  mutation === "formula-dependency-replace" ||
+  mutation === "formula-dependency-remove";
 
 type NamedField = {
   id: string;
@@ -292,6 +308,19 @@ const compileExpression = (
 
 const profileSeedExpression = (version: "V1" | "V2") =>
   `"${version}:" & {${LOOKUP_STATUS}} & ":" & {${LOOKUP_FIRST_NAME}} & " " & {${LOOKUP_LAST_NAME}}`;
+
+const updatedProfileSeedExpression = (mutation: FormulaMutation) => {
+  switch (mutation) {
+    case "formula-expression":
+      return profileSeedExpression("V2");
+    case "formula-dependency-add":
+      return `${profileSeedExpression("V2")} & "|" & {${LOOKUP_EMAIL}}`;
+    case "formula-dependency-replace":
+      return `"V2:" & {${LOOKUP_STATUS}} & ":" & {${LOOKUP_FIRST_NAME}} & " " & {${LOOKUP_EMAIL}}`;
+    case "formula-dependency-remove":
+      return `"V2:" & {${LOOKUP_STATUS}} & ":" & {${LOOKUP_FIRST_NAME}}`;
+  }
+};
 
 const formulaDefinitions = (version: "V1" | "V2") => [
   {
@@ -733,7 +762,7 @@ const assertOrdersFullScan = async (
       seen.add(rowNumber);
       assertOrderFields(fixture, config, rowNumber, record.fields, phase);
       const changed =
-        config.mutation === "formula-expression" ||
+        isFormulaMutation(config.mutation) ||
         userRowForOrder(shapeFor(config), rowNumber) === config.targetUserRow;
       if (changed) {
         affectedRecords += 1;
@@ -790,7 +819,7 @@ const assertPurchasesFullScan = async (
       seen.add(rowNumber);
       assertPurchaseFields(fixture, config, rowNumber, record.fields, phase);
       const changed =
-        config.mutation === "formula-expression" ||
+        isFormulaMutation(config.mutation) ||
         (rowNumber >= impact.firstAffectedPurchaseRow &&
           rowNumber <= impact.lastAffectedPurchaseRow);
       if (changed) {
@@ -1268,17 +1297,30 @@ const updateForeignCell = async (
 
 const updateFormulaExpression = async (
   fixture: Fixture,
-  version: "V1" | "V2",
+  mutation: FormulaMutation,
 ) => {
   const fieldIdByName = new Map<string, string>([
     [LOOKUP_FIRST_NAME, fixture.orderFields.lookupFirstName],
     [LOOKUP_LAST_NAME, fixture.orderFields.lookupLastName],
+    [LOOKUP_EMAIL, fixture.orderFields.lookupEmail],
     [LOOKUP_STATUS, fixture.orderFields.lookupStatus],
   ]);
   const expression = compileExpression(
-    profileSeedExpression(version),
+    updatedProfileSeedExpression(mutation),
     fieldIdByName,
   );
+  const expectedDependencyNames = isFormulaDependencyMutation(mutation)
+    ? resolveFormulaDependencyPlan(mutation).after
+    : [LOOKUP_FIRST_NAME, LOOKUP_LAST_NAME, LOOKUP_STATUS];
+  const expectedDependenciesAfter = expectedDependencyNames
+    .map((name) => {
+      const id = fieldIdByName.get(name);
+      if (!id) {
+        throw new Error(`Missing formula dependency field ${name}`);
+      }
+      return id;
+    })
+    .sort();
   const fieldId = fixture.orderFields.formulas[PROFILE_SEED];
   const response = await apiConvertField(fixture.ordersTableId, fieldId, {
     name: PROFILE_SEED,
@@ -1303,10 +1345,10 @@ const updateFormulaExpression = async (
   const dependenciesAfter = extractDependencyIds(current.options?.expression);
   if (
     JSON.stringify(dependenciesAfter) !==
-    JSON.stringify(fixture.profileSeedDependencyIds)
+    JSON.stringify(expectedDependenciesAfter)
   ) {
     throw new Error(
-      `Formula dependencies changed: before=${fixture.profileSeedDependencyIds.join(",")}, after=${dependenciesAfter.join(",")}`,
+      `Formula dependencies mismatch for ${mutation}: expected=${expectedDependenciesAfter.join(",")}, actual=${dependenciesAfter.join(",")}`,
     );
   }
   return {
@@ -1358,8 +1400,8 @@ const runMeasuredOperation = async (
           "mutationRequest",
           () =>
             measureAsync<MutationRequestResult>("mutationRequest", async () =>
-              config.mutation === "formula-expression"
-                ? updateFormulaExpression(fixture, "V2")
+              isFormulaMutation(config.mutation)
+                ? updateFormulaExpression(fixture, config.mutation)
                 : updateForeignCell(fixture, config, "updated"),
             ),
         );
@@ -1372,20 +1414,18 @@ const runMeasuredOperation = async (
           dependenciesAfter = requestMeasurement.result.dependenciesAfter;
         }
         routing = assertEngineRouting(context, responseHeaders, {
-          operation:
-            config.mutation === "formula-expression"
-              ? "convertField"
-              : "updateRecords",
-          feature:
-            config.mutation === "formula-expression"
-              ? "convertField"
-              : "updateRecords",
+          operation: isFormulaMutation(config.mutation)
+            ? "convertField"
+            : "updateRecords",
+          feature: isFormulaMutation(config.mutation)
+            ? "convertField"
+            : "updateRecords",
         });
 
         const propagationMeasurement = await measureAsync<PropagationResult>(
           "postResponsePropagation",
           async () => {
-            if (config.mutation === "formula-expression") {
+            if (isFormulaMutation(config.mutation)) {
               const full = await waitForFullCascade(fixture, config, "updated");
               return { kind: "full-cascade", ...full };
             }
@@ -1405,7 +1445,7 @@ const runMeasuredOperation = async (
 
   let fullOrdersVerificationMs = 0;
   let purchaseVerificationMs = 0;
-  if (config.mutation !== "formula-expression") {
+  if (!isFormulaMutation(config.mutation)) {
     const fullOrdersMeasurement = await withPerfTraceStep(
       context,
       perfCase,
@@ -1438,7 +1478,7 @@ const runMeasuredOperation = async (
     ...primaryMeasurement,
     result: {
       mutationRequestMs,
-      ...(config.mutation === "formula-expression"
+      ...(isFormulaMutation(config.mutation)
         ? { formulaUpdateMs: mutationRequestMs }
         : { sourceWriteMs: mutationRequestMs }),
       postResponsePropagationMs,
@@ -1605,12 +1645,14 @@ const buildResult = ({
         : undefined,
       impact,
       request: fixture
-        ? config.mutation === "formula-expression"
+        ? isFormulaMutation(config.mutation)
           ? {
               method: "PUT",
               path: `/api/table/${fixture.ordersTableId}/field/${fixture.orderFields.formulas[PROFILE_SEED]}/convert`,
               changedFieldCount: 1,
-              dependencyGraphChanged: false,
+              dependencyGraphChanged: isFormulaDependencyMutation(
+                config.mutation,
+              ),
             }
           : {
               method: "PATCH",
@@ -1628,9 +1670,18 @@ const buildResult = ({
         ? {
             before: primary.dependenciesBefore,
             after: primary.dependenciesAfter,
+            added: primary.dependenciesAfter.filter(
+              (id) => !primary.dependenciesBefore.includes(id),
+            ),
+            removed: primary.dependenciesBefore.filter(
+              (id) => !primary.dependenciesAfter.includes(id),
+            ),
             unchanged:
               JSON.stringify(primary.dependenciesBefore) ===
               JSON.stringify(primary.dependenciesAfter),
+            logical: isFormulaDependencyMutation(config.mutation)
+              ? resolveFormulaDependencyPlan(config.mutation)
+              : undefined,
           }
         : undefined,
       firstOrderRecordId: primary?.firstOrderRecordId,
@@ -1658,7 +1709,7 @@ const cleanupFixture = async ({
   if (!fixture || isExecuteDbIsolated()) {
     return;
   }
-  if (!fixture.reusableSeed || config.mutation === "formula-expression") {
+  if (!fixture.reusableSeed || isFormulaMutation(config.mutation)) {
     await deleteFixtureTables(baseId, fixture);
     return;
   }

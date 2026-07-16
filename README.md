@@ -329,6 +329,15 @@ workload.
   the same lookup dependencies; only its literal output prefix changes. This
   isolates recomputation of an existing graph from dependency-graph rebuild
   cases.
+- `field-convert/formula-dependency-add-4k-depth5-cascade`: Measure adding one
+  lookup dependency to a populated head formula and rebuilding the resulting
+  4,000-order, depth-5 cascade.
+- `field-convert/formula-dependency-replace-4k-depth5-cascade`: Measure
+  replacing one lookup dependency in a populated head formula, forcing a
+  dependency-edge removal and addition in the same 4,000-order schema update.
+- `field-convert/formula-dependency-remove-4k-depth5-cascade`: Measure removing
+  one lookup dependency from a populated head formula and rebuilding the
+  resulting 4,000-order, depth-5 cascade.
 - `field-update/v2-only-10k-select-option-rename-computed-cascade`: Catch
   regressions in the V2 field update path when renaming a populated single-select
   option forces dependent computed fields to recalculate across a 10,000-row
