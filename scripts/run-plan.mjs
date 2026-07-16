@@ -15,6 +15,9 @@ export const HYBRID_COMPUTED_CASES = [
   "lookup/customer-update-user-create-order-4k-depth5",
   "lookup/customer-update-user-update-order-4k-depth5",
   "lookup/customer-create-user-create-order-4k-depth5",
+  "lookup/customer-create-order-only-4k-depth5",
+  "lookup/customer-update-user-control-field-create-order-4k-depth5",
+  "lookup/customer-update-other-user-create-order-4k-depth5",
 ];
 
 const VALID_ENGINES = new Set(["v1", "v2"]);

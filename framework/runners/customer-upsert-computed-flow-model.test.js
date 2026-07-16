@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildExpectedOrderState,
+  buildUserControlValue,
   buildUserState,
+  createdOrderPurchaseRow,
   createdOrderRow,
+  createdOrderUserRow,
   createdUserRow,
   finalOrderCount,
   finalUserCount,
@@ -120,4 +123,67 @@ test("created order joins the target purchase as its eleventh child", () => {
   );
   assert.equal(rows.length, 11);
   assert.equal(rows.at(-1), createdOrderRow(shape));
+});
+
+test("order-only isolates the create path from any preceding User write", () => {
+  const scenario = "create-order-only";
+  const impact = resolveImpact(shape, scenario);
+  assert.equal(finalUserCount(shape, scenario), 40);
+  assert.equal(finalOrderCount(shape, scenario), 4_001);
+  assert.equal(impact.affectedOrderCount, 1);
+  assert.equal(impact.affectedPurchaseCount, 1);
+
+  const created = buildExpectedOrderState(
+    shape,
+    scenario,
+    createdOrderRow(shape),
+    "final",
+  );
+  assert.equal(created.userRow, 20);
+  assert.equal(created.purchaseRow, 200);
+  assert.equal(created.lookups.first_name, "First-020");
+});
+
+test("control-field update changes no computed dependency before order create", () => {
+  const scenario = "update-user-control-field-create-order";
+  const impact = resolveImpact(shape, scenario);
+  assert.equal(impact.affectedOrderCount, 1);
+  assert.equal(impact.affectedPurchaseCount, 1);
+  assert.equal(
+    buildUserControlValue(20, { shape, scenario, phase: "final" }),
+    "sync-020-updated",
+  );
+
+  const created = buildExpectedOrderState(
+    shape,
+    scenario,
+    createdOrderRow(shape),
+    "final",
+  );
+  assert.equal(created.lookups.first_name, "First-020");
+});
+
+test("other-user flow separates User and Purchase dependency subgraphs", () => {
+  const scenario = "update-other-user-create-order";
+  const impact = resolveImpact(shape, scenario);
+  assert.equal(createdOrderUserRow(shape, scenario), 21);
+  assert.equal(createdOrderPurchaseRow(shape, scenario), 210);
+  assert.equal(impact.affectedOrderCount, 101);
+  assert.equal(impact.affectedPurchaseCount, 11);
+  assert.deepEqual(
+    impact.affectedPurchases,
+    [191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 210],
+  );
+
+  const created = buildExpectedOrderState(
+    shape,
+    scenario,
+    createdOrderRow(shape),
+    "final",
+  );
+  assert.equal(created.userRow, 21);
+  assert.equal(created.purchaseRow, 210);
+  assert.equal(created.lookups.first_name, "First-021");
+  const updated = buildExpectedOrderState(shape, scenario, 2_000, "final");
+  assert.equal(updated.lookups.first_name, "First-020-updated");
 });
