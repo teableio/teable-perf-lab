@@ -1,6 +1,11 @@
 import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
+import computedOutboxFormulaBackfill20kCase from "./cases/computed-outbox/formula-backfill-20k.case";
+import computedOutboxFormulaChainUpdate1kDepth4Case from "./cases/computed-outbox/formula-chain-update-1k-depth4.case";
+import computedOutboxFormulaChainUpdate1kDepth8Case from "./cases/computed-outbox/formula-chain-update-1k-depth8.case";
+import computedOutboxFormulaChainUpdate20kDepth4BacklogCase from "./cases/computed-outbox/formula-chain-update-20k-depth4-backlog.case";
+import computedOutboxFormulaChainUpdate5001Depth2Case from "./cases/computed-outbox/formula-chain-update-5001-depth2.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
@@ -100,6 +105,11 @@ const cases = [
   authUserCase,
   formula10kCalcCase,
   formula10k5ConcurrentCase,
+  computedOutboxFormulaChainUpdate1kDepth4Case,
+  computedOutboxFormulaChainUpdate1kDepth8Case,
+  computedOutboxFormulaChainUpdate20kDepth4BacklogCase,
+  computedOutboxFormulaChainUpdate5001Depth2Case,
+  computedOutboxFormulaBackfill20kCase,
   conditionalLookup10kCase,
   conditionalRollup10kCase,
   conditionalLookupGroupTextFanout10_10kCase,

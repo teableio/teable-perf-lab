@@ -32,7 +32,7 @@ The case runs in two computed-update modes (workflow input `computed_update_mode
   transaction. The primary metric includes that synchronous write cost plus the
   final readiness check, so V1/V2 compare the same user-visible wait window.
 - **hybrid** (production behavior): V2 enqueues the recompute into the
-  `computed_update_outbox` and drains it with a polling worker. The primary
+  `computed_update_outbox` and drains it through the BullMQ wake-up worker. The primary
   metric includes the faster write response plus the real async propagation
   window, matching the customer's time from write start to correct reads.
 

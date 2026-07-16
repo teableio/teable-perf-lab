@@ -6,6 +6,10 @@ import {
   runConditionalQueryCase,
   seedConditionalQueryCase,
 } from "./runners/conditional-query.runner";
+import {
+  runComputedOutboxCase,
+  seedComputedOutboxCase,
+} from "./runners/computed-outbox.runner";
 import { runCsvImportCase } from "./runners/csv-import.runner";
 import { seedCsvImportCase } from "./runners/csv-import.runner";
 import { runDuplicateBaseCase } from "./runners/duplicate-base.runner";
@@ -172,6 +176,14 @@ const runnerInventory = {
     },
     execute: runFormulaTableCase,
     seed: seedFormulaTableCase,
+  },
+  "computed-outbox": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["field-add-lifecycle", "record-mutation-lifecycle"],
+    },
+    execute: runComputedOutboxCase,
+    seed: seedComputedOutboxCase,
   },
   "conditional-lookup": {
     implementation: {

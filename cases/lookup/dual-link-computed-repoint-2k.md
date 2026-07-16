@@ -31,7 +31,7 @@ The case runs in two computed-update modes (workflow input `computed_update_mode
 - **sync** (default e2e behavior): V2 recomputes the graph inside the write
   transaction; the V1/V2 comparison is a write-throughput comparison.
 - **hybrid** (production behavior): V2 enqueues the recompute into the
-  `computed_update_outbox` and drains it with a polling worker; the metric then
+  `computed_update_outbox` and drains it through the BullMQ wake-up worker; the metric then
   captures the real async propagation window.
 
 ## Seed Phase
