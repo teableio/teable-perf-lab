@@ -5,6 +5,7 @@ import {
   createRecords,
   createTable,
   getFields,
+  getRecord,
   getRecords,
   getTable,
   permanentDeleteTable,
@@ -44,6 +45,13 @@ import {
   type LinkPermutation,
 } from "./link-fixture.shared";
 import {
+  expectedOrderState,
+  resolveMutationWindow,
+  resolveReadinessPlan,
+  type LinkComputedPermutationPhase,
+  type LinkComputedReadPath,
+} from "./link-computed-propagation-workload";
+import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
   type RecordMutationLifecycleConfig,
@@ -57,8 +65,10 @@ const METADATA_PREFIX = "perf-lab-link-computed-propagation:";
 // registered customer, guest), each fanning out into a full attribute set of
 // lookups, then a multi-level formula chain, then a many-one into a downstream
 // `purchase` table that rolls up and re-derives the orders' computed values. The
-// measured write writes BOTH links for every order; the metric is the time until
-// every lookup, formula, rollup, and downstream value recomputes.
+// measured write writes BOTH links for a configurable deterministic order
+// window (all rows by default). Bulk metrics await every lookup, formula,
+// rollup, and downstream value; single-record metrics can stop on one concrete
+// order read path before a full post-metric cascade verification.
 const ATTRS = [
   "first_name",
   "last_name",
@@ -223,6 +233,9 @@ type Fixture = {
 type PrimaryResult = {
   linkWriteMs: number;
   lookupPropagationMs: number;
+  cascadeVerificationMs: number;
+  readinessReadPath: LinkComputedReadPath;
+  readinessCheckedRecords: number;
   requestedRecords: number;
   updatedRecords: number;
   responseHeaders: Record<string, string>;
@@ -242,10 +255,20 @@ const applySmokeOverrides = (
     return config;
   }
   const rowCount = rows ?? config.rowCount;
+  const mutation = config.mutation
+    ? {
+        recordCount: Math.min(config.mutation.recordCount, rowCount),
+        startOffset: Math.min(
+          config.mutation.startOffset ?? 0,
+          rowCount - Math.min(config.mutation.recordCount, rowCount),
+        ),
+      }
+    : undefined;
   return {
     ...config,
     rowCount,
     foreignRowCount: foreignRows ?? config.foreignRowCount,
+    mutation,
     verify: {
       ...config.verify,
       sampleRows: config.verify.sampleRows.filter(
@@ -302,13 +325,37 @@ const permutationFor = (
 const userRowForOrder = (
   orderRowNumber: number,
   config: LinkComputedPropagationCaseConfig,
-  phase: Phase,
+  phase: LinkComputedPermutationPhase,
 ) =>
   foreignRowForHostRow(
     orderRowNumber,
     config.foreignRowCount,
     permutationFor(config, phase),
   );
+
+const orderStateFor = (
+  orderRowNumber: number,
+  config: LinkComputedPropagationCaseConfig,
+  phase: Phase,
+) =>
+  expectedOrderState({
+    mode: config.mode,
+    rowCount: config.rowCount,
+    mutation: config.mutation,
+    phase,
+    rowOffset: orderRowNumber - 1,
+  });
+
+const mutationRecords = (
+  fixture: Fixture,
+  config: LinkComputedPropagationCaseConfig,
+) => {
+  const window = resolveMutationWindow(config.rowCount, config.mutation);
+  return fixture.seededRecords.slice(
+    window.startOffset,
+    window.endOffsetExclusive,
+  );
+};
 
 const parseOrderRowNumber = (value: unknown) => {
   const prefix = "Order ";
@@ -649,7 +696,7 @@ const buildOrderLinkUpdates = (
   userIdByTitle: Map<string, string>,
   guestIdByTitle: Map<string, string>,
 ) =>
-  fixture.seededRecords.map((record) => {
+  mutationRecords(fixture, config).map((record) => {
     if (phase === "clear") {
       return {
         id: record.recordId,
@@ -778,7 +825,6 @@ const assertOrdersFullScan = async (
   fixture: Fixture,
   config: LinkComputedPropagationCaseConfig,
   phase: Phase,
-  linked: boolean,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const projection = ordersProjection(fixture);
@@ -804,13 +850,18 @@ const assertOrdersFullScan = async (
         throw new Error(`Duplicate order row in scan: ${orderRowNumber}`);
       }
       seen.add(orderRowNumber);
-      const userRow = userRowForOrder(orderRowNumber, config, phase);
+      const state = orderStateFor(orderRowNumber, config, phase);
+      const userRow = userRowForOrder(
+        orderRowNumber,
+        config,
+        state.permutationPhase,
+      );
       assertOrderComputed(
         record.fields,
         orderRowNumber,
         userRow,
         fixture,
-        linked,
+        state.linked,
       );
     },
   );
@@ -874,22 +925,60 @@ const assertPurchaseFullScan = async (
       const emails = String(
         record.fields[fixture.purchaseFields.emailsId] ?? "",
       );
-      for (const childRow of purchaseChildOrderRows(purchaseNumber, config)) {
-        const userRow = userRowForOrder(childRow, config, phase);
-        const childName = expectedFormulaValue(
-          "customer_name",
-          userRow,
+      const childExpectations = purchaseChildOrderRows(
+        purchaseNumber,
+        config,
+      ).map((childRow) => {
+        const state = orderStateFor(childRow, config, phase);
+        const userRow = userRowForOrder(
           childRow,
+          config,
+          state.permutationPhase,
         );
-        if (!names.includes(childName)) {
+        return {
+          childRow,
+          linked: state.linked,
+          childName: expectedFormulaValue("customer_name", userRow, childRow),
+          childEmail: expectedCustLookup("email", userRow),
+        };
+      });
+      const linkedNames = new Set(
+        childExpectations
+          .filter(({ linked }) => linked)
+          .map(({ childName }) => childName),
+      );
+      const linkedEmails = new Set(
+        childExpectations
+          .filter(({ linked }) => linked)
+          .map(({ childEmail }) => childEmail),
+      );
+      for (const expectation of childExpectations) {
+        if (expectation.linked && !names.includes(expectation.childName)) {
           throw new Error(
-            `Purchase ${purchaseNumber} p_names missing child ${childRow} name "${childName}"; actual="${names}"`,
+            `Purchase ${purchaseNumber} p_names missing child ${expectation.childRow} name "${expectation.childName}"; actual="${names}"`,
           );
         }
-        const childEmail = expectedCustLookup("email", userRow);
-        if (!emails.includes(childEmail)) {
+        if (expectation.linked && !emails.includes(expectation.childEmail)) {
           throw new Error(
-            `Purchase ${purchaseNumber} p_emails missing child ${childRow} email "${childEmail}"`,
+            `Purchase ${purchaseNumber} p_emails missing child ${expectation.childRow} email "${expectation.childEmail}"`,
+          );
+        }
+        if (
+          !expectation.linked &&
+          !linkedNames.has(expectation.childName) &&
+          names.includes(expectation.childName)
+        ) {
+          throw new Error(
+            `Purchase ${purchaseNumber} p_names unexpectedly contains unlinked child ${expectation.childRow} name "${expectation.childName}"`,
+          );
+        }
+        if (
+          !expectation.linked &&
+          !linkedEmails.has(expectation.childEmail) &&
+          emails.includes(expectation.childEmail)
+        ) {
+          throw new Error(
+            `Purchase ${purchaseNumber} p_emails unexpectedly contains unlinked child ${expectation.childRow} email "${expectation.childEmail}"`,
           );
         }
       }
@@ -925,12 +1014,7 @@ const waitForReadyFullScan = async (
       throw new Error("aborted while waiting for computed propagation");
     }
     try {
-      const ordersScan = await assertOrdersFullScan(
-        fixture,
-        config,
-        phase,
-        true,
-      );
+      const ordersScan = await assertOrdersFullScan(fixture, config, phase);
       const purchaseScan = await assertPurchaseFullScan(fixture, config, phase);
       return { ordersScan, purchaseScan };
     } catch (error) {
@@ -944,6 +1028,88 @@ const waitForReadyFullScan = async (
     }`,
   );
 };
+
+const assertMutatedOrderReads = async (
+  fixture: Fixture,
+  config: LinkComputedPropagationCaseConfig,
+  readPath: Exclude<LinkComputedReadPath, "full-scan">,
+  context: PerfRunContext,
+) => {
+  if (context.signal?.aborted) {
+    throw new Error("aborted while reading mutated orders");
+  }
+  const projection = ordersProjection(fixture);
+  let checkedRecords = 0;
+  for (const seededRecord of mutationRecords(fixture, config)) {
+    let record: Awaited<ReturnType<typeof getRecord>> | undefined;
+    if (readPath === "get-record") {
+      record = await getRecord(fixture.ordersTableId, seededRecord.recordId);
+    } else {
+      const result = await getRecords(fixture.ordersTableId, {
+        fieldKeyType: FieldKeyType.Id,
+        projection,
+        filter: {
+          conjunction: "and",
+          filterSet: [
+            {
+              fieldId: fixture.ordersFields.titleFieldId,
+              operator: "is",
+              value: orderTitle(seededRecord.rowNumber),
+            },
+          ],
+        },
+        skip: 0,
+        take: 2,
+      });
+      if (result.records.length !== 1) {
+        throw new Error(
+          `Expected one filtered order ${seededRecord.rowNumber}, got ${result.records.length}`,
+        );
+      }
+      record = result.records[0];
+    }
+    if (!record) {
+      throw new Error(
+        `Missing order ${seededRecord.rowNumber} through ${readPath}`,
+      );
+    }
+    if (record.id !== seededRecord.recordId) {
+      throw new Error(
+        `Expected order ${seededRecord.recordId} through ${readPath}, got ${record.id}`,
+      );
+    }
+    const state = orderStateFor(seededRecord.rowNumber, config, "updated");
+    const userRow = userRowForOrder(
+      seededRecord.rowNumber,
+      config,
+      state.permutationPhase,
+    );
+    assertOrderComputed(
+      record.fields,
+      seededRecord.rowNumber,
+      userRow,
+      fixture,
+      state.linked,
+    );
+    checkedRecords += 1;
+  }
+  return { checkedRecords };
+};
+
+const waitForMutatedOrderReads = (
+  fixture: Fixture,
+  config: LinkComputedPropagationCaseConfig,
+  readPath: Exclude<LinkComputedReadPath, "full-scan">,
+  context: PerfRunContext,
+) =>
+  pollUntilReady(
+    {
+      timeoutMs: config.verify.timeoutMs ?? 300_000,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 250,
+      description: `${readPath} lookup readiness`,
+    },
+    () => assertMutatedOrderReads(fixture, config, readPath, context),
+  );
 
 // seedReady is cheap: only checks orders sample rows (not the downstream
 // purchase, which is proven in the post-write full readiness scan).
@@ -1428,6 +1594,7 @@ const buildResult = ({
           lookupReadyTotalMs: totalMeasurement.durationMs,
           linkWriteMs: primary.linkWriteMs,
           lookupPropagationMs: primary.lookupPropagationMs,
+          cascadeVerificationMs: primary.cascadeVerificationMs,
         }
       : {}),
   },
@@ -1466,9 +1633,17 @@ const buildResult = ({
           },
         ]
       : []),
+    ...(primary?.cascadeVerificationMs
+      ? [
+          {
+            name: "cascadeVerification",
+            durationMs: primary.cascadeVerificationMs,
+          },
+        ]
+      : []),
   ],
   details: {
-    operation: "write-both-links-then-await-computed-cascade",
+    operation: "write-links-then-await-configured-readiness",
     mode: config.mode,
     ordersTableId: fixture?.ordersTableId,
     ordersTableName: fixture?.ordersTableName,
@@ -1480,6 +1655,17 @@ const buildResult = ({
     purchaseRowCount: purchaseRowCount(config),
     purchaseGroupSize: config.purchase.groupSize,
     batchSize: config.batchSize,
+    mutation: resolveMutationWindow(config.rowCount, config.mutation),
+    readiness: primary
+      ? {
+          readPath: primary.readinessReadPath,
+          checkedRecords: primary.readinessCheckedRecords,
+          fullCascadeAfterPrimary: resolveReadinessPlan(
+            primary.readinessReadPath,
+          ).verifyFullCascadeAfterPrimary,
+          cascadeVerificationMs: primary.cascadeVerificationMs,
+        }
+      : undefined,
     computedFields: fixture
       ? {
           custLookups: ATTRS.map((attr) => custLookupName(attr)),
@@ -1495,7 +1681,9 @@ const buildResult = ({
           path: `/api/table/${fixture.ordersTableId}/record`,
           fieldKeyType: "id",
           typecast: false,
-          recordCount: fixture.seededRecords.length,
+          recordCount: resolveMutationWindow(config.rowCount, config.mutation)
+            .recordCount,
+          writeBatchSize: config.writeBatchSize,
           customerLinkFieldId: fixture.ordersFields.customerLinkFieldId,
           guestLinkFieldId: fixture.ordersFields.guestLinkFieldId,
         }
@@ -1535,11 +1723,10 @@ const buildResult = ({
 
 // link-computed-propagation rides the record-mutation lifecycle: seed (or
 // restore) the orders host + users/guest foreign + downstream purchase fixture,
-// run one measured "write both order links then await the full computed cascade"
-// operation, then restore-or-delete the reusable seed. It is the family's most
-// fan-out fixture (four tables) and its measured primary bundles the link write
-// and the propagation full-scan wait into a single window, but the driver treats
-// the fixture opaquely and owns no extra protocol, so it rides byte-unchanged.
+// run one measured link write + configured readiness operation, then
+// restore-or-delete the reusable seed. It is the family's most fan-out fixture
+// (four tables), but the driver treats the fixture opaquely and owns no extra
+// protocol, so it rides byte-unchanged.
 //
 // Two boundary adaptations keep the driver generic (see toLifecyclePerfCase):
 // this case config names its prefix `ordersTableNamePrefix` (it owns four
@@ -1567,6 +1754,7 @@ const prepareLcpFixture = async (
       new URL(import.meta.url),
       new URL("../seed-cache.ts", import.meta.url),
       new URL("./link-fixture.shared.ts", import.meta.url),
+      new URL("./link-computed-propagation-workload.ts", import.meta.url),
     ],
   });
   return buildFixture(
@@ -1580,11 +1768,10 @@ const prepareLcpFixture = async (
 };
 
 // The single measured operation: resolve foreign ids (unmeasured setup) ->
-// trace-wrapped write of BOTH order links -> propagation wait (full orders +
-// purchase recompute scan) -> routing assertion, bundled into one primary
-// measurement whose duration is lookupReadyTotalMs. The inner linkWrite trace
-// step is preserved so the write keeps its own trace ref. No record window, so
-// the driver invokes this directly.
+// trace-wrapped write of the configured order window -> propagation wait ->
+// routing assertion. Existing cases keep the full orders + purchase cascade in
+// the primary window. Customer-path cases poll the mutated order through one
+// concrete read API, then verify the full cascade after the timer stops.
 const runLcpMeasuredOperation = async (
   perfCase: PerfCase,
   context: PerfRunContext,
@@ -1604,9 +1791,12 @@ const runLcpMeasuredOperation = async (
       config.foreignRowCount,
     ),
   ]);
+  const readinessPlan = resolveReadinessPlan(config.verify.readinessReadPath);
 
   let linkWriteMs = 0;
   let lookupPropagationMs = 0;
+  let cascadeVerificationMs = 0;
+  let readinessCheckedRecords = 0;
   let responseHeaders: Record<string, string> = {};
   let requestedRecords = 0;
   let updatedRecords = 0;
@@ -1639,15 +1829,47 @@ const runLcpMeasuredOperation = async (
         requestedRecords = writeMeasurement.result.requestedRecords;
         updatedRecords = writeMeasurement.result.updatedRecords;
 
-        const propagationMeasurement = await measureAsync(
-          "lookupPropagation",
-          () => waitForReadyFullScan(fixture, config, "updated", context),
-        );
-        lookupPropagationMs = propagationMeasurement.durationMs;
-        ordersScan = propagationMeasurement.result.ordersScan;
-        purchaseScan = propagationMeasurement.result.purchaseScan;
+        if (readinessPlan.primaryReadPath === "full-scan") {
+          const propagationMeasurement = await measureAsync(
+            "lookupPropagation",
+            () => waitForReadyFullScan(fixture, config, "updated", context),
+          );
+          lookupPropagationMs = propagationMeasurement.durationMs;
+          ordersScan = propagationMeasurement.result.ordersScan;
+          purchaseScan = propagationMeasurement.result.purchaseScan;
+          readinessCheckedRecords = ordersScan.scannedRecords;
+        } else {
+          const propagationMeasurement = await measureAsync(
+            "lookupPropagation",
+            () =>
+              waitForMutatedOrderReads(
+                fixture,
+                config,
+                readinessPlan.primaryReadPath,
+                context,
+              ),
+          );
+          lookupPropagationMs = propagationMeasurement.durationMs;
+          readinessCheckedRecords =
+            propagationMeasurement.result.checkedRecords;
+        }
       }),
   );
+
+  if (readinessPlan.verifyFullCascadeAfterPrimary) {
+    const cascadeVerificationMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      "cascadeVerification",
+      () =>
+        measureAsync("cascadeVerification", () =>
+          waitForReadyFullScan(fixture, config, "updated", context),
+        ),
+    );
+    cascadeVerificationMs = cascadeVerificationMeasurement.durationMs;
+    ordersScan = cascadeVerificationMeasurement.result.ordersScan;
+    purchaseScan = cascadeVerificationMeasurement.result.purchaseScan;
+  }
 
   const routing = assertEngineRouting(context, responseHeaders, {
     operation: "updateRecords",
@@ -1657,6 +1879,9 @@ const runLcpMeasuredOperation = async (
     result: {
       linkWriteMs,
       lookupPropagationMs,
+      cascadeVerificationMs,
+      readinessReadPath: readinessPlan.primaryReadPath,
+      readinessCheckedRecords,
       requestedRecords,
       updatedRecords,
       responseHeaders,

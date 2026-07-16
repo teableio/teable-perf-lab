@@ -13,6 +13,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
+  "computed-chain-mutation": ComputedChainMutationCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
   "field-create": FieldCreateCaseConfig;
   "field-convert": FieldConvertCaseConfig;
@@ -315,11 +316,13 @@ export type ConditionalQueryCaseConfig = ConditionalQueryBaseCaseConfig &
 // each fanning out into a full attribute set of lookups, a multi-level formula
 // chain over those lookups, and a many-one `purchase_fk` into a downstream
 // `purchase` table that rolls up and re-derives the orders' computed values
-// (a second cross-table hop). The measured operation writes BOTH links for every
-// order, then waits until every dependent lookup, formula, rollup, and
-// downstream computed value recomputes. Cases can gate either the end-to-end
-// write-to-readable window or the post-write propagation window; both
-// `linkWriteMs` and the non-primary readiness metric are still reported as
+// (a second cross-table hop). The measured operation writes BOTH links for a
+// deterministic order window (all rows by default). Bulk cases wait for every
+// dependent lookup, formula, rollup, and downstream computed value; customer
+// read-after-write cases can poll the mutated records through one concrete read
+// API and verify the full cascade after the timer. Cases can gate either the
+// end-to-end write-to-readable window or the post-write propagation window;
+// both `linkWriteMs` and the non-primary readiness metric are still reported as
 // diagnostics. All computed fields live in the seed; the foreign tables share
 // `foreignRowCount`.
 export interface LinkComputedPropagationCaseConfig {
@@ -342,6 +345,13 @@ export interface LinkComputedPropagationCaseConfig {
   purchase: {
     groupSize: number;
   };
+  // Execute-only mutation window. Omit to keep the existing all-record write.
+  // Partial first-link cases leave rows outside this deterministic window
+  // unlinked; partial repoint cases leave them on their seed targets.
+  mutation?: {
+    startOffset?: number;
+    recordCount: number;
+  };
   link: {
     isOneWay: boolean;
     // Both map order row i to foreign row
@@ -360,12 +370,49 @@ export interface LinkComputedPropagationCaseConfig {
   };
   verify: {
     sampleRows: number[];
+    // Existing bulk cases wait for the full orders + purchase cascade inside
+    // the primary metric. Single-record customer-path cases can instead poll
+    // the mutated record through either read API, then run the full cascade
+    // verification after the primary timer stops.
+    readinessReadPath?: "full-scan" | "get-record" | "get-records";
     fullScanPageSize?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;
   };
   threshold: {
     metric: "lookupReadyTotalMs" | "lookupPropagationMs";
+    maxMs: number;
+  };
+}
+
+// Three customer-shaped mutations share one deterministic dependency graph:
+// 40 Users -> 4,000 Orders (100 consecutive orders per user) -> 400 Purchases
+// (10 consecutive orders per purchase). Orders carry four lookups followed by
+// five formula levels; Purchases roll up the final formula and derive one more
+// formula. Each case edits exactly one field: either the head formula schema,
+// one foreign single-select cell, or one foreign text cell.
+export interface ComputedChainMutationCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  mutation: "formula-expression" | "foreign-select" | "foreign-first-name";
+  userCount: number;
+  orderCount: number;
+  ordersPerUser: number;
+  purchaseGroupSize: number;
+  targetUserRow: number;
+  batchSize: number;
+  userBatchSize: number;
+  verify: {
+    sampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    // User-cell cases turn the customer-reported empty read window into a hard
+    // response-after-write threshold in addition to the primary total metric.
+    maxPostResponseMs?: number;
+  };
+  threshold: {
+    metric: "fullCascadeReadyTotalMs" | "firstOrderReadyTotalMs";
     maxMs: number;
   };
 }

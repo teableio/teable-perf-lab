@@ -3,6 +3,10 @@ import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { runConditionalRollupCase } from "./runners/conditional-rollup.runner";
 import { seedConditionalRollupCase } from "./runners/conditional-rollup.runner";
 import {
+  runComputedChainMutationCase,
+  seedComputedChainMutationCase,
+} from "./runners/computed-chain-mutation.runner";
+import {
   runConditionalQueryCase,
   seedConditionalQueryCase,
 } from "./runners/conditional-query.runner";
@@ -204,6 +208,14 @@ const runnerInventory = {
     },
     execute: runLinkComputedPropagationCase,
     seed: seedLinkComputedPropagationCase,
+  },
+  "computed-chain-mutation": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runComputedChainMutationCase,
+    seed: seedComputedChainMutationCase,
   },
   "lookup-search-index": {
     implementation: {
