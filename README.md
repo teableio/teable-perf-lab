@@ -618,6 +618,33 @@ workload.
 - `record-duplicate/single-record-sequential-100`: Catch regressions in the
   single-record duplicate path by duplicating 100 distinct records one request at
   a time through `POST /api/table/{tableId}/record/{recordId}/duplicate`.
+- `record-duplicate/single-50-primary-only`: Establish the narrowest
+  single-record duplicate baseline by copying 50 source records from a table that
+  contains only the primary `Title` field.
+- `record-duplicate/single-50-single-line-text-10fields`: Isolate single-line
+  text copy and response serialization by duplicating 50 records from a
+  fixed-width table containing `Title` and nine text fields.
+- `record-duplicate/single-50-long-text-10fields`: Isolate larger string copying
+  by duplicating 50 records from a table containing primary `Title` plus nine
+  deterministic long-text fields.
+- `record-duplicate/single-50-number-10fields`: Isolate numeric cloning and
+  response conversion in a fixed-width table with primary `Title` and nine number
+  fields.
+- `record-duplicate/single-50-date-10fields`: Isolate date value copying and
+  normalization in a table with primary `Title` and nine UTC date fields.
+- `record-duplicate/single-50-checkbox-10fields`: Isolate boolean and
+  empty-state copying in a table with primary `Title` and nine checkbox fields.
+- `record-duplicate/single-50-single-select-10fields`: Isolate option cloning in
+  a table with primary `Title` and nine single-select fields sharing stable
+  choice names.
+- `record-duplicate/single-50-multiple-select-10fields`: Isolate multi-value
+  option-array cloning in a table with primary `Title` and nine multiple-select
+  fields.
+- `record-duplicate/single-50-rating-10fields`: Isolate bounded rating-cell
+  cloning in a table with primary `Title` and nine five-star rating fields.
+- `record-duplicate/single-50-mixed-20fields`: Provide a 50-request wide-table
+  comparison using the established 20-field mix of text, select, number, date,
+  checkbox, and rating cells.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
