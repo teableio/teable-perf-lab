@@ -145,6 +145,16 @@ import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-past
 import selectionPaste10kExpandRowsAndFieldsStreamCase from "./cases/selection-paste/10k-expand-rows-and-fields-stream.case";
 import recordReorder10kMoveLast1kToFrontCase from "./cases/record-reorder/10k-move-last-1k-to-front.case";
 import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mixed-1k-20fields-bulk-update.case";
+import recordUpdate1kSingleLineTextFieldsBulkUpdateCase from "./cases/record-update/1k-single-line-text-fields-bulk-update.case";
+import recordUpdate1kLongTextFieldsBulkUpdateCase from "./cases/record-update/1k-long-text-fields-bulk-update.case";
+import recordUpdate1kNumberFieldsBulkUpdateCase from "./cases/record-update/1k-number-fields-bulk-update.case";
+import recordUpdate1kDateFieldsBulkUpdateCase from "./cases/record-update/1k-date-fields-bulk-update.case";
+import recordUpdate1kCheckboxFieldsBulkUpdateCase from "./cases/record-update/1k-checkbox-fields-bulk-update.case";
+import recordUpdate1kSingleSelectFieldsBulkUpdateCase from "./cases/record-update/1k-single-select-fields-bulk-update.case";
+import recordUpdate1kMultipleSelectFieldsBulkUpdateCase from "./cases/record-update/1k-multiple-select-fields-bulk-update.case";
+import recordUpdate1kRatingFieldBulkUpdateCase from "./cases/record-update/1k-rating-field-bulk-update.case";
+import recordUpdate1kPrimaryTextOnlyBulkUpdateCase from "./cases/record-update/1k-primary-text-only-bulk-update.case";
+import recordUpdate1kWideTableTitleOnlyBulkUpdateCase from "./cases/record-update/1k-wide-table-title-only-bulk-update.case";
 import recordUpdateAttachmentInsert100Case from "./cases/record-update/attachment-insert-100.case";
 import recordUpdateAttachmentInsert1kCase from "./cases/record-update/attachment-insert-1k.case";
 import recordUpdate1kLinkCellsBulkUpdateCase from "./cases/record-update/1k-link-cells-bulk-update.case";
@@ -311,6 +321,16 @@ const cases = [
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
+  recordUpdate1kSingleLineTextFieldsBulkUpdateCase,
+  recordUpdate1kLongTextFieldsBulkUpdateCase,
+  recordUpdate1kNumberFieldsBulkUpdateCase,
+  recordUpdate1kDateFieldsBulkUpdateCase,
+  recordUpdate1kCheckboxFieldsBulkUpdateCase,
+  recordUpdate1kSingleSelectFieldsBulkUpdateCase,
+  recordUpdate1kMultipleSelectFieldsBulkUpdateCase,
+  recordUpdate1kRatingFieldBulkUpdateCase,
+  recordUpdate1kPrimaryTextOnlyBulkUpdateCase,
+  recordUpdate1kWideTableTitleOnlyBulkUpdateCase,
   recordUpdateAttachmentInsert100Case,
   recordUpdateAttachmentInsert1kCase,
   recordUpdate1kLinkCellsBulkUpdateCase,

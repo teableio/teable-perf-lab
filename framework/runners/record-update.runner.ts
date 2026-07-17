@@ -32,6 +32,13 @@ import type {
 } from "../types";
 import { withRecordWindowId } from "./record-replay.shared";
 import {
+  getRecordUpdateExpectedPhase,
+  getRecordUpdateSeedConfig,
+  getRecordUpdateSeedIdentityCase,
+  RECORD_UPDATE_FIXTURE_VERSION,
+  selectRecordUpdatePayloadFields,
+} from "./record-update-model";
+import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
   type RecordMutationLifecycleSpec,
@@ -84,7 +91,6 @@ type RecordUpdatePrimaryResult = {
   verifyUpdatedMs?: number;
 };
 
-const RECORD_UPDATE_FIXTURE_VERSION = "record-update-v1";
 const RECORD_UPDATE_METADATA_PREFIX = "perf-lab-record-update:";
 const STATUS_CHOICES = ["Todo", "Doing", "Done"];
 const PRIORITY_CHOICES = ["P0", "P1", "P2"];
@@ -249,6 +255,7 @@ const buildBaseFixture = async (
   }
 
   const fields = resolveUpdateFields(tableFields, config);
+  selectRecordUpdatePayloadFields(fields, config.updateFieldNames);
   return {
     tableId,
     tableName,
@@ -360,29 +367,24 @@ const resolveCachedSeededRecords = (
   }
 };
 
-const getRecordUpdateSeedConfig = (config: RecordUpdateCaseConfig) => ({
-  baseId: config.baseId,
-  rowCount: config.rowCount,
-  batchSize: config.batchSize,
-  fields: config.fields,
-  generator: config.generator,
-  verifySampleRows: config.verify.sampleRows,
-  fixtureVersion: RECORD_UPDATE_FIXTURE_VERSION,
-});
-
 const prepareRecordUpdateFixture = async (
   baseId: string,
   tableName: string,
   config: RecordUpdateCaseConfig,
   perfCase: PerfCase,
 ): Promise<RecordUpdateFixture> => {
-  const seedCacheInfo = await buildSeedCacheInfo({
+  const seedIdentityCase = getRecordUpdateSeedIdentityCase(
     perfCase,
+    config.seedIdentity,
+  );
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase: seedIdentityCase,
     runner: "record-update" as never,
     fixtureVersion: RECORD_UPDATE_FIXTURE_VERSION,
     seedConfig: getRecordUpdateSeedConfig(config),
     seedCodeFiles: [
       new URL(import.meta.url),
+      new URL("./record-update-model.ts", import.meta.url),
       new URL("../seed-cache.ts", import.meta.url),
     ],
   });
@@ -512,11 +514,16 @@ const assertSampleRecordsState = async (
     const actual: Record<string, unknown> = {};
     const expected: Record<string, unknown> = {};
     for (const field of fixture.fields) {
+      const expectedPhase = getRecordUpdateExpectedPhase(
+        field.name,
+        phase,
+        config.updateFieldNames,
+      );
       const expectedValue = getExpectedCellValue(
         field,
         seededRecord.rowNumber,
         config,
-        phase,
+        expectedPhase,
       );
       const actualValue = record.fields[field.id];
       actual[field.name] = actualValue;
@@ -572,10 +579,14 @@ const updateAllRecords = async (
   config: RecordUpdateCaseConfig,
   phase: "seed" | "updated",
 ) => {
+  const payloadFields = selectRecordUpdatePayloadFields(
+    fixture.fields,
+    config.updateFieldNames,
+  );
   const updates = fixture.seededRecords.map((record) => ({
     id: record.recordId,
     fields: buildRecordFields(
-      fixture.fields,
+      payloadFields,
       record.rowNumber,
       config,
       phase,
@@ -632,131 +643,142 @@ const buildRecordUpdateResult = ({
   seedReadyMeasurement?: Measurement<SampleVerification>;
   primaryMeasurement?: Measurement<RecordUpdatePrimaryResult>;
   error?: unknown;
-}): PerfRunResult => ({
-  metrics: {
-    ...(prepareMeasurement ? { prepareMs: prepareMeasurement.durationMs } : {}),
-    ...(fixture?.seedCacheInfo
-      ? {
-          seedCacheHit: fixture.seedCacheHit ? 1 : 0,
-          seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
-          recordIdCacheHit: fixture.recordIdCacheHit ? 1 : 0,
-          ...(fixture.seedCacheHit
-            ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
-            : fixture.seedCacheInfo.enabled
-              ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
-              : {}),
-          ...(seedReadyMeasurement
-            ? { seedReadyMs: seedReadyMeasurement.durationMs }
-            : {}),
-        }
-      : {}),
-    ...(primaryMeasurement
-      ? {
-          [config.threshold.metric]: primaryMeasurement.durationMs,
-          updateRequestMs: primaryMeasurement.durationMs,
-          ...(primaryMeasurement.result.verifyUpdatedMs != null
-            ? { verifyUpdatedMs: primaryMeasurement.result.verifyUpdatedMs }
-            : {}),
-        }
-      : {}),
-  },
-  thresholds: primaryMeasurement
-    ? [
-        {
-          metric: config.threshold.metric,
-          max: getPrimaryThresholdMs(config.threshold.maxMs),
-          unit: "ms",
-        },
-      ]
-    : [],
-  phases: [
-    ...(prepareMeasurement
-      ? [
-          {
-            name: prepareMeasurement.name,
-            durationMs: prepareMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(primaryMeasurement
-      ? [
-          {
-            name: primaryMeasurement.name,
-            durationMs: primaryMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(seedReadyMeasurement
-      ? [
-          {
-            name: seedReadyMeasurement.name,
-            durationMs: seedReadyMeasurement.durationMs,
-          },
-        ]
-      : []),
-  ],
-  details: {
-    operation: "bulk-update",
-    windowId,
-    tableId: fixture?.tableId,
-    tableName: fixture?.tableName,
-    viewId: fixture?.viewId,
-    rowCount: config.rowCount,
-    batchSize: config.batchSize,
-    request: fixture
-      ? {
-          method: "PATCH",
-          path: `/api/table/${fixture.tableId}/record`,
-          fieldKeyType: "id",
-          typecast: false,
-          recordCount: fixture.seededRecords.length,
-          fieldCount: fixture.fields.length,
-        }
-      : undefined,
-    fields: fixture?.fields.map((field) => ({
-      id: field.id,
-      name: field.name,
-      type: field.type,
-    })),
-    seed: fixture
-      ? {
-          seededRecords: fixture.seededRecords.length,
-          batchCount: fixture.seedBatchDurations.length,
-          maxSeedBatchMs: fixture.seedBatchDurations.length
-            ? Math.max(...fixture.seedBatchDurations)
-            : undefined,
-          ready: seedReadyMeasurement?.result,
-          cache: fixture.seedCacheInfo
-            ? {
-                enabled: fixture.seedCacheInfo.enabled,
-                cacheHit: Boolean(fixture.seedCacheHit),
-                recordIdCacheHit: Boolean(fixture.recordIdCacheHit),
-                reusable: Boolean(fixture.reusableSeed),
-                seedHash: fixture.seedCacheInfo.seedHash,
-                seedHashShort: fixture.seedCacheInfo.seedHashShort,
-                seedTableName: fixture.seedCacheInfo.seedTableName,
-                schemaSignature: fixture.seedCacheInfo.schemaSignature,
-              }
-            : undefined,
-        }
-      : undefined,
-    update: primaryMeasurement?.result.update,
-    routing: primaryMeasurement?.result.update.routing,
-    sampleVerification: primaryMeasurement?.result.verified
-      ? {
-          checkedRecords: primaryMeasurement.result.verified.checkedRecords,
-        }
-      : undefined,
-    verifiedSamples: primaryMeasurement?.result.verified?.verifiedSamples,
-    error:
-      error instanceof Error
+}): PerfRunResult => {
+  const payloadFields = fixture
+    ? selectRecordUpdatePayloadFields(fixture.fields, config.updateFieldNames)
+    : [];
+  const payloadFieldNames = new Set(payloadFields.map((field) => field.name));
+  return {
+    metrics: {
+      ...(prepareMeasurement
+        ? { prepareMs: prepareMeasurement.durationMs }
+        : {}),
+      ...(fixture?.seedCacheInfo
         ? {
-            name: error.name,
-            message: error.message,
+            seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+            seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+            recordIdCacheHit: fixture.recordIdCacheHit ? 1 : 0,
+            ...(fixture.seedCacheHit
+              ? { seedRestoreMs: prepareMeasurement?.durationMs ?? 0 }
+              : fixture.seedCacheInfo.enabled
+                ? { seedBuildMs: prepareMeasurement?.durationMs ?? 0 }
+                : {}),
+            ...(seedReadyMeasurement
+              ? { seedReadyMs: seedReadyMeasurement.durationMs }
+              : {}),
+          }
+        : {}),
+      ...(primaryMeasurement
+        ? {
+            [config.threshold.metric]: primaryMeasurement.durationMs,
+            updateRequestMs: primaryMeasurement.durationMs,
+            ...(primaryMeasurement.result.verifyUpdatedMs != null
+              ? { verifyUpdatedMs: primaryMeasurement.result.verifyUpdatedMs }
+              : {}),
+          }
+        : {}),
+    },
+    thresholds: primaryMeasurement
+      ? [
+          {
+            metric: config.threshold.metric,
+            max: getPrimaryThresholdMs(config.threshold.maxMs),
+            unit: "ms",
+          },
+        ]
+      : [],
+    phases: [
+      ...(prepareMeasurement
+        ? [
+            {
+              name: prepareMeasurement.name,
+              durationMs: prepareMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(primaryMeasurement
+        ? [
+            {
+              name: primaryMeasurement.name,
+              durationMs: primaryMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(seedReadyMeasurement
+        ? [
+            {
+              name: seedReadyMeasurement.name,
+              durationMs: seedReadyMeasurement.durationMs,
+            },
+          ]
+        : []),
+    ],
+    details: {
+      operation: "bulk-update",
+      windowId,
+      tableId: fixture?.tableId,
+      tableName: fixture?.tableName,
+      viewId: fixture?.viewId,
+      rowCount: config.rowCount,
+      batchSize: config.batchSize,
+      request: fixture
+        ? {
+            method: "PATCH",
+            path: `/api/table/${fixture.tableId}/record`,
+            fieldKeyType: "id",
+            typecast: false,
+            recordCount: fixture.seededRecords.length,
+            fieldCount: payloadFields.length,
+            tableFieldCount: fixture.fields.length,
+            fieldNames: payloadFields.map((field) => field.name),
           }
         : undefined,
-  },
-});
+      fields: fixture?.fields.map((field) => ({
+        id: field.id,
+        name: field.name,
+        type: field.type,
+        includedInUpdate: payloadFieldNames.has(field.name),
+      })),
+      seed: fixture
+        ? {
+            seededRecords: fixture.seededRecords.length,
+            batchCount: fixture.seedBatchDurations.length,
+            maxSeedBatchMs: fixture.seedBatchDurations.length
+              ? Math.max(...fixture.seedBatchDurations)
+              : undefined,
+            ready: seedReadyMeasurement?.result,
+            cache: fixture.seedCacheInfo
+              ? {
+                  enabled: fixture.seedCacheInfo.enabled,
+                  cacheHit: Boolean(fixture.seedCacheHit),
+                  recordIdCacheHit: Boolean(fixture.recordIdCacheHit),
+                  reusable: Boolean(fixture.reusableSeed),
+                  seedHash: fixture.seedCacheInfo.seedHash,
+                  seedHashShort: fixture.seedCacheInfo.seedHashShort,
+                  seedTableName: fixture.seedCacheInfo.seedTableName,
+                  schemaSignature: fixture.seedCacheInfo.schemaSignature,
+                }
+              : undefined,
+          }
+        : undefined,
+      update: primaryMeasurement?.result.update,
+      routing: primaryMeasurement?.result.update.routing,
+      sampleVerification: primaryMeasurement?.result.verified
+        ? {
+            checkedRecords: primaryMeasurement.result.verified.checkedRecords,
+          }
+        : undefined,
+      verifiedSamples: primaryMeasurement?.result.verified?.verifiedSamples,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : undefined,
+    },
+  };
+};
 
 // The single measured window: trace-wrapped bulk update -> routing assertion ->
 // post-update verification, all bundled into one primary measurement whose

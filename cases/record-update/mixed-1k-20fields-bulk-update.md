@@ -24,13 +24,16 @@ bulk update path.
 
 ## Seed Phase
 
-- Creates one reusable table in the e2e seed base.
+- Creates one reusable table in the e2e seed base under the explicit
+  `mixed-1k-20fields` seed identity.
 - Uses the same 20 mixed-field layout as the mixed CSV import case: text, long
   text, single select, multiple select, number, date, checkbox, and rating.
 - Seeds 1,000 deterministic records in one 1,000-record batch with `seed-`
   values.
 - Resolves field ids and the first grid view id.
-- On cache hit, reuses cached record ids from the seed table metadata.
+- On cache hit, reuses cached record ids from the seed table metadata. The
+  field-family and narrow-payload variants reuse this exact fixture rather than
+  rebuilding equivalent 1,000-row tables.
 
 ## Execute Phase
 
