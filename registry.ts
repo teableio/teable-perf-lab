@@ -1,6 +1,7 @@
 import authUserCase from "./cases/smoke/auth-user.case";
 import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
+import formula50kCalcCase from "./cases/formula/50k-calc.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
 import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
@@ -65,11 +66,14 @@ import formulaDependencyReplace4kDepth5CascadeCase from "./cases/field-convert/f
 import formulaDependencyRemove4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-remove-4k-depth5-cascade.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
 import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
+import fieldRestore10kStatusFieldCase from "./cases/field-restore/10k-status-field.case";
+import fieldRestore10kStartDateFieldCase from "./cases/field-restore/10k-start-date-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
 import duplicateTable10k20FSelflinkCase from "./cases/duplicate-table/10k-20f-selflink.case";
+import duplicateViewComplexGrid20FieldsP95Case from "./cases/duplicate-view/complex-grid-20fields-p95.case";
 import duplicateBase10k3TablesLink2WorkflowCase from "./cases/duplicate-base/10k-3tables-link-2workflow.case";
 import duplicateBase10k3TablesLink2WorkflowStreamCase from "./cases/duplicate-base/10k-3tables-link-2workflow-stream.case";
 import importBaseV2OnlySimple1x1kTableStreamCase from "./cases/import-base/v2-only-simple-1x1k-table-stream.case";
@@ -82,6 +86,7 @@ import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-record
 import tableCreate1x20F5kRecordsCase from "./cases/table-create/1x-20f-5k-records.case";
 import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
 import tableDelete10k20FLinkDetachCase from "./cases/table-delete/10k-20f-link-detach.case";
+import tableDelete30k20FLinkDetachCase from "./cases/table-delete/30k-20f-link-detach.case";
 import tableRestore10k20FCase from "./cases/table-restore/10k-20f.case";
 import tableRestore10k20FLink1kCase from "./cases/table-restore/10k-20f-link-1k.case";
 import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-1k-20fields-create-table-import.case";
@@ -93,6 +98,7 @@ import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/gr
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
 import recordRead10k50FieldsFilterSortGroupbyOverheadCase from "./cases/record-read/10k-50fields-filter-sort-groupby-overhead.case";
+import recordRead50k50Fields50x1kPagesCase from "./cases/record-read/50k-50fields-50x1k-pages.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
@@ -102,10 +108,14 @@ import recordUpdateMixed1k20FieldsBulkUpdateCase from "./cases/record-update/mix
 import recordUpdateAttachmentInsert100Case from "./cases/record-update/attachment-insert-100.case";
 import recordUpdateAttachmentInsert1kCase from "./cases/record-update/attachment-insert-1k.case";
 import recordUpdate1kLinkCellsBulkUpdateCase from "./cases/record-update/1k-link-cells-bulk-update.case";
+import recordUpdateSingleForeignFirstNameFanout100_4kCase from "./cases/record-update/single-foreign-first-name-update-1of40-fanout100-4k.case";
+import recordUpdateSingleForeignSelectFanout100_4kCase from "./cases/record-update/single-foreign-select-update-1of40-fanout100-4k.case";
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
+import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
 import recordDeleteStream1kCase from "./cases/record-delete/delete-stream-1k.case";
 import recordDeleteStream10kCase from "./cases/record-delete/delete-stream-10k.case";
+import recordDeleteStream30kCase from "./cases/record-delete/delete-stream-30k.case";
 import recordDeleteLinkTrash1kCase from "./cases/record-delete/link-trash-1k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
 import recordUndoDelete1kCase from "./cases/record-undo/delete-1k.case";
@@ -115,6 +125,7 @@ const cases = [
   authUserCase,
   formula10kCalcCase,
   formula10k5ConcurrentCase,
+  formula50kCalcCase,
   conditionalLookup10kCase,
   conditionalRollup10kCase,
   conditionalLookupGroupTextFanout10_10kCase,
@@ -180,10 +191,13 @@ const cases = [
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
   fieldRestore10kDescriptionFieldCase,
+  fieldRestore10kStatusFieldCase,
+  fieldRestore10kStartDateFieldCase,
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
   duplicateTable10k20FSelflinkCase,
+  duplicateViewComplexGrid20FieldsP95Case,
   duplicateBase10k3TablesLink2WorkflowCase,
   duplicateBase10k3TablesLink2WorkflowStreamCase,
   importBaseV2OnlySimple1x1kTableStreamCase,
@@ -196,6 +210,7 @@ const cases = [
   tableCreate1x20F5kRecordsCase,
   tableDelete10k20FCase,
   tableDelete10k20FLinkDetachCase,
+  tableDelete30k20FLinkDetachCase,
   tableRestore10k20FCase,
   tableRestore10k20FLink1kCase,
   csvImportMixed1k20FieldsCreateTableImportCase,
@@ -203,12 +218,15 @@ const cases = [
   csvImportMixed10k20FieldsInplaceImportCase,
   formSubmitSequential200Case,
   selectionClearFlat1k20FieldsCellClearStreamCase,
+  selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDelete1kCase,
   recordDeleteStream1kCase,
   recordDeleteStream10kCase,
+  recordDeleteStream30kCase,
   recordDeleteLinkTrash1kCase,
   recordRead10k50Fields10x1kPagesCase,
   recordRead10k50FieldsFilterSortGroupbyOverheadCase,
+  recordRead50k50Fields50x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
@@ -216,6 +234,8 @@ const cases = [
   recordUpdateAttachmentInsert100Case,
   recordUpdateAttachmentInsert1kCase,
   recordUpdate1kLinkCellsBulkUpdateCase,
+  recordUpdateSingleForeignFirstNameFanout100_4kCase,
+  recordUpdateSingleForeignSelectFanout100_4kCase,
   recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
   recordRedoDelete1kCase,

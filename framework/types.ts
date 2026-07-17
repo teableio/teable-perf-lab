@@ -24,6 +24,7 @@ export interface PerfCaseConfigByRunner {
   "field-restore": FieldRestoreCaseConfig;
   "field-duplicate": FieldDuplicateCaseConfig;
   "duplicate-table": DuplicateTableCaseConfig;
+  "duplicate-view": DuplicateViewCaseConfig;
   "duplicate-base": DuplicateBaseCaseConfig;
   "import-base": ImportBaseCaseConfig;
   "record-delete-link": RecordDeleteLinkCaseConfig;
@@ -403,6 +404,10 @@ export interface ComputedChainMutationCaseConfig {
     | "formula-dependency-remove"
     | "foreign-select"
     | "foreign-first-name";
+  // Foreign-cell mutations default to the collection endpoint used by the
+  // original cases. Single-record variants keep the same graph and payload
+  // but exercise PATCH /record/:recordId and its distinct V2 canary feature.
+  recordWriteMode?: "bulk" | "single";
   userCount: number;
   orderCount: number;
   ordersPerUser: number;
@@ -858,6 +863,24 @@ export interface DuplicateBaseCaseConfig {
   };
 }
 
+export interface DuplicateViewCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  fields: Array<IFieldRo & { id?: string; name: string }>;
+  samples: number;
+  sourceViewName: string;
+  view: {
+    textFieldName: string;
+    numberFieldName: string;
+    selectFieldName: string;
+    groupFieldName: string;
+  };
+  threshold: {
+    metric: "duplicateViewP95Ms";
+    maxMs: number;
+  };
+}
+
 export interface ImportBaseCaseConfig {
   spaceId: "seed-space";
   sourceBaseNamePrefix: string;
@@ -953,6 +976,7 @@ export interface RecordReadCaseConfig {
   threshold: {
     metric:
       | "getRecords10kPagedScanMs"
+      | "getRecords50kPagedScanMs"
       | "getRecordsFilterSortGroupByOverheadMs";
     maxMs: number;
   };
@@ -1125,7 +1149,7 @@ export interface SelectionClearCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "clear1kMs";
+    metric: "clear1kMs" | "clear10kMs";
     maxMs: number;
   };
 }
@@ -1211,6 +1235,7 @@ export interface FieldRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   threshold: {
     metric: "deleteTableP95Ms";
     maxMs: number;
@@ -1219,6 +1244,7 @@ export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   threshold: {
     metric: "restoreTableP95Ms";
     maxMs: number;
@@ -1250,9 +1276,10 @@ export type TableLifecycleLinkConfig = {
 export interface TableDeleteLinkCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: {
-    metric: "deleteTableDetachLinkP95Ms";
+    metric: "deleteTableDetachLinkP95Ms" | "deleteTableDetachLink30kMs";
     maxMs: number;
   };
 }
@@ -1263,6 +1290,7 @@ export interface TableDeleteLinkCaseConfig
 export interface TableRestoreLinkCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: {
     metric: "restoreTableP95Ms";
@@ -1295,7 +1323,7 @@ export interface RecordDeleteLinkCaseConfig
 export interface RecordDeleteStreamCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "deleteStream1kMs" | "deleteStream10kMs";
+    metric: "deleteStream1kMs" | "deleteStream10kMs" | "deleteStream30kMs";
     maxMs: number;
   };
 }

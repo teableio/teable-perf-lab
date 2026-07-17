@@ -30,6 +30,7 @@ export type TableLifecycleRunnerKind = Extract<
 
 export type TableLifecycleCaseConfig = RecordUndoRedoBaseCaseConfig & {
   samples?: number;
+  samplesMode?: "environment" | "fixed";
   threshold: { metric: string; maxMs: number };
 };
 
@@ -130,7 +131,10 @@ export const prepareTableLifecycleFixture = async (
 
 export const getTableLifecycleSampleCount = (
   config: TableLifecycleCaseConfig,
-) => getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples ?? 1;
+) =>
+  config.samplesMode === "fixed"
+    ? (config.samples ?? 1)
+    : (getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples ?? 1);
 
 export const formatTableLifecycleSample = (iteration: number) =>
   `sample-${String(iteration).padStart(2, "0")}`;
