@@ -542,3 +542,7 @@ without writing Teable. Run `pnpm sync:cases` with `TEABLE_PERF_LAB_TOKEN` to
 upsert the table locally. GitHub Actions also runs `Sync perf cases` on pushes
 to `main` that touch case definitions, descriptions, registry, or the sync
 script, so the Teable table stays aligned with the repo.
+
+The sync reads the existing registry once and writes only materially changed or
+missing rows in batches. `Source SHA` and `Synced At` therefore identify the
+last sync that changed that row; unchanged rows keep their previous values.
