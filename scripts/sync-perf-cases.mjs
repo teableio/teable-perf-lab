@@ -6,15 +6,16 @@ import {
   importedCasePathsSorted,
   loadRegistry,
 } from "./case-catalog.mjs";
+import {
+  chunkPerfCaseWriteRecords,
+  DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
+  syncPerfCaseRecords,
+} from "./perf-case-sync-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
 const DEFAULT_TABLE_ID = "tbl0pa9PtLeNPCRNCKe";
 const DEFAULT_REPOSITORY = "teableio/teable-perf-lab";
-
-const FIELD_IDS = {
-  "Case ID": "fldm1Uo8a21ubDZ8VRR",
-};
 
 const REQUIRED_FIELD_NAMES = [
   "Case ID",
@@ -40,6 +41,20 @@ const repoRoot = join(scriptDir, "..");
 
 const env = (name, fallback = "") => process.env[name] ?? fallback;
 
+const perfCaseWriteMaxBytes = () => {
+  const configured = env("PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES");
+  if (!configured) {
+    return DEFAULT_PERF_CASE_WRITE_MAX_BYTES;
+  }
+  const value = Number(configured);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(
+      `Invalid PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES: ${configured}`,
+    );
+  }
+  return value;
+};
+
 const compactFields = (fields) =>
   Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== undefined),
@@ -57,6 +72,17 @@ const fileExists = async (path) => {
 };
 
 const parseScalar = (value) => {
+  const inlineList = value.match(/^\[(.*)\]$/);
+  if (inlineList) {
+    const items = inlineList[1].trim();
+    return items
+      ? items
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .map(parseScalar)
+      : [];
+  }
   if (value === "true") {
     return true;
   }
@@ -80,8 +106,28 @@ const parseFrontmatter = (markdown) => {
   const lines = markdown.slice(4, endIndex).split("\n");
   const data = {};
   let currentKey = "";
+  let flowSequence = "";
 
   for (const line of lines) {
+    const trimmed = line.trim();
+    if (flowSequence) {
+      flowSequence += ` ${trimmed}`;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+
+    if (currentKey && trimmed.startsWith("[")) {
+      flowSequence = trimmed;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+
     const listMatch = line.match(/^\s*-\s+(.+)$/);
     if (listMatch && currentKey) {
       data[currentKey] ??= [];
@@ -97,6 +143,10 @@ const parseFrontmatter = (markdown) => {
     currentKey = pairMatch[1];
     const value = pairMatch[2].trim();
     data[currentKey] = value === "" ? [] : parseScalar(value);
+  }
+
+  if (flowSequence) {
+    throw new Error(`Unterminated frontmatter list for ${currentKey}`);
   }
 
   return data;
@@ -170,7 +220,9 @@ const assertRegisteredCasesMatchDisk = async () => {
   }
   const disk = new Set(diskCasePaths);
   const registered = new Set(registeredCasePaths);
-  const missingFromRegistry = diskCasePaths.filter((path) => !registered.has(path));
+  const missingFromRegistry = diskCasePaths.filter(
+    (path) => !registered.has(path),
+  );
   const missingFromDisk = registeredCasePaths.filter((path) => !disk.has(path));
 
   if (missingFromRegistry.length > 0 || missingFromDisk.length > 0) {
@@ -254,72 +306,71 @@ const ensureFields = async ({ endpoint, token, tableId }) => {
   }
 };
 
-const findExistingRecordId = async ({ endpoint, token, tableId, caseId }) => {
-  const params = new URLSearchParams({
-    fieldKeyType: "name",
-    take: "1",
-    projection: "Case ID",
-    filter: JSON.stringify({
-      conjunction: "and",
-      filterSet: [
-        {
-          fieldId: FIELD_IDS["Case ID"],
-          operator: "is",
-          value: caseId,
-        },
-      ],
-    }),
-  });
+const listRecords = async ({ endpoint, token, tableId }) => {
+  const records = [];
+  const take = 1000;
 
-  const data = await teableRequest({
-    endpoint,
-    token,
-    method: "GET",
-    path: `/table/${tableId}/record?${params.toString()}`,
-  });
-
-  const record = data?.records?.find(
-    (item) => item.fields?.["Case ID"] === caseId,
-  );
-  return record?.id;
-};
-
-const upsertRecord = async ({ endpoint, token, tableId, caseId, fields }) => {
-  const existingRecordId = await findExistingRecordId({
-    endpoint,
-    token,
-    tableId,
-    caseId,
-  });
-
-  if (existingRecordId) {
-    await teableRequest({
+  for (let skip = 0; ; skip += take) {
+    const params = new URLSearchParams({
+      fieldKeyType: "name",
+      take: String(take),
+      skip: String(skip),
+    });
+    const data = await teableRequest({
       endpoint,
       token,
-      method: "PATCH",
-      path: `/table/${tableId}/record`,
-      body: {
-        fieldKeyType: "name",
-        typecast: true,
-        records: [{ id: existingRecordId, fields }],
-      },
+      method: "GET",
+      path: `/table/${tableId}/record?${params.toString()}`,
     });
-    return { action: "updated", recordId: existingRecordId };
+    const page = data?.records ?? [];
+    records.push(...page);
+    if (page.length < take) {
+      return records;
+    }
   }
-
-  const data = await teableRequest({
-    endpoint,
-    token,
-    method: "POST",
-    path: `/table/${tableId}/record`,
-    body: {
-      fieldKeyType: "name",
-      typecast: true,
-      records: [{ fields }],
-    },
-  });
-  return { action: "created", recordId: data?.records?.[0]?.id };
 };
+
+const createTeablePerfCaseSyncAdapter = ({
+  endpoint,
+  token,
+  tableId,
+  maxWriteBytes,
+}) => ({
+  listRecords: () => listRecords({ endpoint, token, tableId }),
+  async updateRecords(records) {
+    const batches = chunkPerfCaseWriteRecords(records, maxWriteBytes);
+    for (const batch of batches) {
+      await teableRequest({
+        endpoint,
+        token,
+        method: "PATCH",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+    }
+  },
+  async createRecords(records) {
+    const createdRecords = [];
+    const batches = chunkPerfCaseWriteRecords(records, maxWriteBytes);
+    for (const batch of batches) {
+      const data = await teableRequest({
+        endpoint,
+        token,
+        method: "POST",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+      const createdBatch = data?.records ?? [];
+      if (createdBatch.length !== batch.length) {
+        throw new Error(
+          `Teable created ${createdBatch.length} perf case records; expected ${batch.length}`,
+        );
+      }
+      createdRecords.push(...createdBatch);
+    }
+    return createdRecords;
+  },
+});
 
 const main = async () => {
   const dryRun = /^(1|true|yes)$/i.test(env("PERF_LAB_CASE_SYNC_DRY_RUN"));
@@ -335,12 +386,14 @@ const main = async () => {
   const repository = env("GITHUB_REPOSITORY", DEFAULT_REPOSITORY);
   const sourceSha = env("GITHUB_SHA") || env("PERF_LAB_SOURCE_SHA");
   const syncedAt = new Date().toISOString();
+  const maxWriteBytes = perfCaseWriteMaxBytes();
   const caseFiles = await assertRegisteredCasesMatchDisk();
 
   if (!dryRun) {
     await ensureFields({ endpoint, token, tableId });
   }
 
+  const desiredRecords = [];
   for (const casePath of caseFiles) {
     const markdownPath = getMarkdownPath(casePath);
     if (!(await fileExists(markdownPath))) {
@@ -383,16 +436,37 @@ const main = async () => {
       continue;
     }
 
-    const result = await upsertRecord({
-      endpoint,
-      token,
-      tableId,
+    desiredRecords.push({
       caseId: caseInfo.id,
+      relativeCasePath,
+      relativeMarkdownPath,
       fields,
     });
+  }
 
+  if (!dryRun) {
+    const result = await syncPerfCaseRecords({
+      adapter: createTeablePerfCaseSyncAdapter({
+        endpoint,
+        token,
+        tableId,
+        maxWriteBytes,
+      }),
+      desiredRecords,
+    });
+
+    for (const record of result.updated) {
+      console.log(
+        `Perf case updated: ${record.caseId} (${record.recordId ?? "unknown record id"}; fields=${record.changedFields.join(",")})`,
+      );
+    }
+    for (const record of result.created) {
+      console.log(
+        `Perf case created: ${record.caseId} (${record.recordId ?? "unknown record id"})`,
+      );
+    }
     console.log(
-      `Perf case ${result.action}: ${caseInfo.id} (${result.recordId ?? "unknown record id"})`,
+      `Perf case sync summary: created=${result.created.length}, updated=${result.updated.length}, unchanged=${result.unchanged.length}`,
     );
   }
 
