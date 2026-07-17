@@ -58,8 +58,13 @@ Order formula and derive one more formula.
 ## Notes
 
 This is the narrow-payload sibling of
-`lookup/customer-update-user-create-order-4k-depth5`. A slow result means the
-dependent field mutation itself is sufficient; a fast result points to the
-complete payload resubmission as the remaining differentiator. Run V1 and V2
-production-hybrid only. Local reusable fixtures restore User 20 and delete
-Order 4001; isolated CI execute databases are discarded.
+`lookup/customer-update-user-create-order-4k-depth5`. Treat it as a realistic
+payload-shape control, not as a single-sample causal test: production-hybrid
+scheduling can make either payload shape hit or miss the same computed-update
+lock race. Compare matched repeated runs and inspect the failed advisory-lock
+target before attributing a latency difference to payload width. A failed lock
+on User 20 identifies overlap on the shared User/lookup edge; payload width is
+only a supported cause if it changes the slow-run rate under matched repeated
+conditions. Run V1 and V2 production-hybrid only. Local reusable fixtures
+restore User 20 and delete Order 4001; isolated CI execute databases are
+discarded.
