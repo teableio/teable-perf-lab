@@ -1,8 +1,56 @@
 import { isDeepStrictEqual } from "node:util";
 
+export const DEFAULT_PERF_CASE_WRITE_MAX_BYTES = 512 * 1024;
+
+const PERF_CASE_WRITE_EMPTY_BODY_BYTES = Buffer.byteLength(
+  JSON.stringify({ fieldKeyType: "name", typecast: true, records: [] }),
+);
+
 // These fields describe the last material row reconciliation. Updating them on
 // every workflow run would turn an otherwise unchanged registry into 111 writes.
 const VOLATILE_FIELD_NAMES = new Set(["Source SHA", "Synced At"]);
+
+export const chunkPerfCaseWriteRecords = (
+  records,
+  maxBytes = DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
+) => {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error(`Invalid perf case write byte limit: ${maxBytes}`);
+  }
+
+  const batches = [];
+  let batch = [];
+  let batchBytes = PERF_CASE_WRITE_EMPTY_BODY_BYTES;
+
+  for (const [index, record] of records.entries()) {
+    const recordBytes = Buffer.byteLength(JSON.stringify(record));
+    let nextBytes = batchBytes + recordBytes + (batch.length > 0 ? 1 : 0);
+
+    if (batch.length > 0 && nextBytes > maxBytes) {
+      batches.push(batch);
+      batch = [];
+      batchBytes = PERF_CASE_WRITE_EMPTY_BODY_BYTES;
+      nextBytes = batchBytes + recordBytes;
+    }
+
+    if (nextBytes > maxBytes) {
+      const recordLabel =
+        record.fields?.["Case ID"] ?? record.id ?? `at index ${index}`;
+      throw new Error(
+        `Perf case write record ${recordLabel} exceeds ${maxBytes} bytes`,
+      );
+    }
+
+    batch.push(record);
+    batchBytes = nextBytes;
+  }
+
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+
+  return batches;
+};
 
 const assertUniqueDesiredCaseIds = (desiredRecords) => {
   const seen = new Set();

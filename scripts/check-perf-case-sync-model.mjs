@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { syncPerfCaseRecords } from "./perf-case-sync-model.mjs";
+import {
+  chunkPerfCaseWriteRecords,
+  DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
+  syncPerfCaseRecords,
+} from "./perf-case-sync-model.mjs";
 
 const desired = (caseId, title = caseId) => ({
   caseId,
@@ -24,6 +28,11 @@ const existing = (id, row, overrides = {}) => ({
   },
 });
 
+const writeBodyBytes = (records) =>
+  Buffer.byteLength(
+    JSON.stringify({ fieldKeyType: "name", typecast: true, records }),
+  );
+
 const createAdapter = (records) => {
   const calls = { list: 0, update: [], create: [] };
   return {
@@ -43,6 +52,26 @@ const createAdapter = (records) => {
     },
   };
 };
+
+{
+  const records = [
+    { fields: { "Case ID": "case-one", Title: "one" } },
+    { fields: { "Case ID": "case-two", Title: "two" } },
+    { fields: { "Case ID": "case-three", Title: "three" } },
+  ];
+  const maxBytes = writeBodyBytes(records.slice(0, 2));
+  const batches = chunkPerfCaseWriteRecords(records, maxBytes);
+
+  assert.deepEqual(batches, [records.slice(0, 2), records.slice(2)]);
+  assert.ok(batches.every((batch) => writeBodyBytes(batch) <= maxBytes));
+  assert.equal(DEFAULT_PERF_CASE_WRITE_MAX_BYTES, 512 * 1024);
+
+  await assert.rejects(
+    async () =>
+      chunkPerfCaseWriteRecords([records[0]], writeBodyBytes([records[0]]) - 1),
+    /Perf case write record case-one exceeds/,
+  );
+}
 
 {
   const rows = Array.from({ length: 111 }, (_, index) =>

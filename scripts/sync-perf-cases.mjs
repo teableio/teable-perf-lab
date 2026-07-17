@@ -6,7 +6,11 @@ import {
   importedCasePathsSorted,
   loadRegistry,
 } from "./case-catalog.mjs";
-import { syncPerfCaseRecords } from "./perf-case-sync-model.mjs";
+import {
+  chunkPerfCaseWriteRecords,
+  DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
+  syncPerfCaseRecords,
+} from "./perf-case-sync-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
@@ -36,6 +40,20 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, "..");
 
 const env = (name, fallback = "") => process.env[name] ?? fallback;
+
+const perfCaseWriteMaxBytes = () => {
+  const configured = env("PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES");
+  if (!configured) {
+    return DEFAULT_PERF_CASE_WRITE_MAX_BYTES;
+  }
+  const value = Number(configured);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(
+      `Invalid PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES: ${configured}`,
+    );
+  }
+  return value;
+};
 
 const compactFields = (fields) =>
   Object.fromEntries(
@@ -312,26 +330,45 @@ const listRecords = async ({ endpoint, token, tableId }) => {
   }
 };
 
-const createTeablePerfCaseSyncAdapter = ({ endpoint, token, tableId }) => ({
+const createTeablePerfCaseSyncAdapter = ({
+  endpoint,
+  token,
+  tableId,
+  maxWriteBytes,
+}) => ({
   listRecords: () => listRecords({ endpoint, token, tableId }),
   async updateRecords(records) {
-    await teableRequest({
-      endpoint,
-      token,
-      method: "PATCH",
-      path: `/table/${tableId}/record`,
-      body: { fieldKeyType: "name", typecast: true, records },
-    });
+    const batches = chunkPerfCaseWriteRecords(records, maxWriteBytes);
+    for (const batch of batches) {
+      await teableRequest({
+        endpoint,
+        token,
+        method: "PATCH",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+    }
   },
   async createRecords(records) {
-    const data = await teableRequest({
-      endpoint,
-      token,
-      method: "POST",
-      path: `/table/${tableId}/record`,
-      body: { fieldKeyType: "name", typecast: true, records },
-    });
-    return data?.records ?? [];
+    const createdRecords = [];
+    const batches = chunkPerfCaseWriteRecords(records, maxWriteBytes);
+    for (const batch of batches) {
+      const data = await teableRequest({
+        endpoint,
+        token,
+        method: "POST",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+      const createdBatch = data?.records ?? [];
+      if (createdBatch.length !== batch.length) {
+        throw new Error(
+          `Teable created ${createdBatch.length} perf case records; expected ${batch.length}`,
+        );
+      }
+      createdRecords.push(...createdBatch);
+    }
+    return createdRecords;
   },
 });
 
@@ -349,6 +386,7 @@ const main = async () => {
   const repository = env("GITHUB_REPOSITORY", DEFAULT_REPOSITORY);
   const sourceSha = env("GITHUB_SHA") || env("PERF_LAB_SOURCE_SHA");
   const syncedAt = new Date().toISOString();
+  const maxWriteBytes = perfCaseWriteMaxBytes();
   const caseFiles = await assertRegisteredCasesMatchDisk();
 
   if (!dryRun) {
@@ -408,7 +446,12 @@ const main = async () => {
 
   if (!dryRun) {
     const result = await syncPerfCaseRecords({
-      adapter: createTeablePerfCaseSyncAdapter({ endpoint, token, tableId }),
+      adapter: createTeablePerfCaseSyncAdapter({
+        endpoint,
+        token,
+        tableId,
+        maxWriteBytes,
+      }),
       desiredRecords,
     });
 

@@ -4,6 +4,7 @@ import http from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findCaseFilesOnDisk } from "./case-catalog.mjs";
+import { DEFAULT_PERF_CASE_WRITE_MAX_BYTES } from "./perf-case-sync-model.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const expectedCaseCount = (await findCaseFilesOnDisk(repoRoot)).length;
@@ -29,12 +30,15 @@ const storedRecords = [];
 const requests = [];
 
 const readJson = async (request) => {
-  let body = "";
-  request.setEncoding("utf8");
+  const chunks = [];
   for await (const chunk of request) {
-    body += chunk;
+    chunks.push(chunk);
   }
-  return body ? JSON.parse(body) : undefined;
+  const body = Buffer.concat(chunks);
+  return {
+    bytes: body.length,
+    value: body.length > 0 ? JSON.parse(body.toString("utf8")) : undefined,
+  };
 };
 
 const respondJson = (response, status, value) => {
@@ -73,8 +77,10 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "PATCH" && url.pathname.endsWith("/record")) {
-      const body = await readJson(request);
+      const { bytes, value: body } = await readJson(request);
+      entry.bodyBytes = bytes;
       entry.recordCount = body.records.length;
+      entry.caseIds = body.records.map((record) => record.fields["Case ID"]);
       for (const update of body.records) {
         const stored = storedRecords.find((record) => record.id === update.id);
         assert.ok(stored, `Unknown record id ${update.id}`);
@@ -85,8 +91,10 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname.endsWith("/record")) {
-      const body = await readJson(request);
+      const { bytes, value: body } = await readJson(request);
+      entry.bodyBytes = bytes;
       entry.recordCount = body.records.length;
+      entry.caseIds = body.records.map((record) => record.fields["Case ID"]);
       const created = body.records.map((record, index) => ({
         id: `rec-${storedRecords.length + index + 1}`,
         fields: { ...record.fields },
@@ -106,7 +114,7 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-const runSync = async (endpoint) => {
+const runSync = async (endpoint, options = {}) => {
   const child = spawn(process.execPath, ["scripts/sync-perf-cases.mjs"], {
     cwd: repoRoot,
     env: {
@@ -118,6 +126,8 @@ const runSync = async (endpoint) => {
       TEABLE_PERF_CASES_TABLE_ID: "test-table",
       GITHUB_REPOSITORY: "teableio/teable-perf-lab",
       GITHUB_SHA: "test-sha",
+      PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES:
+        options.maxWriteBytes == null ? "" : String(options.maxWriteBytes),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -166,6 +176,7 @@ try {
   );
   assert.equal(firstRequests[1].take, 1000);
   assert.equal(firstRequests[1].skip, 0);
+  assert.ok(firstRequests[2].bodyBytes <= DEFAULT_PERF_CASE_WRITE_MAX_BYTES);
   const inlineTagsRecord = storedRecords.find(
     (record) =>
       record.fields["Case ID"] ===
@@ -230,6 +241,75 @@ try {
       ["GET", undefined],
       ["PATCH", 1],
     ],
+  );
+
+  const expectedCaseIds = storedRecords.map(
+    (record) => record.fields["Case ID"],
+  );
+  for (const [index, record] of storedRecords.entries()) {
+    record.fields.Title = `stale title ${index}`;
+  }
+  const maxWriteBytes = 32 * 1024;
+  const fourthStart = requests.length;
+  const fourthOutput = await runSync(endpoint, { maxWriteBytes });
+  const fourthRequests = requests.slice(fourthStart);
+  const fourthWrites = fourthRequests.slice(2);
+  assert.match(
+    fourthOutput,
+    new RegExp(
+      `Perf case sync summary: created=0, updated=${expectedCaseCount}, unchanged=0`,
+    ),
+  );
+  assert.deepEqual(
+    fourthRequests.slice(0, 2).map(({ method }) => method),
+    ["GET", "GET"],
+  );
+  assert.ok(fourthWrites.length > 1, "the byte limit must split large writes");
+  assert.ok(
+    fourthWrites.every(
+      ({ method, bodyBytes }) =>
+        method === "PATCH" && bodyBytes <= maxWriteBytes,
+    ),
+    "every ordered write batch must stay within the configured byte limit",
+  );
+  assert.deepEqual(
+    fourthWrites.flatMap(({ caseIds }) => caseIds),
+    expectedCaseIds,
+    "byte-bounded batches must preserve registry order",
+  );
+
+  storedRecords.length = 0;
+  const fifthStart = requests.length;
+  const fifthOutput = await runSync(endpoint, { maxWriteBytes });
+  const fifthRequests = requests.slice(fifthStart);
+  const fifthWrites = fifthRequests.slice(2);
+  assert.match(
+    fifthOutput,
+    new RegExp(
+      `Perf case sync summary: created=${expectedCaseCount}, updated=0, unchanged=0`,
+    ),
+  );
+  assert.ok(fifthWrites.length > 1);
+  assert.ok(
+    fifthWrites.every(
+      ({ method, bodyBytes }) =>
+        method === "POST" && bodyBytes <= maxWriteBytes,
+    ),
+  );
+  assert.deepEqual(
+    fifthWrites.flatMap(({ caseIds }) => caseIds),
+    expectedCaseIds,
+    "created record batches must preserve registry order",
+  );
+  assert.match(
+    fifthOutput,
+    new RegExp(`Perf case created: ${expectedCaseIds[0]} \\(rec-1\\)`),
+  );
+  assert.match(
+    fifthOutput,
+    new RegExp(
+      `Perf case created: ${expectedCaseIds.at(-1)} \\(rec-${expectedCaseCount}\\)`,
+    ),
   );
 } finally {
   await new Promise((resolve) => server.close(resolve));
