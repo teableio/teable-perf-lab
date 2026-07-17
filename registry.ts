@@ -43,6 +43,9 @@ import foreignFirstNameUpdate1of40Fanout100_4kCase from "./cases/lookup/foreign-
 import customerUpdateUserCreateOrder4kDepth5Case from "./cases/lookup/customer-update-user-create-order-4k-depth5.case";
 import customerUpdateUserUpdateOrder4kDepth5Case from "./cases/lookup/customer-update-user-update-order-4k-depth5.case";
 import customerCreateUserCreateOrder4kDepth5Case from "./cases/lookup/customer-create-user-create-order-4k-depth5.case";
+import customerCreateOrderOnly4kDepth5Case from "./cases/lookup/customer-create-order-only-4k-depth5.case";
+import customerUpdateUserControlFieldCreateOrder4kDepth5Case from "./cases/lookup/customer-update-user-control-field-create-order-4k-depth5.case";
+import customerUpdateOtherUserCreateOrder4kDepth5Case from "./cases/lookup/customer-update-other-user-create-order-4k-depth5.case";
 import searchIndexOff10k20SearchFieldsCase from "./cases/search/search-index-off-10k-20search-fields.case";
 import searchIndexOff50k20SearchFieldsCase from "./cases/search/search-index-off-50k-20search-fields.case";
 import searchIndexOn10k20SearchFieldsCase from "./cases/search/search-index-on-10k-20search-fields.case";
@@ -153,6 +156,9 @@ const cases = [
   customerUpdateUserCreateOrder4kDepth5Case,
   customerUpdateUserUpdateOrder4kDepth5Case,
   customerCreateUserCreateOrder4kDepth5Case,
+  customerCreateOrderOnly4kDepth5Case,
+  customerUpdateUserControlFieldCreateOrder4kDepth5Case,
+  customerUpdateOtherUserCreateOrder4kDepth5Case,
   searchIndexOff10k20SearchFieldsCase,
   searchIndexOn10k20SearchFieldsCase,
   searchIndexOff50k20SearchFieldsCase,
