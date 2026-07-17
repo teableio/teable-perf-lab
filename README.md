@@ -349,6 +349,26 @@ workload.
   rating values to text.
 - `field-convert/10k-long-text-to-text`: Guard multiline long-text normalization
   while converting 10,000 cells to single-line text.
+- `field-convert/10k-text-to-number-mixed`: Guard numeric parsing and
+  invalid-value clearing while rewriting 10,000 text cells to number storage.
+- `field-convert/10k-text-to-single-select`: Guard choice discovery and backfill
+  while converting 10,000 text values to a single-select field.
+- `field-convert/10k-text-to-multiple-select`: Guard comma-list parsing and
+  TEXT-to-JSON rewriting across 10,000 rows.
+- `field-convert/10k-text-to-checkbox-mixed`: Guard text truthiness conversion
+  across populated and null rows.
+- `field-convert/10k-text-to-date-mixed`: Guard ISO parsing and invalid-value
+  clearing while converting text to datetime.
+- `field-convert/10k-text-to-attachment-clear`: Guard the destructive rewrite
+  when incompatible text becomes an attachment field.
+- `field-convert/10k-text-to-auto-number`: Guard computed auto-number backfill
+  while converting a populated 10,000-row text column.
+- `field-convert/10k-number-to-rating-clamped`: Guard number validation and
+  upper-bound clamping during rating conversion.
+- `field-convert/10k-single-select-choice-prune`: Guard same-type choice rename
+  and removal across a populated single-select column.
+- `field-convert/10k-multiple-select-choice-prune`: Guard filtering and rename
+  semantics over 10,000 multiple-select JSON arrays.
 - `field-convert/10k-text-to-formula`: Catch regressions in converting a
   populated text column into a computed formula field on a 10k-row grid — the
   complex conversion path that discards old cell values and recomputes the whole
