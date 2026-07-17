@@ -41,6 +41,7 @@ import {
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
+  shouldRestoreSharedMutableSeed,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
@@ -829,7 +830,8 @@ const runRecordUpdateMeasuredOperation = async (
 // The measured bulk update overwrites the reusable seed values, so a shared
 // (non-isolated) execute DB must be restored to the seed state — or the table
 // dropped if restore fails — before the next run reuses it. Isolated CI execute
-// DBs are discarded after the job, so no cleanup is needed there.
+// DBs normally skip cleanup, but an explicit shared seed identity means sibling
+// cases reuse this mutable fixture in one process, so cleanup restores it.
 const cleanupRecordUpdateFixture = async ({
   baseId,
   fixture,
@@ -842,7 +844,13 @@ const cleanupRecordUpdateFixture = async ({
   windowId: string;
 }) => {
   if (fixture?.reusableSeed) {
-    if (!isExecuteDbIsolated()) {
+    if (
+      shouldRestoreSharedMutableSeed({
+        reusableSeed: true,
+        executeDbIsolated: isExecuteDbIsolated(),
+        sharedSeedIdentity: Boolean(config.seedIdentity),
+      })
+    ) {
       let restored = false;
       try {
         await withRecordWindowId(windowId, async () => {
