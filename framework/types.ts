@@ -559,6 +559,16 @@ export type FieldConvertExpectedKind =
   | "checkboxText"
   | "ratingText"
   | "longTextSingleLine"
+  | "textNumberMixed"
+  | "textSingleSelect"
+  | "textMultipleSelect"
+  | "textCheckboxMixed"
+  | "textDateMixed"
+  | "clearedValues"
+  | "autoNumberSequence"
+  | "numberRatingClamped"
+  | "singleSelectChoicePruned"
+  | "multipleSelectChoicePruned"
   | "aTimesBPlusC";
 
 export interface FieldConvertCaseConfig {
@@ -586,6 +596,9 @@ export interface FieldConvertCaseConfig {
     timeoutMs?: number;
     pollIntervalMs?: number;
     fullScanPageSize?: number;
+    targetOptionNames?: string[];
+    targetRatingMax?: number;
+    targetIsComputed?: boolean;
   };
   threshold: {
     metric:
@@ -595,6 +608,16 @@ export interface FieldConvertCaseConfig {
       | "convertCheckboxToTextReadyMs"
       | "convertRatingToTextReadyMs"
       | "convertLongTextToTextReadyMs"
+      | "convertTextToNumberReadyMs"
+      | "convertTextToSingleSelectReadyMs"
+      | "convertTextToMultipleSelectReadyMs"
+      | "convertTextToCheckboxReadyMs"
+      | "convertTextToDateReadyMs"
+      | "convertTextToAttachmentReadyMs"
+      | "convertTextToAutoNumberReadyMs"
+      | "convertNumberToRatingReadyMs"
+      | "convertSingleSelectChoicesReadyMs"
+      | "convertMultipleSelectChoicesReadyMs"
       | "convertTextToFormulaReadyMs";
     maxMs: number;
   };

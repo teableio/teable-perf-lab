@@ -62,6 +62,16 @@ import fieldConvert10kNumberToTextCase from "./cases/field-convert/10k-number-to
 import fieldConvert10kCheckboxToTextCase from "./cases/field-convert/10k-checkbox-to-text.case";
 import fieldConvert10kRatingToTextCase from "./cases/field-convert/10k-rating-to-text.case";
 import fieldConvert10kLongTextToTextCase from "./cases/field-convert/10k-long-text-to-text.case";
+import fieldConvert10kTextToNumberMixedCase from "./cases/field-convert/10k-text-to-number-mixed.case";
+import fieldConvert10kTextToSingleSelectCase from "./cases/field-convert/10k-text-to-single-select.case";
+import fieldConvert10kTextToMultipleSelectCase from "./cases/field-convert/10k-text-to-multiple-select.case";
+import fieldConvert10kTextToCheckboxMixedCase from "./cases/field-convert/10k-text-to-checkbox-mixed.case";
+import fieldConvert10kTextToDateMixedCase from "./cases/field-convert/10k-text-to-date-mixed.case";
+import fieldConvert10kTextToAttachmentClearCase from "./cases/field-convert/10k-text-to-attachment-clear.case";
+import fieldConvert10kTextToAutoNumberCase from "./cases/field-convert/10k-text-to-auto-number.case";
+import fieldConvert10kNumberToRatingClampedCase from "./cases/field-convert/10k-number-to-rating-clamped.case";
+import fieldConvert10kSingleSelectChoicePruneCase from "./cases/field-convert/10k-single-select-choice-prune.case";
+import fieldConvert10kMultipleSelectChoicePruneCase from "./cases/field-convert/10k-multiple-select-choice-prune.case";
 import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
 import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
 import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
@@ -196,6 +206,16 @@ const cases = [
   fieldConvert10kCheckboxToTextCase,
   fieldConvert10kRatingToTextCase,
   fieldConvert10kLongTextToTextCase,
+  fieldConvert10kTextToNumberMixedCase,
+  fieldConvert10kTextToSingleSelectCase,
+  fieldConvert10kTextToMultipleSelectCase,
+  fieldConvert10kTextToCheckboxMixedCase,
+  fieldConvert10kTextToDateMixedCase,
+  fieldConvert10kTextToAttachmentClearCase,
+  fieldConvert10kTextToAutoNumberCase,
+  fieldConvert10kNumberToRatingClampedCase,
+  fieldConvert10kSingleSelectChoicePruneCase,
+  fieldConvert10kMultipleSelectChoicePruneCase,
   fieldConvert10kTextToFormulaCase,
   fieldConvert10kLinkToTextCase,
   fieldConvert10kTextToLinkCase,

@@ -47,7 +47,13 @@ const STATUS_CHOICES = ["Todo", "Doing", "Done"];
 
 const FIELD_CONVERT_FIXTURE_VERSION = "field-convert-v1";
 
-type NamedField = { id: string; name: string; type?: string };
+type NamedField = {
+  id: string;
+  name: string;
+  type?: string;
+  options?: unknown;
+  isComputed?: boolean;
+};
 
 type FieldConvertFixture = {
   tableId: string;
@@ -68,7 +74,14 @@ type ConvertPrimaryResult = {
   convertRequestMs: number;
   samplesReadyMs: number;
   fullScanReadyMs: number;
-  convertedField: { id: string; name: string; type: string };
+  convertedField: {
+    id: string;
+    name: string;
+    type: string;
+    optionNames?: string[];
+    ratingMax?: number;
+    isComputed?: boolean;
+  };
   responseHeaders: Record<string, string>;
   routing: EngineRouting;
   verifiedSamples: Array<{
@@ -100,6 +113,11 @@ const getSeedTags = (rowNumber: number) => {
   return first === second ? [first] : [first, second];
 };
 
+const getSeedDateText = (rowNumber: number) =>
+  new Date(
+    Date.UTC(2026, 0, 1 + ((rowNumber - 1) % 365), 8, 30, 0),
+  ).toISOString();
+
 const buildSeedValue = (
   fieldName: string,
   rowNumber: number,
@@ -127,6 +145,24 @@ const buildSeedValue = (
       return ((rowNumber - 1) % 5) + 1;
     case "Description":
       return `${titlePrefix}-description-${rowNumber}\nline-2\nline-3`;
+    case "Numeric Text":
+      return rowNumber % 4 === 0
+        ? "not-a-number"
+        : (rowNumber * 1.25).toFixed(2);
+    case "Select Text":
+      return STATUS_CHOICES[(rowNumber - 1) % STATUS_CHOICES.length];
+    case "Multi Text":
+      return getSeedTags(rowNumber).join(", ");
+    case "Truthy Text":
+      return rowNumber % 2 === 1 ? `checked-${rowNumber}` : null;
+    case "Date Text":
+      return rowNumber % 2 === 1 ? getSeedDateText(rowNumber) : "not-a-date";
+    case "Attachment Text":
+      return `${titlePrefix}-attachment-${rowNumber}`;
+    case "Sequence Text":
+      return `${titlePrefix}-sequence-${rowNumber}`;
+    case "Rating Input":
+      return ((rowNumber - 1) % 8) + 1;
     case "Total":
       return `${titlePrefix}-total-${rowNumber}`;
     default:
@@ -140,7 +176,7 @@ const getExpectedConvertedValue = (
   expected: FieldConvertExpectedKind,
   rowNumber: number,
   titlePrefix: string,
-): string | number | null => {
+): unknown => {
   switch (expected) {
     case "multiSelectJoinedText":
       return getSeedTags(rowNumber).join(", ");
@@ -154,6 +190,28 @@ const getExpectedConvertedValue = (
       return String(((rowNumber - 1) % 5) + 1);
     case "longTextSingleLine":
       return `${titlePrefix}-description-${rowNumber} line-2 line-3`;
+    case "textNumberMixed":
+      return rowNumber % 4 === 0 ? null : Number((rowNumber * 1.25).toFixed(2));
+    case "textSingleSelect":
+      return STATUS_CHOICES[(rowNumber - 1) % STATUS_CHOICES.length];
+    case "textMultipleSelect":
+      return getSeedTags(rowNumber);
+    case "textCheckboxMixed":
+      return rowNumber % 2 === 1 ? true : null;
+    case "textDateMixed":
+      return rowNumber % 2 === 1 ? getSeedDateText(rowNumber) : null;
+    case "clearedValues":
+      return null;
+    case "autoNumberSequence":
+      return rowNumber;
+    case "numberRatingClamped":
+      return Math.min(((rowNumber - 1) % 8) + 1, 5);
+    case "singleSelectChoicePruned":
+      return STATUS_CHOICES[(rowNumber - 1) % STATUS_CHOICES.length] === "Todo"
+        ? "Planned"
+        : null;
+    case "multipleSelectChoicePruned":
+      return getSeedTags(rowNumber).includes("Alpha") ? ["Primary"] : null;
     case "aTimesBPlusC": {
       const { a, b, c } = getSeedNumbers(rowNumber);
       return a * b + c;
@@ -166,6 +224,9 @@ const getExpectedConvertedValue = (
 };
 
 const seedValuesMatch = (expected: unknown, actual: unknown) => {
+  if (expected == null) {
+    return actual == null;
+  }
   if (Array.isArray(expected)) {
     return JSON.stringify(expected) === JSON.stringify(actual);
   }
@@ -176,7 +237,69 @@ const seedValuesMatch = (expected: unknown, actual: unknown) => {
 };
 
 const convertedValuesMatch = (expected: unknown, actual: unknown) =>
-  expected == null ? actual == null : actual === expected;
+  expected == null
+    ? actual == null
+    : Array.isArray(expected)
+      ? JSON.stringify(actual) === JSON.stringify(expected)
+      : actual === expected;
+
+const getConvertedOptionNames = (options: unknown) => {
+  const choices = (options as { choices?: Array<{ name?: unknown }> } | null)
+    ?.choices;
+  return Array.isArray(choices)
+    ? choices
+        .map((choice) => choice.name)
+        .filter((name): name is string => typeof name === "string")
+    : undefined;
+};
+
+const getConvertedRatingMax = (options: unknown) => {
+  const max = (options as { max?: unknown } | null)?.max;
+  return typeof max === "number" ? max : undefined;
+};
+
+const assertConvertedFieldMetadata = (
+  convertedField: NamedField,
+  config: FieldConvertCaseConfig,
+) => {
+  if (convertedField.type !== config.convert.target.type) {
+    throw new Error(
+      `Converted field type mismatch: expected ${config.convert.target.type}, got ${convertedField.type}`,
+    );
+  }
+
+  const optionNames = getConvertedOptionNames(convertedField.options);
+  if (config.verify.targetOptionNames) {
+    const expected = [...config.verify.targetOptionNames].sort();
+    const actual = [...(optionNames ?? [])].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      throw new Error(
+        `Converted field choices mismatch: expected ${expected.join(", ")}, actual ${actual.join(", ")}`,
+      );
+    }
+  }
+
+  const ratingMax = getConvertedRatingMax(convertedField.options);
+  if (
+    config.verify.targetRatingMax !== undefined &&
+    ratingMax !== config.verify.targetRatingMax
+  ) {
+    throw new Error(
+      `Converted field rating max mismatch: expected ${config.verify.targetRatingMax}, actual ${String(ratingMax)}`,
+    );
+  }
+
+  if (
+    config.verify.targetIsComputed !== undefined &&
+    convertedField.isComputed !== config.verify.targetIsComputed
+  ) {
+    throw new Error(
+      `Converted field computed flag mismatch: expected ${config.verify.targetIsComputed}, actual ${String(convertedField.isComputed)}`,
+    );
+  }
+
+  return { optionNames, ratingMax };
+};
 
 const parseTitleRowNumber = (value: unknown, titlePrefix: string) => {
   if (typeof value !== "string") {
@@ -720,11 +843,10 @@ const runFieldConvertPrimary = async (
   const routing = assertExpectedRouting(context, responseHeaders);
 
   const convertedField = response.data;
-  if (convertedField.type !== config.convert.target.type) {
-    throw new Error(
-      `Converted field type mismatch: expected ${config.convert.target.type}, got ${convertedField.type}`,
-    );
-  }
+  const convertedMetadata = assertConvertedFieldMetadata(
+    convertedField,
+    config,
+  );
 
   const samplesMeasurement = await measureAsync("convertedSamplesReady", () =>
     waitForConvertedSamples(fixture, config, convertedField.id),
@@ -741,6 +863,9 @@ const runFieldConvertPrimary = async (
       id: convertedField.id,
       name: convertedField.name,
       type: convertedField.type,
+      optionNames: convertedMetadata.optionNames,
+      ratingMax: convertedMetadata.ratingMax,
+      isComputed: convertedField.isComputed,
     },
     responseHeaders,
     routing,
