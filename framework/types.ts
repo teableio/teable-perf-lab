@@ -1093,6 +1093,11 @@ export interface RecordUpdateCaseConfig {
   rowCount: number;
   batchSize: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
+  // Cases with identical seed data may opt into a runner-level cache identity.
+  // Payload selection is deliberately excluded so partial-update siblings can
+  // reuse one fixture without conflating their measured requests.
+  seedIdentity?: string;
+  updateFieldNames?: string[];
   generator: {
     type: "mixed-record-update";
     seedPrefix: string;
