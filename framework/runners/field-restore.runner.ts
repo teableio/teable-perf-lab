@@ -226,7 +226,7 @@ const getStreamHeaders = (context: PerfRunContext) =>
 
 const assertRestoreFieldStreamResult = (
   events: RestoreFieldStreamEvent[],
-  expectedUpdatedCount: number,
+  expectedRestoredCellCount: number,
 ) => {
   const errors = events.filter(
     (event): event is RestoreFieldStreamErrorEvent => event.id === "error",
@@ -245,12 +245,36 @@ const assertRestoreFieldStreamResult = (
   if (!done) {
     throw new Error("Restore field stream finished without a done event");
   }
-  if (done.updatedCount !== expectedUpdatedCount) {
+  if (done.totalCount !== expectedRestoredCellCount) {
     throw new Error(
-      `Restore field stream updated ${done.updatedCount} records; expected ${expectedUpdatedCount}`,
+      `Restore field stream announced ${done.totalCount} restorable cells; expected ${expectedRestoredCellCount}`,
+    );
+  }
+  if (done.updatedCount !== expectedRestoredCellCount) {
+    throw new Error(
+      `Restore field stream updated ${done.updatedCount} cells; expected ${expectedRestoredCellCount}`,
     );
   }
   return done;
+};
+
+const getExpectedRestoredCellCount = (
+  fixture: RecordReplayFixture,
+  config: FieldRestoreCaseConfig,
+) => {
+  const field = findConfiguredField(fixture, config);
+  let updatedCount = 0;
+  for (let rowNumber = 1; rowNumber <= config.rowCount; rowNumber += 1) {
+    const value = getExpectedCellValue(field, rowNumber, config);
+    const hasStoredValue =
+      value != null &&
+      (field.type !== FieldType.Checkbox || value === true) &&
+      (!Array.isArray(value) || value.length > 0);
+    if (hasStoredValue) {
+      updatedCount += 1;
+    }
+  }
+  return updatedCount;
 };
 
 const restoreFieldViaStream = async (
@@ -276,7 +300,7 @@ const restoreFieldViaStream = async (
   });
   const done = assertRestoreFieldStreamResult(
     streamResult.events,
-    config.rowCount,
+    getExpectedRestoredCellCount(fixture, config),
   );
   const responseHeaders = pickResponseHeaders(streamResult.headers);
 
@@ -355,6 +379,9 @@ const normalizeRestoredCellValue = (
   field: RecordReplayFixture["fields"][number],
   value: unknown,
 ) => {
+  if (field.type === FieldType.Checkbox && value == null) {
+    return false;
+  }
   if (field.type !== FieldType.Date || typeof value !== "string") {
     return value;
   }
@@ -392,6 +419,11 @@ const verifyRestoredFieldValues = async (
   if (!restoredField) {
     throw new Error(
       `Restored field ${restoredFieldConfig.name} (${restoredFieldConfig.id}) was not listed after restore`,
+    );
+  }
+  if (restoredField.type !== restoredFieldConfig.type) {
+    throw new Error(
+      `Restored field ${restoredFieldConfig.name} type mismatch: expected ${restoredFieldConfig.type}, actual ${String(restoredField.type)}`,
     );
   }
 

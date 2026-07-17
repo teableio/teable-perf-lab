@@ -57,6 +57,11 @@ import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10
 import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
 import fieldConvert10kMultiSelectToTextCase from "./cases/field-convert/10k-multi-select-to-text.case";
+import fieldConvert10kSingleSelectToTextCase from "./cases/field-convert/10k-single-select-to-text.case";
+import fieldConvert10kNumberToTextCase from "./cases/field-convert/10k-number-to-text.case";
+import fieldConvert10kCheckboxToTextCase from "./cases/field-convert/10k-checkbox-to-text.case";
+import fieldConvert10kRatingToTextCase from "./cases/field-convert/10k-rating-to-text.case";
+import fieldConvert10kLongTextToTextCase from "./cases/field-convert/10k-long-text-to-text.case";
 import fieldConvert10kTextToFormulaCase from "./cases/field-convert/10k-text-to-formula.case";
 import fieldConvert10kLinkToTextCase from "./cases/field-convert/10k-link-to-text.case";
 import fieldConvert10kTextToLinkCase from "./cases/field-convert/10k-text-to-link.case";
@@ -68,6 +73,11 @@ import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10
 import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
 import fieldRestore10kStatusFieldCase from "./cases/field-restore/10k-status-field.case";
 import fieldRestore10kStartDateFieldCase from "./cases/field-restore/10k-start-date-field.case";
+import fieldRestore10kOwnerTextFieldCase from "./cases/field-restore/10k-owner-text-field.case";
+import fieldRestore10kTagsFieldCase from "./cases/field-restore/10k-tags-field.case";
+import fieldRestore10kAmountFieldCase from "./cases/field-restore/10k-amount-field.case";
+import fieldRestore10kActiveFieldCase from "./cases/field-restore/10k-active-field.case";
+import fieldRestore10kScoreFieldCase from "./cases/field-restore/10k-score-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
@@ -181,6 +191,11 @@ const cases = [
   fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
   fieldConvert10kMultiSelectToTextCase,
+  fieldConvert10kSingleSelectToTextCase,
+  fieldConvert10kNumberToTextCase,
+  fieldConvert10kCheckboxToTextCase,
+  fieldConvert10kRatingToTextCase,
+  fieldConvert10kLongTextToTextCase,
   fieldConvert10kTextToFormulaCase,
   fieldConvert10kLinkToTextCase,
   fieldConvert10kTextToLinkCase,
@@ -193,6 +208,11 @@ const cases = [
   fieldRestore10kDescriptionFieldCase,
   fieldRestore10kStatusFieldCase,
   fieldRestore10kStartDateFieldCase,
+  fieldRestore10kOwnerTextFieldCase,
+  fieldRestore10kTagsFieldCase,
+  fieldRestore10kAmountFieldCase,
+  fieldRestore10kActiveFieldCase,
+  fieldRestore10kScoreFieldCase,
   fieldDuplicateConditionalLookup10kCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
