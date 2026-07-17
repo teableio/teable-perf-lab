@@ -295,6 +295,10 @@ workload.
 - `lookup/customer-create-order-only-4k-depth5`: Measure whether creating a
   fully linked Order has an inherent propagation delay when no User write
   precedes it.
+- `lookup/customer-update-user-first-name-only-create-order-4k-depth5`: Measure
+  whether changing one User field inside the lookup dependency graph is enough to
+  delay an immediately created linked Order, without resubmitting the User title
+  or the other nine unchanged profile fields.
 - `lookup/customer-update-user-control-field-create-order-4k-depth5`: Measure
   whether any preceding User write delays a linked Order create when the changed
   field is completely outside the lookup and formula dependency graph.
