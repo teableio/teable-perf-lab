@@ -38,6 +38,17 @@ const config = {
 };
 
 assertConfigShape(config);
+assertConfigShape({
+  ...config,
+  queryVariant: {
+    filters: {
+      conjunction: "and",
+      items: [{ fieldName: "A", operator: "isGreater", value: 5_000 }],
+    },
+    orderBy: [{ fieldName: "A", order: "desc" }],
+    expectedRowCount: 5_000,
+  },
+});
 assert.equal(getSourceFieldNames(config).length, 6);
 assert.equal(getProjectionFieldNames(config).length, 50);
 
@@ -158,6 +169,47 @@ assert.throws(
       },
     }),
   /must be coprime/,
+);
+assert.throws(
+  () =>
+    assertConfigShape({
+      ...config,
+      queryVariant: { expectedRowCount: 10_000 },
+    }),
+  /must define at least one clause/,
+);
+assert.throws(
+  () =>
+    assertConfigShape({
+      ...config,
+      queryVariant: {
+        orderBy: [{ fieldName: "Missing", order: "asc" }],
+        expectedRowCount: 10_000,
+      },
+    }),
+  /missing projection field Missing/,
+);
+assert.throws(
+  () =>
+    assertConfigShape({
+      ...config,
+      queryVariant: {
+        groupBy: [{ fieldName: "Formula 1", order: "asc" }],
+        expectedRowCount: 10_000,
+      },
+    }),
+  /groupBy field must be a stored host field/,
+);
+assert.throws(
+  () =>
+    assertConfigShape({
+      ...config,
+      queryVariant: {
+        orderBy: [{ fieldName: "A", order: "asc" }],
+        expectedRowCount: 10_001,
+      },
+    }),
+  /expectedRowCount must be between/,
 );
 assert.throws(
   () => parseRowNumberFromTitle("wrong-00012", config),

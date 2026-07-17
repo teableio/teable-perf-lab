@@ -166,8 +166,18 @@ const getSeedConfig = (config: RecordReadCaseConfig) => ({
 
 const buildRecordReadSeedCacheInfo = (perfCase: PerfCase) => {
   const config = perfCase.config as RecordReadCaseConfig;
+  // Record-read query cases intentionally share one physical fixture when
+  // their seed config matches. The generic cache identity includes case id and
+  // hashes that case's source file, which would make every query-only sibling
+  // build the same expensive 10k/50-field fixture again. Use a runner-level
+  // identity instead: seed config and the runner/model code still participate
+  // in the hash, so 10k vs 50k and any real fixture change remain isolated.
+  const seedIdentityCase = {
+    ...perfCase,
+    id: "record-read/shared-fixture",
+  } as PerfCase;
   return buildSeedCacheInfo({
-    perfCase,
+    perfCase: seedIdentityCase,
     runner: "record-read",
     fixtureVersion: RECORD_READ_FIXTURE_VERSION,
     seedConfig: getSeedConfig(config),
@@ -963,40 +973,160 @@ const buildQueryVariant = (
     return {};
   }
 
-  const filterFieldId = resolveQueryFieldId(fixture, variant.filterFieldName);
-  const orderByFieldId = resolveQueryFieldId(fixture, variant.orderByFieldName);
-  const groupByFieldId = resolveQueryFieldId(fixture, variant.groupByFieldName);
   // Shapes below match getRecordsRoSchema (packages/openapi record/get-list):
   // `filter` is IFilter { conjunction, filterSet:[{fieldId, operator, value}] },
-  // `orderBy`/`groupBy` are ISortItem[] { fieldId, order }. The client
-  // JSON-stringifies these objects into the query string, so passing objects
-  // (not strings) is correct. `isNotEmpty` is in operatorsExpectingNull, hence
-  // value:null. The return is intentionally a plain record because the e2e
-  // getRecords util is stubbed as `any` under the standalone type check, so this
-  // shape is validated at runtime (per-page routing is asserted in readPage, so
-  // a V2->V1 fallback on queried reads surfaces as a routing failure).
-  return {
-    filter: {
-      conjunction: "and",
-      filterSet: [
-        {
-          fieldId: filterFieldId,
-          operator: "isNotEmpty",
-          value: null,
-        },
-      ],
-    },
-    orderBy: [{ fieldId: orderByFieldId, order: "asc" }],
-    groupBy: [{ fieldId: groupByFieldId, order: "asc" }],
-  };
+  // `orderBy`/`groupBy` are ISortItem[] { fieldId, order }, and visible-row
+  // `search` is [value, fieldId, hideNotMatchRow]. The client JSON-stringifies
+  // object query values. The return stays a plain record because the standalone
+  // e2e type stub exposes getRecords as `any`; runtime schema validation plus
+  // per-page routing and semantic checks below enforce the contract.
+  const query: Record<string, unknown> = {};
+  if (variant.filters) {
+    query.filter = {
+      conjunction: variant.filters.conjunction,
+      filterSet: variant.filters.items.map((item) => ({
+        fieldId: resolveQueryFieldId(fixture, item.fieldName),
+        operator: item.operator,
+        value: item.value,
+      })),
+    };
+  }
+  if (variant.search) {
+    query.search = [
+      variant.search.value,
+      resolveQueryFieldId(fixture, variant.search.fieldName),
+      variant.search.hideNotMatchRow,
+    ];
+  }
+  if (variant.orderBy) {
+    query.orderBy = variant.orderBy.map((item) => ({
+      fieldId: resolveQueryFieldId(fixture, item.fieldName),
+      order: item.order,
+    }));
+  }
+  if (variant.groupBy) {
+    query.groupBy = variant.groupBy.map((item) => ({
+      fieldId: resolveQueryFieldId(fixture, item.fieldName),
+      order: item.order,
+    }));
+  }
+  return query;
+};
+
+type RecordReadQueryVariant = NonNullable<RecordReadCaseConfig["queryVariant"]>;
+type RecordReadQueryFilterItem = NonNullable<
+  RecordReadQueryVariant["filters"]
+>["items"][number];
+
+const matchesFilterValue = (
+  actual: unknown,
+  item: RecordReadQueryFilterItem,
+) => {
+  switch (item.operator) {
+    case "isNotEmpty":
+      return actual != null && actual !== "";
+    case "isGreater":
+      return Number(actual) > Number(item.value);
+    case "isLessEqual":
+      return Number(actual) <= Number(item.value);
+  }
+};
+
+const matchesQueryVariant = (
+  rowNumber: number,
+  config: RecordReadCaseConfig,
+  variant: RecordReadQueryVariant,
+) => {
+  const filterMatches = variant.filters?.items.map((item) =>
+    matchesFilterValue(
+      getExpectedValue(item.fieldName, rowNumber, config),
+      item,
+    ),
+  );
+  if (filterMatches) {
+    const matches =
+      variant.filters!.conjunction === "and"
+        ? filterMatches.every(Boolean)
+        : filterMatches.some(Boolean);
+    if (!matches) {
+      return false;
+    }
+  }
+
+  if (variant.search) {
+    const actual = getExpectedValue(
+      variant.search.fieldName,
+      rowNumber,
+      config,
+    );
+    const searchable = Array.isArray(actual)
+      ? actual.join(" ")
+      : String(actual ?? "");
+    if (
+      !searchable.toLowerCase().includes(variant.search.value.toLowerCase())
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const compareQueryValues = (left: unknown, right: unknown) => {
+  if (typeof left === "number" || typeof right === "number") {
+    return Number(left) - Number(right);
+  }
+  return String(left ?? "").localeCompare(String(right ?? ""));
+};
+
+const assertQueryOrder = (
+  rowNumbers: number[],
+  config: RecordReadCaseConfig,
+  variant: RecordReadQueryVariant,
+) => {
+  const clauses = [
+    ...(variant.groupBy ?? []),
+    ...(variant.orderBy ?? []),
+  ].filter(
+    (item, index, all) =>
+      all.findIndex((candidate) => candidate.fieldName === item.fieldName) ===
+      index,
+  );
+  if (clauses.length === 0) {
+    return;
+  }
+  for (let index = 1; index < rowNumbers.length; index += 1) {
+    const previousRow = rowNumbers[index - 1];
+    const currentRow = rowNumbers[index];
+    let comparison = 0;
+    for (const clause of clauses) {
+      comparison = compareQueryValues(
+        getExpectedValue(clause.fieldName, previousRow, config),
+        getExpectedValue(clause.fieldName, currentRow, config),
+      );
+      if (comparison !== 0) {
+        if (clause.order === "desc") {
+          comparison *= -1;
+        }
+        break;
+      }
+    }
+    if (comparison > 0) {
+      throw new Error(
+        `Query variant order mismatch between rows ${previousRow} and ${currentRow}`,
+      );
+    }
+  }
 };
 
 const verifyReadPagedScan = (
   fixture: RecordReadFixture,
   config: RecordReadCaseConfig,
   readResult: ReadPagedScanResult,
+  queryVariant:
+    | RecordReadCaseConfig["queryVariant"]
+    | null = config.queryVariant,
 ): ReadPagedScanVerification => {
-  const isQueryVariant = Boolean(config.queryVariant);
+  const isQueryVariant = Boolean(queryVariant);
   const expectedPageCount = config.rowCount / config.pageSize;
   if (readResult.pages.length !== expectedPageCount) {
     throw new Error(
@@ -1018,8 +1148,11 @@ const verifyReadPagedScan = (
     }
   });
 
-  if (isQueryVariant && readResult.records.length === 0) {
-    throw new Error("Query variant returned no records");
+  const expectedRecordCount = queryVariant?.expectedRowCount ?? config.rowCount;
+  if (readResult.records.length !== expectedRecordCount) {
+    throw new Error(
+      `${isQueryVariant ? "Query variant" : "Baseline"} expected ${expectedRecordCount} records, got ${readResult.records.length}`,
+    );
   }
 
   // The query variant relaxes the per-page full-page check (filter/sort/groupBy
@@ -1028,12 +1161,13 @@ const verifyReadPagedScan = (
   // to a distinct row number inside [1, rowCount]. This catches duplicated or
   // out-of-range rows that the per-record field check alone would miss when the
   // paged groupBy scan overlaps or skips group boundaries.
-  if (isQueryVariant) {
+  if (queryVariant) {
     const titleField = fixture.fields.find((field) => field.name === "Title");
     if (!titleField) {
       throw new Error("record-read projection is missing Title");
     }
     const seenRowNumbers = new Set<number>();
+    const orderedRowNumbers: number[] = [];
     for (const record of readResult.records) {
       const rowNumber = parseRowNumberFromTitle(
         record.fields[titleField.id],
@@ -1050,7 +1184,14 @@ const verifyReadPagedScan = (
         );
       }
       seenRowNumbers.add(rowNumber);
+      orderedRowNumbers.push(rowNumber);
+      if (!matchesQueryVariant(rowNumber, config, queryVariant)) {
+        throw new Error(
+          `Query variant returned row ${rowNumber} that does not satisfy its filter/search clauses`,
+        );
+      }
     }
+    assertQueryOrder(orderedRowNumbers, config, queryVariant);
   }
 
   const sampleRows = isQueryVariant
@@ -1075,13 +1216,12 @@ const verifyReadPagedScan = (
     readResult.records,
     fixture.fields,
     config,
-    isQueryVariant ? readResult.records.length : config.rowCount,
+    expectedRecordCount,
     sampleRows,
   );
   return {
     scannedRecords: readResult.records.length,
-    expectedRecords: isQueryVariant ? undefined : config.rowCount,
-    minimumRecords: isQueryVariant ? 1 : undefined,
+    expectedRecords: expectedRecordCount,
     pageSize: config.pageSize,
     pageCount: readResult.pages.length,
     fieldCount: fixture.fields.length,
@@ -1120,7 +1260,7 @@ const buildRecordReadResult = ({
   // runs at or below the baseline, overhead is effectively zero, so a negative
   // raw delta should not silently satisfy the threshold (every negative value is
   // <= maxMs and would pass without measuring anything). The signed delta is kept
-  // as the diagnostic getRecordsFilterSortGroupByOverheadSignedMs below, and the
+  // as the diagnostic getRecordsQueryOverheadSignedMs below, and the
   // raw baseline/query durations remain reported for full reconstruction.
   const primaryMetricValue =
     isOverheadCase && overheadMs != null
@@ -1178,11 +1318,21 @@ const buildRecordReadResult = ({
             responseStatus: readMeasurement.result.pages.at(-1)?.status ?? 0,
             ...(baselineMeasurement && overheadMs != null
               ? {
-                  getRecordsFilterSortGroupByOverheadSignedMs: overheadMs,
-                  getRecordsFilterSortGroupByOverheadRatio: roundMetric(
+                  getRecordsQueryOverheadSignedMs: overheadMs,
+                  getRecordsQueryOverheadRatio: roundMetric(
                     readMeasurement.durationMs /
                       Math.max(baselineMeasurement.durationMs, 1),
                   ),
+                  ...(config.threshold.metric ===
+                  "getRecordsFilterSortGroupByOverheadMs"
+                    ? {
+                        getRecordsFilterSortGroupByOverheadSignedMs: overheadMs,
+                        getRecordsFilterSortGroupByOverheadRatio: roundMetric(
+                          readMeasurement.durationMs /
+                            Math.max(baselineMeasurement.durationMs, 1),
+                        ),
+                      }
+                    : {}),
                 }
               : {}),
           }
@@ -1399,7 +1549,12 @@ const recordReadSpec: ReadLifecycleSpec<
         "verifyBaselineReadPages",
         () =>
           Promise.resolve(
-            verifyReadPagedScan(fixture, config, baselineMeasurement!.result),
+            verifyReadPagedScan(
+              fixture,
+              config,
+              baselineMeasurement!.result,
+              null,
+            ),
           ),
       );
     }
