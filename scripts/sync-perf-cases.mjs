@@ -54,6 +54,13 @@ const fileExists = async (path) => {
 };
 
 const parseScalar = (value) => {
+  const inlineList = value.match(/^\[(.*)\]$/);
+  if (inlineList) {
+    const items = inlineList[1].trim();
+    return items
+      ? items.split(",").map((item) => parseScalar(item.trim()))
+      : [];
+  }
   if (value === "true") {
     return true;
   }

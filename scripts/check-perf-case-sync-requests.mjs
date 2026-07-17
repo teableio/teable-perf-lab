@@ -166,6 +166,16 @@ try {
   );
   assert.equal(firstRequests[1].take, 1000);
   assert.equal(firstRequests[1].skip, 0);
+  const inlineTagsRecord = storedRecords.find(
+    (record) =>
+      record.fields["Case ID"] ===
+      "lookup/conditional-group-active-flip-1k-fanout100-10k",
+  );
+  assert.ok(inlineTagsRecord);
+  assert.ok(
+    Array.isArray(inlineTagsRecord.fields.Tags),
+    "inline frontmatter tags must be sent as an array",
+  );
 
   const secondStart = requests.length;
   const secondOutput = await runSync(endpoint);
