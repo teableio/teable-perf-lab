@@ -144,6 +144,8 @@ workload.
 - `formula/10k-5-concurrent`: Measure concurrent creation of five formula fields
   on the same 10k-row table and verify that all computed values become fully
   readable.
+- `formula/50k-calc`: Measure creating one formula field and making all computed
+  values readable on a 50,000-row table.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
@@ -376,6 +378,11 @@ workload.
 - `field-restore/10k-description-field`: Measure restoring one deleted populated
   text field on a 10,000-row mixed table, including the field schema restore and
   every row's cell value restoration.
+- `field-restore/10k-status-field`: Measure restoring a populated single-select
+  field and all 10,000 option-backed cell values from field trash.
+- `field-restore/10k-start-date-field`: Measure restoring a populated date
+  field, its formatting metadata, and all 10,000 serialized date values from
+  field trash.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
   lookup field from the `lookup/conditional-10k` workload.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
@@ -386,6 +393,9 @@ workload.
 - `duplicate-table/10k-20f-selflink`: Measure duplicating a 10,000-record mixed
   20-field table that includes a self manyMany link with records. Exercises the
   V2 physical bulk path for self-link tables (T6156 follow-up).
+- `duplicate-view/complex-grid-20fields-p95`: Cover the distinct `duplicateView`
+  canary route and track p95 latency for a real grid view carrying filters,
+  sorts, grouping, and 20 fields of column metadata.
 - `duplicate-base/10k-3tables-link-2workflow`: Measure duplicating a base that
   contains a 10,000-record mixed 20-field main table, a 1,000-record table linked
   to it, a 100-record small table, and 2 workflows, with records included.
@@ -425,6 +435,10 @@ workload.
 - `table-delete/10k-20f-link-detach`: The data-scaling path of `deleteTable`:
   archive a small foreign table while a 10,000-record mixed 20-field table still
   links to it.
+- `table-delete/30k-20f-link-detach`: Measure deleting a referenced table while
+  30,000 surviving host rows still hold link cells, amplifying the known
+  row-dependent V1 `detachLink` work while preserving the V2 soft-delete
+  comparison.
 - `table-restore/10k-20f`: Measure repeated restore requests for 10 independent
   10,000-record mixed 20-field tables from the base trash in one run.
 - `table-restore/10k-20f-link-1k`: Data-scaling sentinel for `restoreTable`:
@@ -451,6 +465,9 @@ workload.
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through
   `PATCH /api/table/{tableId}/selection/clear-stream`.
+- `selection-clear/flat-10k-20fields-cell-clear-stream`: Measure clearing every
+  visible cell in a 10,000-row, 20-field mixed grid and catch nonlinear
+  regressions beyond the existing 1k stream baseline.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
 - `record-delete/delete-stream-1k`: Measure the grid **streaming**
@@ -466,6 +483,9 @@ workload.
   range stream's O(n) cost (if any) shows against the V2 by-id stream, so this
   case carries the real V1/V2 spread; the 1k case covers correctness and routing
   at small scale.
+- `record-delete/delete-stream-30k`: Extend the 1k/10k selection-delete stream
+  curve to a 30,000-row workload that can expose nonlinear row-deletion and
+  stream-progress regressions.
 - `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
   whose rows contain populated link cells, covering the record-trash path for
   linked records rather than plain scalar-row deletion.
@@ -477,6 +497,9 @@ workload.
   cost of adding explicit filter, sort, and groupBy query semantics to the same
   10,000-row, 50-projected-field read workload used by
   `record-read/10k-50fields-10x1k-pages`.
+- `record-read/50k-50fields-50x1k-pages`: Measure a complete 50,000-row read
+  through fifty 1,000-row pages while projecting 50 fields, including 20 lookups
+  and five formulas.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
@@ -502,6 +525,13 @@ workload.
   relationship writes, and link display-value refresh differently from the scalar
   bulk-update path, matching the product action of re-pointing linked records
   across many rows.
+- `record-update/single-foreign-first-name-update-1of40-fanout100-4k`: Measure
+  the distinct single-record `updateRecord` route for one normal text-cell edit
+  and its propagation through 100 Orders, five formula levels, and 10 Purchase
+  aggregates.
+- `record-update/single-foreign-select-update-1of40-fanout100-4k`: Measure the
+  single-record `updateRecord` route for one option-backed Status edit and its
+  propagation through the same 100-Order depth-five computed fanout.
 - `record-reorder/10k-move-last-1k-to-front`: Measure block reorder performance
   in a 10,000-row grid by moving the original last 1,000 visible records to the
   front in one operation.

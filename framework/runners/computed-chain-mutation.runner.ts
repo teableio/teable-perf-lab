@@ -1,6 +1,7 @@
 import { FieldKeyType, FieldType, Relationship } from "@teable/core";
 import {
   convertField as apiConvertField,
+  updateRecord,
   updateRecords,
   updateTableDescription,
 } from "@teable/openapi";
@@ -1254,7 +1255,9 @@ const prepareFixture = async (
 const responseRecordCount = (data: unknown) =>
   Array.isArray(data)
     ? data.length
-    : ((data as { records?: unknown[] })?.records?.length ?? 0);
+    : typeof data === "object" && data !== null && "id" in data
+      ? 1
+      : ((data as { records?: unknown[] })?.records?.length ?? 0);
 
 const updateForeignCell = async (
   fixture: Fixture,
@@ -1276,11 +1279,18 @@ const updateForeignCell = async (
       : fixture.userFields.firstName;
   const value =
     config.mutation === "foreign-select" ? state.status : state.firstName;
-  const response = await updateRecords(fixture.usersTableId, {
-    fieldKeyType: FieldKeyType.Id,
-    typecast: true,
-    records: [{ id: target.recordId, fields: { [fieldId]: value } }],
-  });
+  const response =
+    config.recordWriteMode === "single"
+      ? await updateRecord(fixture.usersTableId, target.recordId, {
+          fieldKeyType: FieldKeyType.Id,
+          typecast: true,
+          record: { fields: { [fieldId]: value } },
+        })
+      : await updateRecords(fixture.usersTableId, {
+          fieldKeyType: FieldKeyType.Id,
+          typecast: true,
+          records: [{ id: target.recordId, fields: { [fieldId]: value } }],
+        });
   if (response.status !== 200 || responseRecordCount(response.data) !== 1) {
     throw new Error(
       `Foreign cell update failed: status=${response.status}, updated=${responseRecordCount(response.data)}`,
@@ -1416,10 +1426,14 @@ const runMeasuredOperation = async (
         routing = assertEngineRouting(context, responseHeaders, {
           operation: isFormulaMutation(config.mutation)
             ? "convertField"
-            : "updateRecords",
+            : config.recordWriteMode === "single"
+              ? "updateRecord"
+              : "updateRecords",
           feature: isFormulaMutation(config.mutation)
             ? "convertField"
-            : "updateRecords",
+            : config.recordWriteMode === "single"
+              ? "updateRecord"
+              : "updateRecords",
         });
 
         const propagationMeasurement = await measureAsync<PropagationResult>(
@@ -1656,7 +1670,11 @@ const buildResult = ({
             }
           : {
               method: "PATCH",
-              path: `/api/table/${fixture.usersTableId}/record`,
+              path:
+                config.recordWriteMode === "single"
+                  ? `/api/table/${fixture.usersTableId}/record/${fixture.userRecords[config.targetUserRow - 1]?.recordId ?? ":recordId"}`
+                  : `/api/table/${fixture.usersTableId}/record`,
+              writeMode: config.recordWriteMode ?? "bulk",
               changedRecordCount: 1,
               changedFieldCount: 1,
               linksChanged: false,
