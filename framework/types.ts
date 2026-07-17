@@ -1033,6 +1033,7 @@ export interface RecordReadCaseConfig {
     metric:
       | "getRecords10kPagedScanMs"
       | "getRecords50kPagedScanMs"
+      | "getRecordsQueryPagedScanMs"
       | "getRecordsFilterSortGroupByOverheadMs"
       | "getRecordsQueryOverheadMs";
     maxMs: number;

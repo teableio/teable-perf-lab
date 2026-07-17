@@ -16,6 +16,24 @@ export const SOURCE_KEY_FIELD_NAME = "Source Key";
 export const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup Source Key";
 export const BASE_NUMBER_FIELDS = ["A", "B", "C"] as const;
 
+export const selectRecordReadPrimaryMetricValue = ({
+  metric,
+  queryDurationMs,
+  overheadMs,
+}: {
+  metric: RecordReadCaseConfig["threshold"]["metric"];
+  queryDurationMs?: number;
+  overheadMs?: number;
+}) => {
+  const isOverheadMetric =
+    metric === "getRecordsQueryOverheadMs" ||
+    metric === "getRecordsFilterSortGroupByOverheadMs";
+  if (isOverheadMetric) {
+    return overheadMs == null ? undefined : Math.max(overheadMs, 0);
+  }
+  return queryDurationMs;
+};
+
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 export const sourceValueName = (index: number) => `Source Value ${index}`;
