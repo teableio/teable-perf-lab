@@ -117,6 +117,16 @@ import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mix
 import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
+import recordRead10k50FieldsFilterTextNotEmptyCase from "./cases/record-read/10k-50fields-filter-text-not-empty.case";
+import recordRead10k50FieldsFilterNumberGreaterHalfCase from "./cases/record-read/10k-50fields-filter-number-greater-half.case";
+import recordRead10k50FieldsFilterNumberRangeMiddleHalfCase from "./cases/record-read/10k-50fields-filter-number-range-middle-half.case";
+import recordRead10k50FieldsSearchTitleVisibleRowsCase from "./cases/record-read/10k-50fields-search-title-visible-rows.case";
+import recordRead10k50FieldsSortTextAscendingCase from "./cases/record-read/10k-50fields-sort-text-ascending.case";
+import recordRead10k50FieldsSortThreeFieldsCase from "./cases/record-read/10k-50fields-sort-three-fields.case";
+import recordRead10k50FieldsGroupNumberLowCardinalityCase from "./cases/record-read/10k-50fields-group-number-low-cardinality.case";
+import recordRead10k50FieldsGroupThreeLevelsCase from "./cases/record-read/10k-50fields-group-three-levels.case";
+import recordRead10k50FieldsFilterNumberSortDescendingCase from "./cases/record-read/10k-50fields-filter-number-sort-descending.case";
+import recordRead10k50FieldsFilterSortGroupbySelectiveCase from "./cases/record-read/10k-50fields-filter-sort-groupby-selective.case";
 import recordRead10k50FieldsFilterSortGroupbyOverheadCase from "./cases/record-read/10k-50fields-filter-sort-groupby-overhead.case";
 import recordRead50k50Fields50x1kPagesCase from "./cases/record-read/50k-50fields-50x1k-pages.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
@@ -265,6 +275,16 @@ const cases = [
   recordDeleteStream30kCase,
   recordDeleteLinkTrash1kCase,
   recordRead10k50Fields10x1kPagesCase,
+  recordRead10k50FieldsFilterTextNotEmptyCase,
+  recordRead10k50FieldsFilterNumberGreaterHalfCase,
+  recordRead10k50FieldsFilterNumberRangeMiddleHalfCase,
+  recordRead10k50FieldsSearchTitleVisibleRowsCase,
+  recordRead10k50FieldsSortTextAscendingCase,
+  recordRead10k50FieldsSortThreeFieldsCase,
+  recordRead10k50FieldsGroupNumberLowCardinalityCase,
+  recordRead10k50FieldsGroupThreeLevelsCase,
+  recordRead10k50FieldsFilterNumberSortDescendingCase,
+  recordRead10k50FieldsFilterSortGroupbySelectiveCase,
   recordRead10k50FieldsFilterSortGroupbyOverheadCase,
   recordRead50k50Fields50x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,

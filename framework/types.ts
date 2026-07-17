@@ -989,9 +989,28 @@ export interface RecordReadCaseConfig {
   formulaFieldCount: number;
   lookupFieldCount: number;
   queryVariant?: {
-    filterFieldName: string;
-    orderByFieldName: string;
-    groupByFieldName: string;
+    filters?: {
+      conjunction: "and" | "or";
+      items: Array<{
+        fieldName: string;
+        operator: "isNotEmpty" | "isGreater" | "isLessEqual";
+        value: string | number | null;
+      }>;
+    };
+    search?: {
+      value: string;
+      fieldName: string;
+      hideNotMatchRow: true;
+    };
+    orderBy?: Array<{
+      fieldName: string;
+      order: "asc" | "desc";
+    }>;
+    groupBy?: Array<{
+      fieldName: string;
+      order: "asc" | "desc";
+    }>;
+    expectedRowCount: number;
   };
   generator: {
     type: "record-read-lookup-formula";
@@ -1014,7 +1033,8 @@ export interface RecordReadCaseConfig {
     metric:
       | "getRecords10kPagedScanMs"
       | "getRecords50kPagedScanMs"
-      | "getRecordsFilterSortGroupByOverheadMs";
+      | "getRecordsFilterSortGroupByOverheadMs"
+      | "getRecordsQueryOverheadMs";
     maxMs: number;
   };
 }

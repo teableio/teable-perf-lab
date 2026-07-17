@@ -533,6 +533,29 @@ workload.
   `GET /api/table/{tableId}/record` latency for reading a full 10,000-row table
   as ten sequential maximum-size 1,000-record pages with 50 projected fields,
   including stored lookup columns and formula values.
+- `record-read/10k-50fields-filter-text-not-empty`: Measure the overhead of a
+  match-all non-empty text filter on a 10,000-row read that projects 50 stored
+  and computed fields.
+- `record-read/10k-50fields-filter-number-greater-half`: Measure a selective
+  numeric filter over a 10,000-row, 50-field projected read.
+- `record-read/10k-50fields-filter-number-range-middle-half`: Measure an AND
+  range filter with two predicates on the same numeric field.
+- `record-read/10k-50fields-search-title-visible-rows`: Measure field-scoped
+  grid search when search hides nonmatching rows in a wide 10,000-row read.
+- `record-read/10k-50fields-sort-text-ascending`: Measure ascending text sorting
+  across a 10,000-row read with 50 projected stored and computed fields.
+- `record-read/10k-50fields-sort-three-fields`: Measure a three-column sort over
+  a wide 10,000-row record read.
+- `record-read/10k-50fields-group-number-low-cardinality`: Measure grouping a
+  10,000-row, 50-field read by a seven-value stored number field.
+- `record-read/10k-50fields-group-three-levels`: Measure a three-level grouped
+  read across low-, medium-, and high-cardinality stored fields.
+- `record-read/10k-50fields-filter-number-sort-descending`: Measure the common
+  composed path of a selective numeric filter plus descending sort on a
+  10,000-row wide read.
+- `record-read/10k-50fields-filter-sort-groupby-selective`: Measure the full
+  filter, sort, and groupBy path with a selective predicate and low-cardinality
+  grouping.
 - `record-read/10k-50fields-filter-sort-groupby-overhead`: Measure the extra
   cost of adding explicit filter, sort, and groupBy query semantics to the same
   10,000-row, 50-projected-field read workload used by

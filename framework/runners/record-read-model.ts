@@ -86,16 +86,58 @@ export const assertConfigShape = (config: RecordReadCaseConfig) => {
       `record-read permutation multiplier ${config.generator.permutation.multiplier} must be coprime with rowCount=${config.rowCount}`,
     );
   }
-  if (config.queryVariant?.groupByFieldName) {
-    const groupByFieldName = config.queryVariant.groupByFieldName;
-    if (
-      groupByFieldName !== "Title" &&
-      groupByFieldName !== HOST_LOOKUP_KEY_FIELD_NAME &&
-      !(BASE_NUMBER_FIELDS as readonly string[]).includes(groupByFieldName) &&
-      !getHostTextNames(config).includes(groupByFieldName)
-    ) {
+  const queryVariant = config.queryVariant;
+  if (!queryVariant) {
+    return;
+  }
+
+  const clauses = [
+    ...(queryVariant.filters?.items.map((item) => item.fieldName) ?? []),
+    ...(queryVariant.search ? [queryVariant.search.fieldName] : []),
+    ...(queryVariant.orderBy?.map((item) => item.fieldName) ?? []),
+    ...(queryVariant.groupBy?.map((item) => item.fieldName) ?? []),
+  ];
+  if (clauses.length === 0) {
+    throw new Error(
+      "record-read query variant must define at least one clause",
+    );
+  }
+  const projectionFieldNames = getProjectionFieldNames(config);
+  for (const fieldName of clauses) {
+    if (!projectionFieldNames.includes(fieldName)) {
       throw new Error(
-        `record-read query variant groupBy field must be a stored host field, got ${groupByFieldName}`,
+        `record-read query variant references missing projection field ${fieldName}`,
+      );
+    }
+  }
+  if (
+    queryVariant.expectedRowCount < 0 ||
+    queryVariant.expectedRowCount > config.rowCount
+  ) {
+    throw new Error(
+      `record-read query variant expectedRowCount must be between 0 and ${config.rowCount}, got ${queryVariant.expectedRowCount}`,
+    );
+  }
+  if (queryVariant.filters && queryVariant.filters.items.length === 0) {
+    throw new Error("record-read query variant filters must not be empty");
+  }
+  if (queryVariant.orderBy && queryVariant.orderBy.length === 0) {
+    throw new Error("record-read query variant orderBy must not be empty");
+  }
+  if (queryVariant.groupBy && queryVariant.groupBy.length === 0) {
+    throw new Error("record-read query variant groupBy must not be empty");
+  }
+
+  const storedHostFieldNames = new Set([
+    "Title",
+    HOST_LOOKUP_KEY_FIELD_NAME,
+    ...BASE_NUMBER_FIELDS,
+    ...getHostTextNames(config),
+  ]);
+  for (const group of queryVariant.groupBy ?? []) {
+    if (!storedHostFieldNames.has(group.fieldName)) {
+      throw new Error(
+        `record-read query variant groupBy field must be a stored host field, got ${group.fieldName}`,
       );
     }
   }
