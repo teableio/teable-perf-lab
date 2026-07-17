@@ -43,6 +43,7 @@ import {
 } from "./field-convert-lifecycle";
 
 const TAG_CHOICES = ["Alpha", "Beta", "Gamma", "Delta"];
+const STATUS_CHOICES = ["Todo", "Doing", "Done"];
 
 const FIELD_CONVERT_FIXTURE_VERSION = "field-convert-v1";
 
@@ -116,6 +117,16 @@ const buildSeedValue = (
       return c;
     case "Tags":
       return getSeedTags(rowNumber);
+    case "Status":
+      return STATUS_CHOICES[(rowNumber - 1) % STATUS_CHOICES.length];
+    case "Amount":
+      return rowNumber * 7;
+    case "Active":
+      return rowNumber % 2 === 1;
+    case "Score":
+      return ((rowNumber - 1) % 5) + 1;
+    case "Description":
+      return `${titlePrefix}-description-${rowNumber}\nline-2\nline-3`;
     case "Total":
       return `${titlePrefix}-total-${rowNumber}`;
     default:
@@ -128,10 +139,21 @@ const buildSeedValue = (
 const getExpectedConvertedValue = (
   expected: FieldConvertExpectedKind,
   rowNumber: number,
-): string | number => {
+  titlePrefix: string,
+): string | number | null => {
   switch (expected) {
     case "multiSelectJoinedText":
       return getSeedTags(rowNumber).join(", ");
+    case "singleSelectText":
+      return STATUS_CHOICES[(rowNumber - 1) % STATUS_CHOICES.length];
+    case "numberText":
+      return String(rowNumber * 7);
+    case "checkboxText":
+      return rowNumber % 2 === 1 ? "true" : null;
+    case "ratingText":
+      return String(((rowNumber - 1) % 5) + 1);
+    case "longTextSingleLine":
+      return `${titlePrefix}-description-${rowNumber} line-2 line-3`;
     case "aTimesBPlusC": {
       const { a, b, c } = getSeedNumbers(rowNumber);
       return a * b + c;
@@ -147,8 +169,14 @@ const seedValuesMatch = (expected: unknown, actual: unknown) => {
   if (Array.isArray(expected)) {
     return JSON.stringify(expected) === JSON.stringify(actual);
   }
+  if (expected === false && actual == null) {
+    return true;
+  }
   return expected === actual;
 };
+
+const convertedValuesMatch = (expected: unknown, actual: unknown) =>
+  expected == null ? actual == null : actual === expected;
 
 const parseTitleRowNumber = (value: unknown, titlePrefix: string) => {
   if (typeof value !== "string") {
@@ -559,9 +587,10 @@ const assertConvertedSamples = async (
     const expected = getExpectedConvertedValue(
       config.convert.expected,
       sampleRecord.rowNumber,
+      config.generator.titlePrefix,
     );
     const actual = record.fields[convertedFieldId];
-    if (actual !== expected) {
+    if (!convertedValuesMatch(expected, actual)) {
       throw new Error(
         `Converted sample mismatch at row ${sampleRecord.rowNumber}: expected ${String(
           expected,
@@ -630,9 +659,10 @@ const assertConvertedFullScan = async (
       const expected = getExpectedConvertedValue(
         config.convert.expected,
         rowNumber,
+        config.generator.titlePrefix,
       );
       const actual = record.fields[convertedFieldId];
-      if (actual !== expected) {
+      if (!convertedValuesMatch(expected, actual)) {
         throw new Error(
           `Converted full scan mismatch at row ${rowNumber}: expected ${String(
             expected,

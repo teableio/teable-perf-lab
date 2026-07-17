@@ -350,8 +350,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const formatRowCountLabel = (rowCount: number) =>
   rowCount % 1_000 === 0 ? `${rowCount / 1_000}k` : String(rowCount);
 
-const SAMPLE_TEXT_FIELD_NAMES = ["Title", "External ID"];
-
 export const buildRecordReplayPhaseName = (
   prefix: "deleteSetup" | "undoSetup",
   rowCount: number,
@@ -857,14 +855,22 @@ const assertRestoredSampleTextValues = async (
   fixture: RecordReplayFixture,
   config: RecordUndoRedoBaseCaseConfig,
 ): Promise<RecordReplayVerification["verifiedSamples"]> => {
-  const sampleFields = fixture.fields.filter((field) =>
-    SAMPLE_TEXT_FIELD_NAMES.includes(field.name),
-  );
-  if (sampleFields.length !== SAMPLE_TEXT_FIELD_NAMES.length) {
-    throw new Error(
-      `Sample fields ${SAMPLE_TEXT_FIELD_NAMES.join(", ")} not all present in fixture`,
-    );
+  const titleField = fixture.fields.find((field) => field.name === "Title");
+  if (!titleField) {
+    throw new Error("Sample field Title is not present in fixture");
   }
+  const externalIdField = fixture.fields.find(
+    (field) => field.name === "External ID",
+  );
+  // Preserve the established Title + External ID sample contract for the
+  // standard mixed fixture. Narrow operation-specific fixtures intentionally
+  // omit External ID, so validate Title plus their one field under test.
+  const representativeField =
+    externalIdField ??
+    fixture.fields.find((field) => field.name !== titleField.name);
+  const sampleFields = representativeField
+    ? [titleField, representativeField]
+    : [titleField];
 
   const verifiedSamples = [];
   for (const rowOffset of config.verify.sampleRows) {
@@ -888,7 +894,14 @@ const assertRestoredSampleTextValues = async (
       const actualValue = record.fields[field.id];
       actual[field.name] = actualValue;
       expected[field.name] = expectedValue;
-      if (actualValue !== expectedValue) {
+      const valuesMatch = Array.isArray(expectedValue)
+        ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
+        : typeof expectedValue === "boolean" && actualValue == null
+          ? expectedValue === false
+          : typeof expectedValue === "number"
+            ? Number(actualValue) === expectedValue
+            : actualValue === expectedValue;
+      if (!valuesMatch) {
         throw new Error(
           `Sample row ${rowNumber} ${field.name} mismatch: expected ${String(
             expectedValue,

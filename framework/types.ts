@@ -552,7 +552,14 @@ export interface FieldCreateCaseConfig {
   };
 }
 
-export type FieldConvertExpectedKind = "multiSelectJoinedText" | "aTimesBPlusC";
+export type FieldConvertExpectedKind =
+  | "multiSelectJoinedText"
+  | "singleSelectText"
+  | "numberText"
+  | "checkboxText"
+  | "ratingText"
+  | "longTextSingleLine"
+  | "aTimesBPlusC";
 
 export interface FieldConvertCaseConfig {
   baseId: "seed-base";
@@ -581,7 +588,14 @@ export interface FieldConvertCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "convertSelectToTextReadyMs" | "convertTextToFormulaReadyMs";
+    metric:
+      | "convertSelectToTextReadyMs"
+      | "convertSingleSelectToTextReadyMs"
+      | "convertNumberToTextReadyMs"
+      | "convertCheckboxToTextReadyMs"
+      | "convertRatingToTextReadyMs"
+      | "convertLongTextToTextReadyMs"
+      | "convertTextToFormulaReadyMs";
     maxMs: number;
   };
 }
