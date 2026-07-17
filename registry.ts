@@ -113,6 +113,16 @@ import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mi
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import formSubmitSequential200Case from "./cases/form-submit/sequential-200.case";
+import recordCreate1kSingleLineTextFieldsBulkCreateCase from "./cases/record-create/1k-single-line-text-fields-bulk-create.case";
+import recordCreate1kLongTextFieldsBulkCreateCase from "./cases/record-create/1k-long-text-fields-bulk-create.case";
+import recordCreate1kNumberFieldsBulkCreateCase from "./cases/record-create/1k-number-fields-bulk-create.case";
+import recordCreate1kDateFieldsBulkCreateCase from "./cases/record-create/1k-date-fields-bulk-create.case";
+import recordCreate1kCheckboxFieldsBulkCreateCase from "./cases/record-create/1k-checkbox-fields-bulk-create.case";
+import recordCreate1kSingleSelectFieldsBulkCreateCase from "./cases/record-create/1k-single-select-fields-bulk-create.case";
+import recordCreate1kMultipleSelectFieldsBulkCreateCase from "./cases/record-create/1k-multiple-select-fields-bulk-create.case";
+import recordCreate1kRatingFieldBulkCreateCase from "./cases/record-create/1k-rating-field-bulk-create.case";
+import recordCreate1kPrimaryTextOnlyBulkCreateCase from "./cases/record-create/1k-primary-text-only-bulk-create.case";
+import recordCreate1kWideTableTitleOnlyBulkCreateCase from "./cases/record-create/1k-wide-table-title-only-bulk-create.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
 import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
@@ -318,6 +328,16 @@ const cases = [
   recordRead10k50FieldsFilterSortGroupbyOverheadCase,
   recordRead50k50Fields50x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
+  recordCreate1kSingleLineTextFieldsBulkCreateCase,
+  recordCreate1kLongTextFieldsBulkCreateCase,
+  recordCreate1kNumberFieldsBulkCreateCase,
+  recordCreate1kDateFieldsBulkCreateCase,
+  recordCreate1kCheckboxFieldsBulkCreateCase,
+  recordCreate1kSingleSelectFieldsBulkCreateCase,
+  recordCreate1kMultipleSelectFieldsBulkCreateCase,
+  recordCreate1kRatingFieldBulkCreateCase,
+  recordCreate1kPrimaryTextOnlyBulkCreateCase,
+  recordCreate1kWideTableTitleOnlyBulkCreateCase,
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
   recordUpdateMixed1k20FieldsBulkUpdateCase,

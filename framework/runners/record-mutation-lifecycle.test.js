@@ -52,10 +52,44 @@ registerHooks({
   },
 });
 
-const { runRecordMutationLifecycle } = await import(
-  "./record-mutation-lifecycle.ts"
-);
+const { runRecordMutationLifecycle, shouldRestoreSharedMutableSeed } =
+  await import("./record-mutation-lifecycle.ts");
 const { PerfRunDiagnosticError } = await import("../types.ts");
+
+test("shared mutable seeds restore between siblings in an isolated execute job", () => {
+  assert.equal(
+    shouldRestoreSharedMutableSeed({
+      reusableSeed: true,
+      executeDbIsolated: true,
+      sharedSeedIdentity: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRestoreSharedMutableSeed({
+      reusableSeed: true,
+      executeDbIsolated: true,
+      sharedSeedIdentity: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRestoreSharedMutableSeed({
+      reusableSeed: true,
+      executeDbIsolated: false,
+      sharedSeedIdentity: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRestoreSharedMutableSeed({
+      reusableSeed: false,
+      executeDbIsolated: false,
+      sharedSeedIdentity: true,
+    }),
+    false,
+  );
+});
 
 test("domain table-name resolver reaches the real lifecycle fixture adapter", async () => {
   globalThis.testConfig = { baseId: "base-contract" };
