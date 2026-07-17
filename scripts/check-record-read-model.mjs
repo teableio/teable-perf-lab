@@ -12,6 +12,7 @@ import {
   getSourceFieldNames,
   parseRowNumberFromTitle,
   resolveFieldIds,
+  selectRecordReadPrimaryMetricValue,
   valuesMatch,
 } from "../framework/runners/record-read-model.ts";
 
@@ -49,8 +50,60 @@ assertConfigShape({
     expectedRowCount: 5_000,
   },
 });
+assertConfigShape({
+  ...config,
+  queryVariant: {
+    filters: {
+      conjunction: "and",
+      items: [
+        { fieldName: "Formula 1", operator: "isGreater", value: 5_050 },
+        {
+          fieldName: "Lookup Value 1",
+          operator: "isNotEmpty",
+          value: null,
+        },
+      ],
+    },
+    search: {
+      value: "1-03013",
+      fieldName: "Lookup Value 1",
+      hideNotMatchRow: true,
+    },
+    orderBy: [
+      { fieldName: "Formula 5", order: "desc" },
+      { fieldName: "Lookup Value 1", order: "asc" },
+    ],
+    groupBy: [{ fieldName: "C", order: "asc" }],
+    expectedRowCount: 1,
+  },
+});
 assert.equal(getSourceFieldNames(config).length, 6);
 assert.equal(getProjectionFieldNames(config).length, 50);
+
+assert.equal(
+  selectRecordReadPrimaryMetricValue({
+    metric: "getRecordsQueryPagedScanMs",
+    queryDurationMs: 1_000,
+    overheadMs: -500,
+  }),
+  1_000,
+);
+assert.equal(
+  selectRecordReadPrimaryMetricValue({
+    metric: "getRecordsQueryOverheadMs",
+    queryDurationMs: 1_000,
+    overheadMs: -500,
+  }),
+  0,
+);
+assert.equal(
+  selectRecordReadPrimaryMetricValue({
+    metric: "getRecordsFilterSortGroupByOverheadMs",
+    queryDurationMs: 1_800,
+    overheadMs: 300,
+  }),
+  300,
+);
 
 assert.deepEqual(buildSourceFieldModels(config).slice(0, 2), [
   { name: "Source Key", type: "singleLineText" },
