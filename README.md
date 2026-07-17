@@ -596,6 +596,30 @@ workload.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
+- `record-update/1k-single-line-text-fields-bulk-update`: Measure one
+  1,000-record bulk request that updates the four single-line text fields in the
+  shared 20-field scalar fixture.
+- `record-update/1k-long-text-fields-bulk-update`: Measure long-text
+  serialization and storage in one 1,000-record bulk update.
+- `record-update/1k-number-fields-bulk-update`: Measure numeric validation and
+  storage for decimal, integer, and percentage-like values in one 1,000-record
+  bulk update.
+- `record-update/1k-date-fields-bulk-update`: Measure parsing, normalization,
+  and storage of UTC date-only cells in one 1,000-record bulk update.
+- `record-update/1k-checkbox-fields-bulk-update`: Measure boolean/null cell
+  semantics in one 1,000-record bulk update.
+- `record-update/1k-single-select-fields-bulk-update`: Measure option lookup and
+  single-select serialization in one 1,000-record bulk update.
+- `record-update/1k-multiple-select-fields-bulk-update`: Measure array
+  validation and multiple-select serialization in one 1,000-record bulk update.
+- `record-update/1k-rating-field-bulk-update`: Measure bounded rating validation
+  and storage in one 1,000-record bulk update.
+- `record-update/1k-primary-text-only-bulk-update`: Establish the narrowest
+  1,000-record scalar update baseline: one `Title` field in the table and one
+  field in every request record.
+- `record-update/1k-wide-table-title-only-bulk-update`: Separate wide-schema
+  planning cost from payload width by updating only `Title` in the same 20-field
+  fixture used by the aggregate mixed update case.
 - `record-update/attachment-insert-100`: Measure bulk insertion of attachment
   references into 100 existing records. This isolates attachment payload
   validation and attachment cell serialization from the scalar bulk-update path,
