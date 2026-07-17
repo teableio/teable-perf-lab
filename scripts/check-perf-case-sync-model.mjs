@@ -89,6 +89,7 @@ const createAdapter = (records) => {
     result.updated.map((item) => item.caseId),
     ["case-changed"],
   );
+  assert.deepEqual(result.updated[0].changedFields, ["Title"]);
   assert.deepEqual(
     result.created.map((item) => [item.caseId, item.recordId]),
     [["case-missing", "rec-created-1"]],
