@@ -57,9 +57,10 @@ the already-dense conditional lookup/rollup matrix. Every case must:
 - **Runner**: `table-delete-link` (reuse).
 - **Seed Phase**: one 30,000-row mixed host table plus 1,000 foreign rows and a
   deterministic populated link field.
-- **Execute Phase**: archive the referenced table; keep the existing three
-  samples so the primary p95 remains meaningful.
-- **Primary Metric**: `deleteTableDetachLinkP95Ms`, initial `maxMs: 30_000`.
+- **Execute Phase**: archive the referenced table once. The existing 10k case
+  keeps three-sample p95 coverage; this 30k scale canary uses one fixture after
+  a three-fixture cold CI seed exceeded the 30-minute case budget.
+- **Primary Metric**: `deleteTableDetachLink30kMs`, initial `maxMs: 30_000`.
 - **Verification**: deleted table is in trash; surviving table remains readable;
   the engine-specific link behavior matches the existing runner contract.
 - **Open Assumptions**: 30k should strengthen the known O(rowCount) V1 signal

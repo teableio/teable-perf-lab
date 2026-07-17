@@ -1276,7 +1276,7 @@ export interface TableDeleteLinkCaseConfig
   samples: number;
   link: TableLifecycleLinkConfig;
   threshold: {
-    metric: "deleteTableDetachLinkP95Ms";
+    metric: "deleteTableDetachLinkP95Ms" | "deleteTableDetachLink30kMs";
     maxMs: number;
   };
 }

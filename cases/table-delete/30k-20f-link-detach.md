@@ -24,25 +24,28 @@ and one populated link field whose targets follow the existing permutation.
 
 ## Execute Phase
 
-Archive the foreign table three times on fresh/restored fixtures. V1 performs
-destructive link detachment on the surviving host; V2 keeps its soft-delete
-behavior. Each sample measures only the delete request.
+Archive the foreign table once. V1 performs destructive link detachment on the
+surviving host; V2 keeps its soft-delete behavior. The sample measures only the
+delete request.
 
 ## Primary Metric
 
-- `deleteTableDetachLinkP95Ms`: p95 of the three archive requests.
+- `deleteTableDetachLink30kMs`: the single 30k archive request. The paired 10k
+  case retains three-sample p95 coverage; using one fixture here avoids seeding
+  90k linked host rows merely to repeat an already-established request shape.
 
 The initial 30-second guardrail is derived conservatively from the existing 10k
 case and will be tightened after runtime history.
 
 ## Verification
 
-- The target table must enter trash after every sample.
+- The target table must enter trash after the sample.
 - The surviving host table must retain all 30,000 records.
 - Link-field behavior and routing must match the existing engine-specific
   contract.
 
 ## Notes
 
-Only host-row scale changes from the 10k sibling; the foreign-table size, link
-permutation, and sample count remain fixed.
+Only host-row scale changes from the 10k sibling; the foreign-table size and
+link permutation remain fixed. The 30k case intentionally uses one sample after
+a three-fixture cold CI seed exceeded its 30-minute case budget.
