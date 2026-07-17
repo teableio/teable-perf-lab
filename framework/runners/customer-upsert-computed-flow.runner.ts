@@ -48,15 +48,20 @@ import {
 import {
   buildExpectedOrderState,
   buildOrderValues,
+  buildUserControlValue,
   buildUserState,
+  createdOrderPurchaseRow,
   createdOrderRow,
+  createdOrderUserRow,
   createdUserRow,
   finalOrderCount,
   finalUserCount,
   FORMULA_NAMES,
+  hasUserWriteScenario,
   isAffectedOrder,
   isAffectedPurchase,
   isOrderCreateScenario,
+  isUserControlUpdateScenario,
   isUserCreateScenario,
   ORDER_VALUE_NAMES,
   orderTitle,
@@ -65,8 +70,8 @@ import {
   resolveCachedCompanionTableIds,
   resolveImpact,
   targetOrderRow,
-  targetPurchaseRow,
   USER_ATTRIBUTE_NAMES,
+  USER_CONTROL_FIELD,
   userRowForOrder,
   userTitle,
   type CustomerUpsertFixtureShape,
@@ -81,7 +86,7 @@ import {
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
-const FIXTURE_VERSION = "customer-upsert-computed-flow-v1";
+const FIXTURE_VERSION = "customer-upsert-computed-flow-v2";
 const METADATA_PREFIX = "perf-lab-customer-upsert-computed-flow:";
 
 const USER_TITLE = "Key";
@@ -101,6 +106,7 @@ type NamedField = {
 type UserFieldIds = {
   title: string;
   attributes: Record<UserAttributeName, string>;
+  control?: string;
 };
 
 type OrderFieldIds = {
@@ -235,7 +241,10 @@ const resolveNamedField = (fields: NamedField[], name: string) => {
   return field;
 };
 
-const resolveUserFields = (fields: NamedField[]): UserFieldIds => ({
+const resolveUserFields = (
+  fields: NamedField[],
+  config: CustomerUpsertComputedFlowCaseConfig,
+): UserFieldIds => ({
   title: resolveNamedField(fields, USER_TITLE).id,
   attributes: Object.fromEntries(
     USER_ATTRIBUTE_NAMES.map((name) => [
@@ -243,6 +252,9 @@ const resolveUserFields = (fields: NamedField[]): UserFieldIds => ({
       resolveNamedField(fields, name).id,
     ]),
   ) as UserFieldIds["attributes"],
+  ...(isUserControlUpdateScenario(config.scenario)
+    ? { control: resolveNamedField(fields, USER_CONTROL_FIELD).id }
+    : {}),
 });
 
 const resolveOrderFields = (fields: NamedField[]): OrderFieldIds => ({
@@ -364,6 +376,9 @@ const getSeedConfig = (config: CustomerUpsertComputedFlowCaseConfig) => ({
   batchSize: config.batchSize,
   userBatchSize: config.userBatchSize,
   userAttributes: [...USER_ATTRIBUTE_NAMES],
+  userControlField: isUserControlUpdateScenario(config.scenario)
+    ? USER_CONTROL_FIELD
+    : null,
   orderValues: [...ORDER_VALUE_NAMES],
   lookupCount: USER_ATTRIBUTE_NAMES.length,
   formulas: formulaDefinitions(),
@@ -407,6 +422,15 @@ const buildUserPayload = (
     scenario: config.scenario,
     phase,
   }),
+  ...(isUserControlUpdateScenario(config.scenario)
+    ? {
+        [USER_CONTROL_FIELD]: buildUserControlValue(row, {
+          shape: shapeFor(config),
+          scenario: config.scenario,
+          phase,
+        }),
+      }
+    : {}),
 });
 
 const buildOrderPayload = (
@@ -581,12 +605,16 @@ const createFixture = async (
           name,
           type: FieldType.SingleLineText,
         })),
+        ...(isUserControlUpdateScenario(config.scenario)
+          ? [{ name: USER_CONTROL_FIELD, type: FieldType.SingleLineText }]
+          : []),
       ],
       records: [],
     });
     createdTableIds.push(users.id);
     const userFields = resolveUserFields(
       (await getFields(users.id)) as NamedField[],
+      config,
     );
     const seededUsers = await createRecordsInBatches(
       users.id,
@@ -793,6 +821,7 @@ const restoreFixture = async (
       purchaseTableId: companionIds.purchaseTableId,
       userFields: resolveUserFields(
         (await getFields(users.id)) as NamedField[],
+        config,
       ),
       orderFields: resolveOrderFields(
         (await getFields(orders.id)) as NamedField[],
@@ -868,6 +897,14 @@ const prepareFixture = async (
       "Customer upsert fixture counts do not form exact fanout groups",
     );
   }
+  if (
+    config.scenario === "update-other-user-create-order" &&
+    config.targetUserRow + 1 > config.userCount
+  ) {
+    throw new Error(
+      "Other-user scenario requires targetUserRow + 1 within the seeded Users",
+    );
+  }
   resolveImpact(shape, config.scenario);
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase,
@@ -889,6 +926,7 @@ const prepareFixture = async (
 const userProjection = (fixture: Fixture) => [
   fixture.userFields.title,
   ...USER_ATTRIBUTE_NAMES.map((name) => fixture.userFields.attributes[name]),
+  ...(fixture.userFields.control ? [fixture.userFields.control] : []),
 ];
 
 const orderProjection = (fixture: Fixture) => [
@@ -916,6 +954,23 @@ const assertUserFields = (
     if (actual !== expected[name]) {
       throw new Error(
         `User ${row} ${name} mismatch: expected=${expected[name]}, actual=${actual}`,
+      );
+    }
+  }
+  if (isUserControlUpdateScenario(config.scenario)) {
+    const controlFieldId = fixture.userFields.control;
+    if (!controlFieldId) {
+      throw new Error(`Missing User control field ${USER_CONTROL_FIELD}`);
+    }
+    const expectedControl = buildUserControlValue(row, {
+      shape: shapeFor(config),
+      scenario: config.scenario,
+      phase,
+    });
+    const actualControl = normalizeValue(fields[controlFieldId]);
+    if (actualControl !== expectedControl) {
+      throw new Error(
+        `User ${row} ${USER_CONTROL_FIELD} mismatch: expected=${expectedControl}, actual=${actualControl}`,
       );
     }
   }
@@ -1070,9 +1125,11 @@ const assertUsersFullScan = async (
       assertUserFields(fixture, config, row, record.fields, phase);
       const affected =
         phase === "final" &&
-        (row === config.targetUserRow ||
-          (isUserCreateScenario(config.scenario) &&
-            row === createdUserRow(shapeFor(config))));
+        ((isUserCreateScenario(config.scenario) &&
+          row === createdUserRow(shapeFor(config))) ||
+          (!isUserCreateScenario(config.scenario) &&
+            hasUserWriteScenario(config.scenario) &&
+            row === config.targetUserRow));
       if (affected) affectedRecords += 1;
     },
   );
@@ -1227,6 +1284,9 @@ const runUserWrite = async (
   config: CustomerUpsertComputedFlowCaseConfig,
 ): Promise<Measurement<WriteEvidence>> => {
   const shape = shapeFor(config);
+  if (!hasUserWriteScenario(config.scenario)) {
+    throw new Error(`Scenario ${config.scenario} has no User write`);
+  }
   if (isUserCreateScenario(config.scenario)) {
     const row = createdUserRow(shape);
     const measurement = await withPerfTraceStep(
@@ -1276,6 +1336,15 @@ const runUserWrite = async (
 
   const target = fixture.userRecords[config.targetUserRow - 1];
   if (!target) throw new Error(`Missing target User ${config.targetUserRow}`);
+  const fields = isUserControlUpdateScenario(config.scenario)
+    ? {
+        [USER_CONTROL_FIELD]: buildUserControlValue(config.targetUserRow, {
+          shape,
+          scenario: config.scenario,
+          phase: "final",
+        }),
+      }
+    : buildUserPayload(config, config.targetUserRow, "final");
   const measurement = await withPerfTraceStep(
     context,
     perfCase,
@@ -1288,7 +1357,7 @@ const runUserWrite = async (
           records: [
             {
               id: target.recordId,
-              fields: buildUserPayload(config, config.targetUserRow, "final"),
+              fields,
             },
           ],
         }),
@@ -1666,12 +1735,14 @@ const runMeasuredOperation = async (
       () => {
         primaryStartedAt = performance.now();
         return measureAsync(config.threshold.metric, async () => {
-          userWriteMeasurement = await runUserWrite(
-            perfCase,
-            context,
-            fixture,
-            config,
-          );
+          if (hasUserWriteScenario(config.scenario)) {
+            userWriteMeasurement = await runUserWrite(
+              perfCase,
+              context,
+              fixture,
+              config,
+            );
+          }
           orderWriteMeasurement = await runOrderWrite(
             perfCase,
             context,
@@ -1760,7 +1831,7 @@ const runMeasuredOperation = async (
   await stopObserver();
   if (
     !primaryMeasurement ||
-    !userWriteMeasurement ||
+    (hasUserWriteScenario(config.scenario) && !userWriteMeasurement) ||
     !orderWriteMeasurement ||
     !targetRead ||
     !usersVerification ||
@@ -1938,10 +2009,25 @@ const buildResult = ({
             finalUserCount: finalUserCount(shapeFor(config), config.scenario),
             finalOrderCount: finalOrderCount(shapeFor(config), config.scenario),
             userAttributeCount: USER_ATTRIBUTE_NAMES.length,
+            userControlField: isUserControlUpdateScenario(config.scenario)
+              ? USER_CONTROL_FIELD
+              : null,
             lookupCount: USER_ATTRIBUTE_NAMES.length,
             formulaDepth: FORMULA_NAMES.length,
             activeLink: ORDER_USER_LINK,
             guestLinkPresent: false,
+            ...(isOrderCreateScenario(config.scenario)
+              ? {
+                  createdOrderUserRow: createdOrderUserRow(
+                    shapeFor(config),
+                    config.scenario,
+                  ),
+                  createdOrderPurchaseRow: createdOrderPurchaseRow(
+                    shapeFor(config),
+                    config.scenario,
+                  ),
+                }
+              : {}),
             seedCache: {
               enabled: fixture.seedCacheInfo.enabled,
               cacheHit: fixture.seedCacheHit,
@@ -1961,7 +2047,11 @@ const buildResult = ({
                     method: primary.userWrite.method,
                     path: `/api/table/${primary.userWrite.tableId}/record`,
                     payloadRecords: 1,
-                    payloadFieldCount: USER_ATTRIBUTE_NAMES.length + 1,
+                    payloadFieldCount: isUserControlUpdateScenario(
+                      config.scenario,
+                    )
+                      ? 1
+                      : USER_ATTRIBUTE_NAMES.length + 1,
                     logicallyChangedFields: isUserCreateScenario(
                       config.scenario,
                     )
@@ -1971,7 +2061,9 @@ const buildResult = ({
                       config.scenario,
                     )
                       ? [USER_TITLE, ...USER_ATTRIBUTE_NAMES]
-                      : ["first_name"],
+                      : isUserControlUpdateScenario(config.scenario)
+                        ? [USER_CONTROL_FIELD]
+                        : ["first_name"],
                   },
                 }
               : {}),
@@ -2142,7 +2234,10 @@ const cleanupFixture = async ({
     if (config.scenario === "update-user-update-order") {
       await restoreOrder(fixture, config);
     }
-    if (!isUserCreateScenario(config.scenario)) {
+    if (
+      hasUserWriteScenario(config.scenario) &&
+      !isUserCreateScenario(config.scenario)
+    ) {
       await restoreUser(fixture, config);
     }
     if (fixture.executeState.createdUserRecordId) {

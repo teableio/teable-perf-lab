@@ -425,17 +425,21 @@ export interface ComputedChainMutationCaseConfig {
   };
 }
 
-// Customer-import shaped two-write flows over a deterministic dependency graph:
-// 40 Users -> 4,000 Orders -> 400 Purchases. The primary measurement starts at
-// the User write and ends when the target Order is readable with all ten
-// lookups and five formula levels. Full-table controls run after that timer.
+// Customer-import shaped Order writes, with an optional preceding User write,
+// over a deterministic dependency graph: 40 Users -> 4,000 Orders -> 400
+// Purchases. The primary measurement starts at the first execute write and ends
+// when the target Order is readable with all ten lookups and five formula
+// levels. Full-table controls run after that timer.
 export interface CustomerUpsertComputedFlowCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
   scenario:
     | "update-user-create-order"
     | "update-user-update-order"
-    | "create-user-create-order";
+    | "create-user-create-order"
+    | "create-order-only"
+    | "update-user-control-field-create-order"
+    | "update-other-user-create-order";
   userCount: number;
   orderCount: number;
   ordersPerUser: number;

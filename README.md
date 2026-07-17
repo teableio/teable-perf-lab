@@ -292,6 +292,15 @@ workload.
   new-customer branch: create a User and immediately create an Order that links
   to the returned record id. This covers a dependency target that did not exist
   when the fixture's computed graph became ready.
+- `lookup/customer-create-order-only-4k-depth5`: Measure whether creating a
+  fully linked Order has an inherent propagation delay when no User write
+  precedes it.
+- `lookup/customer-update-user-control-field-create-order-4k-depth5`: Measure
+  whether any preceding User write delays a linked Order create when the changed
+  field is completely outside the lookup and formula dependency graph.
+- `lookup/customer-update-other-user-create-order-4k-depth5`: Measure whether a
+  User update delays an immediately created Order whose User and Purchase links
+  belong to a different dependency subgraph.
 - `search/search-index-off-10k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 10k-row host table whose
   `TableIndex.search` is disabled.

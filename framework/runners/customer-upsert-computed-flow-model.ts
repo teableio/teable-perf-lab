@@ -1,7 +1,10 @@
 export type CustomerUpsertScenario =
   | "update-user-create-order"
   | "update-user-update-order"
-  | "create-user-create-order";
+  | "create-user-create-order"
+  | "create-order-only"
+  | "update-user-control-field-create-order"
+  | "update-other-user-create-order";
 
 export type CustomerUpsertPhase = "seed" | "final";
 
@@ -44,6 +47,8 @@ export const USER_ATTRIBUTE_NAMES = [
   "city",
 ] as const;
 
+export const USER_CONTROL_FIELD = "sync_marker";
+
 export type UserAttributeName = (typeof USER_ATTRIBUTE_NAMES)[number];
 
 export const ORDER_VALUE_NAMES = [
@@ -74,6 +79,19 @@ export type FormulaName = (typeof FORMULA_NAMES)[number];
 export const isUserCreateScenario = (scenario: CustomerUpsertScenario) =>
   scenario === "create-user-create-order";
 
+export const hasUserWriteScenario = (scenario: CustomerUpsertScenario) =>
+  scenario !== "create-order-only";
+
+export const isUserControlUpdateScenario = (scenario: CustomerUpsertScenario) =>
+  scenario === "update-user-control-field-create-order";
+
+export const isUserAttributeUpdateScenario = (
+  scenario: CustomerUpsertScenario,
+) =>
+  scenario === "update-user-create-order" ||
+  scenario === "update-user-update-order" ||
+  scenario === "update-other-user-create-order";
+
 export const isOrderCreateScenario = (scenario: CustomerUpsertScenario) =>
   scenario !== "update-user-update-order";
 
@@ -89,15 +107,34 @@ export const targetOrderRow = (shape: CustomerUpsertFixtureShape) =>
 export const targetPurchaseRow = (shape: CustomerUpsertFixtureShape) =>
   Math.ceil(targetOrderRow(shape) / shape.purchaseGroupSize);
 
+export const createdOrderUserRow = (
+  shape: CustomerUpsertFixtureShape,
+  scenario: CustomerUpsertScenario,
+) =>
+  isUserCreateScenario(scenario)
+    ? createdUserRow(shape)
+    : scenario === "update-other-user-create-order"
+      ? shape.targetUserRow + 1
+      : shape.targetUserRow;
+
+export const createdOrderPurchaseRow = (
+  shape: CustomerUpsertFixtureShape,
+  scenario: CustomerUpsertScenario,
+) =>
+  scenario === "update-other-user-create-order"
+    ? Math.ceil(
+        (createdOrderUserRow(shape, scenario) * shape.ordersPerUser) /
+          shape.purchaseGroupSize,
+      )
+    : targetPurchaseRow(shape);
+
 export const userRowForOrder = (
   shape: CustomerUpsertFixtureShape,
   scenario: CustomerUpsertScenario,
   orderRow: number,
 ) => {
   if (orderRow === createdOrderRow(shape) && isOrderCreateScenario(scenario)) {
-    return isUserCreateScenario(scenario)
-      ? createdUserRow(shape)
-      : shape.targetUserRow;
+    return createdOrderUserRow(shape, scenario);
   }
   return Math.ceil(orderRow / shape.ordersPerUser);
 };
@@ -108,7 +145,7 @@ export const purchaseRowForOrder = (
   orderRow: number,
 ) =>
   orderRow === createdOrderRow(shape) && isOrderCreateScenario(scenario)
-    ? targetPurchaseRow(shape)
+    ? createdOrderPurchaseRow(shape, scenario)
     : Math.ceil(orderRow / shape.purchaseGroupSize);
 
 const pad = (value: number, width = 3) => String(value).padStart(width, "0");
@@ -131,7 +168,7 @@ export const buildUserState = (
     row === createdUserRow(input.shape);
   const isUpdated =
     input.phase === "final" &&
-    !isUserCreateScenario(input.scenario) &&
+    isUserAttributeUpdateScenario(input.scenario) &&
     row === input.shape.targetUserRow;
   const suffix = pad(row);
   return {
@@ -151,6 +188,20 @@ export const buildUserState = (
     city: `City-${row % 7}`,
   };
 };
+
+export const buildUserControlValue = (
+  row: number,
+  input: {
+    shape: CustomerUpsertFixtureShape;
+    scenario: CustomerUpsertScenario;
+    phase: CustomerUpsertPhase;
+  },
+) =>
+  input.phase === "final" &&
+  isUserControlUpdateScenario(input.scenario) &&
+  row === input.shape.targetUserRow
+    ? `sync-${pad(row)}-updated`
+    : `sync-${pad(row)}`;
 
 export const buildOrderValues = (
   row: number,
@@ -242,7 +293,7 @@ export const isAffectedOrder = (
     return true;
   }
   if (
-    scenario !== "create-user-create-order" &&
+    isUserAttributeUpdateScenario(scenario) &&
     userRowForOrder(shape, scenario, row) === shape.targetUserRow
   ) {
     return true;
@@ -264,7 +315,7 @@ export const purchaseChildOrderRows = (
   if (
     phase === "final" &&
     isOrderCreateScenario(scenario) &&
-    purchaseRow === targetPurchaseRow(shape)
+    purchaseRow === createdOrderPurchaseRow(shape, scenario)
   ) {
     rows.push(createdOrderRow(shape));
   }
