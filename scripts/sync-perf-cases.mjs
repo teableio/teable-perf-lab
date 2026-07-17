@@ -58,7 +58,11 @@ const parseScalar = (value) => {
   if (inlineList) {
     const items = inlineList[1].trim();
     return items
-      ? items.split(",").map((item) => parseScalar(item.trim()))
+      ? items
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .map(parseScalar)
       : [];
   }
   if (value === "true") {
@@ -84,8 +88,28 @@ const parseFrontmatter = (markdown) => {
   const lines = markdown.slice(4, endIndex).split("\n");
   const data = {};
   let currentKey = "";
+  let flowSequence = "";
 
   for (const line of lines) {
+    const trimmed = line.trim();
+    if (flowSequence) {
+      flowSequence += ` ${trimmed}`;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+
+    if (currentKey && trimmed.startsWith("[")) {
+      flowSequence = trimmed;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+
     const listMatch = line.match(/^\s*-\s+(.+)$/);
     if (listMatch && currentKey) {
       data[currentKey] ??= [];
@@ -101,6 +125,10 @@ const parseFrontmatter = (markdown) => {
     currentKey = pairMatch[1];
     const value = pairMatch[2].trim();
     data[currentKey] = value === "" ? [] : parseScalar(value);
+  }
+
+  if (flowSequence) {
+    throw new Error(`Unterminated frontmatter list for ${currentKey}`);
   }
 
   return data;

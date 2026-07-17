@@ -176,6 +176,17 @@ try {
     Array.isArray(inlineTagsRecord.fields.Tags),
     "inline frontmatter tags must be sent as an array",
   );
+  const multilineTagsRecord = storedRecords.find(
+    (record) =>
+      record.fields["Case ID"] ===
+      "lookup/conditional-group-active-text-fanout100-10k",
+  );
+  assert.ok(multilineTagsRecord);
+  assert.ok(
+    Array.isArray(multilineTagsRecord.fields.Tags) &&
+      multilineTagsRecord.fields.Tags.includes("lookup"),
+    "multiline flow frontmatter tags must preserve their values",
+  );
 
   const secondStart = requests.length;
   const secondOutput = await runSync(endpoint);
