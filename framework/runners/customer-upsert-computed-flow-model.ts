@@ -3,6 +3,7 @@ export type CustomerUpsertScenario =
   | "update-user-update-order"
   | "create-user-create-order"
   | "create-order-only"
+  | "update-user-first-name-only-create-order"
   | "update-user-control-field-create-order"
   | "update-other-user-create-order";
 
@@ -85,11 +86,22 @@ export const hasUserWriteScenario = (scenario: CustomerUpsertScenario) =>
 export const isUserControlUpdateScenario = (scenario: CustomerUpsertScenario) =>
   scenario === "update-user-control-field-create-order";
 
+export const isUserFirstNameOnlyUpdateScenario = (
+  scenario: CustomerUpsertScenario,
+) => scenario === "update-user-first-name-only-create-order";
+
+export const userWritePayloadFieldCount = (scenario: CustomerUpsertScenario) =>
+  isUserControlUpdateScenario(scenario) ||
+  isUserFirstNameOnlyUpdateScenario(scenario)
+    ? 1
+    : USER_ATTRIBUTE_NAMES.length + 1;
+
 export const isUserAttributeUpdateScenario = (
   scenario: CustomerUpsertScenario,
 ) =>
   scenario === "update-user-create-order" ||
   scenario === "update-user-update-order" ||
+  scenario === "update-user-first-name-only-create-order" ||
   scenario === "update-other-user-create-order";
 
 export const isOrderCreateScenario = (scenario: CustomerUpsertScenario) =>

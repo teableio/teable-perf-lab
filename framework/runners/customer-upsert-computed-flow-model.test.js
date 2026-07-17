@@ -15,6 +15,7 @@ import {
   resolveImpact,
   targetOrderRow,
   targetPurchaseRow,
+  userWritePayloadFieldCount,
 } from "./customer-upsert-computed-flow-model.ts";
 
 const shape = {
@@ -50,6 +51,7 @@ test("cached companion ids must match the deterministic seed table names", () =>
 test("update user then create order changes 100 existing orders plus the new order", () => {
   const scenario = "update-user-create-order";
   const impact = resolveImpact(shape, scenario);
+  assert.equal(userWritePayloadFieldCount(scenario), 11);
   assert.equal(finalUserCount(shape, scenario), 40);
   assert.equal(finalOrderCount(shape, scenario), 4_001);
   assert.equal(impact.affectedOrderCount, 101);
@@ -147,6 +149,7 @@ test("order-only isolates the create path from any preceding User write", () => 
 test("control-field update changes no computed dependency before order create", () => {
   const scenario = "update-user-control-field-create-order";
   const impact = resolveImpact(shape, scenario);
+  assert.equal(userWritePayloadFieldCount(scenario), 1);
   assert.equal(impact.affectedOrderCount, 1);
   assert.equal(impact.affectedPurchaseCount, 1);
   assert.equal(
@@ -161,6 +164,31 @@ test("control-field update changes no computed dependency before order create", 
     "final",
   );
   assert.equal(created.lookups.first_name, "First-020");
+});
+
+test("first-name-only update keeps the same cascade with a one-field payload", () => {
+  const scenario = "update-user-first-name-only-create-order";
+  const impact = resolveImpact(shape, scenario);
+  assert.equal(userWritePayloadFieldCount(scenario), 1);
+  assert.equal(createdOrderUserRow(shape, scenario), 20);
+  assert.equal(createdOrderPurchaseRow(shape, scenario), 200);
+  assert.equal(impact.affectedOrderCount, 101);
+  assert.equal(impact.affectedPurchaseCount, 10);
+  assert.deepEqual(
+    impact.affectedPurchases,
+    [191, 192, 193, 194, 195, 196, 197, 198, 199, 200],
+  );
+
+  const created = buildExpectedOrderState(
+    shape,
+    scenario,
+    createdOrderRow(shape),
+    "final",
+  );
+  assert.equal(created.userRow, 20);
+  assert.equal(created.purchaseRow, 200);
+  assert.equal(created.lookups.first_name, "First-020-updated");
+  assert.match(created.formulas.order_card, /First-020-updated/);
 });
 
 test("other-user flow separates User and Purchase dependency subgraphs", () => {

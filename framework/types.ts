@@ -438,6 +438,7 @@ export interface CustomerUpsertComputedFlowCaseConfig {
     | "update-user-update-order"
     | "create-user-create-order"
     | "create-order-only"
+    | "update-user-first-name-only-create-order"
     | "update-user-control-field-create-order"
     | "update-other-user-create-order";
   userCount: number;

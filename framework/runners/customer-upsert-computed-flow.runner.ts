@@ -63,6 +63,7 @@ import {
   isOrderCreateScenario,
   isUserControlUpdateScenario,
   isUserCreateScenario,
+  isUserFirstNameOnlyUpdateScenario,
   ORDER_VALUE_NAMES,
   orderTitle,
   purchaseChildOrderRows,
@@ -72,6 +73,7 @@ import {
   targetOrderRow,
   USER_ATTRIBUTE_NAMES,
   USER_CONTROL_FIELD,
+  userWritePayloadFieldCount,
   userRowForOrder,
   userTitle,
   type CustomerUpsertFixtureShape,
@@ -432,6 +434,31 @@ const buildUserPayload = (
       }
     : {}),
 });
+
+const buildUserUpdatePayload = (
+  config: CustomerUpsertComputedFlowCaseConfig,
+  row: number,
+) => {
+  if (isUserControlUpdateScenario(config.scenario)) {
+    return {
+      [USER_CONTROL_FIELD]: buildUserControlValue(row, {
+        shape: shapeFor(config),
+        scenario: config.scenario,
+        phase: "final",
+      }),
+    };
+  }
+  if (isUserFirstNameOnlyUpdateScenario(config.scenario)) {
+    return {
+      first_name: buildUserState(row, {
+        shape: shapeFor(config),
+        scenario: config.scenario,
+        phase: "final",
+      }).first_name,
+    };
+  }
+  return buildUserPayload(config, row, "final");
+};
 
 const buildOrderPayload = (
   fixture: Fixture,
@@ -1336,15 +1363,7 @@ const runUserWrite = async (
 
   const target = fixture.userRecords[config.targetUserRow - 1];
   if (!target) throw new Error(`Missing target User ${config.targetUserRow}`);
-  const fields = isUserControlUpdateScenario(config.scenario)
-    ? {
-        [USER_CONTROL_FIELD]: buildUserControlValue(config.targetUserRow, {
-          shape,
-          scenario: config.scenario,
-          phase: "final",
-        }),
-      }
-    : buildUserPayload(config, config.targetUserRow, "final");
+  const fields = buildUserUpdatePayload(config, config.targetUserRow);
   const measurement = await withPerfTraceStep(
     context,
     perfCase,
@@ -2047,11 +2066,9 @@ const buildResult = ({
                     method: primary.userWrite.method,
                     path: `/api/table/${primary.userWrite.tableId}/record`,
                     payloadRecords: 1,
-                    payloadFieldCount: isUserControlUpdateScenario(
+                    payloadFieldCount: userWritePayloadFieldCount(
                       config.scenario,
-                    )
-                      ? 1
-                      : USER_ATTRIBUTE_NAMES.length + 1,
+                    ),
                     logicallyChangedFields: isUserCreateScenario(
                       config.scenario,
                     )
