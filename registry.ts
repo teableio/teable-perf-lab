@@ -125,6 +125,16 @@ import recordCreate1kPrimaryTextOnlyBulkCreateCase from "./cases/record-create/1
 import recordCreate1kWideTableTitleOnlyBulkCreateCase from "./cases/record-create/1k-wide-table-title-only-bulk-create.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
 import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
+import recordDuplicateSingle50Checkbox10FieldsCase from "./cases/record-duplicate/single-50-checkbox-10fields.case";
+import recordDuplicateSingle50Date10FieldsCase from "./cases/record-duplicate/single-50-date-10fields.case";
+import recordDuplicateSingle50LongText10FieldsCase from "./cases/record-duplicate/single-50-long-text-10fields.case";
+import recordDuplicateSingle50Mixed20FieldsCase from "./cases/record-duplicate/single-50-mixed-20fields.case";
+import recordDuplicateSingle50MultipleSelect10FieldsCase from "./cases/record-duplicate/single-50-multiple-select-10fields.case";
+import recordDuplicateSingle50Number10FieldsCase from "./cases/record-duplicate/single-50-number-10fields.case";
+import recordDuplicateSingle50PrimaryOnlyCase from "./cases/record-duplicate/single-50-primary-only.case";
+import recordDuplicateSingle50Rating10FieldsCase from "./cases/record-duplicate/single-50-rating-10fields.case";
+import recordDuplicateSingle50SingleLineText10FieldsCase from "./cases/record-duplicate/single-50-single-line-text-10fields.case";
+import recordDuplicateSingle50SingleSelect10FieldsCase from "./cases/record-duplicate/single-50-single-select-10fields.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
 import recordRead10k50FieldsFilterTextNotEmptyCase from "./cases/record-read/10k-50fields-filter-text-not-empty.case";
@@ -340,6 +350,16 @@ const cases = [
   recordCreate1kWideTableTitleOnlyBulkCreateCase,
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
+  recordDuplicateSingle50PrimaryOnlyCase,
+  recordDuplicateSingle50SingleLineText10FieldsCase,
+  recordDuplicateSingle50LongText10FieldsCase,
+  recordDuplicateSingle50Number10FieldsCase,
+  recordDuplicateSingle50Date10FieldsCase,
+  recordDuplicateSingle50Checkbox10FieldsCase,
+  recordDuplicateSingle50SingleSelect10FieldsCase,
+  recordDuplicateSingle50MultipleSelect10FieldsCase,
+  recordDuplicateSingle50Rating10FieldsCase,
+  recordDuplicateSingle50Mixed20FieldsCase,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
   recordUpdate1kSingleLineTextFieldsBulkUpdateCase,
   recordUpdate1kLongTextFieldsBulkUpdateCase,
