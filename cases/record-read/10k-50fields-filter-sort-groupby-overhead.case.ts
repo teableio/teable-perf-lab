@@ -10,9 +10,19 @@ export default definePerfCase({
   config: {
     ...baseCase.config,
     queryVariant: {
-      filterFieldName: "Text 1",
-      orderByFieldName: "A",
-      groupByFieldName: "Text 2",
+      filters: {
+        conjunction: "and",
+        items: [
+          {
+            fieldName: "Text 1",
+            operator: "isNotEmpty",
+            value: null,
+          },
+        ],
+      },
+      orderBy: [{ fieldName: "A", order: "asc" }],
+      groupBy: [{ fieldName: "Text 2", order: "asc" }],
+      expectedRowCount: 10_000,
     },
     threshold: {
       metric: "getRecordsFilterSortGroupByOverheadMs",
