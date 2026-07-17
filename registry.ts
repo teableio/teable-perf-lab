@@ -127,6 +127,16 @@ import recordRead10k50FieldsGroupNumberLowCardinalityCase from "./cases/record-r
 import recordRead10k50FieldsGroupThreeLevelsCase from "./cases/record-read/10k-50fields-group-three-levels.case";
 import recordRead10k50FieldsFilterNumberSortDescendingCase from "./cases/record-read/10k-50fields-filter-number-sort-descending.case";
 import recordRead10k50FieldsFilterSortGroupbySelectiveCase from "./cases/record-read/10k-50fields-filter-sort-groupby-selective.case";
+import recordRead10k50FieldsFilterFormulaGreaterHalfCase from "./cases/record-read/10k-50fields-filter-formula-greater-half.case";
+import recordRead10k50FieldsFilterFormulaRangeMiddleCase from "./cases/record-read/10k-50fields-filter-formula-range-middle.case";
+import recordRead10k50FieldsSortFormulaDescendingCase from "./cases/record-read/10k-50fields-sort-formula-descending.case";
+import recordRead10k50FieldsFilterSortFormulaSelectiveCase from "./cases/record-read/10k-50fields-filter-sort-formula-selective.case";
+import recordRead10k50FieldsGroupStoredSortFormulaCase from "./cases/record-read/10k-50fields-group-stored-sort-formula.case";
+import recordRead10k50FieldsFilterLookupNotEmptyCase from "./cases/record-read/10k-50fields-filter-lookup-not-empty.case";
+import recordRead10k50FieldsSearchLookupVisibleRowCase from "./cases/record-read/10k-50fields-search-lookup-visible-row.case";
+import recordRead10k50FieldsSortLookupAscendingCase from "./cases/record-read/10k-50fields-sort-lookup-ascending.case";
+import recordRead10k50FieldsGroupStoredSortLookupCase from "./cases/record-read/10k-50fields-group-stored-sort-lookup.case";
+import recordRead10k50FieldsFilterGroupSortFormulaCase from "./cases/record-read/10k-50fields-filter-group-sort-formula.case";
 import recordRead10k50FieldsFilterSortGroupbyOverheadCase from "./cases/record-read/10k-50fields-filter-sort-groupby-overhead.case";
 import recordRead50k50Fields50x1kPagesCase from "./cases/record-read/50k-50fields-50x1k-pages.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
@@ -285,6 +295,16 @@ const cases = [
   recordRead10k50FieldsGroupThreeLevelsCase,
   recordRead10k50FieldsFilterNumberSortDescendingCase,
   recordRead10k50FieldsFilterSortGroupbySelectiveCase,
+  recordRead10k50FieldsFilterFormulaGreaterHalfCase,
+  recordRead10k50FieldsFilterFormulaRangeMiddleCase,
+  recordRead10k50FieldsSortFormulaDescendingCase,
+  recordRead10k50FieldsFilterSortFormulaSelectiveCase,
+  recordRead10k50FieldsGroupStoredSortFormulaCase,
+  recordRead10k50FieldsFilterLookupNotEmptyCase,
+  recordRead10k50FieldsSearchLookupVisibleRowCase,
+  recordRead10k50FieldsSortLookupAscendingCase,
+  recordRead10k50FieldsGroupStoredSortLookupCase,
+  recordRead10k50FieldsFilterGroupSortFormulaCase,
   recordRead10k50FieldsFilterSortGroupbyOverheadCase,
   recordRead50k50Fields50x1kPagesCase,
   recordCreateMixed1k20FieldsBulkCreateCase,

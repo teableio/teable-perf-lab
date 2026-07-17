@@ -556,6 +556,26 @@ workload.
 - `record-read/10k-50fields-filter-sort-groupby-selective`: Measure the full
   filter, sort, and groupBy path with a selective predicate and low-cardinality
   grouping.
+- `record-read/10k-50fields-filter-formula-greater-half`: Measure a selective
+  numeric predicate on a computed formula in a wide read.
+- `record-read/10k-50fields-filter-formula-range-middle`: Measure an AND range
+  filter on a computed numeric expression.
+- `record-read/10k-50fields-sort-formula-descending`: Measure sorting a wide
+  result set by a computed numeric value.
+- `record-read/10k-50fields-filter-sort-formula-selective`: Measure selective
+  formula filtering composed with formula sorting.
+- `record-read/10k-50fields-group-stored-sort-formula`: Measure stored-field
+  grouping with computed ordering inside each group.
+- `record-read/10k-50fields-filter-lookup-not-empty`: Measure filtering on a
+  computed conditional lookup column.
+- `record-read/10k-50fields-search-lookup-visible-row`: Measure field-scoped
+  visible-row search on a computed lookup value.
+- `record-read/10k-50fields-sort-lookup-ascending`: Measure sorting by a
+  computed lookup text value.
+- `record-read/10k-50fields-group-stored-sort-lookup`: Measure stored grouping
+  with computed lookup ordering inside each group.
+- `record-read/10k-50fields-filter-group-sort-formula`: Measure the full
+  computed-filter, stored-group, and computed-sort path.
 - `record-read/10k-50fields-filter-sort-groupby-overhead`: Measure the extra
   cost of adding explicit filter, sort, and groupBy query semantics to the same
   10,000-row, 50-projected-field read workload used by

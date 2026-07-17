@@ -57,6 +57,7 @@ import {
   lookupName,
   RECORD_READ_FIXTURE_VERSION,
   resolveFieldIds,
+  selectRecordReadPrimaryMetricValue,
   type ResolvedField,
   parseRowNumberFromTitle,
   SOURCE_KEY_FIELD_NAME,
@@ -1251,21 +1252,18 @@ const buildRecordReadResult = ({
   baselineVerifyMeasurement?: Measurement<ReadPagedScanVerification>;
   error?: unknown;
 }): PerfRunResult => {
-  const isOverheadCase = Boolean(config.queryVariant);
   const overheadMs =
     readMeasurement && baselineMeasurement
       ? roundMetric(readMeasurement.durationMs - baselineMeasurement.durationMs)
       : undefined;
-  // The threshold-participating overhead is clamped at 0: when the query variant
-  // runs at or below the baseline, overhead is effectively zero, so a negative
-  // raw delta should not silently satisfy the threshold (every negative value is
-  // <= maxMs and would pass without measuring anything). The signed delta is kept
-  // as the diagnostic getRecordsQueryOverheadSignedMs below, and the
-  // raw baseline/query durations remain reported for full reconstruction.
-  const primaryMetricValue =
-    isOverheadCase && overheadMs != null
-      ? Math.max(overheadMs, 0)
-      : readMeasurement?.durationMs;
+  // Only explicitly overhead-based thresholds clamp the signed delta at zero.
+  // Query-latency thresholds keep the measured request duration as their primary
+  // value; otherwise a faster-than-baseline query would be misreported as 0 ms.
+  const primaryMetricValue = selectRecordReadPrimaryMetricValue({
+    metric: config.threshold.metric,
+    queryDurationMs: readMeasurement?.durationMs,
+    overheadMs,
+  });
 
   return {
     metrics: {
