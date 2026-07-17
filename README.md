@@ -586,6 +586,31 @@ workload.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
+- `record-create/1k-single-line-text-fields-bulk-create`: Measure one
+  1,000-record create request containing the four single-line text fields of a
+  20-field mixed table.
+- `record-create/1k-long-text-fields-bulk-create`: Measure one 1,000-record
+  create request containing only the three long-text fields of a 20-field mixed
+  table.
+- `record-create/1k-number-fields-bulk-create`: Measure one 1,000-record create
+  request containing the three numeric fields of a 20-field mixed table.
+- `record-create/1k-date-fields-bulk-create`: Measure one 1,000-record create
+  request containing the two UTC date fields of a 20-field mixed table.
+- `record-create/1k-checkbox-fields-bulk-create`: Measure one 1,000-record
+  create request containing the two checkbox fields of a 20-field mixed table.
+- `record-create/1k-single-select-fields-bulk-create`: Measure one 1,000-record
+  create request containing the three single-select fields of a 20-field mixed
+  table.
+- `record-create/1k-multiple-select-fields-bulk-create`: Measure one
+  1,000-record create request containing the two multiple-select fields of a
+  20-field mixed table.
+- `record-create/1k-rating-field-bulk-create`: Measure one 1,000-record create
+  request containing only the rating field of a 20-field mixed table.
+- `record-create/1k-primary-text-only-bulk-create`: Measure the narrowest
+  1,000-record create request: one title field in a one-field table.
+- `record-create/1k-wide-table-title-only-bulk-create`: Measure a one-field
+  1,000-record create payload against a 20-field mixed table to expose
+  schema-width overhead independently of request width.
 - `record-duplicate/grid-block-duplicate-1k`: Catch regressions in the grid
   duplicate selected rows path by duplicating a block of 1,000 rows in a
   10,000-row mixed table through

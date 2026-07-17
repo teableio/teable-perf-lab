@@ -34,6 +34,16 @@ import {
 
 export type RecordMutationLifecycleConfig = { tableNamePrefix: string };
 
+export const shouldRestoreSharedMutableSeed = ({
+  reusableSeed,
+  executeDbIsolated,
+  sharedSeedIdentity,
+}: {
+  reusableSeed: boolean;
+  executeDbIsolated: boolean;
+  sharedSeedIdentity: boolean;
+}) => reusableSeed && (!executeDbIsolated || sharedSeedIdentity);
+
 export type RecordMutationLifecycleRunArgs<TConfig, TFixture> = {
   baseId: string;
   perfCase: PerfCase;

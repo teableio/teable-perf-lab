@@ -7,10 +7,12 @@ import {
 import {
   createTable,
   getFields,
+  getRecords,
   getTable,
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
+import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import {
@@ -35,8 +37,17 @@ import type { PerfRunResult } from "../types";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
+  shouldRestoreSharedMutableSeed,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
+import {
+  getRecordCreateExpectedValue,
+  getRecordCreateSeedConfig,
+  getRecordCreateSeedIdentityCase,
+  projectRecordCreatePayloads,
+  RECORD_CREATE_FIXTURE_VERSION,
+  selectRecordCreatePayloadFields,
+} from "./record-create-model";
 
 type NamedField = {
   id: string;
@@ -66,6 +77,8 @@ type RecordCreateFixture = {
   dbTableName: string;
   viewId: string;
   fields: CreateField[];
+  payloadFields: CreateField[];
+  expectedRecords: CreateRecordPayload[];
   records: CreateRecordPayload[];
   seedCacheInfo?: SeedCacheInfo;
   seedCacheHit?: boolean;
@@ -79,12 +92,12 @@ type RecordCreatePrimaryResult = {
   createdRecordIds: string[];
   responseHeaders: Record<string, string>;
   routing: EngineRouting;
-  verifiedRows?: Awaited<ReturnType<typeof assertCreatedRowCount>>;
-  verifyRowCountMs?: number;
+  verification?: Awaited<ReturnType<typeof assertCreatedRecords>>;
+  verifyCreatedMs?: number;
 };
 
-const RECORD_CREATE_FIXTURE_VERSION = "record-create-v2";
 const RECORD_CREATE_METADATA_PREFIX = "perf-lab-record-create:";
+const RECORD_CREATE_CLEANUP_BATCH_SIZE = 100;
 
 type CachedCreatePayload = {
   fixtureVersion: string;
@@ -290,6 +303,7 @@ const buildBaseRecordCreateFixture = async (
   }
 
   const fields = resolveCreateFields(tableFields, config);
+  selectRecordCreatePayloadFields(fields, config.createFieldNames);
 
   return {
     tableId,
@@ -327,43 +341,46 @@ const persistCachedCreatePayload = async (
 
 const resolveCreatePayload = async (
   baseId: string,
-  fixture: Omit<RecordCreateFixture, "records">,
+  fixture: Pick<RecordCreateFixture, "tableId" | "fields">,
   config: RecordCreateCaseConfig,
   cachedPayload?: CachedCreatePayload,
 ) => {
   const fieldIds = fixture.fields.map((field) => field.id);
+  const payloadFields = selectRecordCreatePayloadFields(
+    fixture.fields,
+    config.createFieldNames,
+  );
   if (
     cachedPayload?.fixtureVersion === RECORD_CREATE_FIXTURE_VERSION &&
     cachedPayload.rowCount === config.rowCount &&
     JSON.stringify(cachedPayload.fieldIds) === JSON.stringify(fieldIds)
   ) {
     return {
-      records: cachedPayload.records,
+      expectedRecords: cachedPayload.records,
+      records: projectRecordCreatePayloads(
+        cachedPayload.records,
+        payloadFields,
+      ),
+      payloadFields,
       payloadCacheHit: true,
     };
   }
 
-  const records = buildCreateRecordsPayload(fixture.fields, config);
+  const expectedRecords = buildCreateRecordsPayload(fixture.fields, config);
   await persistCachedCreatePayload(baseId, fixture.tableId, {
     fixtureVersion: RECORD_CREATE_FIXTURE_VERSION,
     rowCount: config.rowCount,
     fieldIds,
-    records,
+    records: expectedRecords,
   });
 
   return {
-    records,
+    expectedRecords,
+    records: projectRecordCreatePayloads(expectedRecords, payloadFields),
+    payloadFields,
     payloadCacheHit: false,
   };
 };
-
-const getRecordCreateSeedConfig = (config: RecordCreateCaseConfig) => ({
-  baseId: config.baseId,
-  rowCount: config.rowCount,
-  fields: config.fields,
-  generator: config.generator,
-  fixtureVersion: RECORD_CREATE_FIXTURE_VERSION,
-});
 
 const prepareRecordCreateFixture = async (
   baseId: string,
@@ -371,13 +388,18 @@ const prepareRecordCreateFixture = async (
   config: RecordCreateCaseConfig,
   perfCase: PerfCase,
 ): Promise<RecordCreateFixture> => {
-  const seedCacheInfo = await buildSeedCacheInfo({
+  const seedIdentityCase = getRecordCreateSeedIdentityCase(
     perfCase,
+    config.seedIdentity,
+  );
+  const seedCacheInfo = await buildSeedCacheInfo({
+    perfCase: seedIdentityCase,
     runner: "record-create",
     fixtureVersion: RECORD_CREATE_FIXTURE_VERSION,
     seedConfig: getRecordCreateSeedConfig(config),
     seedCodeFiles: [
       new URL(import.meta.url),
+      new URL("./record-create-model.ts", import.meta.url),
       new URL("../seed-cache.ts", import.meta.url),
     ],
   });
@@ -403,7 +425,9 @@ const prepareRecordCreateFixture = async (
       );
       return {
         ...fixture,
+        expectedRecords: payload.expectedRecords,
         records: payload.records,
+        payloadFields: payload.payloadFields,
         seedCacheInfo,
         seedCacheHit: true,
         payloadCacheHit: payload.payloadCacheHit,
@@ -440,7 +464,9 @@ const prepareRecordCreateFixture = async (
     const payload = await resolveCreatePayload(baseId, fixture, config);
     return {
       ...fixture,
+      expectedRecords: payload.expectedRecords,
       records: payload.records,
+      payloadFields: payload.payloadFields,
       seedCacheInfo,
       seedCacheHit: false,
       payloadCacheHit: payload.payloadCacheHit,
@@ -477,6 +503,123 @@ const assertCreatedRowCount = async (
   };
 };
 
+const valuesMatch = (
+  expectedValue: ExpectedCellValue,
+  actualValue: unknown,
+) => {
+  if (expectedValue == null) {
+    return actualValue == null;
+  }
+  if (Array.isArray(expectedValue)) {
+    return JSON.stringify(actualValue) === JSON.stringify(expectedValue);
+  }
+  if (typeof expectedValue === "boolean" && actualValue == null) {
+    return expectedValue === false;
+  }
+  if (typeof expectedValue === "number") {
+    return Number(actualValue) === expectedValue;
+  }
+  if (
+    typeof expectedValue === "string" &&
+    /^\d{4}-\d{2}-\d{2}T/.test(expectedValue) &&
+    typeof actualValue === "string"
+  ) {
+    return (
+      new Date(actualValue).toISOString().slice(0, 10) ===
+      expectedValue.slice(0, 10)
+    );
+  }
+  return actualValue === expectedValue;
+};
+
+const assertCreatedRecordSamples = async (
+  fixture: RecordCreateFixture,
+  config: RecordCreateCaseConfig,
+  createdRecordIds: string[],
+) => {
+  const verifiedSamples: Array<{
+    rowOffset: number;
+    rowNumber: number;
+    recordId: string;
+    actual: Record<string, unknown>;
+    expected: Record<string, ExpectedCellValue>;
+  }> = [];
+
+  for (const rowOffset of config.verify.sampleRows) {
+    const rowNumber = rowOffset + 1;
+    const expectedRecord = fixture.expectedRecords[rowOffset];
+    const expectedRecordId = createdRecordIds[rowOffset];
+    if (!expectedRecord || !expectedRecordId) {
+      throw new Error(
+        `Missing record create sample metadata at row offset ${rowOffset}`,
+      );
+    }
+
+    const result = await getRecords(fixture.tableId, {
+      viewId: fixture.viewId,
+      fieldKeyType: FieldKeyType.Id,
+      projection: fixture.fields.map((field) => field.id),
+      skip: rowOffset,
+      take: 1,
+    });
+    const record = result.records[0];
+    if (!record) {
+      throw new Error(
+        `Expected created sample at row offset ${rowOffset}, got ${result.records.length}`,
+      );
+    }
+    if (record.id !== expectedRecordId) {
+      throw new Error(
+        `Created row ${rowNumber} record id mismatch: expected ${expectedRecordId}, got ${record.id}`,
+      );
+    }
+
+    const actual: Record<string, unknown> = {};
+    const expected: Record<string, ExpectedCellValue> = {};
+    for (const field of fixture.fields) {
+      const expectedValue = getRecordCreateExpectedValue(
+        field.name,
+        expectedRecord.fields[field.name] ?? null,
+        config.createFieldNames,
+      );
+      const actualValue = record.fields[field.id];
+      actual[field.name] = actualValue;
+      expected[field.name] = expectedValue;
+
+      if (!valuesMatch(expectedValue, actualValue)) {
+        throw new Error(
+          `Created row ${rowNumber} ${field.name} mismatch: expected ${String(
+            expectedValue,
+          )}, actual ${String(actualValue)}`,
+        );
+      }
+    }
+
+    verifiedSamples.push({
+      rowOffset,
+      rowNumber,
+      recordId: record.id,
+      actual,
+      expected,
+    });
+  }
+
+  return {
+    checkedRecords: verifiedSamples.length,
+    verifiedSamples,
+  };
+};
+
+const assertCreatedRecords = async (
+  baseId: string,
+  fixture: RecordCreateFixture,
+  config: RecordCreateCaseConfig,
+  createdRecordIds: string[],
+) => ({
+  ...(await assertCreatedRowCount(baseId, fixture, config)),
+  ...(await assertCreatedRecordSamples(fixture, config, createdRecordIds)),
+});
+
 const assertSeedReady = async (
   baseId: string,
   fixture: RecordCreateFixture,
@@ -507,14 +650,15 @@ const verifyCreatedRecords = async (
   baseId: string,
   fixture: RecordCreateFixture,
   config: RecordCreateCaseConfig,
+  createdRecordIds: string[],
 ) => {
-  const verifyMeasurement = await measureAsync("verifyRowCount", () =>
-    assertCreatedRowCount(baseId, fixture, config),
+  const verifyMeasurement = await measureAsync("verifyCreated", () =>
+    assertCreatedRecords(baseId, fixture, config, createdRecordIds),
   );
 
   return {
-    verifiedRows: verifyMeasurement.result,
-    verifyRowCountMs: verifyMeasurement.durationMs,
+    verification: verifyMeasurement.result,
+    verifyCreatedMs: verifyMeasurement.durationMs,
   };
 };
 
@@ -560,8 +704,8 @@ const buildRecordCreateCaseResult = ({
         ? {
             bulkCreate1kMs: primaryMeasurement.durationMs,
             createRequestMs: primaryMeasurement.durationMs,
-            ...(primaryResult?.verifyRowCountMs != null
-              ? { verifyRowCountMs: primaryResult.verifyRowCountMs }
+            ...(primaryResult?.verifyCreatedMs != null
+              ? { verifyCreatedMs: primaryResult.verifyCreatedMs }
               : {}),
           }
         : {}),
@@ -607,15 +751,20 @@ const buildRecordCreateCaseResult = ({
       dbTableName: fixture?.dbTableName,
       viewId: fixture?.viewId,
       rowCount: config.rowCount,
-      fieldCount: config.fields.length,
+      fieldCount: fixture?.payloadFields.length ?? config.fields.length,
+      payloadFieldCount: fixture?.payloadFields.length ?? config.fields.length,
+      tableFieldCount: config.fields.length,
       payloadRecords: fixture?.records.length,
       payloadCells: fixture
-        ? fixture.records.length * fixture.fields.length
+        ? fixture.records.length * fixture.payloadFields.length
         : 0,
       fields: fixture?.fields.map((field) => ({
         id: field.id,
         name: field.name,
         type: field.type,
+        includedInCreate: fixture.payloadFields.some(
+          (payloadField) => payloadField.name === field.name,
+        ),
       })),
       prepare: fixture
         ? {
@@ -643,6 +792,9 @@ const buildRecordCreateCaseResult = ({
             status: primaryResult.createStatus,
             requestMs: primaryResult.createRequestMs,
             createdRecords: primaryResult.createdRecordIds.length,
+            fieldCount: fixture?.payloadFields.length,
+            tableFieldCount: fixture?.fields.length,
+            fieldNames: fixture?.payloadFields.map((field) => field.name),
             fieldKeyType: "name",
             typecast: false,
             responseHeaders: primaryResult.responseHeaders,
@@ -651,11 +803,13 @@ const buildRecordCreateCaseResult = ({
         : undefined,
       routing: primaryResult?.routing,
       verification: primaryResult
-        ? primaryResult.verifiedRows
+        ? primaryResult.verification
           ? {
-              method: "sql-count",
-              sqlRowCount: primaryResult.verifiedRows.sqlRowCount,
-              durationMs: primaryResult.verifyRowCountMs,
+              method: "sql-count-and-record-samples",
+              sqlRowCount: primaryResult.verification.sqlRowCount,
+              checkedRecords: primaryResult.verification.checkedRecords,
+              verifiedSamples: primaryResult.verification.verifiedSamples,
+              durationMs: primaryResult.verifyCreatedMs,
             }
           : undefined
         : undefined,
@@ -704,7 +858,12 @@ const runRecordCreateMeasuredOperation = async (
       ),
     },
   };
-  const verification = await verifyCreatedRecords(baseId, fixture, config);
+  const verification = await verifyCreatedRecords(
+    baseId,
+    fixture,
+    config,
+    primaryMeasurement.result.createdRecordIds,
+  );
   primaryMeasurement = {
     ...primaryMeasurement,
     result: {
@@ -719,23 +878,35 @@ const runRecordCreateMeasuredOperation = async (
 // The measured create inserts rows into the reusable empty seed table, so a
 // shared (non-isolated) execute DB must be restored by deleting exactly the
 // records the operation created — or the table dropped if restore fails. The
-// non-reusable case just drops the table. Isolated CI execute DBs are discarded
-// after the job, so no cleanup is needed there.
+// non-reusable case just drops the table. Isolated CI execute DBs normally skip
+// cleanup, but an explicit shared seed identity means sibling cases reuse the
+// same mutable fixture in one process, so cleanup restores it between them.
 const cleanupRecordCreateFixture = async ({
   baseId,
   fixture,
+  config,
   primaryMeasurement,
 }: {
   baseId: string;
   fixture: RecordCreateFixture | undefined;
+  config: RecordCreateCaseConfig;
   primaryMeasurement?: Measurement<RecordCreatePrimaryResult>;
 }) => {
-  if (fixture?.tableId && fixture.reusableSeed && !isExecuteDbIsolated()) {
+  const restoreMutableSeed = shouldRestoreSharedMutableSeed({
+    reusableSeed: Boolean(fixture?.reusableSeed),
+    executeDbIsolated: isExecuteDbIsolated(),
+    sharedSeedIdentity: Boolean(config.seedIdentity),
+  });
+
+  if (fixture?.tableId && restoreMutableSeed) {
     try {
       const createdRecordIds =
         primaryMeasurement?.result.createdRecordIds ?? [];
-      if (createdRecordIds.length > 0) {
-        await deleteRecords(fixture.tableId, createdRecordIds);
+      for (const recordIds of chunk(
+        createdRecordIds,
+        RECORD_CREATE_CLEANUP_BATCH_SIZE,
+      )) {
+        await deleteRecords(fixture.tableId, recordIds);
       }
       await assertSeedReady(baseId, fixture);
     } catch (error) {

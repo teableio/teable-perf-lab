@@ -40,23 +40,26 @@ through grid paste or the CSV import pipeline.
 - Builds a deterministic 1,000-row typed create payload before the primary
   timer starts.
 
-The created records are execute data because record creation is the measured
-operation. Reusable seed tables are restored to the empty-table state after
-non-isolated runs; isolated execute databases are left for job teardown.
+The canonical full-schema payload and empty table are shared with the partial
+payload matrix through one seed identity. The created records are execute data
+because record creation is the measured operation. Cleanup restores the table
+to its empty state between shared sibling cases, including inside an isolated
+multi-case execute job.
 
 ## Execute Phase
 
 1. Start the primary timer.
 2. Call `POST /api/table/{tableId}/record` with:
-   - `fieldKeyType: "id"`
+   - `fieldKeyType: "name"`
    - `typecast: false`
    - `records`: 1,000 deterministic typed records
 3. Stop the primary timer after the create endpoint response.
 4. Assert the response routing matches the requested V1/V2 engine.
 5. Run SQL count verification separately and confirm the table has 1,000 rows.
-6. If the SQL count does not match 1,000 rows, fail the run.
-7. Cleanup removes the records created during execute when the seed table is
-   reusable in a non-isolated run; non-reusable temporary tables are deleted.
+6. Read rows 1, 500, and 1,000 through the records API, match their response
+   IDs, and verify all 20 deterministic values.
+7. Cleanup removes the records created during execute and revalidates the
+   shared empty seed; non-reusable temporary tables are deleted.
 
 ## Primary Metric
 
@@ -64,7 +67,7 @@ non-isolated runs; isolated execute databases are left for job teardown.
 
 Setup diagnostics such as table creation, field resolution, and payload
 construction are recorded separately and are not counted as the primary metric.
-SQL count verification is recorded separately as `verifyRowCountMs`.
+SQL count and sample verification are recorded separately as `verifyCreatedMs`.
 
 ## Notes
 

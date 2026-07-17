@@ -1071,6 +1071,11 @@ export interface RecordCreateCaseConfig {
   tableNamePrefix: string;
   rowCount: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
+  // Cases with identical empty-table fixtures may share one runner-level seed.
+  // Payload selection stays execute-only so siblings can compare request width
+  // without building duplicate table schemas.
+  seedIdentity?: string;
+  createFieldNames?: string[];
   generator: {
     type: "mixed-record-create";
     titlePrefix: string;
