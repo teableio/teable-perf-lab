@@ -20,6 +20,10 @@ import { runDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { seedDuplicateBaseCase } from "./runners/duplicate-base.runner";
 import { runDuplicateTableCase } from "./runners/duplicate-table.runner";
 import { seedDuplicateTableCase } from "./runners/duplicate-table.runner";
+import {
+  runDuplicateViewCase,
+  seedDuplicateViewCase,
+} from "./runners/duplicate-view.runner";
 import { runFieldConvertCase } from "./runners/field-convert.runner";
 import { seedFieldConvertCase } from "./runners/field-convert.runner";
 import { runFieldConvertLinkCase } from "./runners/field-convert-link.runner";
@@ -297,6 +301,11 @@ const runnerInventory = {
     },
     execute: runDuplicateTableCase,
     seed: seedDuplicateTableCase,
+  },
+  "duplicate-view": {
+    implementation: { mode: "direct" },
+    execute: runDuplicateViewCase,
+    seed: seedDuplicateViewCase,
   },
   "duplicate-base": {
     implementation: {

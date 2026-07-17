@@ -1,4 +1,5 @@
 import { FieldKeyType, FieldType, Relationship } from "@teable/core";
+import { createRecords as apiCreateRecords } from "@teable/openapi";
 import {
   createRecords,
   createTable,
@@ -9,6 +10,7 @@ import {
 } from "../../../utils/init-app";
 import { chunk } from "../chunk";
 import { measureAsync, type Measurement } from "../metrics";
+import { pickRoutingResponseHeaders } from "../routing";
 import { buildSeedCacheInfo, findSeedTable } from "../seed-cache";
 import type {
   PerfCase,
@@ -35,13 +37,39 @@ const TABLE_LINK_FIXTURE_VERSION = "table-lifecycle-link-v1";
 const FOREIGN_KEY_FIELD = "Key";
 const FOREIGN_NOTE_FIELD = "Note";
 
+// Seed construction is infrastructure, not the measured engine comparison.
+// V1 link-aware createRecord performs the same row-dependent maintenance that
+// these lifecycle cases are meant to measure later on archive/restore, making
+// a cold 30k fixture exceed the 30-minute case timeout. Force only the batched
+// host inserts through V2 while PERF_LAB_MODE=seed; execute-mode routing remains
+// owned by the requested engine and is asserted by each measured operation.
+const withV2LinkSeedRecordRoute = async <T>(fn: () => Promise<T>) => {
+  if (process.env.PERF_LAB_MODE !== "seed") {
+    return fn();
+  }
+
+  const previousForceV2All = process.env.FORCE_V2_ALL;
+  process.env.FORCE_V2_ALL = "true";
+  try {
+    return await fn();
+  } finally {
+    if (previousForceV2All == null) {
+      delete process.env.FORCE_V2_ALL;
+    } else {
+      process.env.FORCE_V2_ALL = previousForceV2All;
+    }
+  }
+};
+
 export type TableLinkLifecycleCaseConfig = RecordUndoRedoBaseCaseConfig & {
   samples?: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: { metric: string; maxMs: number };
 };
 
 export type TableLinkFixture = RecordReplayFixture & {
+  seedRecordRouting?: Record<string, string>;
   link: {
     fieldId: string;
     fieldName: string;
@@ -331,19 +359,44 @@ const seedMainTable = async (
     };
   });
   const seedBatchDurations: number[] = [];
-  for (const batch of chunk(records, config.batchSize)) {
-    const batchMeasurement = await measureAsync("seedBatch", () =>
-      createRecords(table.id, {
-        fieldKeyType: FieldKeyType.Name,
-        typecast: true,
-        records: batch,
-      }),
+  let seedRecordRouting: Record<string, string> | undefined;
+  await withV2LinkSeedRecordRoute(async () => {
+    for (const batch of chunk(records, config.batchSize)) {
+      const batchMeasurement = await measureAsync("seedBatch", () =>
+        apiCreateRecords(table.id, {
+          fieldKeyType: FieldKeyType.Name,
+          typecast: true,
+          records: batch,
+        }),
+      );
+      expect(batchMeasurement.result.status).toBe(201);
+      seedBatchDurations.push(batchMeasurement.durationMs);
+      expect(batchMeasurement.result.data.records).toHaveLength(batch.length);
+      seedRecordRouting = pickRoutingResponseHeaders(
+        batchMeasurement.result.headers,
+      );
+      if (
+        process.env.PERF_LAB_MODE === "seed" &&
+        seedRecordRouting["x-teable-v2"] !== "true"
+      ) {
+        throw new Error(
+          `Linked-table seed createRecord did not use V2; headers=${JSON.stringify(
+            seedRecordRouting,
+          )}`,
+        );
+      }
+    }
+  });
+
+  if (seedRecordRouting) {
+    console.log(
+      `[perf-lab] linked-table seed record route table=${table.id} headers=${JSON.stringify(
+        seedRecordRouting,
+      )}`,
     );
-    seedBatchDurations.push(batchMeasurement.durationMs);
-    expect(batchMeasurement.result.records).toHaveLength(batch.length);
   }
 
-  return { tableId: table.id, seedBatchDurations };
+  return { tableId: table.id, seedBatchDurations, seedRecordRouting };
 };
 
 const syntheticSeededRecords = (rowCount: number) =>
@@ -462,6 +515,7 @@ export const prepareTableLinkFixture = async (
       )),
       seededRecords: syntheticSeededRecords(config.rowCount),
       seedBatchDurations: main.seedBatchDurations,
+      seedRecordRouting: main.seedRecordRouting,
       seedCacheInfo,
       seedCacheHit: false,
       reusableSeed: seedCacheInfo.enabled,
@@ -544,6 +598,7 @@ export const buildLinkFixtureSeedDetails = (
     foreignTableName: sample.fixture.link.foreignTableName,
     linkFieldId: sample.fixture.link.fieldId,
     foreignRowCount: sample.fixture.link.foreignRowCount,
+    seedRecordRouting: sample.fixture.seedRecordRouting,
   })),
 });
 

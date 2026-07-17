@@ -1,4 +1,4 @@
-import { FieldKeyType } from "@teable/core";
+import { FieldKeyType, FieldType } from "@teable/core";
 import {
   axios,
   deleteFields as apiDeleteFields,
@@ -351,6 +351,35 @@ const runRestoreFieldPrimary = (
   );
 };
 
+const normalizeRestoredCellValue = (
+  field: RecordReplayFixture["fields"][number],
+  value: unknown,
+) => {
+  if (field.type !== FieldType.Date || typeof value !== "string") {
+    return value;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const timeZone = (
+    field.options as { formatting?: { timeZone?: string } } | undefined
+  )?.formatting?.timeZone;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timeZone || "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: "year" | "month" | "day") =>
+    parts.find((candidate) => candidate.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+
 const verifyRestoredFieldValues = async (
   fixture: RecordReplayFixture,
   config: FieldRestoreCaseConfig,
@@ -389,7 +418,17 @@ const verifyRestoredFieldValues = async (
         config,
       );
       const actual = record.fields[restoredFieldConfig.id];
-      if (actual !== expected) {
+      const comparableExpected = normalizeRestoredCellValue(
+        restoredFieldConfig,
+        expected,
+      );
+      const comparableActual = normalizeRestoredCellValue(
+        restoredFieldConfig,
+        actual,
+      );
+      if (
+        JSON.stringify(comparableActual) !== JSON.stringify(comparableExpected)
+      ) {
         throw new Error(
           `Restored field ${restoredFieldConfig.name} row ${rowNumber} mismatch: expected ${String(
             expected,
