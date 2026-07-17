@@ -386,7 +386,12 @@ const main = async () => {
 
     for (const record of result.updated) {
       console.log(
-        `Perf case updated: ${record.caseId} (${record.recordId ?? "unknown record id"})`,
+        `Perf case updated: ${record.caseId} (${record.recordId ?? "unknown record id"}; fields=${record.changes.map((change) => change.name).join(",")})`,
+      );
+    }
+    if (result.updated[0]) {
+      console.log(
+        `Perf case diff sample: ${result.updated[0].caseId} ${JSON.stringify(result.updated[0].changes)}`,
       );
     }
     for (const record of result.created) {

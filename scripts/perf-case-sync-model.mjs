@@ -14,12 +14,18 @@ const assertUniqueDesiredCaseIds = (desiredRecords) => {
   }
 };
 
-const hasStableFieldChanges = (existingFields, desiredFields) =>
-  Object.entries(desiredFields).some(
-    ([name, value]) =>
-      !VOLATILE_FIELD_NAMES.has(name) &&
-      !isDeepStrictEqual(existingFields?.[name], value),
-  );
+const stableFieldChanges = (existingFields, desiredFields) =>
+  Object.entries(desiredFields)
+    .filter(
+      ([name, value]) =>
+        !VOLATILE_FIELD_NAMES.has(name) &&
+        !isDeepStrictEqual(existingFields?.[name], value),
+    )
+    .map(([name, desired]) => ({
+      name,
+      existing: existingFields?.[name],
+      desired,
+    }));
 
 export const buildPerfCaseSyncPlan = ({ desiredRecords, existingRecords }) => {
   assertUniqueDesiredCaseIds(desiredRecords);
@@ -48,10 +54,15 @@ export const buildPerfCaseSyncPlan = ({ desiredRecords, existingRecords }) => {
       continue;
     }
 
-    if (hasStableFieldChanges(existingRecord.fields, desiredRecord.fields)) {
+    const changes = stableFieldChanges(
+      existingRecord.fields,
+      desiredRecord.fields,
+    );
+    if (changes.length > 0) {
       updated.push({
         ...desiredRecord,
         recordId: existingRecord.id,
+        changes,
       });
       continue;
     }
