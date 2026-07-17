@@ -21,6 +21,9 @@ preserving the V2 soft-delete comparison.
 
 Create a deterministic 30,000-row mixed host table, a 1,000-row foreign table,
 and one populated link field whose targets follow the existing permutation.
+Cold seed construction routes the batched host inserts through V2 because seed
+time is infrastructure rather than the measured engine comparison; without
+that separation, V1 link maintenance alone exceeds the 30-minute case timeout.
 
 ## Execute Phase
 
@@ -48,4 +51,7 @@ case and will be tightened after runtime history.
 
 Only host-row scale changes from the 10k sibling; the foreign-table size and
 link permutation remain fixed. The 30k case intentionally uses one sample after
-a three-fixture cold CI seed exceeded its 30-minute case budget.
+a three-fixture cold CI seed exceeded its 30-minute case budget. A single
+fixture also exceeded that budget when seeded through V1, so the shared linked
+table seed now uses the faster V2 create-record route while leaving both
+measured delete routes unchanged.

@@ -56,7 +56,9 @@ the already-dense conditional lookup/rollup matrix. Every case must:
   soft-delete comparison.
 - **Runner**: `table-delete-link` (reuse).
 - **Seed Phase**: one 30,000-row mixed host table plus 1,000 foreign rows and a
-  deterministic populated link field.
+  deterministic populated link field. Batched host inserts use V2 during seed
+  mode because seed construction is not part of the measured engine comparison;
+  the V1 seed route exceeded the 30-minute case budget even for one fixture.
 - **Execute Phase**: archive the referenced table once. The existing 10k case
   keeps three-sample p95 coverage; this 30k scale canary uses one fixture after
   a three-fixture cold CI seed exceeded the 30-minute case budget.
@@ -64,7 +66,9 @@ the already-dense conditional lookup/rollup matrix. Every case must:
 - **Verification**: deleted table is in trash; surviving table remains readable;
   the engine-specific link behavior matches the existing runner contract.
 - **Open Assumptions**: 30k should strengthen the known O(rowCount) V1 signal
-  without using the larger duplicate-table shapes that previously hit 402.
+  without using the larger duplicate-table shapes that previously hit 402. The
+  V2-built seed must remain semantically identical under the existing full-row,
+  link-sample, trash-state, and engine-routing verification.
 
 ## Case 4: `formula/50k-calc`
 
