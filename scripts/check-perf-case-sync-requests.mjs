@@ -187,6 +187,16 @@ try {
       multilineTagsRecord.fields.Tags.includes("lookup"),
     "multiline flow frontmatter tags must preserve their values",
   );
+  assert.deepEqual(
+    storedRecords
+      .filter(
+        (record) =>
+          !Array.isArray(record.fields.Tags) || record.fields.Tags.length === 0,
+      )
+      .map((record) => record.fields["Case ID"]),
+    [],
+    "every registered case must retain non-empty tag metadata",
+  );
 
   const secondStart = requests.length;
   const secondOutput = await runSync(endpoint);
