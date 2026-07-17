@@ -339,6 +339,16 @@ workload.
   standard field type conversion path that rewrites every cell value of the
   column (`PUT /table/{tableId}/field/{fieldId}/convert`, canary feature
   `convertField`).
+- `field-convert/10k-single-select-to-text`: Guard conversion of 10,000 scalar
+  option values to single-line text.
+- `field-convert/10k-number-to-text`: Guard number-to-text conversion and
+  formatted value rewrite at 10k rows.
+- `field-convert/10k-checkbox-to-text`: Guard conversion of checked and
+  unchecked cells to text across 10,000 rows.
+- `field-convert/10k-rating-to-text`: Guard conversion of 10,000 option-bearing
+  rating values to text.
+- `field-convert/10k-long-text-to-text`: Guard multiline long-text normalization
+  while converting 10,000 cells to single-line text.
 - `field-convert/10k-text-to-formula`: Catch regressions in converting a
   populated text column into a computed formula field on a 10k-row grid — the
   complex conversion path that discards old cell values and recomputes the whole
@@ -383,6 +393,16 @@ workload.
 - `field-restore/10k-start-date-field`: Measure restoring a populated date
   field, its formatting metadata, and all 10,000 serialized date values from
   field trash.
+- `field-restore/10k-owner-text-field`: Measure restoring a populated
+  single-line text field and its 10,000 cell values.
+- `field-restore/10k-tags-field`: Measure restoring 10,000 populated
+  multiple-select cells from field trash.
+- `field-restore/10k-amount-field`: Measure restoring a populated numeric column
+  on 10,000 rows.
+- `field-restore/10k-active-field`: Measure restoring 10,000 alternating
+  checkbox values, including unchecked/null storage semantics.
+- `field-restore/10k-score-field`: Measure restoring a populated rating field
+  and 10,000 bounded score values.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
   lookup field from the `lookup/conditional-10k` workload.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
