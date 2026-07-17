@@ -18,6 +18,7 @@ export default definePerfCase({
     // p95 coverage; this scale canary intentionally measures one expensive
     // request so the 30k nonlinear signal remains operationally sustainable.
     samples: 1,
+    samplesMode: "fixed",
     verify: {
       ...baseCase.config.verify,
       sampleRows: [0, 14_999, 29_999],

@@ -63,6 +63,7 @@ const withV2LinkSeedRecordRoute = async <T>(fn: () => Promise<T>) => {
 
 export type TableLinkLifecycleCaseConfig = RecordUndoRedoBaseCaseConfig & {
   samples?: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: { metric: string; maxMs: number };
 };

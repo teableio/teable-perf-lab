@@ -1235,6 +1235,7 @@ export interface FieldRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   threshold: {
     metric: "deleteTableP95Ms";
     maxMs: number;
@@ -1243,6 +1244,7 @@ export interface TableDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   threshold: {
     metric: "restoreTableP95Ms";
     maxMs: number;
@@ -1274,6 +1276,7 @@ export type TableLifecycleLinkConfig = {
 export interface TableDeleteLinkCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: {
     metric: "deleteTableDetachLinkP95Ms" | "deleteTableDetachLink30kMs";
@@ -1287,6 +1290,7 @@ export interface TableDeleteLinkCaseConfig
 export interface TableRestoreLinkCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   samples: number;
+  samplesMode?: "environment" | "fixed";
   link: TableLifecycleLinkConfig;
   threshold: {
     metric: "restoreTableP95Ms";

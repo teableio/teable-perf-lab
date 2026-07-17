@@ -61,7 +61,8 @@ the already-dense conditional lookup/rollup matrix. Every case must:
   the V1 seed route exceeded the 30-minute case budget even for one fixture.
 - **Execute Phase**: archive the referenced table once. The existing 10k case
   keeps three-sample p95 coverage; this 30k scale canary uses one fixture after
-  a three-fixture cold CI seed exceeded the 30-minute case budget.
+  repeated cold CI fixtures exceeded the 30-minute case budget. Its sample
+  count is fixed at one instead of inheriting the workflow-wide sample override.
 - **Primary Metric**: `deleteTableDetachLink30kMs`, initial `maxMs: 30_000`.
 - **Verification**: deleted table is in trash; surviving table remains readable;
   the engine-specific link behavior matches the existing runner contract.

@@ -35,7 +35,9 @@ delete request.
 
 - `deleteTableDetachLink30kMs`: the single 30k archive request. The paired 10k
   case retains three-sample p95 coverage; using one fixture here avoids seeding
-  90k linked host rows merely to repeat an already-established request shape.
+  repeated 30k linked host tables merely to repeat an already-established
+  request shape. This case fixes its sample count at one and intentionally does
+  not inherit the workflow-wide `PERF_LAB_SAMPLES` override.
 
 The initial 30-second guardrail is derived conservatively from the existing 10k
 case and will be tightened after runtime history.
