@@ -9,6 +9,6 @@ export default definePerfCase({
   watchdogMs: 300_000,
   config: {
     ...structuredFieldDuplicateConfig("Attachments", "attachments"),
-    threshold: { metric: "duplicateStructuredFieldMs", maxMs: 20_000 },
+    threshold: { metric: "duplicateStructuredFieldMs", maxMs: 8_000 },
   },
 });

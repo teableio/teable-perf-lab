@@ -45,6 +45,6 @@ values.
 
 ## Notes
 
-The initial 20-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. Seed samples normalize attachment
-objects to deterministic names; source/copy equality remains exact.
+The 8-second guardrail was calibrated from CI run `29647216759`, where the
+primary metric was 2,357.48 ms on V1 and 335.44 ms on V2. Seed samples normalize
+attachment objects to deterministic names; source/copy equality remains exact.
