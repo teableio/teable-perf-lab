@@ -40,5 +40,7 @@ waiting until the copied Formula is correct everywhere.
 
 ## Notes
 
-The initial 120-second bound is intentionally uncalibrated and will be replaced
-from the first official V1/V2 CI evidence before merge.
+The 6-second guardrail was calibrated from official CI runs `29652244869` and
+`29653349659`: valid V1 samples measured 2,406.80 ms and 2,347.99 ms, while the
+successful V2 sample measured 1,018.43 ms. The bound leaves about 2.49x
+headroom over the observed worst while protecting request plus full readiness.

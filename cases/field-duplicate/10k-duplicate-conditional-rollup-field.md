@@ -41,5 +41,7 @@ unique-key match and waiting until the copy is correct across every host row.
 
 ## Notes
 
-The initial 120-second bound is a safety ceiling pending official V1/V2 CI
-calibration.
+The 12-second guardrail was calibrated from official CI runs `29652244869` and
+`29653349659`: valid V1 samples measured 5,292.32 ms and 5,082.78 ms, while the
+successful V2 sample measured 952.25 ms. The bound leaves about 2.27x headroom
+over the observed worst while protecting request plus full readiness.

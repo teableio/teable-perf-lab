@@ -42,4 +42,7 @@ and waiting until every copied aggregate is readable.
 ## Notes
 
 The one-edge-per-host shape isolates duplicate and recompute cost from fanout.
-The initial 120-second bound will be calibrated from official V1/V2 CI evidence.
+The 12-second guardrail was calibrated from official CI runs `29652244869` and
+`29653349659`: valid V1 samples measured 2,602.71 ms and 2,465.84 ms, while the
+successful V2 sample measured 5,122.17 ms. The bound leaves about 2.34x
+headroom over the observed worst while protecting request plus full readiness.
