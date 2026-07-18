@@ -50,6 +50,7 @@ const assertExpectedRouting = (
   responseHeaders: Record<string, string>,
 ) =>
   assertEngineRouting(context, responseHeaders, {
+    feature: "deleteField",
     operation: "Field delete",
   });
 

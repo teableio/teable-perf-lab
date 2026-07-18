@@ -1299,7 +1299,7 @@ export interface FieldDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
     fieldNames: string[];
   };
   threshold: {
-    metric: "delete19FieldsMs";
+    metric: "delete19FieldsMs" | "deleteFieldMs";
     maxMs: number;
   };
 }
