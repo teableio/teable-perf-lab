@@ -115,6 +115,8 @@ import fieldDuplicate10kDuplicateActiveFieldCase from "./cases/field-duplicate/1
 import fieldDuplicate10kDuplicateStatusFieldCase from "./cases/field-duplicate/10k-duplicate-status-field.case";
 import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k-duplicate-tags-field.case";
 import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
+import fieldDuplicate10kDuplicateAssigneeFieldCase from "./cases/field-duplicate/10k-duplicate-assignee-field.case";
+import fieldDuplicate10kDuplicateAttachmentsFieldCase from "./cases/field-duplicate/10k-duplicate-attachments-field.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
@@ -366,6 +368,8 @@ const cases = [
   fieldDuplicate10kDuplicateStatusFieldCase,
   fieldDuplicate10kDuplicateTagsFieldCase,
   fieldDuplicate10kDuplicateScoreFieldCase,
+  fieldDuplicate10kDuplicateAssigneeFieldCase,
+  fieldDuplicate10kDuplicateAttachmentsFieldCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
   duplicateTable10k20FSelflinkCase,

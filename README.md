@@ -490,6 +490,10 @@ workload.
   multiple-select field and its 10,000 arrays.
 - `field-duplicate/10k-duplicate-score-field`: Measure duplicating one populated
   rating field and its 10,000 bounded values.
+- `field-duplicate/10k-duplicate-assignee-field`: Measure duplicating one
+  populated User field and its 10,000 structured values.
+- `field-duplicate/10k-duplicate-attachments-field`: Measure duplicating one
+  populated Attachment field and its 10,000 structured values.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
   table with records included.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record

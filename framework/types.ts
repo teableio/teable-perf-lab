@@ -764,9 +764,26 @@ export interface ScalarFieldDuplicateCaseConfig
   };
 }
 
+export interface StructuredFieldDuplicateCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  mode: "structured";
+  duplicate: {
+    sourceFieldName: string;
+    name: string;
+  };
+  threshold: {
+    metric: "duplicateStructuredFieldMs";
+    maxMs: number;
+  };
+}
+
+export type StoredFieldDuplicateCaseConfig =
+  | ScalarFieldDuplicateCaseConfig
+  | StructuredFieldDuplicateCaseConfig;
+
 export type FieldDuplicateCaseConfig =
   | ConditionalLookupFieldDuplicateCaseConfig
-  | ScalarFieldDuplicateCaseConfig;
+  | StoredFieldDuplicateCaseConfig;
 
 export interface RecordPasteCaseConfig {
   baseId: "seed-base";

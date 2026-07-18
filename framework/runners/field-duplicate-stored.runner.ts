@@ -1,5 +1,9 @@
-import { FieldKeyType } from "@teable/core";
-import { duplicateField } from "@teable/openapi";
+import { FieldKeyType, FieldType } from "@teable/core";
+import {
+  duplicateField,
+  updateRecords,
+  uploadAttachment,
+} from "@teable/openapi";
 import {
   deleteField,
   getFields,
@@ -7,6 +11,7 @@ import {
   permanentDeleteTable,
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
+import { chunk } from "../chunk";
 import { measureAsync, type Measurement } from "../metrics";
 import { forEachRecordPage } from "../record-page-scan";
 import {
@@ -19,10 +24,12 @@ import type {
   PerfCaseFor,
   PerfRunContext,
   PerfRunResult,
-  ScalarFieldDuplicateCaseConfig,
+  StoredFieldDuplicateCaseConfig,
 } from "../types";
 import {
   assertRowsRestored,
+  buildRecordFields,
+  getExpectedCellValue,
   prepareRecordReplayFixture,
   type RecordReplayFixture,
   type RecordReplayVerification,
@@ -40,21 +47,21 @@ type NamedField = {
   isPrimary?: boolean;
 };
 
-type ScalarFieldDuplicateFixture = RecordReplayFixture & {
+type StoredFieldDuplicateFixture = RecordReplayFixture & {
   preparePhase: {
     name: string;
     durationMs: number;
   };
 };
 
-type ScalarFieldDuplicateOperation = {
+type StoredFieldDuplicateOperation = {
   field: NamedField;
   status: number;
   responseHeaders: Record<string, string>;
   routing: EngineRouting;
 };
 
-type ScalarFieldDuplicateVerification = {
+type StoredFieldDuplicateVerification = {
   scannedRecords: number;
   pageSize: number;
   pageCount: number;
@@ -70,9 +77,89 @@ type ScalarFieldDuplicateVerification = {
   }>;
 };
 
-type ScalarFieldDuplicatePrimary = {
-  duplicateFieldMeasurement: Measurement<ScalarFieldDuplicateOperation>;
-  verifyDuplicatedFieldMeasurement: Measurement<ScalarFieldDuplicateVerification>;
+type StoredFieldDuplicatePrimary = {
+  duplicateFieldMeasurement: Measurement<StoredFieldDuplicateOperation>;
+  verifyDuplicatedFieldMeasurement: Measurement<StoredFieldDuplicateVerification>;
+};
+
+const buildStructuredSeedRecordFields = (
+  config: StoredFieldDuplicateCaseConfig,
+  rowNumber: number,
+) =>
+  config.mode !== "structured"
+    ? buildRecordFields(config, rowNumber)
+    : Object.fromEntries(
+        config.fields
+          .filter((field) => field.type !== FieldType.Attachment)
+          .map((field) => [
+            field.name,
+            getExpectedCellValue(field, rowNumber, config),
+          ]),
+      );
+
+const getUpdatedRecordCount = (data: unknown) =>
+  Array.isArray(data)
+    ? data.length
+    : ((data as { records?: unknown[] })?.records?.length ?? 0);
+
+const finalizeStructuredSeed = async (
+  fixture: RecordReplayFixture,
+  config: StoredFieldDuplicateCaseConfig,
+) => {
+  if (config.mode !== "structured") {
+    return;
+  }
+  const sourceField = resolveSourceField(fixture, config);
+  if (sourceField.type !== FieldType.Attachment) {
+    return;
+  }
+
+  const hostRecordId = fixture.seededRecords[0]?.recordId;
+  if (!hostRecordId) {
+    throw new Error("No seeded record available to host the attachment token");
+  }
+  const uploaded = await uploadAttachment(
+    fixture.tableId,
+    hostRecordId,
+    sourceField.id,
+    Buffer.from("teable perf field duplicate attachment seed\n", "utf8"),
+    {
+      filename: "perf-attachment-seed.txt",
+      contentType: "text/plain",
+    },
+  );
+  expect(uploaded.status).toBe(201);
+  const uploadedItems = (uploaded.data.fields[sourceField.id] ?? []) as Array<{
+    token?: string;
+  }>;
+  const token = uploadedItems.find(
+    (item) => typeof item.token === "string",
+  )?.token;
+  if (!token) {
+    throw new Error("Attachment upload did not return a reusable token");
+  }
+
+  for (const batch of chunk(fixture.seededRecords, config.batchSize)) {
+    const response = await updateRecords(fixture.tableId, {
+      fieldKeyType: FieldKeyType.Id,
+      typecast: false,
+      records: batch.map((record) => {
+        const expected = getExpectedCellValue(
+          sourceField,
+          record.rowNumber,
+          config,
+        ) as Array<{ name: string }>;
+        return {
+          id: record.recordId,
+          fields: {
+            [sourceField.id]: expected.map(({ name }) => ({ name, token })),
+          },
+        };
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(getUpdatedRecordCount(response.data)).toBe(batch.length);
+  }
 };
 
 const assertExpectedRouting = (
@@ -86,7 +173,7 @@ const assertExpectedRouting = (
 
 const resolveSourceField = (
   fixture: RecordReplayFixture,
-  config: ScalarFieldDuplicateCaseConfig,
+  config: StoredFieldDuplicateCaseConfig,
 ) => {
   const sourceField = fixture.fields.find(
     (field) => field.name === config.duplicate.sourceFieldName,
@@ -106,11 +193,11 @@ const valuesMatch = (left: unknown, right: unknown) =>
     ? JSON.stringify(left) === JSON.stringify(right)
     : Object.is(left, right);
 
-const assertScalarFieldDuplicated = async (
+const assertStoredFieldDuplicated = async (
   fixture: RecordReplayFixture,
-  config: ScalarFieldDuplicateCaseConfig,
-  operation: ScalarFieldDuplicateOperation,
-): Promise<ScalarFieldDuplicateVerification> => {
+  config: StoredFieldDuplicateCaseConfig,
+  operation: StoredFieldDuplicateOperation,
+): Promise<StoredFieldDuplicateVerification> => {
   const fields = (await getFields(fixture.tableId)) as NamedField[];
   const sourceField = fields.find(
     (field) => field.name === config.duplicate.sourceFieldName,
@@ -144,7 +231,7 @@ const assertScalarFieldDuplicated = async (
 
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleOffsets = new Set(config.verify.sampleRows);
-  const verifiedSamples: ScalarFieldDuplicateVerification["verifiedSamples"] =
+  const verifiedSamples: StoredFieldDuplicateVerification["verifiedSamples"] =
     [];
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
@@ -202,17 +289,17 @@ const assertScalarFieldDuplicated = async (
   };
 };
 
-const buildScalarFieldDuplicateResult = ({
+const buildStoredFieldDuplicateResult = ({
   config,
   fixture,
   seedReadyMeasurement,
   primary,
   error,
 }: {
-  config: ScalarFieldDuplicateCaseConfig;
-  fixture: ScalarFieldDuplicateFixture;
+  config: StoredFieldDuplicateCaseConfig;
+  fixture: StoredFieldDuplicateFixture;
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
-  primary?: ScalarFieldDuplicatePrimary;
+  primary?: StoredFieldDuplicatePrimary;
   error?: unknown;
 }): PerfRunResult => ({
   metrics: {
@@ -233,7 +320,8 @@ const buildScalarFieldDuplicateResult = ({
       : {}),
     ...(primary
       ? {
-          duplicateScalarFieldMs: primary.duplicateFieldMeasurement.durationMs,
+          [config.threshold.metric]:
+            primary.duplicateFieldMeasurement.durationMs,
           verifyDuplicatedFieldMs:
             primary.verifyDuplicatedFieldMeasurement.durationMs,
         }
@@ -272,7 +360,7 @@ const buildScalarFieldDuplicateResult = ({
       : []),
   ],
   details: {
-    operation: "field-duplicate-scalar",
+    operation: `field-duplicate-${config.mode}`,
     tableId: fixture.tableId,
     tableName: fixture.tableName,
     viewId: fixture.viewId,
@@ -325,11 +413,11 @@ const buildScalarFieldDuplicateResult = ({
   },
 });
 
-const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
-  ScalarFieldDuplicateCaseConfig,
-  ScalarFieldDuplicateFixture,
+const storedFieldDuplicateSpec: FieldAddLifecycleSpec<
+  StoredFieldDuplicateCaseConfig,
+  StoredFieldDuplicateFixture,
   RecordReplayVerification,
-  ScalarFieldDuplicatePrimary
+  StoredFieldDuplicatePrimary
 > = {
   prepareFixture: async ({ perfCase, baseId, config, seedMode }) => {
     const tableName = `${config.tableNamePrefix}-${seedMode ? "seed-" : ""}${Date.now()}`;
@@ -338,6 +426,13 @@ const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
         perfCase,
         runner: "field-duplicate",
         seedCodeFiles: [new URL(import.meta.url)],
+        ...(config.mode === "structured"
+          ? {
+              buildSeedRecordFields: buildStructuredSeedRecordFields,
+              finalizeSeed: finalizeStructuredSeed,
+              verifyCachedSamples: true,
+            }
+          : {}),
       }),
     );
     return {
@@ -378,7 +473,7 @@ const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
     const verifyDuplicatedFieldMeasurement = await measureAsync(
       "verifyDuplicatedField",
       () =>
-        assertScalarFieldDuplicated(
+        assertStoredFieldDuplicated(
           fixture,
           config,
           duplicateFieldMeasurement.result,
@@ -389,10 +484,10 @@ const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
   buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
     if (!fixture) {
       throw new Error(
-        "scalar field-duplicate buildResult invoked without a fixture",
+        "stored field-duplicate buildResult invoked without a fixture",
       );
     }
-    return buildScalarFieldDuplicateResult({
+    return buildStoredFieldDuplicateResult({
       config,
       fixture,
       seedReadyMeasurement,
@@ -414,7 +509,7 @@ const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
         }
       } catch (error) {
         console.warn(
-          `Failed to cleanup duplicated scalar field on ${fixture.tableId}`,
+          `Failed to cleanup duplicated stored field on ${fixture.tableId}`,
           error,
         );
       }
@@ -424,21 +519,21 @@ const scalarFieldDuplicateSpec: FieldAddLifecycleSpec<
       await permanentDeleteTable(baseId, fixture.tableId);
     } catch (error) {
       console.warn(
-        `Failed to cleanup scalar field-duplicate table ${fixture.tableId}`,
+        `Failed to cleanup stored field-duplicate table ${fixture.tableId}`,
         error,
       );
     }
   },
 };
 
-export const seedScalarFieldDuplicateCase = (
+export const seedStoredFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
-  seedFieldAddLifecycle(perfCase, context, scalarFieldDuplicateSpec);
+  seedFieldAddLifecycle(perfCase, context, storedFieldDuplicateSpec);
 
-export const runScalarFieldDuplicateCase = (
+export const runStoredFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> =>
-  runFieldAddLifecycle(perfCase, context, scalarFieldDuplicateSpec);
+  runFieldAddLifecycle(perfCase, context, storedFieldDuplicateSpec);
