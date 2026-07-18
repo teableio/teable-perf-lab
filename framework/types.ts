@@ -968,6 +968,11 @@ export interface TableCreateCaseConfig {
     count: number;
     titlePrefix: string;
   };
+  verify?: {
+    mode: "all-fields";
+    sampleRows: number[];
+    fullScanPageSize?: number;
+  };
   threshold: {
     metric:
       | "createTables10xTotalMs"

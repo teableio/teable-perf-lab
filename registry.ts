@@ -104,6 +104,16 @@ import exportBase10k3TablesLink2WorkflowStreamCase from "./cases/export-base/10k
 import tableCreate10x20FNoRecordsCase from "./cases/table-create/10x-20f-no-records.case";
 import tableCreate1x20F1kRecordsCase from "./cases/table-create/1x-20f-1k-records.case";
 import tableCreate1x20F5kRecordsCase from "./cases/table-create/1x-20f-5k-records.case";
+import tableCreate1x1F1kPrimaryOnlyCase from "./cases/table-create/1x-1f-1k-primary-only.case";
+import tableCreate1x10F1kSingleLineTextCase from "./cases/table-create/1x-10f-1k-single-line-text.case";
+import tableCreate1x10F1kLongTextCase from "./cases/table-create/1x-10f-1k-long-text.case";
+import tableCreate1x10F1kNumberCase from "./cases/table-create/1x-10f-1k-number.case";
+import tableCreate1x10F1kDateCase from "./cases/table-create/1x-10f-1k-date.case";
+import tableCreate1x10F1kCheckboxCase from "./cases/table-create/1x-10f-1k-checkbox.case";
+import tableCreate1x10F1kSingleSelectCase from "./cases/table-create/1x-10f-1k-single-select.case";
+import tableCreate1x10F1kMultipleSelectCase from "./cases/table-create/1x-10f-1k-multiple-select.case";
+import tableCreate1x10F1kRatingCase from "./cases/table-create/1x-10f-1k-rating.case";
+import tableCreate1x20F1kSingleLineTextCase from "./cases/table-create/1x-20f-1k-single-line-text.case";
 import tableDelete10k20FCase from "./cases/table-delete/10k-20f.case";
 import tableDelete10k20FLinkDetachCase from "./cases/table-delete/10k-20f-link-detach.case";
 import tableDelete30k20FLinkDetachCase from "./cases/table-delete/30k-20f-link-detach.case";
@@ -308,6 +318,16 @@ const cases = [
   tableCreate10x20FNoRecordsCase,
   tableCreate1x20F1kRecordsCase,
   tableCreate1x20F5kRecordsCase,
+  tableCreate1x1F1kPrimaryOnlyCase,
+  tableCreate1x10F1kSingleLineTextCase,
+  tableCreate1x10F1kLongTextCase,
+  tableCreate1x10F1kNumberCase,
+  tableCreate1x10F1kDateCase,
+  tableCreate1x10F1kCheckboxCase,
+  tableCreate1x10F1kSingleSelectCase,
+  tableCreate1x10F1kMultipleSelectCase,
+  tableCreate1x10F1kRatingCase,
+  tableCreate1x20F1kSingleLineTextCase,
   tableDelete10k20FCase,
   tableDelete10k20FLinkDetachCase,
   tableDelete30k20FLinkDetachCase,

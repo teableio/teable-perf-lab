@@ -470,6 +470,29 @@ workload.
 - `table-create/1x-20f-5k-records`: Scale `table-create/1x-20f-1k-records` by
   5x: create one mixed 20-field table whose measured request carries 5,000
   deterministic inline records.
+- `table-create/1x-1f-1k-primary-only`: Establish the narrowest `createTable`
+  baseline by creating one primary-only table with 1,000 inline records in the
+  measured request.
+- `table-create/1x-10f-1k-single-line-text`: Isolate plain-text inline insertion
+  by creating one ten-field text table with 1,000 records in the measured
+  `createTable` request.
+- `table-create/1x-10f-1k-long-text`: Isolate long-text inline insertion while
+  holding the workload at one table, ten fields, and 1,000 records.
+- `table-create/1x-10f-1k-number`: Isolate native numeric insertion in a
+  `createTable` request carrying 1,000 inline records.
+- `table-create/1x-10f-1k-date`: Isolate UTC date insertion and normalization in
+  `createTable` with 1,000 inline records.
+- `table-create/1x-10f-1k-checkbox`: Isolate checkbox insertion in a ten-field
+  table created with 1,000 inline records.
+- `table-create/1x-10f-1k-single-select`: Isolate single-select option
+  resolution during table creation with 1,000 inline records.
+- `table-create/1x-10f-1k-multiple-select`: Isolate native multiple-select array
+  insertion during table creation with 1,000 inline records.
+- `table-create/1x-10f-1k-rating`: Isolate bounded rating insertion in a
+  ten-field table created with 1,000 inline records.
+- `table-create/1x-20f-1k-single-line-text`: Measure schema and inline-payload
+  width by creating one 20-field text table with 1,000 records in a single
+  `createTable` request.
 - `table-delete/10k-20f`: Measure repeated archive-to-trash requests for 10
   independent 10,000-record mixed 20-field tables in one run.
 - `table-delete/10k-20f-link-detach`: The data-scaling path of `deleteTable`:

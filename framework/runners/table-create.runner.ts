@@ -8,6 +8,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { type Measurement, measureAsync, summarizeDurations } from "../metrics";
+import { forEachRecordPage } from "../record-page-scan";
 import { assertEngineRouting, type EngineRouting } from "../routing";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -38,6 +39,18 @@ type TableVerification = {
   fieldCount: number;
   viewCount: number;
   recordCount: number;
+  fullScan?: {
+    scannedRecords: number;
+    pageSize: number;
+    pageCount: number;
+  };
+  verifiedSamples?: Array<{
+    rowOffset: number;
+    rowNumber: number;
+    recordId: string;
+    actual: Record<string, unknown>;
+    expected: Record<string, unknown>;
+  }>;
 };
 
 const padIndex = (index: number) => String(index).padStart(2, "0");
@@ -105,6 +118,56 @@ const buildInlineRecords = (config: TableCreateCaseConfig) => {
   });
 };
 
+const valuesMatch = (expectedValue: unknown, actualValue: unknown) => {
+  if (expectedValue == null) {
+    return actualValue == null;
+  }
+  if (Array.isArray(expectedValue)) {
+    return JSON.stringify(actualValue) === JSON.stringify(expectedValue);
+  }
+  if (typeof expectedValue === "number") {
+    return Number(actualValue) === expectedValue;
+  }
+  if (
+    typeof expectedValue === "string" &&
+    /^\d{4}-\d{2}-\d{2}T/.test(expectedValue) &&
+    typeof actualValue === "string"
+  ) {
+    return new Date(actualValue).toISOString() === expectedValue;
+  }
+  return actualValue === expectedValue;
+};
+
+const assertInlineRecord = (
+  tableName: string,
+  record: { id: string; fields: Record<string, unknown> },
+  rowNumber: number,
+  config: TableCreateCaseConfig,
+) => {
+  const actual: Record<string, unknown> = {};
+  const expected: Record<string, unknown> = {};
+
+  for (const field of config.fields) {
+    const expectedValue = inlineCellValue(
+      field,
+      rowNumber,
+      config.inlineRecords!.titlePrefix,
+    );
+    const actualValue = record.fields[field.name];
+    actual[field.name] = actualValue ?? null;
+    expected[field.name] = expectedValue;
+    if (!valuesMatch(expectedValue, actualValue)) {
+      throw new Error(
+        `Created table ${tableName} row ${rowNumber} ${field.name} mismatch: expected ${JSON.stringify(
+          expectedValue,
+        )}, actual ${JSON.stringify(actualValue)}`,
+      );
+    }
+  }
+
+  return { actual, expected };
+};
+
 const createOneTable = async (
   baseId: string,
   tableName: string,
@@ -145,11 +208,52 @@ const verifyCreatedTable = async (
 
   const expectedRecordCount = config.inlineRecords?.count ?? 0;
   let recordCount = 0;
+  let fullScan: TableVerification["fullScan"];
+  let verifiedSamples: TableVerification["verifiedSamples"];
   if (expectedRecordCount === 0) {
     const records = await getRecords(created.tableId, { skip: 0, take: 10 });
     if (records.records.length !== 0) {
       throw new Error(
         `Created table ${created.tableName} should be empty, got ${records.records.length} records`,
+      );
+    }
+  } else if (config.verify?.mode === "all-fields") {
+    const pageSize = config.verify.fullScanPageSize ?? 1_000;
+    const sampleRowOffsets = new Set(config.verify.sampleRows);
+    const samples: NonNullable<TableVerification["verifiedSamples"]> = [];
+    const scan = await forEachRecordPage(
+      {
+        totalRows: expectedRecordCount,
+        pageSize,
+        pageNoun: "inline records",
+        fetchPage: (skip, take) => getRecords(created.tableId, { skip, take }),
+      },
+      (record, rowNumber) => {
+        const verified = assertInlineRecord(
+          created.tableName,
+          record,
+          rowNumber,
+          config,
+        );
+        const rowOffset = rowNumber - 1;
+        if (sampleRowOffsets.has(rowOffset)) {
+          samples.push({
+            rowOffset,
+            rowNumber,
+            recordId: record.id,
+            ...verified,
+          });
+        }
+      },
+    );
+    recordCount = scan.scannedRecords;
+    fullScan = { ...scan, pageSize };
+    verifiedSamples = samples.sort(
+      (left, right) => left.rowOffset - right.rowOffset,
+    );
+    if (verifiedSamples.length !== sampleRowOffsets.size) {
+      throw new Error(
+        `Created table ${created.tableName}: verified ${verifiedSamples.length} samples, expected ${sampleRowOffsets.size}`,
       );
     }
   } else {
@@ -203,6 +307,8 @@ const verifyCreatedTable = async (
     fieldCount: fields.length,
     viewCount: views.length,
     recordCount,
+    fullScan,
+    verifiedSamples,
   };
 };
 
