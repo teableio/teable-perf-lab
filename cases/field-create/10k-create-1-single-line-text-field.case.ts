@@ -16,6 +16,6 @@ export default definePerfCase({
     ...scalarFieldCreateBase,
     tableNamePrefix: "perf-field-create-10k-1-single-line-text",
     fields: scalarFieldAddMatrix.singleLineText1,
-    threshold: { metric: "createScalarFieldsMs", maxMs: 40_000 },
+    threshold: { metric: "createScalarFieldsMs", maxMs: 5_000 },
   },
 });

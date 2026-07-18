@@ -25,7 +25,7 @@ request count.
 
 ## Primary Metric
 
-- `createScalarFieldsMs`: all ten field-create requests, maximum 40,000 ms.
+- `createScalarFieldsMs`: all ten field-create requests, maximum 20,000 ms.
 
 ## Notes
 
