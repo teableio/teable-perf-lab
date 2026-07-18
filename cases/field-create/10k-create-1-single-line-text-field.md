@@ -25,7 +25,7 @@ field to a deterministic 10,000-record table.
 
 ## Primary Metric
 
-- `createScalarFieldsMs`: the one field-create request, maximum 40,000 ms.
+- `createScalarFieldsMs`: the one field-create request, maximum 5,000 ms.
 
 ## Notes
 

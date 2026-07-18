@@ -1263,10 +1263,10 @@ const buildSeedCache = (perfCase: PerfCase, config: FieldCreateCaseConfig) =>
 
 type FieldCreateLifecycleFixture = FieldCreateFixture & {
   // The prepare phase the driver does not emit: in the execute path it is the
-  // measured "prepareFieldCreate" phase; in the seed path it is a synthetic
-  // zero-duration "seedBuild"/"seedRestore" marker. Carried on the (mutable)
-  // fixture so buildResult can rebuild the prepare measurement from the live
-  // object, after seedReady/backfill have mutated it in place.
+  // measured "prepareFieldCreate" phase; in the seed path it is the measured
+  // "seedBuild"/"seedRestore" phase. Carried on the (mutable) fixture so
+  // buildResult can rebuild the prepare measurement from the live object,
+  // after seedReady/backfill have mutated it in place.
   prepareName: string;
   prepareDurationMs: number;
 };
@@ -1299,17 +1299,21 @@ const fieldCreateFieldAddSpec: FieldAddLifecycleSpec<
     const seedCacheInfo = await buildSeedCache(perfCase, config);
     if (seedMode) {
       const tableName = `${config.tableNamePrefix}-seed-${Date.now()}`;
-      const fixture = await buildFieldCreateFixture(
-        perfCase,
-        context,
-        baseId,
-        tableName,
-        config,
-        seedCacheInfo,
+      const prepareMeasurement = await measureAsync("prepareFieldCreate", () =>
+        buildFieldCreateFixture(
+          perfCase,
+          context,
+          baseId,
+          tableName,
+          config,
+          seedCacheInfo,
+        ),
       );
-      return Object.assign(fixture, {
-        prepareName: fixture.seedCacheHit ? "seedRestore" : "seedBuild",
-        prepareDurationMs: 0,
+      return Object.assign(prepareMeasurement.result, {
+        prepareName: prepareMeasurement.result.seedCacheHit
+          ? "seedRestore"
+          : "seedBuild",
+        prepareDurationMs: prepareMeasurement.durationMs,
       });
     }
     const tableName = `${config.tableNamePrefix}-${Date.now()}`;

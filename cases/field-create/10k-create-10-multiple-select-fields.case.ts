@@ -16,6 +16,6 @@ export default definePerfCase({
     ...scalarFieldCreateBase,
     tableNamePrefix: "perf-field-create-10k-10-multiple-select",
     fields: scalarFieldAddMatrix.multipleSelect10,
-    threshold: { metric: "createScalarFieldsMs", maxMs: 40_000 },
+    threshold: { metric: "createScalarFieldsMs", maxMs: 20_000 },
   },
 });

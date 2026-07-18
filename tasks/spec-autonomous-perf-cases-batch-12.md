@@ -33,9 +33,10 @@ cases keep their current aggregate trace step.
 
 All cases initially use `createScalarFieldsMs` with `maxMs: 40_000`. This is the
 established guardrail of the existing nineteen-field case, whose historical
-worst is about 18.7 seconds. Official Batch 12 artifacts may justify a tighter
-shared threshold, but the first run must not be calibrated from local timings
-alone.
+worst is about 18.7 seconds. Official run 29632011977 measured 1, 10, and
+20-field V1 maxima of 1,055.16 ms, 9,239.53 ms, and 17,906.97 ms. The accepted
+guardrails are therefore 5,000 ms for one field, 20,000 ms for ten fields, and
+40,000 ms for twenty fields.
 
 ## Cases
 

@@ -16,6 +16,6 @@ export default definePerfCase({
     ...scalarFieldCreateBase,
     tableNamePrefix: "perf-field-create-10k-10-number",
     fields: scalarFieldAddMatrix.number10,
-    threshold: { metric: "createScalarFieldsMs", maxMs: 40_000 },
+    threshold: { metric: "createScalarFieldsMs", maxMs: 20_000 },
   },
 });
