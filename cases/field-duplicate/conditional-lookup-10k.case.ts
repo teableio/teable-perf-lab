@@ -36,9 +36,7 @@ export default definePerfCase({
     },
     threshold: {
       metric: "conditionalLookupDuplicateReadyMs",
-      // Temporarily widened because Batch 17 corrects this metric from
-      // request-only to request + full readiness; recalibrate in official CI.
-      maxMs: 120_000,
+      maxMs: 6_000,
     },
   },
 });

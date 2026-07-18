@@ -34,8 +34,7 @@ export default definePerfCase({
     },
     threshold: {
       metric: "computedFieldDuplicateReadyMs",
-      // Initial safety bound; calibrate from the first official V1/V2 run.
-      maxMs: 120_000,
+      maxMs: 12_000,
     },
   },
 });

@@ -63,5 +63,7 @@ This case intentionally reuses the same deterministic source and host shape as
 conditional lookup creation. The source lookup field is part of the reusable
 seed; `createSourceLookupFieldMs` and `sourceLookupScanReadyMs` are seed
 diagnostics and are not included in the primary metric. `duplicateFieldMs` and
-`duplicatedLookupScanReadyMs` remain separate diagnostics. The temporary
-120-second bound will be replaced from Batch 17 official V1/V2 CI evidence.
+`duplicatedLookupScanReadyMs` remain separate diagnostics. The 6-second
+guardrail was calibrated from official CI runs `29652244869` and `29653349659`:
+V1 measured 2,448.29 ms and 2,335.45 ms, while V2 measured 1,119.53 ms and
+906.09 ms. The bound leaves about 2.45x headroom over the observed worst.
