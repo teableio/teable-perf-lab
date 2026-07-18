@@ -1,0 +1,42 @@
+---
+owner: backend-v2
+tags:
+  - record-paste
+  - paste
+  - 1k
+  - field-matrix
+  - date
+  - v1-v2
+enabled: true
+---
+
+# record-paste/1k-date-10fields
+
+## Goal
+
+Measure date parsing and UTC normalization while grid-pasting 1,000 records into
+a fixed-width ten-field table.
+
+## Seed Phase
+
+- No reusable records are seeded.
+- Execute setup creates an empty table with `Title` plus nine UTC date fields
+  and builds a deterministic 1,000 × 10 calendar-date TSV before measurement.
+
+## Execute Phase
+
+1. Paste the title/date block into the empty table.
+2. Assert the response status, response shape, and requested engine route.
+3. Stop the timer, then full scan all 1,000 rows and normalize every date.
+4. Verify rows 1, 500, and 1,000 explicitly, then clean up the table.
+
+## Primary Metric
+
+- `paste1kMs`: elapsed time for the paste request and response assertions;
+  calibrated guardrail `maxMs: 6_000`.
+
+## Notes
+
+All date fields use `YYYY-MM-DD`, no time component, and UTC. Readback compares
+the normalized ISO instant. Verification and cleanup are outside the metric.
+V1 uses range paste; V2 uses paste-by-id.

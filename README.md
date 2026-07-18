@@ -698,6 +698,28 @@ workload.
   1,000 mixed-type records through the grid selection delete path.
 - `record-redo/delete-1k`: Measure redo replay performance after a user deletes
   1,000 mixed-type records and then undoes that delete.
+- `record-paste/1k-primary-only`: Measure the lower-bound grid paste path for
+  inserting 1,000 records into an empty primary-only table.
+- `record-paste/1k-single-line-text-10fields`: Measure grid paste performance
+  for 1,000 records in a fixed-width ten-field single-line text table.
+- `record-paste/1k-long-text-10fields`: Measure grid paste performance for 1,000
+  records in a ten-field table dominated by long-text payloads.
+- `record-paste/1k-number-10fields`: Measure numeric clipboard parsing and grid
+  paste insertion for 1,000 records in a fixed-width ten-field table.
+- `record-paste/1k-date-10fields`: Measure date parsing and UTC normalization
+  while grid-pasting 1,000 records into a fixed-width ten-field table.
+- `record-paste/1k-checkbox-10fields`: Measure boolean and blank-cell
+  typecasting while grid-pasting 1,000 records into a fixed-width ten-field
+  table.
+- `record-paste/1k-single-select-10fields`: Measure single-select option
+  resolution while grid-pasting 1,000 records into a fixed-width ten-field table.
+- `record-paste/1k-multiple-select-10fields`: Measure comma-delimited
+  multi-select parsing and option resolution while grid-pasting 1,000 records
+  into a ten-field table.
+- `record-paste/1k-rating-10fields`: Measure bounded rating typecasting while
+  grid-pasting 1,000 records into a fixed-width ten-field table.
+- `record-paste/1k-mixed-20fields`: Measure a bounded 1,000-row grid paste
+  across the established 20-field mixed scalar schema.
 - `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
   for inserting 10,000 flat records into an empty 20-field table through
   `PATCH /api/table/{tableId}/selection/paste`.
