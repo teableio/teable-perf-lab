@@ -41,12 +41,14 @@ import {
 
 type NamedField = { id: string; name: string };
 
-type SourceFields = {
+export type FormulaSourceFields = {
   Title: NamedField;
   A: NamedField;
   B: NamedField;
   C: NamedField;
 };
+
+type SourceFields = FormulaSourceFields;
 
 type SeedRecordInput = {
   rowOffset: number;
@@ -70,7 +72,7 @@ type FormulaRunResult = {
   verifiedSamples: Awaited<ReturnType<typeof waitForFormulaSamples>>;
 };
 
-type FormulaSeedFixture = {
+export type FormulaSeedFixture = {
   tableId: string;
   tableName: string;
   sourceFields: SourceFields;
@@ -113,7 +115,7 @@ const resolveSourceFields = (fields: NamedField[]): SourceFields => {
   };
 };
 
-const getExpectedRow = (
+export const getExpectedFormulaRow = (
   rowNumber: number,
   titlePrefix: string,
 ): Record<keyof SourceFields, string | number> & {
@@ -137,6 +139,8 @@ const getExpectedRow = (
     },
   };
 };
+
+const getExpectedRow = getExpectedFormulaRow;
 
 const parseTitleRowNumber = (value: unknown, titlePrefix: string) => {
   if (typeof value !== "string") {
@@ -196,7 +200,7 @@ const compileFormulaExpression = (
   });
 };
 
-const buildCompiledFormulas = (
+export const buildCompiledFormulas = (
   config: FormulaTableCaseConfig,
   fields: Array<FormulaTableCaseConfig["fields"][number] & { id: string }>,
 ) =>
@@ -271,10 +275,14 @@ const getCachedSampleRecords = async (
 const cleanupCachedFormulaFields = async (
   tableId: string,
   fields: NamedField[],
+  preserveFieldNames: readonly string[] = [],
 ) => {
   const sourceFieldNameSet = new Set<string>(sourceFieldNames);
+  const preservedFieldNameSet = new Set(preserveFieldNames);
   const extraFields = fields.filter(
-    (field) => !sourceFieldNameSet.has(field.name),
+    (field) =>
+      !sourceFieldNameSet.has(field.name) &&
+      !preservedFieldNameSet.has(field.name),
   );
   for (const field of extraFields) {
     await deleteField(tableId, field.id);
@@ -372,7 +380,7 @@ const assertSourceSamples = async (
   return verifiedSamples;
 };
 
-const waitForSourceSamples = async (
+export const waitForFormulaSourceSamples = async (
   tableId: string,
   sourceFields: SourceFields,
   config: FormulaTableCaseConfig,
@@ -387,6 +395,8 @@ const waitForSourceSamples = async (
     async () =>
       assertSourceSamples(tableId, sourceFields, config, sampleRecords),
   );
+
+const waitForSourceSamples = waitForFormulaSourceSamples;
 
 const assertFormulaSamples = async (
   tableId: string,
@@ -546,7 +556,7 @@ const assertFormulaFullScan = async (
   };
 };
 
-const waitForFormulaFullScan = async (
+export const waitForFormulaFullScan = async (
   tableId: string,
   formulas: Array<FormulaFieldCaseConfig & { id: string }>,
   config: FormulaTableCaseConfig,
@@ -830,13 +840,14 @@ const createFormulaFieldsAndWaitForSamples = async (
   );
 };
 
-const buildFormulaSeedFixture = async (
+export const buildFormulaSeedFixture = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   baseId: string,
   tableName: string,
   config: FormulaTableCaseConfig,
   seedCacheInfo: SeedCacheInfo,
+  options: { preserveComputedFieldNames?: readonly string[] } = {},
 ): Promise<FormulaSeedFixture> => {
   const cachedTable =
     seedCacheInfo.enabled &&
@@ -845,7 +856,11 @@ const buildFormulaSeedFixture = async (
   if (cachedTable) {
     try {
       const tableFields = await getFields(cachedTable.id);
-      await cleanupCachedFormulaFields(cachedTable.id, tableFields);
+      await cleanupCachedFormulaFields(
+        cachedTable.id,
+        tableFields,
+        options.preserveComputedFieldNames,
+      );
       const cleanedTableFields = await getFields(cachedTable.id);
       const sourceFields = resolveSourceFields(cleanedTableFields);
       const sampleRecords = await getCachedSampleRecords(
