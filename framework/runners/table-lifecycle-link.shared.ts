@@ -73,9 +73,12 @@ export type TableLinkFixture = RecordReplayFixture & {
   link: {
     fieldId: string;
     fieldName: string;
+    relationship: string;
+    isOneWay: boolean;
     foreignTableId: string;
     foreignTableName: string;
     foreignKeyFieldId: string;
+    foreignFieldIds: string[];
     foreignRowCount: number;
   };
 };
@@ -91,6 +94,30 @@ export type LinkFieldState = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
+
+const configuredRelationship = (config: TableLinkLifecycleCaseConfig) =>
+  config.link.relationship ?? "manyOne";
+
+const relationshipValue = (config: TableLinkLifecycleCaseConfig) => {
+  switch (configuredRelationship(config)) {
+    case "manyMany":
+      return Relationship.ManyMany;
+    case "oneMany":
+      return Relationship.OneMany;
+    case "manyOne":
+      return Relationship.ManyOne;
+    case "oneOne":
+      return Relationship.OneOne;
+  }
+};
+
+const configuredIsOneWay = (config: TableLinkLifecycleCaseConfig) =>
+  config.link.isOneWay ?? true;
+
+const isMultipleLinkValue = (config: TableLinkLifecycleCaseConfig) => {
+  const relationship = configuredRelationship(config);
+  return relationship === "manyMany" || relationship === "oneMany";
+};
 
 export const foreignRowForMainRow = (
   mainRowNumber: number,
@@ -161,14 +188,35 @@ const resolveLinkFixture = async (
       `Link field ${config.link.fieldName} has type ${linkField.type}; it was likely detached by a previous v1 delete run`,
     );
   }
-  const linkForeignTableId = (
-    linkField.options as { foreignTableId?: string } | undefined
-  )?.foreignTableId;
+  const linkOptions = linkField.options as
+    | {
+        foreignTableId?: string;
+        relationship?: string;
+        isOneWay?: boolean;
+      }
+    | undefined;
+  const linkForeignTableId = linkOptions?.foreignTableId;
   if (linkForeignTableId !== foreignTableId) {
     throw new Error(
       `Link field ${config.link.fieldName} points at ${String(
         linkForeignTableId,
       )}, expected foreign table ${foreignTableId}`,
+    );
+  }
+  const expectedRelationship = configuredRelationship(config);
+  if (linkOptions?.relationship !== expectedRelationship) {
+    throw new Error(
+      `Link field ${config.link.fieldName} relationship is ${String(
+        linkOptions?.relationship,
+      )}; expected ${expectedRelationship}`,
+    );
+  }
+  const expectedIsOneWay = configuredIsOneWay(config);
+  if (Boolean(linkOptions?.isOneWay) !== expectedIsOneWay) {
+    throw new Error(
+      `Link field ${config.link.fieldName} isOneWay is ${String(
+        linkOptions?.isOneWay,
+      )}; expected ${expectedIsOneWay}`,
     );
   }
 
@@ -197,12 +245,28 @@ const resolveLinkFixture = async (
     link: {
       fieldId: linkField.id,
       fieldName: config.link.fieldName,
+      relationship: expectedRelationship,
+      isOneWay: expectedIsOneWay,
       foreignTableId,
       foreignTableName,
       foreignKeyFieldId: foreignKeyField.id,
+      foreignFieldIds: foreignFields.map((field) => field.id),
       foreignRowCount: config.link.foreignTable.rowCount,
     },
   };
+};
+
+type LinkCellItem = { id?: string; title?: string };
+
+const normalizeLinkCellItems = (value: unknown): LinkCellItem[] => {
+  if (Array.isArray(value)) {
+    return value.filter(
+      (item): item is LinkCellItem => typeof item === "object" && item !== null,
+    );
+  }
+  return typeof value === "object" && value !== null
+    ? [value as LinkCellItem]
+    : [];
 };
 
 // Link cell evidence on sample rows: the cell must resolve to the permuted
@@ -226,12 +290,17 @@ export const assertLinkCellSamples = async (
       throw new Error(`Link sample row at offset ${rowOffset} not found`);
     }
 
-    const linkValue = record.fields[fixture.link.fieldId] as
-      | { id?: string; title?: string }
-      | undefined;
-    if (!linkValue?.id) {
-      throw new Error(`Main row ${rowNumber} has no link cell value`);
+    const linkItems = normalizeLinkCellItems(
+      record.fields[fixture.link.fieldId],
+    );
+    if (linkItems.length !== 1 || !linkItems[0]?.id) {
+      throw new Error(
+        `Main row ${rowNumber} expected one link cell value, got ${JSON.stringify(
+          record.fields[fixture.link.fieldId],
+        )}`,
+      );
     }
+    const linkValue = linkItems[0];
     const expectedTitle = expectedForeignKey(
       foreignRowForMainRow(rowNumber, config),
       config,
@@ -333,9 +402,9 @@ const seedMainTable = async (
         name: config.link.fieldName,
         type: FieldType.Link,
         options: {
-          relationship: Relationship.ManyOne,
+          relationship: relationshipValue(config),
           foreignTableId,
-          isOneWay: true,
+          isOneWay: configuredIsOneWay(config),
         },
       },
     ],
@@ -354,7 +423,9 @@ const seedMainTable = async (
     return {
       fields: {
         ...buildRecordFields(config, rowNumber),
-        [config.link.fieldName]: { id: foreignRecordId },
+        [config.link.fieldName]: isMultipleLinkValue(config)
+          ? [{ id: foreignRecordId }]
+          : { id: foreignRecordId },
       },
     };
   });
@@ -427,7 +498,9 @@ export const prepareTableLinkFixture = async (
         ? new URL("./table-delete-link.runner.ts", import.meta.url)
         : runner === "table-restore-link"
           ? new URL("./table-restore-link.runner.ts", import.meta.url)
-          : new URL("./record-delete-link.runner.ts", import.meta.url),
+          : runner === "field-duplicate"
+            ? new URL("./field-duplicate-link.runner.ts", import.meta.url)
+            : new URL("./record-delete-link.runner.ts", import.meta.url),
     ],
   });
 
@@ -597,6 +670,8 @@ export const buildLinkFixtureSeedDetails = (
     foreignTableId: sample.fixture.link.foreignTableId,
     foreignTableName: sample.fixture.link.foreignTableName,
     linkFieldId: sample.fixture.link.fieldId,
+    relationship: sample.fixture.link.relationship,
+    isOneWay: sample.fixture.link.isOneWay,
     foreignRowCount: sample.fixture.link.foreignRowCount,
     seedRecordRouting: sample.fixture.seedRecordRouting,
   })),

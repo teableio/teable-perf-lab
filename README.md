@@ -494,6 +494,19 @@ workload.
   populated User field and its 10,000 structured values.
 - `field-duplicate/10k-duplicate-attachments-field`: Measure duplicating one
   populated Attachment field and its 10,000 structured values.
+- `field-duplicate/10k-duplicate-many-many-link-field`: Measure duplicating a
+  populated two-way many-many Link field with 10,000 junction-table edges.
+- `field-duplicate/10k-duplicate-one-many-one-way-link-field`: Measure
+  duplicating a populated one-way one-many Link field with 10,000 exclusive
+  junction-table edges.
+- `field-duplicate/10k-duplicate-many-one-link-field`: Measure duplicating a
+  populated two-way many-one Link field with 10,000 host foreign-key values.
+- `field-duplicate/v2-only-10k-duplicate-one-one-link-field`: Measure the
+  supported V2 path for duplicating a populated two-way one-one Link field with
+  10,000 exclusive host foreign-key values. V1 returns an explicit skipped
+  artifact because its duplicate path currently attempts to create the copy with
+  the source field's constraint name and PostgreSQL rejects it with
+  `42710 duplicate_object`.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
   table with records included.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
