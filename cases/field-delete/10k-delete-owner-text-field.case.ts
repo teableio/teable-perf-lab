@@ -9,6 +9,6 @@ export default definePerfCase({
   watchdogMs: 300_000,
   config: {
     ...scalarFieldDeleteConfig("Owner Text", "owner-text"),
-    threshold: { metric: "deleteFieldMs", maxMs: 10_000 },
+    threshold: { metric: "deleteFieldMs", maxMs: 2_000 },
   },
 });
