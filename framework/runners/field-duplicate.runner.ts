@@ -24,6 +24,7 @@ import type {
   PerfCase,
   PerfRunContext,
   PerfRunResult,
+  LinkFieldDuplicateCaseConfig,
   StoredFieldDuplicateCaseConfig,
 } from "../types";
 import {
@@ -38,6 +39,10 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
+import {
+  runLinkFieldDuplicateCase,
+  seedLinkFieldDuplicateCase,
+} from "./field-duplicate-link.runner";
 import {
   runStoredFieldDuplicateCase,
   seedStoredFieldDuplicateCase,
@@ -493,14 +498,23 @@ const isStoredFieldDuplicateConfig = (
   "mode" in config &&
   (config.mode === "scalar" || config.mode === "structured");
 
+const isLinkFieldDuplicateConfig = (
+  config: FieldDuplicateCaseConfig,
+): config is LinkFieldDuplicateCaseConfig =>
+  "mode" in config && config.mode === "link";
+
 export const seedFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FieldDuplicateCaseConfig;
-  return isStoredFieldDuplicateConfig(config)
-    ? seedStoredFieldDuplicateCase(perfCase, context)
-    : seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+  if (isStoredFieldDuplicateConfig(config)) {
+    return seedStoredFieldDuplicateCase(perfCase, context);
+  }
+  if (isLinkFieldDuplicateConfig(config)) {
+    return seedLinkFieldDuplicateCase(perfCase, context);
+  }
+  return seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };
 
 export const runFieldDuplicateCase = (
@@ -508,7 +522,11 @@ export const runFieldDuplicateCase = (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FieldDuplicateCaseConfig;
-  return isStoredFieldDuplicateConfig(config)
-    ? runStoredFieldDuplicateCase(perfCase, context)
-    : runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+  if (isStoredFieldDuplicateConfig(config)) {
+    return runStoredFieldDuplicateCase(perfCase, context);
+  }
+  if (isLinkFieldDuplicateConfig(config)) {
+    return runLinkFieldDuplicateCase(perfCase, context);
+  }
+  return runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };

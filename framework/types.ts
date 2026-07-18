@@ -781,9 +781,33 @@ export type StoredFieldDuplicateCaseConfig =
   | ScalarFieldDuplicateCaseConfig
   | StructuredFieldDuplicateCaseConfig;
 
+export interface LinkFieldDuplicateCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  mode: "link";
+  // Some relationship shapes may only have a runnable duplicate contract on
+  // V2. Seed still runs through the bootstrap engine so CI can restore the
+  // fixture before the V2 execute job; only execute returns a V1 skip artifact.
+  v2Only?: {
+    reason: string;
+  };
+  link: TableLifecycleLinkConfig & {
+    relationship: LinkRelationshipKind;
+    isOneWay: boolean;
+  };
+  duplicate: {
+    sourceFieldName: string;
+    name: string;
+  };
+  threshold: {
+    metric: "duplicateLinkFieldMs";
+    maxMs: number;
+  };
+}
+
 export type FieldDuplicateCaseConfig =
   | ConditionalLookupFieldDuplicateCaseConfig
-  | StoredFieldDuplicateCaseConfig;
+  | StoredFieldDuplicateCaseConfig
+  | LinkFieldDuplicateCaseConfig;
 
 export interface RecordPasteCaseConfig {
   baseId: "seed-base";
@@ -1366,13 +1390,21 @@ export interface TableRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
   };
 }
 
-// A one-way many-one link field on the main table pointing at a small foreign
-// table; one-way so archiving the main table leaves no inbound link field for
-// detachLink to convert, keeping the fixture reusable across samples and runs.
+export type LinkRelationshipKind =
+  | "manyMany"
+  | "oneMany"
+  | "manyOne"
+  | "oneOne";
+
+// A populated link field on the main table pointing at a deterministic foreign
+// table. Lifecycle cases use the default one-way many-one shape; callers that
+// exercise relationship behavior can opt into another relationship explicitly.
 // A type alias (not an interface) so it stays assignable to the seed cache's
 // JsonValue config hash input, which relies on implicit index signatures.
 export type TableLifecycleLinkConfig = {
   fieldName: string;
+  relationship?: LinkRelationshipKind;
+  isOneWay?: boolean;
   foreignTable: {
     rowCount: number;
     batchSize: number;
