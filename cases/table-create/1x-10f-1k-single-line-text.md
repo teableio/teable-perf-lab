@@ -23,9 +23,11 @@ three fixed samples, assert routing, and delete the table.
 
 ## Primary Metric
 
-- `createTable1x1kRecordsMs`: request wall time, initial maximum 8,000 ms.
+- `createTable1x1kRecordsMs`: request wall time, calibrated maximum 4,000 ms.
 
 ## Notes
 
 Compare with the primary-only case to expose payload-width cost without
 typecasting differences.
+The shared ten-field guardrail retains about 2.5x headroom over the first
+official matrix worst sample (1,605.87 ms).

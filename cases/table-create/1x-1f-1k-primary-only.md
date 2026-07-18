@@ -23,9 +23,11 @@ rows 1/500/1,000 as evidence, then delete the table.
 
 ## Primary Metric
 
-- `createTable1x1kRecordsMs`: create-table request wall time, initial maximum
-  8,000 ms pending CI calibration.
+- `createTable1x1kRecordsMs`: create-table request wall time, calibrated maximum
+  4,000 ms.
 
 ## Notes
 
 This is the lower bound for the wider and typed inline-record variants.
+The 4-second guardrail retains more than 6x headroom over the first official
+V1/V2 worst sample (611.08 ms).

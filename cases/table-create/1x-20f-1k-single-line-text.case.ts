@@ -12,7 +12,7 @@ export default definePerfCase({
     fields: tableCreate1kFields.singleLineText20,
     threshold: {
       metric: "createTable1x1kRecordsMs",
-      maxMs: 8_000,
+      maxMs: 6_000,
     },
   },
 });

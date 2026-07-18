@@ -23,8 +23,10 @@ samples, assert routing, and delete the table.
 
 ## Primary Metric
 
-- `createTable1x1kRecordsMs`: request wall time, initial maximum 8,000 ms.
+- `createTable1x1kRecordsMs`: request wall time, calibrated maximum 4,000 ms.
 
 ## Notes
 
 Inline records use native numbers; the create-table path performs no typecast.
+The guardrail is calibrated from the first official V1/V2 matrix run, whose
+ten-field worst sample was 1,605.87 ms.

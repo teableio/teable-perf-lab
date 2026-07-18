@@ -23,9 +23,11 @@ assert routing, and delete the table.
 
 ## Primary Metric
 
-- `createTable1x1kRecordsMs`: request wall time, initial maximum 8,000 ms.
+- `createTable1x1kRecordsMs`: request wall time, calibrated maximum 6,000 ms.
 
 ## Notes
 
 Compare with the ten-field text case for width scaling and the existing mixed
 20-field case for type-mix cost.
+The 6-second guardrail retains about 2.8x headroom over the first official
+V1/V2 worst sample (2,123.38 ms).

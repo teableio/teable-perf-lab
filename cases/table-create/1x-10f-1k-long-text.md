@@ -23,8 +23,10 @@ values. Outside the timer, full-scan all 10,000 cells, capture rows
 
 ## Primary Metric
 
-- `createTable1x1kRecordsMs`: request wall time, initial maximum 8,000 ms.
+- `createTable1x1kRecordsMs`: request wall time, calibrated maximum 4,000 ms.
 
 ## Notes
 
 The ten-field text case is the same-width plain-text control.
+The guardrail is calibrated from the first official V1/V2 matrix run, whose
+ten-field worst sample was 1,605.87 ms.

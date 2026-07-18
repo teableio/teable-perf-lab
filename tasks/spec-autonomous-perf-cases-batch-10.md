@@ -26,10 +26,11 @@ all 1,000 rows, compares every configured field with its deterministic native
 input value, and records rows 1, 500, and 1,000 as artifact samples. Preserve
 the existing cases' behavior unless they opt in.
 
-All ten cases initially use `createTable1x1kRecordsMs` with `maxMs: 8_000`, the
-current calibrated threshold for the established mixed 20-field/1k-row case.
-Tighten the guardrail after an official V1/V2 run establishes the matrix's
-actual worst case and CI variance.
+All cases use `createTable1x1kRecordsMs`. The initial 8-second assumption was
+calibrated after the first official V1/V2 run: all 20 artifacts passed at
+436.45-2,123.38 ms. The primary-only and ten-field cases now use `maxMs: 4_000`
+(about 2.5x the ten-field worst), while the 20-field text case uses
+`maxMs: 6_000` (about 2.8x its observed worst).
 
 ## Cases
 
@@ -60,7 +61,8 @@ actual worst case and CI variance.
 - **Seed Phase**: none; `perf:seed` must report skipped.
 - **Execute Phase**: one measured create-table request carrying the configured
   schema and 1,000 deterministic inline records.
-- **Primary Metric**: `createTable1x1kRecordsMs`, initial `maxMs: 8_000`.
+- **Primary Metric**: `createTable1x1kRecordsMs`; `maxMs: 4_000` for the
+  primary-only/ten-field cases and `maxMs: 6_000` for the 20-field text case.
 - **Routing**: require `x-teable-v2-feature: createTable` and the requested V1
   or V2 engine.
 - **Verification**: exact field count, at least one view, full scan of 1,000
