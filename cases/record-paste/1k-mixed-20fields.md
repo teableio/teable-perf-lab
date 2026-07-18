@@ -34,7 +34,7 @@ scalar schema.
 ## Primary Metric
 
 - `paste1kMs`: elapsed time for the paste request and response assertions;
-  initial guardrail `maxMs: 15_000`.
+  calibrated guardrail `maxMs: 6_000`.
 
 ## Notes
 

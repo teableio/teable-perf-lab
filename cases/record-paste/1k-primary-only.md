@@ -34,10 +34,10 @@ empty primary-only table.
 ## Primary Metric
 
 - `paste1kMs`: elapsed time for the single paste request and its response
-  assertions; initial guardrail `maxMs: 15_000`.
+  assertions; calibrated guardrail `maxMs: 6_000`.
 
 ## Notes
 
 V1 uses range paste and V2 uses paste-by-id, matching each engine's grid
 behavior. Both legs paste the same TSV content and share the same full-scan
-verification. The initial threshold should be tightened after CI history.
+verification. The threshold was calibrated from the first official V1/V2 run.

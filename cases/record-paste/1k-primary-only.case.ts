@@ -12,7 +12,7 @@ export default definePerfCase({
     fields: recordPaste1kFields.primaryOnly,
     threshold: {
       metric: "paste1kMs",
-      maxMs: 15_000,
+      maxMs: 6_000,
     },
   },
 });

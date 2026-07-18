@@ -35,10 +35,10 @@ deterministic tab/newline clipboard payload. The measured window contains only
 the paste request. Full-scan value verification and cleanup happen afterward.
 This batch therefore adds no seed-row generation to the workflow seed job.
 
-All cases use `paste1kMs` with an initial `maxMs: 15_000`. This is an assumption
-chosen from the existing 10,000-row four-field guardrail; tighten it after local
-and official CI evidence if the 1,000-row distribution leaves excessive
-headroom.
+All cases use `paste1kMs` with `maxMs: 6_000`. The initial 15-second assumption
+was tightened after the first official V1/V2 run: all 20 artifacts passed at
+244.50-2,513.81 ms, so 6 seconds retains about 2.4x headroom over the observed
+worst case while detecting a material regression.
 
 ## Case 1: `record-paste/1k-primary-only`
 
@@ -46,7 +46,7 @@ headroom.
 - **Runner**: reuse `record-paste`.
 - **Seed Phase**: none; execute setup creates an empty primary-only table.
 - **Execute Phase**: paste 1,000 deterministic titles.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: engine route, response shape, 1,000-row full scan, and exact
   values for rows 1, 500, and 1,000.
 
@@ -57,7 +57,7 @@ headroom.
 - **Runner**: reuse `record-paste`.
 - **Seed Phase**: none; execute setup creates `Title` plus nine text fields.
 - **Execute Phase**: paste a 1,000 × 10 text block.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: full scan of all 10,000 cells and three exact samples.
 
 ## Case 3: `record-paste/1k-long-text-10fields`
@@ -67,7 +67,7 @@ headroom.
 - **Seed Phase**: none; execute setup creates `Title` plus nine long-text
   fields.
 - **Execute Phase**: paste a 1,000 × 10 text/long-text block.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: every pasted value and all three fixed samples match.
 
 ## Case 4: `record-paste/1k-number-10fields`
@@ -76,7 +76,7 @@ headroom.
 - **Runner**: reuse `record-paste`.
 - **Seed Phase**: none; execute setup creates `Title` plus nine number fields.
 - **Execute Phase**: paste 1,000 deterministic numeric rows.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: all parsed numbers match exactly after normalization.
 
 ## Case 5: `record-paste/1k-date-10fields`
@@ -85,7 +85,7 @@ headroom.
 - **Runner**: reuse `record-paste`.
 - **Seed Phase**: none; execute setup creates `Title` plus nine UTC date fields.
 - **Execute Phase**: paste 1,000 deterministic calendar-date rows.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: all dates normalize to the expected UTC instant.
 
 ## Case 6: `record-paste/1k-checkbox-10fields`
@@ -94,7 +94,7 @@ headroom.
 - **Runner**: reuse `record-paste`.
 - **Seed Phase**: none; execute setup creates `Title` plus nine checkbox fields.
 - **Execute Phase**: paste alternating checked and blank values.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: all boolean/null states match.
 
 ## Case 7: `record-paste/1k-single-select-10fields`
@@ -104,7 +104,7 @@ headroom.
 - **Seed Phase**: none; execute setup creates `Title` plus nine single-select
   fields with stable choices.
 - **Execute Phase**: paste 1,000 rows cycling through three choice names.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: all resolved choice names match.
 
 ## Case 8: `record-paste/1k-multiple-select-10fields`
@@ -114,7 +114,7 @@ headroom.
 - **Seed Phase**: none; execute setup creates `Title` plus nine multiple-select
   fields with stable choices.
 - **Execute Phase**: paste 1,000 rows containing deterministic two-choice cells.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: all ordered choice arrays match after normalization.
 
 ## Case 9: `record-paste/1k-rating-10fields`
@@ -124,7 +124,7 @@ headroom.
 - **Seed Phase**: none; execute setup creates `Title` plus nine five-star rating
   fields.
 - **Execute Phase**: paste 1,000 rows cycling through ratings 1-5.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: every numeric rating matches.
 
 ## Case 10: `record-paste/1k-mixed-20fields`
@@ -135,7 +135,7 @@ headroom.
 - **Seed Phase**: none; execute setup creates the established 20-field mixed
   scalar schema.
 - **Execute Phase**: paste a 1,000 × 20 mixed clipboard block.
-- **Primary Metric**: `paste1kMs`, initial `maxMs: 15_000`.
+- **Primary Metric**: `paste1kMs`, calibrated `maxMs: 6_000`.
 - **Verification**: full scan of all 20,000 values and three exact samples.
 
 ## Explicit Rejections for This Batch
