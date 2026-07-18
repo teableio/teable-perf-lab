@@ -40,8 +40,9 @@ foreign-key values.
 
 ## Notes
 
-The initial 180-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. This relationship exercises the
-host-table FK value-copy path. V2 results expose the intentional shared-cache
-bypass in `details.v2NativeFixture`; fixture construction is excluded from the
-primary metric.
+The 140-second guardrail was calibrated from official CI runs `29649057939` and
+`29650023288`: V1 measured 62,879.98 ms and 47,120.81 ms; the valid V2-native
+run measured 918.19 ms. The bound leaves about 2.23x headroom over the observed
+worst and protects the host-table FK value-copy path. V2 results expose the
+intentional shared-cache bypass in `details.v2NativeFixture`; fixture
+construction is excluded from the primary metric.

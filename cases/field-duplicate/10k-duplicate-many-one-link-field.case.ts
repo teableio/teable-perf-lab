@@ -9,6 +9,7 @@ export default definePerfCase({
   watchdogMs: 600_000,
   config: {
     ...linkFieldDuplicateConfig("manyOne", false, "many-one", "MO-FK"),
-    threshold: { metric: "duplicateLinkFieldMs", maxMs: 180_000 },
+    // CI runs 29649057939 and 29650023288: V1 worst 62.88s; native V2 0.92s.
+    threshold: { metric: "duplicateLinkFieldMs", maxMs: 140_000 },
   },
 });

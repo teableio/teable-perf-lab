@@ -42,10 +42,12 @@ one-one constraint cannot be safely removed through V2. Therefore V2
 pair in the unmeasured prepare phase and record the cache bypass in the result.
 The junction-backed variants continue to reuse the shared V1 seed.
 
-All four cases initially use `duplicateLinkFieldMs` with `maxMs: 180_000`.
-This is an explicitly uncalibrated ceiling because V1 copies supported Link
-values through 1,000-row record-update pages while V2 uses direct SQL. The
-first official CI run will set the committed guardrail before merge.
+All four cases use `duplicateLinkFieldMs`. Official CI runs `29649057939` and
+`29650023288` calibrated relationship-specific guardrails: 100,000 ms for
+`manyMany`, 15,000 ms for one-way `oneMany`, 140,000 ms for `manyOne`, and
+5,000 ms for V2-only `oneOne`. The supported V1 paths ranged from 4,944.70 ms to
+62,879.98 ms; valid V2 samples ranged from 671.75 ms to 1,117.14 ms. Each bound
+leaves at least about 2.15x headroom over its observed worst.
 
 ## Cases
 
@@ -78,8 +80,9 @@ first official CI run will set the committed guardrail before merge.
 - **Execute phase**: resolve the source Link id, send one measured
   duplicate-field request with an explicit copy name, then verify outside the
   timer.
-- **Primary metric**: `duplicateLinkFieldMs`, initial `maxMs: 180_000`, to be
-  calibrated from official CI evidence before merge.
+- **Primary metric**: `duplicateLinkFieldMs`; calibrated per relationship to
+  100,000 ms (`manyMany`), 15,000 ms (one-way `oneMany`), 140,000 ms
+  (`manyOne`), and 5,000 ms (V2-only `oneOne`).
 - **Routing**: require the requested supported engine and
   `x-teable-v2-feature: duplicateField`.
 - **Host metadata verification**: source and copy have the requested
@@ -107,8 +110,8 @@ first official CI run will set the committed guardrail before merge.
 - The product contract is that every duplicated Link becomes one-way, retains
   the source relationship and foreign table, copies record values, and creates
   no new symmetric field.
-- Official CI is authoritative for threshold calibration; local timing is
-  directional only.
+- Official CI runs `29649057939` and `29650023288` are authoritative for the
+  committed threshold calibration; local timing remains directional only.
 - A V1 skip for `oneOne` is not a passing performance sample. It documents the
   unsupported product path while keeping the complete V2 relationship matrix
   runnable.
