@@ -203,6 +203,10 @@ const getExpectedValue = (
       return rowNumber % 2 === 1 ? true : null;
     case FieldType.Rating:
       return ((rowNumber - 1) % ratingMax(field)) + 1;
+    case FieldType.LongText:
+      return `${config.generator.payloadPrefix}-${padded}-${fieldNameKey(
+        field.name,
+      )}-payload`;
     default:
       return `${config.generator.valuePrefix}-${padded}-${fieldNameKey(
         field.name,
