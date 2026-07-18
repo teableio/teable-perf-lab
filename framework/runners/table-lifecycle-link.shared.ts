@@ -256,9 +256,9 @@ const resolveLinkFixture = async (
   };
 };
 
-type LinkCellItem = { id?: string; title?: string };
+export type LinkCellItem = { id?: string; title?: string };
 
-const normalizeLinkCellItems = (value: unknown): LinkCellItem[] => {
+export const normalizeLinkCellItems = (value: unknown): LinkCellItem[] => {
   if (Array.isArray(value)) {
     return value.filter(
       (item): item is LinkCellItem => typeof item === "object" && item !== null,
