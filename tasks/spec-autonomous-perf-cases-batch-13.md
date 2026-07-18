@@ -31,10 +31,11 @@ resolution, the post-operation metadata/read scan, and cleanup remain outside
 the metric. Every request must route through canary feature `deleteField` on
 the requested V1 or V2 engine.
 
-All cases initially use `deleteFieldMs` with `maxMs: 10_000`. This is an
-assumption pending the first official V1/V2 artifacts. It is intentionally
-below the aggregate case's 20-second guardrail while remaining above that
-case's historical 7.8-second worst; calibrate only after real CI measurements.
+All cases use `deleteFieldMs` with `maxMs: 2_000`. The initial 10-second
+assumption was calibrated after official run 29644543456: all 16 V1/V2
+artifacts passed at 134.36-295.10 ms, with complete routing, full-scan, and
+trace evidence. Two seconds keeps about 6.8x headroom over the observed worst
+and matches the repository floor for a noisy sub-second CI metric.
 
 ## Cases
 
@@ -61,7 +62,7 @@ case's historical 7.8-second worst; calibrate only after real CI measurements.
   `Title` and exactly one populated target field; insert in 1,000-row batches.
 - **Execute phase**: resolve the target field id, send one measured bulk-delete
   endpoint request containing that single id, then verify outside the timer.
-- **Primary metric**: `deleteFieldMs`, initial `maxMs: 10_000`.
+- **Primary metric**: `deleteFieldMs`, calibrated `maxMs: 2_000`.
 - **Routing**: require the requested V1/V2 engine and
   `x-teable-v2-feature: deleteField`.
 - **Metadata verification**: the target field is absent and `Title` is the only

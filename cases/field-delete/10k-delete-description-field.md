@@ -37,5 +37,6 @@ isolate multiline payload snapshot/drop cost from other scalar field types.
 
 ## Notes
 
-The initial 10-second guardrail is an assumption to calibrate from official CI.
-The route must report canary feature `deleteField` for the requested engine.
+The 2-second guardrail was calibrated from CI run 29644543456, whose 16 V1/V2
+artifacts ranged from 134.36 to 295.10 ms. The route must report canary feature
+`deleteField` for the requested engine.
