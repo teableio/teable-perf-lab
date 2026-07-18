@@ -429,6 +429,30 @@ workload.
   comparison.
 - `field-delete/mixed-10k-delete-19-fields`: Measure the bulk field delete path
   for removing 19 mixed-type fields from a 10,000-row table in one request.
+- `field-delete/10k-delete-owner-text-field`: Measure deleting one populated
+  single-line text field from a 10,000-row table, so text-column regressions are
+  distinguishable from the mixed 19-field bulk delete case.
+- `field-delete/10k-delete-description-field`: Measure deleting one populated
+  long-text field from a 10,000-row table and isolate multiline payload
+  snapshot/drop cost from other scalar field types.
+- `field-delete/10k-delete-amount-field`: Measure deleting one populated number
+  field from a 10,000-row table and isolate numeric value snapshot/drop cost from
+  other scalar field types.
+- `field-delete/10k-delete-start-date-field`: Measure deleting one populated UTC
+  date field from a 10,000-row table and isolate serialized date snapshot/drop
+  cost from other scalar field types.
+- `field-delete/10k-delete-active-field`: Measure deleting one populated
+  checkbox field from a 10,000-row table and isolate boolean/null storage
+  deletion from other scalar field types.
+- `field-delete/10k-delete-status-field`: Measure deleting one populated
+  single-select field from a 10,000-row table and isolate option-backed scalar
+  deletion from other field types.
+- `field-delete/10k-delete-tags-field`: Measure deleting one populated
+  multiple-select field from a 10,000-row table and isolate array-backed option
+  deletion from other field types.
+- `field-delete/10k-delete-score-field`: Measure deleting one populated rating
+  field from a 10,000-row table and isolate bounded numeric option deletion from
+  other scalar field types.
 - `field-restore/10k-description-field`: Measure restoring one deleted populated
   text field on a 10,000-row mixed table, including the field schema restore and
   every row's cell value restoration.
