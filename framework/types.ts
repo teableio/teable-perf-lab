@@ -740,7 +740,7 @@ export type ConditionalLookupSharedConfig = Omit<
   "threshold"
 >;
 
-export interface FieldDuplicateCaseConfig
+export interface ConditionalLookupFieldDuplicateCaseConfig
   extends Omit<ConditionalLookupCaseConfig, "threshold"> {
   duplicate: {
     name: string;
@@ -750,6 +750,23 @@ export interface FieldDuplicateCaseConfig
     maxMs: number;
   };
 }
+
+export interface ScalarFieldDuplicateCaseConfig
+  extends RecordUndoRedoBaseCaseConfig {
+  mode: "scalar";
+  duplicate: {
+    sourceFieldName: string;
+    name: string;
+  };
+  threshold: {
+    metric: "duplicateScalarFieldMs";
+    maxMs: number;
+  };
+}
+
+export type FieldDuplicateCaseConfig =
+  | ConditionalLookupFieldDuplicateCaseConfig
+  | ScalarFieldDuplicateCaseConfig;
 
 export interface RecordPasteCaseConfig {
   baseId: "seed-base";
