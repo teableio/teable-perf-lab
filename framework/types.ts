@@ -764,7 +764,7 @@ export interface RecordPasteCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "paste10kMs" | "pasteExpand10kMs";
+    metric: "paste1kMs" | "paste10kMs" | "pasteExpand10kMs";
     maxMs: number;
   };
 }
