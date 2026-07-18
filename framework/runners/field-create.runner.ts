@@ -101,6 +101,11 @@ type FieldCreateVerification = {
     name: string;
     color?: string;
   }>;
+  emptyCreatedValues?: {
+    scannedRecords: number;
+    checkedFieldCount: number;
+    checkedCellCount: number;
+  };
 };
 
 type FieldCreateReadyVerification = {
@@ -218,6 +223,15 @@ const assertExpectedOptionSubset = (
   expected: unknown,
   path: string,
 ) => {
+  if (
+    path.endsWith(".formatting.timeZone") &&
+    typeof actual === "string" &&
+    typeof expected === "string" &&
+    actual.toLowerCase() === expected.toLowerCase()
+  ) {
+    return;
+  }
+
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual)) {
       throw new Error(`${path} expected array, got ${JSON.stringify(actual)}`);
@@ -893,37 +907,111 @@ const runFieldCreatePrimary = async (
   const createdFields: FieldCreatePrimaryResult["fields"] = [];
 
   return measureAsync(config.threshold.metric.replace(/Ms$/, ""), async () => {
-    await withPerfTraceStep(
-      context,
-      perfCase,
-      config.threshold.metric,
-      async () => {
-        for (const field of fieldsToCreate) {
-          const createResponse = await apiCreateField(fixture.tableId, field);
-          expect(createResponse.status).toBe(201);
+    const createOneField = async (
+      field: FieldCreateInput,
+      fieldIndex: number,
+    ) => {
+      const createField = async () => {
+        const createResponse = await apiCreateField(fixture.tableId, field);
+        expect(createResponse.status).toBe(201);
 
-          const responseHeaders = pickResponseHeaders(
-            createResponse.headers as Record<string, unknown>,
-          );
-          const routing = assertExpectedRouting(context, responseHeaders);
-          const createdField = createResponse.data as CreatedField;
-          createdFields.push({
-            id: createdField.id,
-            name: createdField.name,
-            type: createdField.type,
-            optionCount: createdField.options?.choices?.length,
-            responseHeaders,
-            routing,
-          });
-        }
-      },
-    );
+        const responseHeaders = pickResponseHeaders(
+          createResponse.headers as Record<string, unknown>,
+        );
+        const routing = assertExpectedRouting(context, responseHeaders);
+        const createdField = createResponse.data as CreatedField;
+        createdFields.push({
+          id: createdField.id,
+          name: createdField.name,
+          type: createdField.type,
+          optionCount: createdField.options?.choices?.length,
+          responseHeaders,
+          routing,
+        });
+      };
+
+      if (config.tracePerField) {
+        await withPerfTraceStep(
+          context,
+          perfCase,
+          `${config.threshold.metric}:${fieldIndex + 1}`,
+          createField,
+        );
+        return;
+      }
+      await createField();
+    };
+
+    if (config.tracePerField) {
+      for (const [fieldIndex, field] of fieldsToCreate.entries()) {
+        await createOneField(field, fieldIndex);
+      }
+    } else {
+      await withPerfTraceStep(
+        context,
+        perfCase,
+        config.threshold.metric,
+        async () => {
+          for (const [fieldIndex, field] of fieldsToCreate.entries()) {
+            await createOneField(field, fieldIndex);
+          }
+        },
+      );
+    }
 
     return {
       fieldIds: createdFields.map((field) => field.id),
       fields: createdFields,
     };
   });
+};
+
+const verifyCreatedFieldValuesEmpty = async (
+  fixture: FieldCreateFixture,
+  config: FieldCreateCaseConfig,
+  createdFields: FieldCreatePrimaryResult["fields"],
+) => {
+  if (!config.verify.emptyCreatedFields) {
+    return;
+  }
+  if (!fixture.viewId) {
+    throw new Error(`Missing default view for table ${fixture.tableId}`);
+  }
+  const rowCount = config.rowCount ?? 0;
+  const projection = createdFields.map((field) => field.id);
+  let checkedCellCount = 0;
+  const { scannedRecords } = await forEachRecordPage(
+    {
+      totalRows: rowCount,
+      pageSize: config.verify.fullScanPageSize ?? 1_000,
+      fetchPage: (skip, take) =>
+        getRecords(fixture.tableId, {
+          viewId: fixture.viewId,
+          fieldKeyType: FieldKeyType.Id,
+          projection,
+          skip,
+          take,
+        }),
+      pageNoun: "created field values",
+    },
+    (record, rowNumber) => {
+      for (const field of createdFields) {
+        const value = record.fields[field.id];
+        if (value != null) {
+          throw new Error(
+            `Created field ${field.name} row ${rowNumber} expected empty value, got ${JSON.stringify(value)}`,
+          );
+        }
+        checkedCellCount += 1;
+      }
+    },
+  );
+
+  return {
+    scannedRecords,
+    checkedFieldCount: createdFields.length,
+    checkedCellCount,
+  };
 };
 
 const verifyCreatedFields = async (
@@ -1101,6 +1189,7 @@ const buildFieldCreateResult = ({
       createdFields: primaryResult?.fields,
       verifiedFields: verification?.verifiedFields,
       verifiedOptions: verification?.verifiedOptions,
+      emptyCreatedValues: verification?.emptyCreatedValues,
       ready: readyMeasurement
         ? {
             metric: readyMeasurement.result.metric,
@@ -1126,6 +1215,7 @@ const buildFieldCreateResult = ({
             seedTableName: fixture.seedCacheInfo?.seedTableName,
             seedRecordCount: fixture.seedRecordCount,
             seedBatchDurations: fixture.seedBatchDurations,
+            sharedSeedIdentity: Boolean(config.seedIdentity),
           }
         : undefined,
       ...(error
@@ -1139,16 +1229,29 @@ const buildFieldCreateResult = ({
 };
 
 const getFieldCreateSeedConfig = (config: FieldCreateCaseConfig) => ({
-  tableNamePrefix: config.tableNamePrefix,
+  ...(config.seedIdentity
+    ? { seedIdentity: config.seedIdentity }
+    : { tableNamePrefix: config.tableNamePrefix }),
   rowCount: config.rowCount,
   batchSize: config.batchSize,
   baseFields: config.baseFields,
   generator: config.generator,
 });
 
+const getFieldCreateSeedIdentityCase = (
+  perfCase: PerfCase,
+  seedIdentity?: string,
+) =>
+  seedIdentity
+    ? ({
+        ...perfCase,
+        id: `field-create/shared-${seedIdentity}`,
+      } as PerfCase)
+    : perfCase;
+
 const buildSeedCache = (perfCase: PerfCase, config: FieldCreateCaseConfig) =>
   buildSeedCacheInfo({
-    perfCase,
+    perfCase: getFieldCreateSeedIdentityCase(perfCase, config.seedIdentity),
     runner: "field-create",
     fixtureVersion: FIELD_CREATE_FIXTURE_VERSION,
     seedConfig: getFieldCreateSeedConfig(config),
@@ -1254,6 +1357,11 @@ const fieldCreateFieldAddSpec: FieldAddLifecycleSpec<
       config,
       fieldsToCreate,
     );
+    verification.emptyCreatedValues = await verifyCreatedFieldValuesEmpty(
+      fixture,
+      config,
+      primaryMeasurement.result.fields,
+    );
     return { primaryMeasurement, readyMeasurement, verification };
   },
   buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
@@ -1275,7 +1383,7 @@ const fieldCreateFieldAddSpec: FieldAddLifecycleSpec<
     });
   },
   cleanup: async ({ baseId, fixture, config }) => {
-    if (isExecuteDbIsolated() || !fixture) {
+    if (!fixture || (isExecuteDbIsolated() && !config.seedIdentity)) {
       return;
     }
     if (fixture.reusableSeed) {

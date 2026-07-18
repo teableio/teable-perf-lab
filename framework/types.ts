@@ -518,11 +518,17 @@ export interface LookupSearchIndexCaseConfig {
 export interface FieldCreateCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;
+  // Cases with identical populated base tables may share one runner-level
+  // seed. The fields created by the measured operation remain execute-only.
+  seedIdentity?: string;
   rowCount?: number;
   batchSize?: number;
   baseFields: Array<IFieldRo & { id?: string; name: string }>;
   field?: IFieldRo & { id?: string; name: string };
   fields?: Array<IFieldRo & { id?: string; name: string }>;
+  // Opt-in keeps established cases on their aggregate trace step while a
+  // matrix can select individual field-create requests.
+  tracePerField?: boolean;
   generator?:
     | {
         type: "title-sequence";
@@ -536,6 +542,7 @@ export interface FieldCreateCaseConfig {
     optionCount?: number;
     sampleOptionIndexes?: number[];
     fullScanPageSize?: number;
+    emptyCreatedFields?: boolean;
   };
   ready?: {
     metric: "computedBackfillReadyMs";
@@ -547,7 +554,8 @@ export interface FieldCreateCaseConfig {
       | "singleSelectCreateOptionsMs"
       | "create19FieldsMs"
       | "create5SimpleFieldsMs"
-      | "create5ComputedFieldsMs";
+      | "create5ComputedFieldsMs"
+      | "createScalarFieldsMs";
     maxMs: number;
   };
 }
