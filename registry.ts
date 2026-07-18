@@ -159,6 +159,16 @@ import recordRead10k50FieldsGroupStoredSortLookupCase from "./cases/record-read/
 import recordRead10k50FieldsFilterGroupSortFormulaCase from "./cases/record-read/10k-50fields-filter-group-sort-formula.case";
 import recordRead10k50FieldsFilterSortGroupbyOverheadCase from "./cases/record-read/10k-50fields-filter-sort-groupby-overhead.case";
 import recordRead50k50Fields50x1kPagesCase from "./cases/record-read/50k-50fields-50x1k-pages.case";
+import recordPaste1kPrimaryOnlyCase from "./cases/record-paste/1k-primary-only.case";
+import recordPaste1kSingleLineText10FieldsCase from "./cases/record-paste/1k-single-line-text-10fields.case";
+import recordPaste1kLongText10FieldsCase from "./cases/record-paste/1k-long-text-10fields.case";
+import recordPaste1kNumber10FieldsCase from "./cases/record-paste/1k-number-10fields.case";
+import recordPaste1kDate10FieldsCase from "./cases/record-paste/1k-date-10fields.case";
+import recordPaste1kCheckbox10FieldsCase from "./cases/record-paste/1k-checkbox-10fields.case";
+import recordPaste1kSingleSelect10FieldsCase from "./cases/record-paste/1k-single-select-10fields.case";
+import recordPaste1kMultipleSelect10FieldsCase from "./cases/record-paste/1k-multiple-select-10fields.case";
+import recordPaste1kRating10FieldsCase from "./cases/record-paste/1k-rating-10fields.case";
+import recordPaste1kMixed20FieldsCase from "./cases/record-paste/1k-mixed-20fields.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
@@ -379,6 +389,16 @@ const cases = [
   recordReorder10kMoveLast1kToFrontCase,
   recordUndoDelete1kCase,
   recordRedoDelete1kCase,
+  recordPaste1kPrimaryOnlyCase,
+  recordPaste1kSingleLineText10FieldsCase,
+  recordPaste1kLongText10FieldsCase,
+  recordPaste1kNumber10FieldsCase,
+  recordPaste1kDate10FieldsCase,
+  recordPaste1kCheckbox10FieldsCase,
+  recordPaste1kSingleSelect10FieldsCase,
+  recordPaste1kMultipleSelect10FieldsCase,
+  recordPaste1kRating10FieldsCase,
+  recordPaste1kMixed20FieldsCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,
