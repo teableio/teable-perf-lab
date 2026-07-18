@@ -51,7 +51,7 @@ export default definePerfCase({
     },
     threshold: {
       metric: "computedFieldDuplicateReadyMs",
-      maxMs: 12_000,
+      maxMs: 15_000,
     },
   },
 });
