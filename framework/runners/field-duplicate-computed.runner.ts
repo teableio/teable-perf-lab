@@ -173,8 +173,30 @@ const assertExpectedRouting = (
     operation: "Computed field duplicate",
   });
 
+const canonicalizeMetadata = (value: unknown, key?: string): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalizeMetadata(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([itemKey, item]) => [
+          itemKey,
+          canonicalizeMetadata(item, itemKey),
+        ]),
+    );
+  }
+  if (key === "timeZone" && typeof value === "string") {
+    return value.toLowerCase();
+  }
+  return value;
+};
+
 const sameMetadata = (left: unknown, right: unknown) =>
-  JSON.stringify(left ?? {}) === JSON.stringify(right ?? {});
+  JSON.stringify(canonicalizeMetadata(left ?? {})) ===
+  JSON.stringify(canonicalizeMetadata(right ?? {}));
 
 const assertComputedMetadata = (
   fixture: Omit<ComputedDuplicateFixture, "preparePhase">,
@@ -195,22 +217,67 @@ const assertComputedMetadata = (
       )}`,
     );
   }
-  expect(sourceField.name).toBe(fixture.sourceFieldName);
-  expect(sourceField.type).toBe(fixture.sourceFieldType);
-  expect(duplicatedField.name).toBe(config.duplicate.name);
-  expect(duplicatedField.type).toBe(fixture.sourceFieldType);
-  expect(duplicatedField.isPrimary).not.toBe(true);
-  expect(sameMetadata(duplicatedField.options, sourceField.options)).toBe(true);
+  const fieldIds = fields.map((field) => field.id).sort();
+  fixture.verificationProgress = {
+    scannedRecords: 0,
+    pageSize: config.verify.fullScanPageSize ?? 1_000,
+    pageCount: 0,
+    sourceField,
+    duplicatedField,
+    fieldIds,
+    verifiedSamples: [],
+  };
+  if (
+    sourceField.name !== fixture.sourceFieldName ||
+    sourceField.type !== fixture.sourceFieldType
+  ) {
+    throw new Error(
+      `Computed duplicate source metadata mismatch: expected name=${fixture.sourceFieldName}, type=${fixture.sourceFieldType}; actual=${JSON.stringify(
+        sourceField,
+      )}`,
+    );
+  }
+  if (
+    duplicatedField.name !== config.duplicate.name ||
+    duplicatedField.type !== fixture.sourceFieldType ||
+    duplicatedField.isPrimary === true
+  ) {
+    throw new Error(
+      `Computed duplicate identity mismatch: expected name=${config.duplicate.name}, type=${fixture.sourceFieldType}, non-primary; actual=${JSON.stringify(
+        duplicatedField,
+      )}`,
+    );
+  }
+  if (!sameMetadata(duplicatedField.options, sourceField.options)) {
+    throw new Error(
+      `Computed duplicate options mismatch: source=${JSON.stringify(
+        sourceField.options ?? {},
+      )}, copy=${JSON.stringify(duplicatedField.options ?? {})}`,
+    );
+  }
   if (fixture.kind === "rollup") {
-    expect(
-      sameMetadata(duplicatedField.lookupOptions, sourceField.lookupOptions),
-    ).toBe(true);
+    if (
+      !sameMetadata(duplicatedField.lookupOptions, sourceField.lookupOptions)
+    ) {
+      throw new Error(
+        `Computed duplicate lookup options mismatch: source=${JSON.stringify(
+          sourceField.lookupOptions ?? {},
+        )}, copy=${JSON.stringify(duplicatedField.lookupOptions ?? {})}`,
+      );
+    }
   }
 
-  const fieldIds = fields.map((field) => field.id).sort();
-  expect(fieldIds).toEqual(
-    [...fixture.baselineFieldIds, duplicatedFieldId].sort(),
-  );
+  const expectedFieldIds = [
+    ...fixture.baselineFieldIds,
+    duplicatedFieldId,
+  ].sort();
+  if (JSON.stringify(fieldIds) !== JSON.stringify(expectedFieldIds)) {
+    throw new Error(
+      `Computed duplicate field set mismatch: expected=${JSON.stringify(
+        expectedFieldIds,
+      )}, actual=${JSON.stringify(fieldIds)}`,
+    );
+  }
   return { sourceField, duplicatedField, fieldIds };
 };
 
