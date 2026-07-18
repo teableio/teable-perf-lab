@@ -123,6 +123,16 @@ import csvImportMixed1k20FieldsCreateTableImportCase from "./cases/csv-import/mi
 import csvImportMixed10k20FieldsCreateTableImportCase from "./cases/csv-import/mixed-10k-20fields-create-table-import.case";
 import csvImportMixed10k20FieldsInplaceImportCase from "./cases/csv-import/mixed-10k-20fields-inplace-import.case";
 import formSubmitSequential200Case from "./cases/form-submit/sequential-200.case";
+import formSubmitSequential50PrimaryOnlyCase from "./cases/form-submit/sequential-50-primary-only.case";
+import formSubmitSequential50SingleLineText10FieldsCase from "./cases/form-submit/sequential-50-single-line-text-10fields.case";
+import formSubmitSequential50LongText10FieldsCase from "./cases/form-submit/sequential-50-long-text-10fields.case";
+import formSubmitSequential50Number10FieldsCase from "./cases/form-submit/sequential-50-number-10fields.case";
+import formSubmitSequential50Date10FieldsCase from "./cases/form-submit/sequential-50-date-10fields.case";
+import formSubmitSequential50Checkbox10FieldsCase from "./cases/form-submit/sequential-50-checkbox-10fields.case";
+import formSubmitSequential50SingleSelect10FieldsCase from "./cases/form-submit/sequential-50-single-select-10fields.case";
+import formSubmitSequential50MultipleSelect10FieldsCase from "./cases/form-submit/sequential-50-multiple-select-10fields.case";
+import formSubmitSequential50Rating10FieldsCase from "./cases/form-submit/sequential-50-rating-10fields.case";
+import formSubmitSequential50SingleLineText20FieldsCase from "./cases/form-submit/sequential-50-single-line-text-20fields.case";
 import recordCreate1kSingleLineTextFieldsBulkCreateCase from "./cases/record-create/1k-single-line-text-fields-bulk-create.case";
 import recordCreate1kLongTextFieldsBulkCreateCase from "./cases/record-create/1k-long-text-fields-bulk-create.case";
 import recordCreate1kNumberFieldsBulkCreateCase from "./cases/record-create/1k-number-fields-bulk-create.case";
@@ -337,6 +347,16 @@ const cases = [
   csvImportMixed10k20FieldsCreateTableImportCase,
   csvImportMixed10k20FieldsInplaceImportCase,
   formSubmitSequential200Case,
+  formSubmitSequential50PrimaryOnlyCase,
+  formSubmitSequential50SingleLineText10FieldsCase,
+  formSubmitSequential50LongText10FieldsCase,
+  formSubmitSequential50Number10FieldsCase,
+  formSubmitSequential50Date10FieldsCase,
+  formSubmitSequential50Checkbox10FieldsCase,
+  formSubmitSequential50SingleSelect10FieldsCase,
+  formSubmitSequential50MultipleSelect10FieldsCase,
+  formSubmitSequential50Rating10FieldsCase,
+  formSubmitSequential50SingleLineText20FieldsCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDelete1kCase,
