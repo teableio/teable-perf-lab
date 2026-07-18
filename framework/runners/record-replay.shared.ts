@@ -118,9 +118,24 @@ type RecordReplaySeedOptions = {
   runner: PerfRunnerKind;
   seedIdentity?: Record<string, string | number | boolean>;
   seedCodeFiles?: URL[];
+  buildSeedRecordFields?: (
+    config: RecordUndoRedoBaseCaseConfig,
+    rowNumber: number,
+  ) => Record<string, unknown>;
+  finalizeSeed?: (
+    fixture: RecordReplayFixture,
+    config: RecordUndoRedoBaseCaseConfig,
+  ) => Promise<void>;
+  verifyCachedSamples?: boolean;
 };
 
-type ExpectedCellValue = string | number | boolean | string[] | null;
+type ExpectedCellValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | Array<Record<string, unknown>>
+  | null;
 
 const WINDOW_ID_HEADER = "X-Window-Id";
 const STATUS_CHOICES = ["Todo", "Doing", "Done"];
@@ -289,6 +304,14 @@ export const getExpectedCellValue = (
       return rowNumber % 3 === 0;
     case "Comment":
       return `${config.generator.payloadPrefix} comment ${padded}`;
+    case "Assignee":
+      return [{ id: "usrTestUserId" }];
+    case "Attachments":
+      return [
+        {
+          name: `perf-attachment-${padded}.txt`,
+        },
+      ];
     default:
       return null;
   }
@@ -389,6 +412,9 @@ export const withRecordWindowId = async <T>(
 const seedRecords = async (
   fixture: Omit<RecordReplayFixture, "seededRecords" | "seedBatchDurations">,
   config: RecordUndoRedoBaseCaseConfig,
+  buildSeedRecordFields: NonNullable<
+    RecordReplaySeedOptions["buildSeedRecordFields"]
+  > = buildRecordFields,
 ) => {
   const records = Array.from({ length: config.rowCount }, (_, index) => {
     const rowNumber = index + 1;
@@ -396,7 +422,7 @@ const seedRecords = async (
       rowOffset: index,
       rowNumber,
       record: {
-        fields: buildRecordFields(config, rowNumber),
+        fields: buildSeedRecordFields(config, rowNumber),
       },
     };
   });
@@ -505,7 +531,9 @@ export const prepareRecordReplayFixture = async (
         seedCacheHit: true,
         reusableSeed: true,
       };
-      await assertRowsRestored(cachedFixture, config);
+      await assertRowsRestored(cachedFixture, config, {
+        verifySamples: seedOptions.verifyCachedSamples,
+      });
       return cachedFixture;
     } catch (error) {
       console.warn(
@@ -534,9 +562,12 @@ export const prepareRecordReplayFixture = async (
       actualTableName,
       config,
     );
-    const seeded = await seedRecords(baseFixture, config);
-
-    return {
+    const seeded = await seedRecords(
+      baseFixture,
+      config,
+      seedOptions?.buildSeedRecordFields,
+    );
+    const fixture: RecordReplayFixture = {
       ...baseFixture,
       seededRecords: seeded.seededRecords,
       seedBatchDurations: seeded.batchDurations,
@@ -544,6 +575,8 @@ export const prepareRecordReplayFixture = async (
       seedCacheHit: false,
       reusableSeed: seedCacheInfo?.enabled ?? false,
     };
+    await seedOptions?.finalizeSeed?.(fixture, config);
+    return fixture;
   } catch (error) {
     if (createdTableId) {
       try {
@@ -851,6 +884,42 @@ export const assertRowsRestored = async (
   };
 };
 
+const normalizeStructuredItems = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          typeof item === "object" && item !== null,
+      )
+    : [];
+
+const structuredSampleValuesMatch = (
+  field: OperationField,
+  actualValue: unknown,
+  expectedValue: ExpectedCellValue,
+): boolean | undefined => {
+  if (field.type === FieldType.User) {
+    const actualIds = normalizeStructuredItems(actualValue).map(
+      (item) => item.id,
+    );
+    const expectedIds = normalizeStructuredItems(expectedValue).map(
+      (item) => item.id,
+    );
+    return JSON.stringify(actualIds) === JSON.stringify(expectedIds);
+  }
+
+  if (field.type === FieldType.Attachment) {
+    const actualNames = normalizeStructuredItems(actualValue).map(
+      (item) => item.name,
+    );
+    const expectedNames = normalizeStructuredItems(expectedValue).map(
+      (item) => item.name,
+    );
+    return JSON.stringify(actualNames) === JSON.stringify(expectedNames);
+  }
+
+  return undefined;
+};
+
 const assertRestoredSampleTextValues = async (
   fixture: RecordReplayFixture,
   config: RecordUndoRedoBaseCaseConfig,
@@ -894,6 +963,11 @@ const assertRestoredSampleTextValues = async (
       const actualValue = record.fields[field.id];
       actual[field.name] = actualValue;
       expected[field.name] = expectedValue;
+      const structuredValuesMatch = structuredSampleValuesMatch(
+        field,
+        actualValue,
+        expectedValue,
+      );
       const dateTimeZone = (
         field.options as
           | { formatting?: { timeZone?: string } }
@@ -916,21 +990,23 @@ const assertRestoredSampleTextValues = async (
                 .map(({ type, value }) => [type, value]),
             )
           : undefined;
-      const valuesMatch = actualDateOnly
-        ? `${actualDateOnly.year}-${actualDateOnly.month}-${actualDateOnly.day}` ===
-          expectedValue
-        : Array.isArray(expectedValue)
-          ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
-          : typeof expectedValue === "boolean" && actualValue == null
-            ? expectedValue === false
-            : typeof expectedValue === "number"
-              ? Number(actualValue) === expectedValue
-              : actualValue === expectedValue;
+      const valuesMatch =
+        structuredValuesMatch ??
+        (actualDateOnly
+          ? `${actualDateOnly.year}-${actualDateOnly.month}-${actualDateOnly.day}` ===
+            expectedValue
+          : Array.isArray(expectedValue)
+            ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
+            : typeof expectedValue === "boolean" && actualValue == null
+              ? expectedValue === false
+              : typeof expectedValue === "number"
+                ? Number(actualValue) === expectedValue
+                : actualValue === expectedValue);
       if (!valuesMatch) {
         throw new Error(
-          `Sample row ${rowNumber} ${field.name} mismatch: expected ${String(
+          `Sample row ${rowNumber} ${field.name} mismatch: expected ${JSON.stringify(
             expectedValue,
-          )}, actual ${String(actualValue)}`,
+          )}, actual ${JSON.stringify(actualValue)}`,
         );
       }
     }
