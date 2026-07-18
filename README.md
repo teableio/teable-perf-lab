@@ -330,6 +330,30 @@ workload.
   compared with `field-create/10k-create-5-simple-fields` at the request latency
   layer, while the ready metric captures post-create storage readiness without
   using records API pagination as the readiness signal.
+- `field-create/10k-create-1-single-line-text-field`: Establish the lower-bound
+  field-create cost by adding one empty single-line text field to a deterministic
+  10,000-record table.
+- `field-create/10k-create-10-single-line-text-fields`: Isolate homogeneous
+  single-line text schema-mutation cost across ten sequential field-create
+  requests on a populated table.
+- `field-create/10k-create-10-long-text-fields`: Isolate long-text column
+  creation from other scalar field types at a fixed ten request count.
+- `field-create/10k-create-10-number-fields`: Isolate numeric column creation
+  across ten sequential field-create requests on a populated table.
+- `field-create/10k-create-10-date-fields`: Isolate UTC date field metadata and
+  column creation across ten sequential requests on a populated table.
+- `field-create/10k-create-10-checkbox-fields`: Isolate checkbox column creation
+  and prove that adding checkbox fields does not silently populate existing
+  records.
+- `field-create/10k-create-10-single-select-fields`: Isolate single-select
+  option creation by adding ten fields with the same three deterministic choices.
+- `field-create/10k-create-10-multiple-select-fields`: Isolate multiple-select
+  option creation by adding ten fields with the same four deterministic choices.
+- `field-create/10k-create-10-rating-fields`: Isolate five-star rating metadata
+  and column creation across ten sequential requests on a populated table.
+- `field-create/10k-create-20-single-line-text-fields`: Measure homogeneous
+  request-count scaling by doubling the ten-field text workload to twenty
+  sequential field-create requests.
 - `field-create/mixed-10k-create-19-fields`: Measure the external field creation
   path for adding 19 mixed-type fields to a 10,000-row table.
 - `field-create/single-select-1k-options`: Measure the field creation path for
