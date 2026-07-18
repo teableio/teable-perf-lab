@@ -484,6 +484,7 @@ export const prepareTableLinkFixture = async (
   perfCase: PerfCase,
   runner: PerfRunnerKind,
   seedIdentity?: Record<string, string | number | boolean>,
+  options?: { bypassSeedCache?: boolean },
 ): Promise<TableLinkFixture> => {
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase,
@@ -504,12 +505,11 @@ export const prepareTableLinkFixture = async (
     ],
   });
 
-  const mainTableName = seedCacheInfo.enabled
-    ? seedCacheInfo.seedTableName
-    : tableName;
+  const useSeedCache = seedCacheInfo.enabled && !options?.bypassSeedCache;
+  const mainTableName = useSeedCache ? seedCacheInfo.seedTableName : tableName;
   const foreignTableName = `${mainTableName}-fk`;
 
-  if (seedCacheInfo.enabled) {
+  if (useSeedCache) {
     const cachedMain = await findSeedTable(baseId, mainTableName);
     const cachedForeign = await findSeedTable(baseId, foreignTableName);
     if (cachedMain && cachedForeign) {
@@ -591,7 +591,7 @@ export const prepareTableLinkFixture = async (
       seedRecordRouting: main.seedRecordRouting,
       seedCacheInfo,
       seedCacheHit: false,
-      reusableSeed: seedCacheInfo.enabled,
+      reusableSeed: useSeedCache,
     };
     await assertLinkCellSamples(fixture, config);
     return fixture;
