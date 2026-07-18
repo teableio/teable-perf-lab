@@ -25,34 +25,36 @@ const titleField = (): ScalarMatrixField => ({
 const numberedName = (prefix: string, index: number) =>
   `${prefix} ${String(index).padStart(2, "0")}`;
 
+const numberedFields = (
+  fieldCount: number,
+  buildField: (index: number) => ScalarMatrixField,
+): ScalarMatrixFields =>
+  Array.from({ length: fieldCount }, (_, index) => buildField(index + 1));
+
 const withFields = (
   fieldCount: number,
   buildField: (index: number) => ScalarMatrixField,
 ): ScalarMatrixFields => [
   titleField(),
-  ...Array.from({ length: fieldCount - 1 }, (_, index) =>
-    buildField(index + 1),
-  ),
+  ...numberedFields(fieldCount - 1, buildField),
 ];
 
-const primaryOnly: ScalarMatrixFields = [titleField()];
-
-const singleLineText10 = withFields(10, (index) => ({
+const singleLineTextField = (index: number): ScalarMatrixField => ({
   name: numberedName("Text", index),
   type: FieldType.SingleLineText,
-}));
+});
 
-const longText10 = withFields(10, (index) => ({
+const longTextField = (index: number): ScalarMatrixField => ({
   name: numberedName("Long Text", index),
   type: FieldType.LongText,
-}));
+});
 
-const number10 = withFields(10, (index) => ({
+const numberField = (index: number): ScalarMatrixField => ({
   name: numberedName("Number", index),
   type: FieldType.Number,
-}));
+});
 
-const date10 = withFields(10, (index) => ({
+const dateField = (index: number): ScalarMatrixField => ({
   name: numberedName("Date", index),
   type: FieldType.Date,
   options: {
@@ -62,30 +64,30 @@ const date10 = withFields(10, (index) => ({
       timeZone: "UTC",
     },
   },
-}));
+});
 
-const checkbox10 = withFields(10, (index) => ({
+const checkboxField = (index: number): ScalarMatrixField => ({
   name: numberedName("Checkbox", index),
   type: FieldType.Checkbox,
-}));
+});
 
-const singleSelect10 = withFields(10, (index) => ({
+const singleSelectField = (index: number): ScalarMatrixField => ({
   name: numberedName("Single Select", index),
   type: FieldType.SingleSelect,
   options: {
     choices: selectChoices(["Alpha", "Beta", "Gamma"]),
   },
-}));
+});
 
-const multipleSelect10 = withFields(10, (index) => ({
+const multipleSelectField = (index: number): ScalarMatrixField => ({
   name: numberedName("Multiple Select", index),
   type: FieldType.MultipleSelect,
   options: {
     choices: selectChoices(["Alpha", "Beta", "Gamma", "Delta"]),
   },
-}));
+});
 
-const rating10 = withFields(10, (index) => ({
+const ratingField = (index: number): ScalarMatrixField => ({
   name: numberedName("Rating", index),
   type: FieldType.Rating,
   options: {
@@ -93,12 +95,19 @@ const rating10 = withFields(10, (index) => ({
     color: Colors.YellowBright,
     max: 5,
   },
-}));
+});
 
-const singleLineText20 = withFields(20, (index) => ({
-  name: numberedName("Text", index),
-  type: FieldType.SingleLineText,
-}));
+const primaryOnly: ScalarMatrixFields = [titleField()];
+
+const singleLineText10 = withFields(10, singleLineTextField);
+const longText10 = withFields(10, longTextField);
+const number10 = withFields(10, numberField);
+const date10 = withFields(10, dateField);
+const checkbox10 = withFields(10, checkboxField);
+const singleSelect10 = withFields(10, singleSelectField);
+const multipleSelect10 = withFields(10, multipleSelectField);
+const rating10 = withFields(10, ratingField);
+const singleLineText20 = withFields(20, singleLineTextField);
 
 export const scalarFieldMatrix = {
   primaryOnly,
@@ -111,4 +120,20 @@ export const scalarFieldMatrix = {
   multipleSelect10,
   rating10,
   singleLineText20,
+};
+
+// Field-add workloads need only the new columns, without an existing primary
+// field. Keep the same names and options as the table-shape matrix while making
+// the request count explicit.
+export const scalarFieldAddMatrix = {
+  singleLineText1: numberedFields(1, singleLineTextField),
+  singleLineText10: numberedFields(10, singleLineTextField),
+  longText10: numberedFields(10, longTextField),
+  number10: numberedFields(10, numberField),
+  date10: numberedFields(10, dateField),
+  checkbox10: numberedFields(10, checkboxField),
+  singleSelect10: numberedFields(10, singleSelectField),
+  multipleSelect10: numberedFields(10, multipleSelectField),
+  rating10: numberedFields(10, ratingField),
+  singleLineText20: numberedFields(20, singleLineTextField),
 };
