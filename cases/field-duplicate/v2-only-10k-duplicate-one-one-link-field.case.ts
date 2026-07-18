@@ -13,6 +13,7 @@ export default definePerfCase({
       reason:
         "V1 duplicateField tries to add a second one-one constraint with the source constraint name and PostgreSQL returns 42710 duplicate_object; V2 has a distinct supported SQL copy path.",
     },
-    threshold: { metric: "duplicateLinkFieldMs", maxMs: 180_000 },
+    // CI run 29650023288: native V2 duplicate completed in 1.12s.
+    threshold: { metric: "duplicateLinkFieldMs", maxMs: 5_000 },
   },
 });

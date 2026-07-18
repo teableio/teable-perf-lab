@@ -41,6 +41,7 @@ exclusive junction-table edges.
 
 ## Notes
 
-The initial 180-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. This relationship exercises the
-one-way one-many junction-table value-copy path.
+The 15-second guardrail was calibrated from official CI runs `29649057939` and
+`29650023288`: V1 measured 5,821.18 ms and 4,944.70 ms, while V2 measured
+675.98 ms and 671.75 ms. The bound leaves about 2.58x headroom over the observed
+worst and protects the one-way one-many junction-table value-copy path.

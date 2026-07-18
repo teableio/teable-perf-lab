@@ -46,9 +46,9 @@ copy with the source field's constraint name and PostgreSQL rejects it with
 
 ## Notes
 
-The initial 180-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. This case preserves relationship
-matrix coverage without treating the unsupported V1 operation as a performance
-success. The result records the intentional shared-cache bypass in
-`details.v2NativeFixture`; fixture construction is excluded from the primary
-metric.
+The 5-second guardrail was calibrated from the valid V2-native sample in
+official CI run `29650023288`, which completed in 1,117.14 ms. This case
+preserves relationship matrix coverage without treating the unsupported V1
+operation as a performance success. The result records the intentional
+shared-cache bypass in `details.v2NativeFixture`; fixture construction is
+excluded from the primary metric.
