@@ -25,6 +25,7 @@ import type {
   PerfRunContext,
   PerfRunResult,
   LinkFieldDuplicateCaseConfig,
+  ComputedFieldDuplicateCaseConfig,
   StoredFieldDuplicateCaseConfig,
 } from "../types";
 import {
@@ -32,6 +33,7 @@ import {
   buildConditionalLookupSeedFixture,
   createConditionalLookupField,
   waitForConditionalLookupFullScan,
+  type ConditionalLookupFullScan,
   type ConditionalLookupSeedFixture,
 } from "./conditional-lookup.runner";
 import {
@@ -39,6 +41,10 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
+import {
+  runComputedFieldDuplicateCase,
+  seedComputedFieldDuplicateCase,
+} from "./field-duplicate-computed.runner";
 import {
   runLinkFieldDuplicateCase,
   seedLinkFieldDuplicateCase,
@@ -57,6 +63,8 @@ type FieldDuplicateSeedFixture = ConditionalLookupSeedFixture & {
   sourceLookupScanReadyMeasurement: Measurement<
     Awaited<ReturnType<typeof waitForConditionalLookupFullScan>>
   >;
+  completedDuplicateFieldMeasurement?: Measurement<FieldDuplicatePrimaryResult>;
+  duplicatedLookupVerificationProgress?: ConditionalLookupFullScan;
 };
 
 type FieldDuplicatePrimaryResult = {
@@ -184,6 +192,12 @@ const createSeedFixture = async (
   };
 };
 
+const resolveDuplicateFieldMeasurement = (
+  seedFixture: FieldDuplicateSeedFixture,
+  duplicateFieldMeasurement?: Measurement<FieldDuplicatePrimaryResult>,
+) =>
+  duplicateFieldMeasurement ?? seedFixture.completedDuplicateFieldMeasurement;
+
 const buildFieldDuplicateResult = ({
   config,
   seedFixture,
@@ -237,8 +251,13 @@ const buildFieldDuplicateResult = ({
       seedFixture.createSourceLookupFieldMeasurement.durationMs,
     sourceLookupScanReadyMs:
       seedFixture.sourceLookupScanReadyMeasurement.durationMs,
-    ...(duplicateFieldMeasurement
-      ? { duplicateFieldMs: duplicateFieldMeasurement.durationMs }
+    ...(resolveDuplicateFieldMeasurement(seedFixture, duplicateFieldMeasurement)
+      ? {
+          duplicateFieldMs: resolveDuplicateFieldMeasurement(
+            seedFixture,
+            duplicateFieldMeasurement,
+          )!.durationMs,
+        }
       : {}),
     ...(duplicatedLookupScanReadyMeasurement
       ? {
@@ -246,10 +265,17 @@ const buildFieldDuplicateResult = ({
             duplicatedLookupScanReadyMeasurement.durationMs,
         }
       : {}),
-    ...(duplicateFieldMeasurement
+    ...(resolveDuplicateFieldMeasurement(
+      seedFixture,
+      duplicateFieldMeasurement,
+    ) && duplicatedLookupScanReadyMeasurement
       ? {
-          conditionalLookupDuplicateReadyMs:
-            duplicateFieldMeasurement.durationMs,
+          conditionalLookupDuplicateReadyMs: roundMetric(
+            resolveDuplicateFieldMeasurement(
+              seedFixture,
+              duplicateFieldMeasurement,
+            )!.durationMs + duplicatedLookupScanReadyMeasurement.durationMs,
+          ),
         }
       : {}),
   },
@@ -291,11 +317,17 @@ const buildFieldDuplicateResult = ({
       name: seedFixture.sourceLookupScanReadyMeasurement.name,
       durationMs: seedFixture.sourceLookupScanReadyMeasurement.durationMs,
     },
-    ...(duplicateFieldMeasurement
+    ...(resolveDuplicateFieldMeasurement(seedFixture, duplicateFieldMeasurement)
       ? [
           {
-            name: duplicateFieldMeasurement.name,
-            durationMs: duplicateFieldMeasurement.durationMs,
+            name: resolveDuplicateFieldMeasurement(
+              seedFixture,
+              duplicateFieldMeasurement,
+            )!.name,
+            durationMs: resolveDuplicateFieldMeasurement(
+              seedFixture,
+              duplicateFieldMeasurement,
+            )!.durationMs,
           },
         ]
       : []),
@@ -336,22 +368,38 @@ const buildFieldDuplicateResult = ({
       limit: config.lookup.limit,
     },
     duplicatedLookupField: {
-      fieldId: duplicateFieldMeasurement?.result.field.id,
+      fieldId: resolveDuplicateFieldMeasurement(
+        seedFixture,
+        duplicateFieldMeasurement,
+      )?.result.field.id,
       name:
-        duplicateFieldMeasurement?.result.field.name ?? config.duplicate.name,
-      responseHeaders: duplicateFieldMeasurement?.result.responseHeaders,
-      routing: duplicateFieldMeasurement?.result.routing,
+        resolveDuplicateFieldMeasurement(seedFixture, duplicateFieldMeasurement)
+          ?.result.field.name ?? config.duplicate.name,
+      responseHeaders: resolveDuplicateFieldMeasurement(
+        seedFixture,
+        duplicateFieldMeasurement,
+      )?.result.responseHeaders,
+      routing: resolveDuplicateFieldMeasurement(
+        seedFixture,
+        duplicateFieldMeasurement,
+      )?.result.routing,
     },
-    fullScan: duplicatedLookupScanReadyMeasurement?.result
-      ? {
-          scannedRecords:
-            duplicatedLookupScanReadyMeasurement.result.scannedRecords,
-          pageSize: duplicatedLookupScanReadyMeasurement.result.pageSize,
-          pageCount: duplicatedLookupScanReadyMeasurement.result.pageCount,
-        }
-      : undefined,
+    fullScan:
+      (duplicatedLookupScanReadyMeasurement?.result ??
+      seedFixture.duplicatedLookupVerificationProgress)
+        ? {
+            scannedRecords: (duplicatedLookupScanReadyMeasurement?.result ??
+              seedFixture.duplicatedLookupVerificationProgress)!.scannedRecords,
+            pageSize: (duplicatedLookupScanReadyMeasurement?.result ??
+              seedFixture.duplicatedLookupVerificationProgress)!.pageSize,
+            pageCount: (duplicatedLookupScanReadyMeasurement?.result ??
+              seedFixture.duplicatedLookupVerificationProgress)!.pageCount,
+            complete: Boolean(duplicatedLookupScanReadyMeasurement),
+          }
+        : undefined,
     verifiedSamples:
-      duplicatedLookupScanReadyMeasurement?.result.verifiedSamples,
+      duplicatedLookupScanReadyMeasurement?.result.verifiedSamples ??
+      seedFixture.duplicatedLookupVerificationProgress?.verifiedSamples,
     error:
       error instanceof Error
         ? {
@@ -421,6 +469,7 @@ const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
           };
         }),
     );
+    fixture.completedDuplicateFieldMeasurement = duplicateFieldMeasurement;
     const duplicatedLookupScanReadyMeasurement = await measureAsync(
       "duplicatedLookupScanReady",
       () =>
@@ -429,6 +478,9 @@ const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
           duplicateFieldMeasurement.result.field.id,
           config,
           fixture.hostFields,
+          (progress) => {
+            fixture.duplicatedLookupVerificationProgress = progress;
+          },
         ),
     );
     return { duplicateFieldMeasurement, duplicatedLookupScanReadyMeasurement };
@@ -503,6 +555,11 @@ const isLinkFieldDuplicateConfig = (
 ): config is LinkFieldDuplicateCaseConfig =>
   "mode" in config && config.mode === "link";
 
+const isComputedFieldDuplicateConfig = (
+  config: FieldDuplicateCaseConfig,
+): config is ComputedFieldDuplicateCaseConfig =>
+  "mode" in config && config.mode === "computed";
+
 export const seedFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
@@ -513,6 +570,9 @@ export const seedFieldDuplicateCase = (
   }
   if (isLinkFieldDuplicateConfig(config)) {
     return seedLinkFieldDuplicateCase(perfCase, context);
+  }
+  if (isComputedFieldDuplicateConfig(config)) {
+    return seedComputedFieldDuplicateCase(perfCase, context);
   }
   return seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };
@@ -527,6 +587,9 @@ export const runFieldDuplicateCase = (
   }
   if (isLinkFieldDuplicateConfig(config)) {
     return runLinkFieldDuplicateCase(perfCase, context);
+  }
+  if (isComputedFieldDuplicateConfig(config)) {
+    return runComputedFieldDuplicateCase(perfCase, context);
   }
   return runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };

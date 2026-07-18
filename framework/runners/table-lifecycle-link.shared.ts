@@ -78,6 +78,7 @@ export type TableLinkFixture = RecordReplayFixture & {
     foreignTableId: string;
     foreignTableName: string;
     foreignKeyFieldId: string;
+    foreignValueFieldId?: string;
     foreignFieldIds: string[];
     foreignRowCount: number;
   };
@@ -94,6 +95,17 @@ export type LinkFieldState = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
+
+export const expectedForeignNumber = (
+  foreignRowNumber: number,
+  config: TableLinkLifecycleCaseConfig,
+) => {
+  const value = config.link.foreignTable.value;
+  if (!value) {
+    throw new Error("Link fixture has no deterministic foreign value column");
+  }
+  return foreignRowNumber * value.multiplier + value.offset;
+};
 
 const configuredRelationship = (config: TableLinkLifecycleCaseConfig) =>
   config.link.relationship ?? "manyOne";
@@ -235,6 +247,15 @@ const resolveLinkFixture = async (
       `Foreign table ${foreignTableName} is missing field ${FOREIGN_KEY_FIELD}`,
     );
   }
+  const foreignValue = config.link.foreignTable.value;
+  const foreignValueField = foreignValue
+    ? foreignFields.find((field) => field.name === foreignValue.name)
+    : undefined;
+  if (foreignValue && !foreignValueField) {
+    throw new Error(
+      `Foreign table ${foreignTableName} is missing value field ${foreignValue.name}`,
+    );
+  }
 
   return {
     tableId: mainTableId,
@@ -250,6 +271,7 @@ const resolveLinkFixture = async (
       foreignTableId,
       foreignTableName,
       foreignKeyFieldId: foreignKeyField.id,
+      foreignValueFieldId: foreignValueField?.id,
       foreignFieldIds: foreignFields.map((field) => field.id),
       foreignRowCount: config.link.foreignTable.rowCount,
     },
@@ -349,11 +371,15 @@ const seedForeignTable = async (
   foreignTableName: string,
   config: TableLinkLifecycleCaseConfig,
 ) => {
+  const foreignValue = config.link.foreignTable.value;
   const table = await createTable(baseId, {
     name: foreignTableName,
     fields: [
       { name: FOREIGN_KEY_FIELD, type: FieldType.SingleLineText },
       { name: FOREIGN_NOTE_FIELD, type: FieldType.SingleLineText },
+      ...(foreignValue
+        ? [{ name: foreignValue.name, type: FieldType.Number }]
+        : []),
     ],
     records: [],
   });
@@ -368,6 +394,11 @@ const seedForeignTable = async (
           [FOREIGN_NOTE_FIELD]: `${config.link.foreignTable.keyPrefix}-note-${padRowNumber(
             rowNumber,
           )}`,
+          ...(foreignValue
+            ? {
+                [foreignValue.name]: expectedForeignNumber(rowNumber, config),
+              }
+            : {}),
         },
       };
     },
@@ -484,7 +515,7 @@ export const prepareTableLinkFixture = async (
   perfCase: PerfCase,
   runner: PerfRunnerKind,
   seedIdentity?: Record<string, string | number | boolean>,
-  options?: { bypassSeedCache?: boolean },
+  options?: { bypassSeedCache?: boolean; seedCodeFiles?: URL[] },
 ): Promise<TableLinkFixture> => {
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase,
@@ -502,6 +533,7 @@ export const prepareTableLinkFixture = async (
           : runner === "field-duplicate"
             ? new URL("./field-duplicate-link.runner.ts", import.meta.url)
             : new URL("./record-delete-link.runner.ts", import.meta.url),
+      ...(options?.seedCodeFiles ?? []),
     ],
   });
 

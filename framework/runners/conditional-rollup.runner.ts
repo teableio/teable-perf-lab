@@ -43,7 +43,7 @@ type ConditionalRollupFieldCreation = {
   routing: EngineRouting;
 };
 
-type ConditionalRollupFullScan = {
+export type ConditionalRollupFullScan = {
   scannedRecords: number;
   pageSize: number;
   pageCount: number;
@@ -75,7 +75,7 @@ const createEmptyMeasurement = <T>(
   result,
 });
 
-const buildConditionalRollupFieldInput = (
+export const buildConditionalRollupFieldInput = (
   fixture: ConditionalLookupSeedFixture,
   config: ConditionalRollupCaseConfig,
 ): IFieldRo => ({
@@ -211,7 +211,7 @@ const assertConditionalRollupFullScan = async (
   };
 };
 
-const waitForConditionalRollupFullScan = (
+export const waitForConditionalRollupFullScan = (
   fixture: ConditionalLookupSeedFixture,
   rollupFieldId: string,
   config: ConditionalRollupCaseConfig,
