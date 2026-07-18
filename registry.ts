@@ -117,6 +117,10 @@ import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k
 import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
 import fieldDuplicate10kDuplicateAssigneeFieldCase from "./cases/field-duplicate/10k-duplicate-assignee-field.case";
 import fieldDuplicate10kDuplicateAttachmentsFieldCase from "./cases/field-duplicate/10k-duplicate-attachments-field.case";
+import fieldDuplicate10kDuplicateManyManyLinkFieldCase from "./cases/field-duplicate/10k-duplicate-many-many-link-field.case";
+import fieldDuplicate10kDuplicateOneManyOneWayLinkFieldCase from "./cases/field-duplicate/10k-duplicate-one-many-one-way-link-field.case";
+import fieldDuplicate10kDuplicateManyOneLinkFieldCase from "./cases/field-duplicate/10k-duplicate-many-one-link-field.case";
+import fieldDuplicateV2Only10kDuplicateOneOneLinkFieldCase from "./cases/field-duplicate/v2-only-10k-duplicate-one-one-link-field.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
@@ -370,6 +374,10 @@ const cases = [
   fieldDuplicate10kDuplicateScoreFieldCase,
   fieldDuplicate10kDuplicateAssigneeFieldCase,
   fieldDuplicate10kDuplicateAttachmentsFieldCase,
+  fieldDuplicate10kDuplicateManyManyLinkFieldCase,
+  fieldDuplicate10kDuplicateOneManyOneWayLinkFieldCase,
+  fieldDuplicate10kDuplicateManyOneLinkFieldCase,
+  fieldDuplicateV2Only10kDuplicateOneOneLinkFieldCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
   duplicateTable10k20FSelflinkCase,
