@@ -9,6 +9,6 @@ export default definePerfCase({
   watchdogMs: 300_000,
   config: {
     ...scalarFieldDuplicateConfig("Owner Text", "owner-text"),
-    threshold: { metric: "duplicateScalarFieldMs", maxMs: 10_000 },
+    threshold: { metric: "duplicateScalarFieldMs", maxMs: 8_000 },
   },
 });

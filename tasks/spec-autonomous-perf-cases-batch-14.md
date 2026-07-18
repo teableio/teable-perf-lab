@@ -31,9 +31,11 @@ synchronous value copy performed by that endpoint. Seed setup, the pre-operation
 value scans, and cleanup stay outside the metric. Every request must route
 through canary feature `duplicateField` on the requested V1 or V2 engine.
 
-All cases initially use `duplicateScalarFieldMs` with `maxMs: 10_000`. This is
-an explicit uncalibrated assumption; the first official V1/V2 CI run will be
-used to set the committed guardrail before merge.
+All cases use `duplicateScalarFieldMs` with `maxMs: 8_000`. The initial
+10-second assumption was calibrated after official CI run 29645931773: all 16
+V1/V2 artifacts passed at 179.01-3444.31 ms, with complete routing, full-scan,
+and trace evidence. Eight seconds keeps about 2.32x headroom over the observed
+worst while catching a clear doubling regression.
 
 ## Cases
 
@@ -63,8 +65,7 @@ used to set the committed guardrail before merge.
 - **Execute phase**: resolve the source field id, send one measured
   duplicate-field request with an explicit copy name, then verify outside the
   timer.
-- **Primary metric**: `duplicateScalarFieldMs`, initial `maxMs: 10_000`, to be
-  calibrated from official CI evidence before merge.
+- **Primary metric**: `duplicateScalarFieldMs`, calibrated `maxMs: 8_000`.
 - **Routing**: require the requested V1/V2 engine and
   `x-teable-v2-feature: duplicateField`.
 - **Metadata verification**: the new field has the requested name and the same
