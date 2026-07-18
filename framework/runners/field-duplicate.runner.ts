@@ -19,10 +19,12 @@ import {
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCaseFor,
+  ConditionalLookupFieldDuplicateCaseConfig,
   FieldDuplicateCaseConfig,
   PerfCase,
   PerfRunContext,
   PerfRunResult,
+  ScalarFieldDuplicateCaseConfig,
 } from "../types";
 import {
   assertConditionalLookupSeedReady,
@@ -36,6 +38,10 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
+import {
+  runScalarFieldDuplicateCase,
+  seedScalarFieldDuplicateCase,
+} from "./field-duplicate-scalar.runner";
 
 const FIELD_DUPLICATE_FIXTURE_VERSION = "field-duplicate-v1";
 
@@ -64,10 +70,13 @@ const assertExpectedRouting = (
   responseHeaders: Record<string, string>,
 ) =>
   assertEngineRouting(context, responseHeaders, {
+    feature: "duplicateField",
     operation: "Field duplicate",
   });
 
-const getConditionalLookupSeedConfig = (config: FieldDuplicateCaseConfig) => ({
+const getConditionalLookupSeedConfig = (
+  config: ConditionalLookupFieldDuplicateCaseConfig,
+) => ({
   baseId: config.baseId,
   sourceTableNamePrefix: config.sourceTableNamePrefix,
   hostTableNamePrefix: config.hostTableNamePrefix,
@@ -82,7 +91,7 @@ const getConditionalLookupSeedConfig = (config: FieldDuplicateCaseConfig) => ({
 });
 
 const buildFieldDuplicateSeedCacheInfo = (perfCase: PerfCase) => {
-  const config = perfCase.config as FieldDuplicateCaseConfig;
+  const config = perfCase.config as ConditionalLookupFieldDuplicateCaseConfig;
   return buildSeedCacheInfo({
     perfCase,
     runner: "field-duplicate",
@@ -101,7 +110,7 @@ const createSeedFixture = async (
   context: PerfRunContext,
   seedCacheInfo: SeedCacheInfo,
 ): Promise<FieldDuplicateSeedFixture> => {
-  const config = perfCase.config as FieldDuplicateCaseConfig;
+  const config = perfCase.config as ConditionalLookupFieldDuplicateCaseConfig;
   const timestamp = Date.now();
   const baseId = globalThis.testConfig.baseId;
   const sourceTableName = seedCacheInfo.enabled
@@ -179,7 +188,7 @@ const buildFieldDuplicateResult = ({
   seedCacheInfo,
   error,
 }: {
-  config: FieldDuplicateCaseConfig;
+  config: ConditionalLookupFieldDuplicateCaseConfig;
   seedFixture: FieldDuplicateSeedFixture;
   seedReadyMeasurement?: Measurement<
     Awaited<ReturnType<typeof assertConditionalLookupSeedReady>>
@@ -367,7 +376,7 @@ type FieldDuplicatePrimary = {
 // the reusable seed. The driver owns the seedReady phase, the diagnostic
 // wrapping, and the cleanup invocation.
 const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
-  FieldDuplicateCaseConfig,
+  ConditionalLookupFieldDuplicateCaseConfig,
   FieldDuplicateSeedFixture,
   FieldDuplicateSeedReadyResult,
   FieldDuplicatePrimary
@@ -478,14 +487,27 @@ const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
   },
 };
 
+const isScalarFieldDuplicateConfig = (
+  config: FieldDuplicateCaseConfig,
+): config is ScalarFieldDuplicateCaseConfig =>
+  "mode" in config && config.mode === "scalar";
+
 export const seedFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
-): Promise<PerfRunResult> =>
-  seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as FieldDuplicateCaseConfig;
+  return isScalarFieldDuplicateConfig(config)
+    ? seedScalarFieldDuplicateCase(perfCase, context)
+    : seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+};
 
 export const runFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
-): Promise<PerfRunResult> =>
-  runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+): Promise<PerfRunResult> => {
+  const config = perfCase.config as FieldDuplicateCaseConfig;
+  return isScalarFieldDuplicateConfig(config)
+    ? runScalarFieldDuplicateCase(perfCase, context)
+    : runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
+};

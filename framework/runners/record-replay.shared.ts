@@ -894,13 +894,38 @@ const assertRestoredSampleTextValues = async (
       const actualValue = record.fields[field.id];
       actual[field.name] = actualValue;
       expected[field.name] = expectedValue;
-      const valuesMatch = Array.isArray(expectedValue)
-        ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
-        : typeof expectedValue === "boolean" && actualValue == null
-          ? expectedValue === false
-          : typeof expectedValue === "number"
-            ? Number(actualValue) === expectedValue
-            : actualValue === expectedValue;
+      const dateTimeZone = (
+        field.options as
+          | { formatting?: { timeZone?: string } }
+          | null
+          | undefined
+      )?.formatting?.timeZone;
+      const actualDateOnly =
+        field.type === FieldType.Date &&
+        typeof actualValue === "string" &&
+        typeof expectedValue === "string"
+          ? Object.fromEntries(
+              new Intl.DateTimeFormat("en-US", {
+                timeZone: dateTimeZone ?? "UTC",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+              })
+                .formatToParts(new Date(actualValue))
+                .filter(({ type }) => ["year", "month", "day"].includes(type))
+                .map(({ type, value }) => [type, value]),
+            )
+          : undefined;
+      const valuesMatch = actualDateOnly
+        ? `${actualDateOnly.year}-${actualDateOnly.month}-${actualDateOnly.day}` ===
+          expectedValue
+        : Array.isArray(expectedValue)
+          ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
+          : typeof expectedValue === "boolean" && actualValue == null
+            ? expectedValue === false
+            : typeof expectedValue === "number"
+              ? Number(actualValue) === expectedValue
+              : actualValue === expectedValue;
       if (!valuesMatch) {
         throw new Error(
           `Sample row ${rowNumber} ${field.name} mismatch: expected ${String(
