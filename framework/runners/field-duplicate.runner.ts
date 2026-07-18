@@ -24,7 +24,7 @@ import type {
   PerfCase,
   PerfRunContext,
   PerfRunResult,
-  ScalarFieldDuplicateCaseConfig,
+  StoredFieldDuplicateCaseConfig,
 } from "../types";
 import {
   assertConditionalLookupSeedReady,
@@ -39,9 +39,9 @@ import {
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
 import {
-  runScalarFieldDuplicateCase,
-  seedScalarFieldDuplicateCase,
-} from "./field-duplicate-scalar.runner";
+  runStoredFieldDuplicateCase,
+  seedStoredFieldDuplicateCase,
+} from "./field-duplicate-stored.runner";
 
 const FIELD_DUPLICATE_FIXTURE_VERSION = "field-duplicate-v1";
 
@@ -487,18 +487,19 @@ const fieldDuplicateFieldAddSpec: FieldAddLifecycleSpec<
   },
 };
 
-const isScalarFieldDuplicateConfig = (
+const isStoredFieldDuplicateConfig = (
   config: FieldDuplicateCaseConfig,
-): config is ScalarFieldDuplicateCaseConfig =>
-  "mode" in config && config.mode === "scalar";
+): config is StoredFieldDuplicateCaseConfig =>
+  "mode" in config &&
+  (config.mode === "scalar" || config.mode === "structured");
 
 export const seedFieldDuplicateCase = (
   perfCase: PerfCaseFor<"field-duplicate">,
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FieldDuplicateCaseConfig;
-  return isScalarFieldDuplicateConfig(config)
-    ? seedScalarFieldDuplicateCase(perfCase, context)
+  return isStoredFieldDuplicateConfig(config)
+    ? seedStoredFieldDuplicateCase(perfCase, context)
     : seedFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };
 
@@ -507,7 +508,7 @@ export const runFieldDuplicateCase = (
   context: PerfRunContext,
 ): Promise<PerfRunResult> => {
   const config = perfCase.config as FieldDuplicateCaseConfig;
-  return isScalarFieldDuplicateConfig(config)
-    ? runScalarFieldDuplicateCase(perfCase, context)
+  return isStoredFieldDuplicateConfig(config)
+    ? runStoredFieldDuplicateCase(perfCase, context)
     : runFieldAddLifecycle(perfCase, context, fieldDuplicateFieldAddSpec);
 };
