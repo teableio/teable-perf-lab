@@ -37,6 +37,6 @@ Measure duplicating one populated single-select field and its 10,000 values.
 
 ## Notes
 
-The initial 10-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. The route must report canary
-feature `duplicateField`.
+The 8-second guardrail was calibrated from CI run 29645931773, whose 16 V1/V2
+artifacts ranged from 179.01 to 3444.31 ms. It keeps about 2.32x headroom over
+the observed worst. The route must report canary feature `duplicateField`.
