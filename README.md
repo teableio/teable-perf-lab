@@ -524,6 +524,26 @@ workload.
 - `form-submit/sequential-200`: Catch regressions in the public form-submission
   path by submitting 200 records through a Form view one request at a time and
   measuring per-submit p95 latency.
+- `form-submit/sequential-50-primary-only`: Establish the narrowest public
+  form-submit baseline with 50 sequential primary-only submissions.
+- `form-submit/sequential-50-single-line-text-10fields`: Isolate plain-text form
+  submission at a fixed ten-field width.
+- `form-submit/sequential-50-long-text-10fields`: Isolate long-text typecasting
+  and storage in the public Form endpoint.
+- `form-submit/sequential-50-number-10fields`: Isolate numeric typecasting in 50
+  sequential public form submissions.
+- `form-submit/sequential-50-date-10fields`: Isolate UTC date parsing and
+  normalization in public form submissions.
+- `form-submit/sequential-50-checkbox-10fields`: Isolate checked/empty checkbox
+  typecasting in public form submissions.
+- `form-submit/sequential-50-single-select-10fields`: Isolate single-select
+  choice resolution in public form submissions.
+- `form-submit/sequential-50-multiple-select-10fields`: Isolate multiple-select
+  array typecasting in public form submissions.
+- `form-submit/sequential-50-rating-10fields`: Isolate five-star rating
+  typecasting in public form submissions.
+- `form-submit/sequential-50-single-line-text-20fields`: Expose form
+  payload-width cost with 50 sequential 20-field text submissions.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through
