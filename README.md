@@ -473,6 +473,23 @@ workload.
   and 10,000 bounded score values.
 - `field-duplicate/conditional-lookup-10k`: Measure duplicating the conditional
   lookup field from the `lookup/conditional-10k` workload.
+- `field-duplicate/10k-duplicate-owner-text-field`: Measure duplicating one
+  populated single-line text field and its 10,000 values.
+- `field-duplicate/10k-duplicate-description-field`: Measure duplicating one
+  populated long-text field and its 10,000 values.
+- `field-duplicate/10k-duplicate-amount-field`: Measure duplicating one
+  populated numeric field and its 10,000 values.
+- `field-duplicate/10k-duplicate-start-date-field`: Measure duplicating one
+  populated date field and its 10,000 serialized values.
+- `field-duplicate/10k-duplicate-active-field`: Measure duplicating one
+  populated checkbox field across 10,000 rows, including unchecked/null storage
+  semantics.
+- `field-duplicate/10k-duplicate-status-field`: Measure duplicating one
+  populated single-select field and its 10,000 values.
+- `field-duplicate/10k-duplicate-tags-field`: Measure duplicating one populated
+  multiple-select field and its 10,000 arrays.
+- `field-duplicate/10k-duplicate-score-field`: Measure duplicating one populated
+  rating field and its 10,000 bounded values.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
   table with records included.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record

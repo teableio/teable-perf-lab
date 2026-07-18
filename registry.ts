@@ -107,6 +107,14 @@ import fieldRestore10kAmountFieldCase from "./cases/field-restore/10k-amount-fie
 import fieldRestore10kActiveFieldCase from "./cases/field-restore/10k-active-field.case";
 import fieldRestore10kScoreFieldCase from "./cases/field-restore/10k-score-field.case";
 import fieldDuplicateConditionalLookup10kCase from "./cases/field-duplicate/conditional-lookup-10k.case";
+import fieldDuplicate10kDuplicateOwnerTextFieldCase from "./cases/field-duplicate/10k-duplicate-owner-text-field.case";
+import fieldDuplicate10kDuplicateDescriptionFieldCase from "./cases/field-duplicate/10k-duplicate-description-field.case";
+import fieldDuplicate10kDuplicateAmountFieldCase from "./cases/field-duplicate/10k-duplicate-amount-field.case";
+import fieldDuplicate10kDuplicateStartDateFieldCase from "./cases/field-duplicate/10k-duplicate-start-date-field.case";
+import fieldDuplicate10kDuplicateActiveFieldCase from "./cases/field-duplicate/10k-duplicate-active-field.case";
+import fieldDuplicate10kDuplicateStatusFieldCase from "./cases/field-duplicate/10k-duplicate-status-field.case";
+import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k-duplicate-tags-field.case";
+import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
 import fieldUpdate10kSelectOptionRenameComputedCascadeCase from "./cases/field-update/v2-only-10k-select-option-rename-computed-cascade.case";
 import duplicateTable10k20FCase from "./cases/duplicate-table/10k-20f.case";
 import duplicateTable10k25F5FormulaCase from "./cases/duplicate-table/10k-25f-5formula.case";
@@ -350,6 +358,14 @@ const cases = [
   fieldRestore10kActiveFieldCase,
   fieldRestore10kScoreFieldCase,
   fieldDuplicateConditionalLookup10kCase,
+  fieldDuplicate10kDuplicateOwnerTextFieldCase,
+  fieldDuplicate10kDuplicateDescriptionFieldCase,
+  fieldDuplicate10kDuplicateAmountFieldCase,
+  fieldDuplicate10kDuplicateStartDateFieldCase,
+  fieldDuplicate10kDuplicateActiveFieldCase,
+  fieldDuplicate10kDuplicateStatusFieldCase,
+  fieldDuplicate10kDuplicateTagsFieldCase,
+  fieldDuplicate10kDuplicateScoreFieldCase,
   duplicateTable10k20FCase,
   duplicateTable10k25F5FormulaCase,
   duplicateTable10k20FSelflinkCase,
