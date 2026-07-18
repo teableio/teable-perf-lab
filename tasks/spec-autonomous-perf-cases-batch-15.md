@@ -27,9 +27,10 @@ field-id resolution, post-operation metadata/value scans, and cleanup remain
 outside the metric. Every request must route through canary feature
 `duplicateField` on the requested V1 or V2 engine.
 
-Both cases initially use `duplicateStructuredFieldMs` with `maxMs: 20_000`.
-This is an explicit uncalibrated assumption; the first official V1/V2 CI run
-will set the committed guardrail before merge.
+Both cases use `duplicateStructuredFieldMs` with `maxMs: 8_000`. The initial
+20-second assumption was calibrated from official V1/V2 CI run `29647216759`:
+the four measured values ranged from 335.44 to 3,559.85 ms, so the committed
+guardrail leaves about 2.25x headroom above the slowest result.
 
 ## Cases
 
@@ -53,8 +54,8 @@ will set the committed guardrail before merge.
 - **Execute phase**: resolve the source field id, send one measured
   duplicate-field request with an explicit copy name, then verify outside the
   timer.
-- **Primary metric**: `duplicateStructuredFieldMs`, initial `maxMs: 20_000`, to
-  be calibrated from official CI evidence before merge.
+- **Primary metric**: `duplicateStructuredFieldMs`, `maxMs: 8_000`, calibrated
+  from official CI run `29647216759`.
 - **Routing**: require the requested V1/V2 engine and
   `x-teable-v2-feature: duplicateField`.
 - **Metadata verification**: the copy has the requested name, preserves the
@@ -78,8 +79,8 @@ will set the committed guardrail before merge.
 - Exact source/copy equality through the records API is the cross-engine
   product contract. Seed-sample verification may normalize enriched User and
   Attachment response objects down to their deterministic ids and names.
-- The first official CI run is authoritative for threshold calibration; local
-  timing is directional only.
+- Official CI is authoritative for threshold calibration; local timing is
+  directional only.
 
 ## Explicit Rejections
 

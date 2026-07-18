@@ -40,6 +40,7 @@ Measure duplicating one populated User field and its 10,000 structured values.
 
 ## Notes
 
-The initial 20-second guardrail is intentionally uncalibrated and will be
-replaced with a CI-derived bound before merge. User response objects may be
-enriched, so seed samples normalize to ids; source/copy equality remains exact.
+The 8-second guardrail was calibrated from CI run `29647216759`, where the
+primary metric was 3,559.85 ms on V1 and 358.78 ms on V2. User response objects
+may be enriched, so seed samples normalize to ids; source/copy equality remains
+exact.
