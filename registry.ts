@@ -90,6 +90,14 @@ import formulaDependencyAdd4kDepth5CascadeCase from "./cases/field-convert/formu
 import formulaDependencyReplace4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-replace-4k-depth5-cascade.case";
 import formulaDependencyRemove4kDepth5CascadeCase from "./cases/field-convert/formula-dependency-remove-4k-depth5-cascade.case";
 import fieldDeleteMixed10kDelete19FieldsCase from "./cases/field-delete/mixed-10k-delete-19-fields.case";
+import fieldDelete10kDeleteOwnerTextFieldCase from "./cases/field-delete/10k-delete-owner-text-field.case";
+import fieldDelete10kDeleteDescriptionFieldCase from "./cases/field-delete/10k-delete-description-field.case";
+import fieldDelete10kDeleteAmountFieldCase from "./cases/field-delete/10k-delete-amount-field.case";
+import fieldDelete10kDeleteStartDateFieldCase from "./cases/field-delete/10k-delete-start-date-field.case";
+import fieldDelete10kDeleteActiveFieldCase from "./cases/field-delete/10k-delete-active-field.case";
+import fieldDelete10kDeleteStatusFieldCase from "./cases/field-delete/10k-delete-status-field.case";
+import fieldDelete10kDeleteTagsFieldCase from "./cases/field-delete/10k-delete-tags-field.case";
+import fieldDelete10kDeleteScoreFieldCase from "./cases/field-delete/10k-delete-score-field.case";
 import fieldRestore10kDescriptionFieldCase from "./cases/field-restore/10k-description-field.case";
 import fieldRestore10kStatusFieldCase from "./cases/field-restore/10k-status-field.case";
 import fieldRestore10kStartDateFieldCase from "./cases/field-restore/10k-start-date-field.case";
@@ -325,6 +333,14 @@ const cases = [
   formulaDependencyRemove4kDepth5CascadeCase,
   fieldUpdate10kSelectOptionRenameComputedCascadeCase,
   fieldDeleteMixed10kDelete19FieldsCase,
+  fieldDelete10kDeleteOwnerTextFieldCase,
+  fieldDelete10kDeleteDescriptionFieldCase,
+  fieldDelete10kDeleteAmountFieldCase,
+  fieldDelete10kDeleteStartDateFieldCase,
+  fieldDelete10kDeleteActiveFieldCase,
+  fieldDelete10kDeleteStatusFieldCase,
+  fieldDelete10kDeleteTagsFieldCase,
+  fieldDelete10kDeleteScoreFieldCase,
   fieldRestore10kDescriptionFieldCase,
   fieldRestore10kStatusFieldCase,
   fieldRestore10kStartDateFieldCase,
