@@ -26,6 +26,7 @@ import {
   assertLinkCellSamples,
   expectedForeignKey,
   foreignRowForMainRow,
+  normalizeLinkCellItems,
   permanentDeleteLinkFixture,
   prepareTableLinkFixture,
   type TableLinkFixture,
@@ -49,6 +50,8 @@ type LinkFieldDuplicateFixture = TableLinkFixture & {
     name: string;
     durationMs: number;
   };
+  completedDuplicateFieldMeasurement?: Measurement<LinkFieldDuplicateOperation>;
+  verificationProgress?: LinkFieldDuplicateVerification;
 };
 
 type LinkFieldDuplicateSeedReady = Awaited<
@@ -86,19 +89,6 @@ type LinkFieldDuplicatePrimary = {
   verifyDuplicatedFieldMeasurement: Measurement<LinkFieldDuplicateVerification>;
 };
 
-type LinkCellItem = { id?: string; title?: string };
-
-const normalizeLinkCellItems = (value: unknown): LinkCellItem[] => {
-  if (Array.isArray(value)) {
-    return value.filter(
-      (item): item is LinkCellItem => typeof item === "object" && item !== null,
-    );
-  }
-  return typeof value === "object" && value !== null
-    ? [value as LinkCellItem]
-    : [];
-};
-
 const assertExpectedRouting = (
   context: PerfRunContext,
   responseHeaders: Record<string, string>,
@@ -132,7 +122,7 @@ const assertLinkDuplicateSeedReady = async (
 };
 
 const assertLinkFieldDuplicated = async (
-  fixture: TableLinkFixture,
+  fixture: LinkFieldDuplicateFixture,
   config: LinkFieldDuplicateCaseConfig,
   operation: LinkFieldDuplicateOperation,
 ): Promise<LinkFieldDuplicateVerification> => {
@@ -192,6 +182,17 @@ const assertLinkFieldDuplicated = async (
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples: LinkFieldDuplicateVerification["verifiedSamples"] = [];
+  const verificationProgress: LinkFieldDuplicateVerification = {
+    scannedRecords: 0,
+    pageSize,
+    pageCount: 0,
+    sourceField,
+    duplicatedField,
+    hostFieldNames,
+    foreignFieldIds,
+    verifiedSamples,
+  };
+  fixture.verificationProgress = verificationProgress;
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
       totalRows: config.rowCount,
@@ -244,6 +245,8 @@ const assertLinkFieldDuplicated = async (
           duplicatedValue,
         });
       }
+      verificationProgress.scannedRecords = rowNumber;
+      verificationProgress.pageCount = Math.ceil(rowNumber / pageSize);
     },
   );
 
@@ -257,16 +260,9 @@ const assertLinkFieldDuplicated = async (
   expect(beyondLastPage.records).toHaveLength(0);
   expect(verifiedSamples).toHaveLength(config.verify.sampleRows.length);
 
-  return {
-    scannedRecords,
-    pageSize,
-    pageCount,
-    sourceField,
-    duplicatedField,
-    hostFieldNames,
-    foreignFieldIds,
-    verifiedSamples,
-  };
+  verificationProgress.scannedRecords = scannedRecords;
+  verificationProgress.pageCount = pageCount;
+  return verificationProgress;
 };
 
 const buildLinkFieldDuplicateResult = ({
@@ -281,112 +277,126 @@ const buildLinkFieldDuplicateResult = ({
   seedReadyMeasurement?: Measurement<LinkFieldDuplicateSeedReady>;
   primary?: LinkFieldDuplicatePrimary;
   error?: unknown;
-}): PerfRunResult => ({
-  metrics: {
-    prepareMs: fixture.preparePhase.durationMs,
-    seedCacheHit: fixture.seedCacheHit ? 1 : 0,
-    seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
-    ...(fixture.seedCacheHit
-      ? { seedRestoreMs: fixture.preparePhase.durationMs }
-      : fixture.seedCacheInfo.enabled
-        ? { seedBuildMs: fixture.preparePhase.durationMs }
+}): PerfRunResult => {
+  const duplicateFieldMeasurement =
+    primary?.duplicateFieldMeasurement ??
+    fixture.completedDuplicateFieldMeasurement;
+  const verification =
+    primary?.verifyDuplicatedFieldMeasurement.result ??
+    fixture.verificationProgress;
+
+  return {
+    metrics: {
+      prepareMs: fixture.preparePhase.durationMs,
+      seedCacheHit: fixture.seedCacheHit ? 1 : 0,
+      seedCacheEnabled: fixture.seedCacheInfo.enabled ? 1 : 0,
+      ...(fixture.seedCacheHit
+        ? { seedRestoreMs: fixture.preparePhase.durationMs }
+        : fixture.seedCacheInfo.enabled
+          ? { seedBuildMs: fixture.preparePhase.durationMs }
+          : {}),
+      ...(seedReadyMeasurement
+        ? { seedReadyMs: seedReadyMeasurement.durationMs }
         : {}),
-    ...(seedReadyMeasurement
-      ? { seedReadyMs: seedReadyMeasurement.durationMs }
-      : {}),
-    ...(primary
-      ? {
-          duplicateLinkFieldMs: primary.duplicateFieldMeasurement.durationMs,
-          verifyDuplicatedFieldMs:
-            primary.verifyDuplicatedFieldMeasurement.durationMs,
-        }
-      : {}),
-  },
-  thresholds: primary
-    ? [
-        {
-          metric: config.threshold.metric,
-          max: getPrimaryThresholdMs(config.threshold.maxMs),
-          unit: "ms",
-        },
-      ]
-    : [],
-  phases: [
-    fixture.preparePhase,
-    ...(seedReadyMeasurement
-      ? [
-          {
-            name: seedReadyMeasurement.name,
-            durationMs: seedReadyMeasurement.durationMs,
-          },
-        ]
-      : []),
-    ...(primary
-      ? [
-          {
-            name: primary.duplicateFieldMeasurement.name,
-            durationMs: primary.duplicateFieldMeasurement.durationMs,
-          },
-          {
-            name: primary.verifyDuplicatedFieldMeasurement.name,
-            durationMs: primary.verifyDuplicatedFieldMeasurement.durationMs,
-          },
-        ]
-      : []),
-  ],
-  details: {
-    operation: "field-duplicate-link",
-    relationship: config.link.relationship,
-    sourceIsOneWay: config.link.isOneWay,
-    hostTableId: fixture.tableId,
-    hostTableName: fixture.tableName,
-    foreignTableId: fixture.link.foreignTableId,
-    foreignTableName: fixture.link.foreignTableName,
-    viewId: fixture.viewId,
-    rowCount: config.rowCount,
-    foreignRowCount: config.link.foreignTable.rowCount,
-    edgeCount: config.rowCount,
-    batchSize: config.batchSize,
-    sourceField: primary?.verifyDuplicatedFieldMeasurement.result.sourceField,
-    duplicatedField:
-      primary?.verifyDuplicatedFieldMeasurement.result.duplicatedField,
-    foreignFieldIds:
-      primary?.verifyDuplicatedFieldMeasurement.result.foreignFieldIds,
-    response: primary
-      ? {
-          status: primary.duplicateFieldMeasurement.result.status,
-          headers: primary.duplicateFieldMeasurement.result.responseHeaders,
-          routing: primary.duplicateFieldMeasurement.result.routing,
-        }
-      : undefined,
-    seed: {
-      cacheHit: fixture.seedCacheHit,
-      reusable: fixture.reusableSeed,
-      seedHash: fixture.seedCacheInfo.seedHash,
-      seedHashShort: fixture.seedCacheInfo.seedHashShort,
-      seedTableName: fixture.seedCacheInfo.seedTableName,
-      schemaSignature: fixture.seedCacheInfo.schemaSignature,
-      ready: seedReadyMeasurement?.result,
-    },
-    fullScan: primary
-      ? {
-          scannedRecords:
-            primary.verifyDuplicatedFieldMeasurement.result.scannedRecords,
-          pageSize: primary.verifyDuplicatedFieldMeasurement.result.pageSize,
-          pageCount: primary.verifyDuplicatedFieldMeasurement.result.pageCount,
-        }
-      : undefined,
-    verifiedSamples:
-      primary?.verifyDuplicatedFieldMeasurement.result.verifiedSamples,
-    error:
-      error instanceof Error
+      ...(duplicateFieldMeasurement
         ? {
-            name: error.name,
-            message: error.message,
+            duplicateLinkFieldMs: duplicateFieldMeasurement.durationMs,
+          }
+        : {}),
+      ...(primary
+        ? {
+            verifyDuplicatedFieldMs:
+              primary.verifyDuplicatedFieldMeasurement.durationMs,
+          }
+        : {}),
+    },
+    thresholds: duplicateFieldMeasurement
+      ? [
+          {
+            metric: config.threshold.metric,
+            max: getPrimaryThresholdMs(config.threshold.maxMs),
+            unit: "ms",
+          },
+        ]
+      : [],
+    phases: [
+      fixture.preparePhase,
+      ...(seedReadyMeasurement
+        ? [
+            {
+              name: seedReadyMeasurement.name,
+              durationMs: seedReadyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(duplicateFieldMeasurement
+        ? [
+            {
+              name: duplicateFieldMeasurement.name,
+              durationMs: duplicateFieldMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(primary
+        ? [
+            {
+              name: primary.verifyDuplicatedFieldMeasurement.name,
+              durationMs: primary.verifyDuplicatedFieldMeasurement.durationMs,
+            },
+          ]
+        : []),
+    ],
+    details: {
+      operation: "field-duplicate-link",
+      relationship: config.link.relationship,
+      sourceIsOneWay: config.link.isOneWay,
+      hostTableId: fixture.tableId,
+      hostTableName: fixture.tableName,
+      foreignTableId: fixture.link.foreignTableId,
+      foreignTableName: fixture.link.foreignTableName,
+      viewId: fixture.viewId,
+      rowCount: config.rowCount,
+      foreignRowCount: config.link.foreignTable.rowCount,
+      edgeCount: config.rowCount,
+      batchSize: config.batchSize,
+      sourceField: verification?.sourceField,
+      duplicatedField: verification?.duplicatedField,
+      foreignFieldIds: verification?.foreignFieldIds,
+      response: duplicateFieldMeasurement
+        ? {
+            status: duplicateFieldMeasurement.result.status,
+            headers: duplicateFieldMeasurement.result.responseHeaders,
+            routing: duplicateFieldMeasurement.result.routing,
           }
         : undefined,
-  },
-});
+      seed: {
+        cacheHit: fixture.seedCacheHit,
+        reusable: fixture.reusableSeed,
+        seedHash: fixture.seedCacheInfo.seedHash,
+        seedHashShort: fixture.seedCacheInfo.seedHashShort,
+        seedTableName: fixture.seedCacheInfo.seedTableName,
+        schemaSignature: fixture.seedCacheInfo.schemaSignature,
+        ready: seedReadyMeasurement?.result,
+      },
+      fullScan: verification
+        ? {
+            scannedRecords: verification.scannedRecords,
+            pageSize: verification.pageSize,
+            pageCount: verification.pageCount,
+            complete: Boolean(primary),
+          }
+        : undefined,
+      verifiedSamples: verification?.verifiedSamples,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : undefined,
+    },
+  };
+};
 
 const linkFieldDuplicateSpec: FieldAddLifecycleSpec<
   LinkFieldDuplicateCaseConfig,
@@ -442,6 +452,7 @@ const linkFieldDuplicateSpec: FieldAddLifecycleSpec<
           };
         }),
     );
+    fixture.completedDuplicateFieldMeasurement = duplicateFieldMeasurement;
     const verifyDuplicatedFieldMeasurement = await measureAsync(
       "verifyDuplicatedField",
       () =>
