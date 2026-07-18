@@ -20,8 +20,9 @@ foreign-key values.
 
 - Creates 10,000 deterministic foreign rows and 10,000 host rows.
 - Host row `n` links to foreign row `n`, producing exactly 10,000 FK values.
-- The source is a two-way `manyOne` Link; seed caching reuses the ready table
-  pair across V1/V2 executions.
+- The source is a two-way `manyOne` Link. V1 reuses the shared cached pair; V2
+  builds the same deterministic pair natively during unmeasured preparation
+  because V1 physical-relation metadata is not compatible with V2 FK copy.
 
 ## Execute Phase
 
@@ -41,4 +42,6 @@ foreign-key values.
 
 The initial 180-second guardrail is intentionally uncalibrated and will be
 replaced with a CI-derived bound before merge. This relationship exercises the
-host-table FK value-copy path.
+host-table FK value-copy path. V2 results expose the intentional shared-cache
+bypass in `details.v2NativeFixture`; fixture construction is excluded from the
+primary metric.

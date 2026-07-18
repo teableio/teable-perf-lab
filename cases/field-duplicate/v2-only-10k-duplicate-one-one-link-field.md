@@ -24,8 +24,9 @@ copy with the source field's constraint name and PostgreSQL rejects it with
 - Creates 10,000 deterministic foreign rows and 10,000 host rows.
 - Host row `n` links to foreign row `n`, satisfying one-one exclusivity while
   producing exactly 10,000 FK values.
-- The source is a two-way `oneOne` Link; seed caching restores the ready table
-  pair for the V2 execution.
+- The source is a two-way `oneOne` Link. V2 builds the deterministic table pair
+  natively during unmeasured preparation because V1 physical-relation and
+  constraint metadata cannot be reused safely by the V2 FK-copy path.
 
 ## Execute Phase
 
@@ -48,4 +49,6 @@ copy with the source field's constraint name and PostgreSQL rejects it with
 The initial 180-second guardrail is intentionally uncalibrated and will be
 replaced with a CI-derived bound before merge. This case preserves relationship
 matrix coverage without treating the unsupported V1 operation as a performance
-success.
+success. The result records the intentional shared-cache bypass in
+`details.v2NativeFixture`; fixture construction is excluded from the primary
+metric.

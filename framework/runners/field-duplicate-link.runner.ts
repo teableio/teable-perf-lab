@@ -52,6 +52,10 @@ type LinkFieldDuplicateFixture = TableLinkFixture & {
   };
   completedDuplicateFieldMeasurement?: Measurement<LinkFieldDuplicateOperation>;
   verificationProgress?: LinkFieldDuplicateVerification;
+  v2NativeFixture?: {
+    reason: string;
+    sharedSeedCacheBypassed: boolean;
+  };
 };
 
 type LinkFieldDuplicateSeedReady = Awaited<
@@ -109,6 +113,21 @@ const resolveSourceField = (
   }
   return fixture.link.fieldId;
 };
+
+const shouldBuildV2NativeFkFixture = (
+  config: LinkFieldDuplicateCaseConfig,
+  context: PerfRunContext,
+) =>
+  context.engine === "v2" &&
+  (config.link.relationship === "manyOne" ||
+    config.link.relationship === "oneOne");
+
+// CI seeds one shared database through the legacy bootstrap engine. An
+// FK-backed Link's metadata includes physical host-table identity. V1 bootstrap
+// seeds persist that identity in a legacy form that V2 treats as one quoted
+// relation name. Rebuilding only the field is insufficient because the host
+// table remains legacy. Build the complete deterministic table pair through
+// V2 in unmeasured prepare instead; duplicate remains the only primary metric.
 
 const assertLinkDuplicateSeedReady = async (
   fixture: TableLinkFixture,
@@ -378,6 +397,7 @@ const buildLinkFieldDuplicateResult = ({
         schemaSignature: fixture.seedCacheInfo.schemaSignature,
         ready: seedReadyMeasurement?.result,
       },
+      v2NativeFixture: fixture.v2NativeFixture,
       fullScan: verification
         ? {
             scannedRecords: verification.scannedRecords,
@@ -404,17 +424,29 @@ const linkFieldDuplicateSpec: FieldAddLifecycleSpec<
   LinkFieldDuplicateSeedReady,
   LinkFieldDuplicatePrimary
 > = {
-  prepareFixture: async ({ perfCase, baseId, config, seedMode }) => {
+  prepareFixture: async ({ perfCase, context, baseId, config, seedMode }) => {
     const tableName = `${config.tableNamePrefix}-${seedMode ? "seed-" : ""}${Date.now()}`;
-    const prepareMeasurement = await measureAsync("prepare", () =>
-      prepareTableLinkFixture(
+    const prepareMeasurement = await measureAsync("prepare", async () => {
+      const buildV2NativeFixture =
+        !seedMode && shouldBuildV2NativeFkFixture(config, context);
+      const fixture = (await prepareTableLinkFixture(
         baseId,
         tableName,
         config,
         perfCase,
         "field-duplicate",
-      ),
-    );
+        undefined,
+        { bypassSeedCache: buildV2NativeFixture },
+      )) as LinkFieldDuplicateFixture;
+      if (buildV2NativeFixture) {
+        fixture.v2NativeFixture = {
+          reason:
+            "FK-backed Link duplicate requires V2-native host and foreign table metadata",
+          sharedSeedCacheBypassed: Boolean(fixture.seedCacheInfo.enabled),
+        };
+      }
+      return fixture;
+    });
     return {
       ...prepareMeasurement.result,
       preparePhase: {

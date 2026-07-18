@@ -32,6 +32,16 @@ checks, post-operation scans, and cleanup stay outside the metric. Every request
 must route through canary feature `duplicateField` on the requested supported
 engine.
 
+The first official CI run also exposed a seed-compatibility boundary for the
+FK-backed variants. The shared seed is bootstrapped through V1, whose Link
+metadata stores the physical host relation as `baseId.tableId`; V2 treats that
+dotted value as one quoted relation name. Rebuilding only the Link field is not
+sufficient because the host table keeps the legacy identity, and a V1-created
+one-one constraint cannot be safely removed through V2. Therefore V2
+`manyOne`/`oneOne` executions build a complete V2-native host/foreign table
+pair in the unmeasured prepare phase and record the cache bypass in the result.
+The junction-backed variants continue to reuse the shared V1 seed.
+
 All four cases initially use `duplicateLinkFieldMs` with `maxMs: 180_000`.
 This is an explicitly uncalibrated ceiling because V1 copies supported Link
 values through 1,000-row record-update pages while V2 uses direct SQL. The
@@ -58,6 +68,10 @@ first official CI run will set the committed guardrail before merge.
 - **Seed phase**: create a foreign table with 10,000 deterministic primary
   values, then a host table with primary `Title`, one Link field, 10,000 rows,
   and one valid edge per row. Insert in 1,000-row batches.
+- **V2 FK seed boundary**: for `manyOne` and `oneOne`, bypass the shared V1
+  cache during V2 execute and build the same deterministic fixture natively on
+  V2. Keep that build inside `prepareMs`, outside `duplicateLinkFieldMs`, and
+  emit `details.v2NativeFixture` so the compatibility boundary is visible.
 - **Relationship shape**: create two-way sources for `manyMany`, `manyOne`, and
   `oneOne`; create the `oneMany` source one-way because that is its distinct
   junction-table duplicate path.
@@ -98,6 +112,10 @@ first official CI run will set the committed guardrail before merge.
 - A V1 skip for `oneOne` is not a passing performance sample. It documents the
   unsupported product path while keeping the complete V2 relationship matrix
   runnable.
+- A V2-native FK fixture is not a different workload: it keeps the same two
+  10,000-row tables and exact row-to-row edge mapping. It only prevents legacy
+  V1 physical-relation metadata from invalidating the V2 product path before
+  the measured operation begins.
 
 ## Explicit Rejections
 
