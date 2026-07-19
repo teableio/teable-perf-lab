@@ -43,7 +43,7 @@ and waiting until every copied aggregate is readable.
 
 The one-edge-per-host shape isolates duplicate and recompute cost from fanout.
 The 15-second guardrail was calibrated from official CI runs `29652244869`,
-`29653349659`, and `29653754982`: valid V1 samples ranged from 2,465.84 ms to
-2,602.71 ms, while successful V2 samples measured 5,122.17 ms and 6,670.72 ms.
-The bound leaves about 2.25x headroom over the observed worst while protecting
-request plus full readiness.
+`29653349659`, `29653754982`, and `29666395068`: valid V1 samples ranged from
+2,465.84 ms to 2,602.71 ms, while successful V2 samples ranged from 5,122.17 ms
+to 7,003.99 ms. The bound leaves about 2.14x headroom over the observed worst
+while protecting request plus full readiness.
