@@ -751,6 +751,61 @@ export interface ConditionalLookupFieldDuplicateCaseConfig
   };
 }
 
+interface ComputedFieldDuplicateBaseConfig {
+  mode: "computed";
+  duplicate: {
+    name: string;
+  };
+  threshold: {
+    metric: "computedFieldDuplicateReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface FormulaFieldDuplicateCaseConfig
+  extends Omit<FormulaTableCaseConfig, "threshold">,
+    ComputedFieldDuplicateBaseConfig {
+  computed: {
+    kind: "formula";
+  };
+  formula: FormulaFieldCaseConfig;
+}
+
+export interface RollupFieldDuplicateCaseConfig
+  extends RecordUndoRedoBaseCaseConfig,
+    ComputedFieldDuplicateBaseConfig {
+  computed: {
+    kind: "rollup";
+    sourceFieldName: string;
+    expression: "sum({values})";
+  };
+  link: TableLifecycleLinkConfig & {
+    relationship: "manyMany";
+    isOneWay: boolean;
+    foreignTable: TableLifecycleLinkConfig["foreignTable"] & {
+      value: {
+        name: string;
+        type: "number-sequence";
+        multiplier: number;
+        offset: number;
+      };
+    };
+  };
+}
+
+export interface ConditionalRollupFieldDuplicateCaseConfig
+  extends Omit<ConditionalRollupCaseConfig, "threshold">,
+    ComputedFieldDuplicateBaseConfig {
+  computed: {
+    kind: "conditionalRollup";
+  };
+}
+
+export type ComputedFieldDuplicateCaseConfig =
+  | FormulaFieldDuplicateCaseConfig
+  | RollupFieldDuplicateCaseConfig
+  | ConditionalRollupFieldDuplicateCaseConfig;
+
 export interface ScalarFieldDuplicateCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   mode: "scalar";
@@ -807,7 +862,8 @@ export interface LinkFieldDuplicateCaseConfig
 export type FieldDuplicateCaseConfig =
   | ConditionalLookupFieldDuplicateCaseConfig
   | StoredFieldDuplicateCaseConfig
-  | LinkFieldDuplicateCaseConfig;
+  | LinkFieldDuplicateCaseConfig
+  | ComputedFieldDuplicateCaseConfig;
 
 export interface RecordPasteCaseConfig {
   baseId: "seed-base";
@@ -1348,6 +1404,8 @@ export interface RecordUndoRedoBaseCaseConfig {
   };
   verify: {
     sampleRows: number[];
+    timeoutMs?: number;
+    pollIntervalMs?: number;
     fullScanPageSize?: number;
   };
 }
@@ -1409,6 +1467,15 @@ export type TableLifecycleLinkConfig = {
     rowCount: number;
     batchSize: number;
     keyPrefix: string;
+    // Optional deterministic value column for dependency-bearing workloads
+    // (for example Rollup). Existing Link lifecycle fixtures omit it and keep
+    // their original Key + Note schema.
+    value?: {
+      name: string;
+      type: "number-sequence";
+      multiplier: number;
+      offset: number;
+    };
   };
   // Maps main row i to foreign row ((i - 1) * multiplier + offset) % foreignRowCount + 1.
   permutation: {

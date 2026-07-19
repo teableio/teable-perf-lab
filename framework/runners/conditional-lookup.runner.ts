@@ -476,16 +476,37 @@ const waitForLookupSamples = (
     () => assertLookupSamples(tableId, lookupFieldId, config, sampleRecords),
   );
 
+export type ConditionalLookupFullScan = {
+  scannedRecords: number;
+  pageSize: number;
+  pageCount: number;
+  verifiedSamples: Array<{
+    rowOffset: number;
+    rowNumber: number;
+    sourceRowNumber: number;
+    recordId: string;
+    actual: unknown;
+    expected: unknown;
+  }>;
+};
+
 const assertLookupFullScan = async (
   tableId: string,
   lookupFieldId: string,
   config: ConditionalComputedSeedConfig,
   hostFields: ConditionalLookupHostFields,
+  onProgress?: (progress: ConditionalLookupFullScan) => void,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
-  const verifiedSamples = [];
   const seenRowNumbers = new Set<number>();
+  const progress: ConditionalLookupFullScan = {
+    scannedRecords: 0,
+    pageSize,
+    pageCount: 0,
+    verifiedSamples: [],
+  };
+  onProgress?.(progress);
 
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
@@ -542,7 +563,7 @@ const assertLookupFullScan = async (
 
       const rowOffset = hostRowNumber - 1;
       if (sampleRowOffsets.has(rowOffset)) {
-        verifiedSamples.push({
+        progress.verifiedSamples.push({
           rowOffset,
           rowNumber: hostRowNumber,
           sourceRowNumber,
@@ -551,8 +572,13 @@ const assertLookupFullScan = async (
           expected,
         });
       }
+      progress.scannedRecords += 1;
+      progress.pageCount = Math.ceil(progress.scannedRecords / pageSize);
     },
   );
+
+  progress.scannedRecords = scannedRecords;
+  progress.pageCount = pageCount;
 
   if (scannedRecords !== config.recordCount) {
     throw new Error(
@@ -566,14 +592,10 @@ const assertLookupFullScan = async (
     );
   }
 
-  return {
-    scannedRecords,
-    pageSize,
-    pageCount,
-    verifiedSamples: verifiedSamples.sort(
-      (left, right) => left.rowOffset - right.rowOffset,
-    ),
-  };
+  progress.verifiedSamples.sort(
+    (left, right) => left.rowOffset - right.rowOffset,
+  );
+  return progress;
 };
 
 export const waitForConditionalLookupFullScan = (
@@ -581,6 +603,7 @@ export const waitForConditionalLookupFullScan = (
   lookupFieldId: string,
   config: ConditionalComputedSeedConfig,
   hostFields: ConditionalLookupHostFields,
+  onProgress?: (progress: ConditionalLookupFullScan) => void,
 ) =>
   pollUntilReady(
     {
@@ -588,7 +611,14 @@ export const waitForConditionalLookupFullScan = (
       pollIntervalMs: config.verify.pollIntervalMs ?? 500,
       description: "full conditional lookup scan",
     },
-    () => assertLookupFullScan(tableId, lookupFieldId, config, hostFields),
+    () =>
+      assertLookupFullScan(
+        tableId,
+        lookupFieldId,
+        config,
+        hostFields,
+        onProgress,
+      ),
   );
 
 export const assertConditionalLookupSeedReady = async (
