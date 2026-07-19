@@ -44,8 +44,8 @@ cache miss or failed seed validation.
 1. Restore or build the two 10k-row seed tables.
 2. Verify source and host samples are readable before field operations.
 3. Verify cached conditional lookup field `Matched A Value` is ready.
-4. Duplicate `Matched A Value` to `Matched A Value Copy` and record that request
-   as the primary field operation.
+4. Duplicate `Matched A Value` to `Matched A Value Copy` and record the request
+   separately from readiness.
 5. Full scan all 10k B rows and verify every duplicated lookup result.
 6. Clean up execute-only changes. On cached seeds, delete only the duplicated
    lookup field while preserving both seed tables and the source lookup field
@@ -53,7 +53,8 @@ cache miss or failed seed validation.
 
 ## Primary Metric
 
-- `conditionalLookupDuplicateReadyMs`: duplicate-field request latency only.
+- `conditionalLookupDuplicateReadyMs`: duplicate-field request time plus the
+  duplicated lookup field's full-readiness scan time.
 
 ## Notes
 
@@ -61,6 +62,8 @@ This case intentionally reuses the same deterministic source and host shape as
 `lookup/conditional-10k`, but measures field duplication instead of initial
 conditional lookup creation. The source lookup field is part of the reusable
 seed; `createSourceLookupFieldMs` and `sourceLookupScanReadyMs` are seed
-diagnostics and are not included in the primary metric. The runner still records
-`duplicatedLookupScanReadyMs` as a post-operation correctness check, but it does
-not contribute to the threshold metric.
+diagnostics and are not included in the primary metric. `duplicateFieldMs` and
+`duplicatedLookupScanReadyMs` remain separate diagnostics. The 6-second
+guardrail was calibrated from official CI runs `29652244869` and `29653349659`:
+V1 measured 2,448.29 ms and 2,335.45 ms, while V2 measured 1,119.53 ms and
+906.09 ms. The bound leaves about 2.45x headroom over the observed worst.

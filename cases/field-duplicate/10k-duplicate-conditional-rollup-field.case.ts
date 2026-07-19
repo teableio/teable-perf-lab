@@ -1,14 +1,16 @@
 import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
-  id: "field-duplicate/conditional-lookup-10k",
-  title: "Duplicate a 10k x 10k conditional lookup field",
+  id: "field-duplicate/10k-duplicate-conditional-rollup-field",
+  title: "Duplicate one ready 10k x 10k Conditional Rollup field",
   runner: "field-duplicate",
   timeoutMs: 300_000,
   config: {
+    mode: "computed",
+    computed: { kind: "conditionalRollup" },
     baseId: "seed-base",
-    sourceTableNamePrefix: "perf-field-duplicate-lookup-source-10k",
-    hostTableNamePrefix: "perf-field-duplicate-lookup-host-10k",
+    sourceTableNamePrefix: "perf-field-duplicate-crollup-source-10k",
+    hostTableNamePrefix: "perf-field-duplicate-crollup-host-10k",
     recordCount: 10_000,
     batchSize: 1_000,
     generator: {
@@ -16,18 +18,14 @@ export default definePerfCase({
       sourceKeyPrefix: "A-Key",
       hostKeyPrefix: "B-Key",
       sourceValuePrefix: "A-Value",
-      permutation: {
-        multiplier: 73,
-        offset: 19,
-      },
+      permutation: { multiplier: 73, offset: 19 },
     },
-    lookup: {
-      name: "Matched A Value",
+    rollup: {
+      name: "Joined A Value",
+      expression: "array_join({values})",
       limit: 1,
     },
-    duplicate: {
-      name: "Matched A Value Copy",
-    },
+    duplicate: { name: "Joined A Value Copy" },
     verify: {
       sampleRows: [0, 4_999, 9_999],
       timeoutMs: 120_000,
@@ -35,8 +33,8 @@ export default definePerfCase({
       fullScanPageSize: 1_000,
     },
     threshold: {
-      metric: "conditionalLookupDuplicateReadyMs",
-      maxMs: 6_000,
+      metric: "computedFieldDuplicateReadyMs",
+      maxMs: 12_000,
     },
   },
 });

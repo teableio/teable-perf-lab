@@ -507,6 +507,15 @@ workload.
   artifact because its duplicate path currently attempts to create the copy with
   the source field's constraint name and PostgreSQL rejects it with
   `42710 duplicate_object`.
+- `field-duplicate/10k-duplicate-formula-field`: Measure duplicating an
+  already-ready arithmetic Formula across 10,000 rows and waiting until the
+  copied Formula is correct everywhere.
+- `field-duplicate/10k-duplicate-rollup-field`: Measure duplicating a ready
+  Rollup over 10,000 populated many-many Link edges and waiting until every
+  copied aggregate is readable.
+- `field-duplicate/10k-duplicate-conditional-rollup-field`: Measure duplicating
+  a ready Conditional Rollup over a 10,000-by-10,000 unique-key match and waiting
+  until the copy is correct across every host row.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
   table with records included.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
