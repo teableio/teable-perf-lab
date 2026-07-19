@@ -28,11 +28,11 @@ contract declares `field.lookup_cannot_duplicate` for that shape. Together the
 three new cases and the corrected existing case therefore form the complete
 runnable dependency-bearing computed series.
 
-Official CI runs `29652244869`, `29653349659`, and `29653754982` calibrated the
-committed end-to-end guardrails: 6,000 ms for Formula, 15,000 ms for Rollup,
-12,000 ms for Conditional Rollup, and 6,000 ms for Conditional Lookup. Valid
-V1/V2 samples ranged from 906.09 ms to 6,670.72 ms; each bound leaves at least
-about 2.25x headroom over its relationship's observed worst.
+Official CI runs `29652244869`, `29653349659`, `29653754982`, and `29666395068`
+calibrated the committed end-to-end guardrails: 6,000 ms for Formula, 15,000 ms
+for Rollup, 12,000 ms for Conditional Rollup, and 6,000 ms for Conditional
+Lookup. Valid V1/V2 samples ranged from 906.09 ms to 7,003.99 ms; each bound
+leaves at least about 2.14x headroom over its relationship's observed worst.
 
 ## Cases
 
@@ -108,9 +108,9 @@ about 2.25x headroom over its relationship's observed worst.
 - Shared V1 seed fixtures are expected to be readable by the V2 execute path.
   If a product compatibility boundary appears locally or in CI, it must be made
   explicit in fixture preparation and artifacts rather than hidden by a retry.
-- Official CI runs `29652244869`, `29653349659`, and `29653754982` are
-  authoritative for threshold calibration; local timing remains directional
-  only.
+- Official CI runs `29652244869`, `29653349659`, `29653754982`, and
+  `29666395068` are authoritative for threshold calibration; local timing
+  remains directional only.
 
 ## Explicit Rejections
 
