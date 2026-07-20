@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
+import {
+  buildFullRunCaseShards,
+  validateFixtureAffinities,
+} from "./full-run-shard-model.mjs";
 
 export const FULL_RUN_SHARD_COUNT = 4;
 
@@ -41,43 +46,32 @@ export const loadRegisteredCaseIds = async () => {
   return registeredCasePathsInOrder(registry).map(caseIdFromPath);
 };
 
-export const shardCaseIds = (caseIds, shardCount = FULL_RUN_SHARD_COUNT) => {
-  if (!Number.isInteger(shardCount) || shardCount < 1) {
-    throw new Error("shardCount must be a positive integer.");
-  }
-  if (caseIds.length === 0) {
-    throw new Error("Cannot shard an empty case list.");
-  }
-
-  const effectiveShardCount = Math.min(shardCount, caseIds.length);
-  const shards = Array.from({ length: effectiveShardCount }, () => []);
-  caseIds.forEach((caseId, index) => {
-    shards[index % effectiveShardCount].push(caseId);
-  });
-  return shards;
-};
-
 const expandShardedPlan = ({
   name,
   engine,
-  caseIds,
+  caseShards,
   computedUpdateMode,
   artifactSuffix,
   otelServiceSuffix,
 }) => {
-  const shards = shardCaseIds(caseIds);
-  return shards.map((shardCaseIds, index) => {
+  return caseShards.flatMap((shardCaseIds, index) => {
+    if (shardCaseIds.length === 0) {
+      return [];
+    }
     const shardNumber = index + 1;
-    const shardLabel = `shard-${shardNumber}-of-${shards.length}`;
-    return {
-      name: `${name}-${shardLabel}`,
-      engine,
-      caseFilter: shardCaseIds.join(","),
-      excludeCaseFilter: "",
-      computedUpdateMode,
-      artifactSuffix: `${artifactSuffix}-${shardLabel}`,
-      otelServiceSuffix: `${otelServiceSuffix}-${shardLabel}`,
-    };
+    const shardLabel = `shard-${shardNumber}-of-${caseShards.length}`;
+    return [
+      {
+        name: `${name}-${shardLabel}`,
+        engine,
+        caseFilter: shardCaseIds.join(","),
+        excludeCaseFilter: "",
+        computedUpdateMode,
+        artifactSuffix: `${artifactSuffix}-${shardLabel}`,
+        otelServiceSuffix: `${otelServiceSuffix}-${shardLabel}`,
+        seedArtifactSuffix: shardLabel,
+      },
+    ];
   });
 };
 
@@ -136,7 +130,104 @@ export const buildCaseFilterKey = (caseFilter = "") =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 160);
 
-export const resolveExecutePlan = ({
+export const buildFullRunShardCaseFilterKey = (shardLabel, caseIds) => {
+  const caseSetHash = createHash("sha256")
+    .update(caseIds.join("\n"))
+    .digest("hex")
+    .slice(0, 12);
+  return `all-${shardLabel}-${caseSetHash}`;
+};
+
+const resolveExecutePlan = ({
+  engines,
+  rawCaseFilter,
+  caseFilterIsAll,
+  requestedComputedUpdateMode,
+  fullRunCaseShards,
+}) =>
+  engines.flatMap((engine) => {
+    if (!caseFilterIsAll) {
+      return [
+        {
+          name: engine,
+          engine,
+          caseFilter: rawCaseFilter,
+          excludeCaseFilter: "",
+          computedUpdateMode: requestedComputedUpdateMode,
+          artifactSuffix: engine,
+          otelServiceSuffix: engine,
+          seedArtifactSuffix: "seed",
+        },
+      ];
+    }
+
+    if (engine !== "v2" || requestedComputedUpdateMode) {
+      return expandShardedPlan({
+        name: engine,
+        engine,
+        caseShards: fullRunCaseShards,
+        computedUpdateMode: requestedComputedUpdateMode,
+        artifactSuffix: engine,
+        otelServiceSuffix: engine,
+      });
+    }
+
+    const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
+    const syncCaseShards = fullRunCaseShards.map((caseIds) =>
+      caseIds.filter((caseId) => !hybridCaseIdSet.has(caseId)),
+    );
+    const hybridCaseShards = fullRunCaseShards.map((caseIds) =>
+      caseIds.filter((caseId) => hybridCaseIdSet.has(caseId)),
+    );
+
+    return [
+      ...expandShardedPlan({
+        name: "v2-sync-default",
+        engine,
+        caseShards: syncCaseShards,
+        computedUpdateMode: "",
+        artifactSuffix: "v2",
+        otelServiceSuffix: "v2-sync",
+      }),
+      ...expandShardedPlan({
+        name: "v2-hybrid-computed",
+        engine,
+        caseShards: hybridCaseShards,
+        computedUpdateMode: "hybrid",
+        artifactSuffix: "v2-hybrid-computed",
+        otelServiceSuffix: "v2-hybrid",
+      }),
+    ];
+  });
+
+const resolveSeedPlan = ({
+  rawCaseFilter,
+  caseFilterIsAll,
+  fullRunCaseShards,
+}) => {
+  if (!caseFilterIsAll) {
+    return [
+      {
+        name: "seed",
+        caseFilter: rawCaseFilter,
+        caseFilterKey: buildCaseFilterKey(rawCaseFilter),
+        artifactSuffix: "seed",
+      },
+    ];
+  }
+
+  return fullRunCaseShards.map((caseIds, index) => {
+    const shardLabel = `shard-${index + 1}-of-${fullRunCaseShards.length}`;
+    return {
+      name: shardLabel,
+      caseFilter: caseIds.join(","),
+      caseFilterKey: buildFullRunShardCaseFilterKey(shardLabel, caseIds),
+      artifactSuffix: shardLabel,
+    };
+  });
+};
+
+export const resolveRunPlan = ({
   engineFilter,
   caseFilter,
   computedUpdateMode = "",
@@ -153,13 +244,11 @@ export const resolveExecutePlan = ({
       "allCaseIds must include the registered cases for a full run.",
     );
   }
-
-  const uniqueAllCaseIds = [...new Set(allCaseIds)];
-  if (uniqueAllCaseIds.length !== allCaseIds.length) {
+  if (new Set(allCaseIds).size !== allCaseIds.length) {
     throw new Error("allCaseIds must not include duplicate case ids.");
   }
 
-  const registeredCaseIds = new Set(uniqueAllCaseIds);
+  const registeredCaseIds = new Set(allCaseIds);
   const missingHybridCaseIds = HYBRID_COMPUTED_CASES.filter(
     (caseId) => !registeredCaseIds.has(caseId),
   );
@@ -174,84 +263,48 @@ export const resolveExecutePlan = ({
     );
   }
 
-  return engines.flatMap((engine) => {
-    if (!caseFilterIsAll) {
-      return [
-        {
-          name: engine,
-          engine,
-          caseFilter: rawCaseFilter,
-          excludeCaseFilter: "",
-          computedUpdateMode: requestedComputedUpdateMode,
-          artifactSuffix: engine,
-          otelServiceSuffix: engine,
-        },
-      ];
-    }
+  const affinityIssues = caseFilterIsAll
+    ? validateFixtureAffinities({
+        allCaseIds,
+        hybridCaseIds: HYBRID_COMPUTED_CASES,
+      })
+    : [];
+  if (affinityIssues.length > 0) {
+    throw new Error(affinityIssues.join("\n"));
+  }
 
-    if (engine !== "v2" || requestedComputedUpdateMode) {
-      return expandShardedPlan({
-        name: engine,
-        engine,
-        caseIds: uniqueAllCaseIds,
-        computedUpdateMode: requestedComputedUpdateMode,
-        artifactSuffix: engine,
-        otelServiceSuffix: engine,
-      });
-    }
+  const fullRunCaseShards = caseFilterIsAll
+    ? buildFullRunCaseShards({
+        allCaseIds,
+        hybridCaseIds: HYBRID_COMPUTED_CASES,
+        shardCount: FULL_RUN_SHARD_COUNT,
+      })
+    : [];
 
-    const hybridCaseIds = uniqueAllCaseIds.filter((caseId) =>
-      HYBRID_COMPUTED_CASES.includes(caseId),
-    );
-    const syncCaseIds = uniqueAllCaseIds.filter(
-      (caseId) => !HYBRID_COMPUTED_CASES.includes(caseId),
-    );
-
-    return [
-      ...expandShardedPlan({
-        name: "v2-sync-default",
-        engine,
-        caseIds: syncCaseIds,
-        computedUpdateMode: "",
-        artifactSuffix: "v2",
-        otelServiceSuffix: "v2-sync",
-      }),
-      ...expandShardedPlan({
-        name: "v2-hybrid-computed",
-        engine,
-        caseIds: hybridCaseIds,
-        computedUpdateMode: "hybrid",
-        artifactSuffix: "v2-hybrid-computed",
-        otelServiceSuffix: "v2-hybrid",
-      }),
-    ];
-  });
-};
-
-export const resolveRunPlan = ({
-  engineFilter,
-  caseFilter,
-  computedUpdateMode = "",
-  allCaseIds = [],
-}) => {
-  const engines = parseEngineList(engineFilter);
   return {
     engines,
+    seedPlan: resolveSeedPlan({
+      rawCaseFilter,
+      caseFilterIsAll,
+      fullRunCaseShards,
+    }),
     executePlan: resolveExecutePlan({
-      engineFilter,
-      caseFilter,
-      computedUpdateMode,
-      allCaseIds,
+      engines,
+      rawCaseFilter,
+      caseFilterIsAll,
+      requestedComputedUpdateMode,
+      fullRunCaseShards,
     }),
     caseFilterKey: buildCaseFilterKey(caseFilter),
   };
 };
 
 export const writeGithubOutputs = (
-  { engines, executePlan, caseFilterKey },
+  { engines, seedPlan, executePlan, caseFilterKey },
   outputPath,
 ) => {
   appendFileSync(outputPath, `engines=${JSON.stringify(engines)}\n`);
+  appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
 };
@@ -273,6 +326,7 @@ const main = async () => {
 
   console.log(`Resolved engines: ${plan.engines.join(", ")}`);
   console.log(`Resolved case filter cache key: ${plan.caseFilterKey}`);
+  console.log(`Resolved seed plan: ${JSON.stringify(plan.seedPlan)}`);
   console.log(`Resolved execute plan: ${JSON.stringify(plan.executePlan)}`);
 };
 

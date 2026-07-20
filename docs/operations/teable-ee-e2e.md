@@ -7,10 +7,11 @@ existing `teable-ee` e2e harness:
 2. GitHub Actions checks out `teableio/teable-ee` at a selected ref.
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
-4. A seed job prepares a reusable Postgres dump for the selected cases.
-5. V1 and V2 execute jobs restore that same dump into separate Postgres
-   containers and run in parallel through `@teable/backend-ee`. A full
-   `case_filter=all` run splits each execution pool into four round-robin shards.
+4. For an explicit case filter, one seed job prepares a reusable Postgres dump.
+   A full `case_filter=all` run instead prepares four fixture-affinity seed
+   shards in parallel.
+5. V1 and V2 execute jobs restore the matching shard dump into separate
+   Postgres containers and run in parallel through `@teable/backend-ee`.
 
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
@@ -55,7 +56,7 @@ Manual inputs:
   splits V2 execution: all normal cases run with the default sync mode, while
   the registered dual-link, computed-chain mutation, and customer upsert
   computed-flow cases run in a separate V2 hybrid pool. Each V1, V2 sync, and V2
-  hybrid pool is then divided into four shards. Passing an explicit
+  hybrid pool uses the same four global case shards. Passing an explicit
   `computed_update_mode` disables the sync/hybrid pool split, applies the
   requested mode to every selected V2 case, and still shards the full run four
   ways.
@@ -76,9 +77,13 @@ dispatches each case to a runner in `framework/runners/`. Each case writes an
 independent JSON artifact and summary tagged with `engine`.
 
 For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order and
-assigns cases round-robin to four shards. This keeps neighboring cases from the
-same family spread across jobs, while guaranteeing that each registered case is
-selected exactly once per engine/mode pool. Explicit case ids and comma-separated
+the verified fixture affinities in `scripts/full-run-shard-model.mjs`. Cases
+that emit the same physical runner `seedHash` are treated as one indivisible
+bundle. The sync and hybrid bundles are greedily assigned to their least-loaded
+shards, then paired largest-to-smallest to produce four equally sized global
+shards. Seed, V1, V2 sync, and V2 hybrid all use that same mapping, so a shared
+fixture is built into exactly one seed dump and every case is selected exactly
+once per applicable engine/mode pool. Explicit case ids and comma-separated
 case lists remain unsharded.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
@@ -125,11 +130,14 @@ then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
 hash-derived seed tables or build missing/stale fixtures. A successful seed job
 saves a new exact-key `pg_dump -Fc` snapshot.
 
-The seed job uploads the selected dump as a same-run artifact, and execute jobs
-download that artifact into isolated V1/V2 databases before running the measured
-cases. Runner-level `seedHash` names decide whether a table is valid for a
-specific case; stale tables in the dump are ignored unless the hash matches and
-`seedReady` validation passes.
+Each seed shard uploads its selected dump as a same-run artifact, and execute
+shard N downloads seed dump N into isolated V1/V2 databases before running the
+measured cases. Each shard has its own cache key, dump, Postgres container,
+Redis service, network, and artifact names. The cache key includes a digest of
+the shard's ordered case list, so changing affinity or shard assignment cannot
+exact-hit a dump built for a different case set. Runner-level `seedHash` names
+decide whether a table is valid for a specific case; stale tables in the dump
+are ignored unless the hash matches and `seedReady` validation passes.
 
 Formula, conditional lookup, CSV import, record delete, record undo, record
 redo, and selection clear cases currently use this cache. CSV import caches the
@@ -146,8 +154,10 @@ a skip.
 
 ## Artifacts
 
-The seed job uploads `teable-ee-e2e-perf-seed-<run>-<attempt>` and
-`teable-ee-e2e-perf-seed-db-<run>-<attempt>`. The execute jobs upload two
+Filtered runs upload `teable-ee-e2e-perf-seed-seed-<run>-<attempt>` and
+`teable-ee-e2e-perf-seed-db-seed-<run>`. Full runs upload one pair per shard,
+for example `teable-ee-e2e-perf-seed-shard-1-of-4-<run>-<attempt>` and
+`teable-ee-e2e-perf-seed-db-shard-1-of-4-<run>`. The execute jobs upload two
 artifacts per engine: a lightweight results artifact for normal checks and a
 full artifact for raw Jaeger trace debugging.
 
