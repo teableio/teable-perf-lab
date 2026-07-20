@@ -148,6 +148,9 @@ Existing examples:
   fields are removed in cleanup.
 - `conditional-lookup.runner.ts`: source/host seed tables are reusable; lookup
   field is execute-only.
+- `conditional-lookup-record-create.runner.ts`: reuses that same physical seed,
+  creates the lookup as execute setup, then deletes the measured dirty rows and
+  field before a sibling case reuses the fixture.
 - `selection-clear.runner.ts`: cleared cells are restored to deterministic seed
   values.
 - `record-replay.shared.ts`: deleted rows are restored through the real undo

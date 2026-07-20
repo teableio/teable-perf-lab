@@ -10,6 +10,7 @@ export interface PerfCaseConfigByRunner {
   "http-endpoint": HttpEndpointCaseConfig;
   "formula-table": FormulaTableCaseConfig;
   "conditional-lookup": ConditionalLookupCaseConfig;
+  "conditional-lookup-record-create": ConditionalLookupRecordCreateCaseConfig;
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
@@ -208,6 +209,25 @@ export interface ConditionalLookupCaseConfig
   };
   threshold: {
     metric: "conditionalLookupReadyMs";
+    maxMs: number;
+  };
+}
+
+export interface ConditionalLookupRecordCreateCaseConfig
+  extends Omit<ConditionalComputedSeedConfig, "verify"> {
+  lookup: {
+    name: string;
+    limit: number;
+  };
+  mutation: {
+    recordCount: number;
+    sourceStartOffset: number;
+  };
+  verify: ConditionalComputedSeedConfig["verify"] & {
+    dirtySampleRows: number[];
+  };
+  threshold: {
+    metric: "conditionalLookupRecordCreateReadyMs";
     maxMs: number;
   };
 }

@@ -153,6 +153,10 @@ workload.
 - `lookup/conditional-10k`: Measure conditional lookup creation on two 10k-row
   tables where every host row matches a different source row through a unique
   key.
+- `lookup/v2-only-conditional-dirty-host-create-100-10k`: Catch V2 sync
+  regressions where creating a small set of records under an existing
+  field-reference conditional lookup recalculates every host row instead of
+  restricting the computation to the dirty records.
 - `rollup/conditional-10k`: Measure conditional rollup creation on two 10k-row
   tables where every host row aggregates a different source row through a
   unique-key condition, paired with `lookup/conditional-10k` for V1/V2

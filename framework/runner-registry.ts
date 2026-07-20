@@ -1,5 +1,9 @@
 import { runConditionalLookupCase } from "./runners/conditional-lookup.runner";
 import { seedConditionalLookupCase } from "./runners/conditional-lookup.runner";
+import {
+  runConditionalLookupRecordCreateCase,
+  seedConditionalLookupRecordCreateCase,
+} from "./runners/conditional-lookup-record-create.runner";
 import { runConditionalRollupCase } from "./runners/conditional-rollup.runner";
 import { seedConditionalRollupCase } from "./runners/conditional-rollup.runner";
 import {
@@ -192,6 +196,14 @@ const runnerInventory = {
     },
     execute: runConditionalLookupCase,
     seed: seedConditionalLookupCase,
+  },
+  "conditional-lookup-record-create": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runConditionalLookupRecordCreateCase,
+    seed: seedConditionalLookupRecordCreateCase,
   },
   "conditional-rollup": {
     implementation: {
