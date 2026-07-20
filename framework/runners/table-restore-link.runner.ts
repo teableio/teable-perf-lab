@@ -13,11 +13,11 @@ import {
   assertSampleTextValues,
   assertTableNotListed,
   buildTableLifecycleSampleResult,
-  findTableTrashId,
   formatTableLifecycleSample,
   restoreTableTrash,
   type TableLifecycleVerifySample,
   type TableTrashLookup,
+  waitForTableTrashId,
 } from "./table-lifecycle.shared";
 import { runTableLinkSamplesLifecycle } from "./table-link-lifecycle";
 import {
@@ -115,7 +115,7 @@ export const runTableRestoreLinkCase = async (
               baseId,
               sample.fixture.tableId,
             );
-            const trashLookup = await findTableTrashId(
+            const trashLookup = await waitForTableTrashId(
               baseId,
               sample.fixture.tableId,
             );

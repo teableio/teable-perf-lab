@@ -14,7 +14,6 @@ import {
   archiveTable,
   assertTableNotListed,
   buildTableLifecycleSampleResult,
-  findTableTrashId,
   formatTableLifecycleSample,
   getTableLifecycleSampleCount,
   restoreTableTrash,
@@ -23,6 +22,7 @@ import {
   type TableLifecycleCleanupSample,
   type TableLifecycleFixtureSample,
   type TableTrashLookup,
+  waitForTableTrashId,
 } from "./table-lifecycle.shared";
 
 // Restore the archived table and confirm its full row count, so a reusable seed
@@ -120,7 +120,7 @@ export const runTableDeleteCase = async (
               baseId,
               sample.fixture.tableId,
             );
-            const trashLookup = await findTableTrashId(
+            const trashLookup = await waitForTableTrashId(
               baseId,
               sample.fixture.tableId,
             );
