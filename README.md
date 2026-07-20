@@ -48,8 +48,8 @@ ready.
 - `framework/seed-cache.ts`: runner-level seed hash helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `scripts/full-run-shard-model.mjs`: fixture-affinity bundles and deterministic
-  four-way full-run grouping shared by seed and execute plans.
+- `scripts/full-run-shard-model.mjs`: fixture-affinity bundles, calibrated seed
+  weights, and deterministic adaptive grouping shared by seed and execute plans.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
   payload projection, primary metric, trace URL, and trace-waste helpers used by
   report adapters.
@@ -110,8 +110,8 @@ teable-ee/community/packages/db-data-prisma/prisma/migrations/**
 Non-schema `teable-ee` code changes do not change the workflow seed DB cache
 key; Prisma schema or migration changes do.
 
-Actual workflow behavior (one job for filtered runs; four matching seed shards
-for `case_filter=all`):
+Actual workflow behavior (one job for filtered runs; adaptive matching seed
+shards for `case_filter=all`):
 
 - Exact seed DB cache hit: the seed job only checks that the dump file exists.
   It skips dependency install, app startup, seed mode, and seed validation.

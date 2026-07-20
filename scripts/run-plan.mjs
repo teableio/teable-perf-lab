@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 import {
   buildFullRunCaseShards,
+  resolveFullRunShardCount,
   validateFixtureAffinities,
 } from "./full-run-shard-model.mjs";
-
-export const FULL_RUN_SHARD_COUNT = 4;
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
@@ -277,7 +276,7 @@ export const resolveRunPlan = ({
     ? buildFullRunCaseShards({
         allCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
-        shardCount: FULL_RUN_SHARD_COUNT,
+        shardCount: resolveFullRunShardCount(allCaseIds.length),
       })
     : [];
 
