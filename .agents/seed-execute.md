@@ -245,13 +245,15 @@ CI splits seed construction from measured execution:
 
 ```text
 seed job -> restore cached DB or migrate + e2e seed -> initApp once in seed bootstrap mode -> seed all selected fixtures -> pg_dump
-execute v1 job -> restore seed dump -> initApp once -> run selected cases serially
-execute v2 job -> restore seed dump -> initApp once -> run selected cases serially
+execute v1 pool -> restore seed dump per job -> initApp once per job -> run each shard serially
+execute v2 sync/hybrid pools -> restore seed dump per job -> initApp once per job -> run each shard serially
 ```
 
-The execute jobs run in parallel when `engine_filter=v1,v2`. Each execute job
-has its own Postgres/Redis containers, so destructive cases can delete or clear
-their restored seed tables without corrupting the other engine's copy.
+The execute jobs run in parallel when `engine_filter=v1,v2`. A full
+`case_filter=all` run assigns each execution pool round-robin across four jobs;
+explicit case filters remain a single job per engine. Each execute job has its
+own Postgres/Redis containers, so destructive cases can delete or clear their
+restored seed tables without corrupting another shard or engine copy.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:
