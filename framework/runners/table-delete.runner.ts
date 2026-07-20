@@ -16,6 +16,7 @@ import {
   buildTableLifecycleSampleResult,
   findTableTrashId,
   formatTableLifecycleSample,
+  getTableLifecycleSampleCount,
   restoreTableTrash,
   seedTableLifecycleCase,
   type TableLifecycleCaseConfig,
@@ -68,6 +69,7 @@ export const runTableDeleteCase = async (
 ): Promise<PerfRunResult> =>
   runTableSamplesLifecycle(perfCase, context, {
     runner: "table-delete",
+    reuseFixtureAcrossSamples: true,
     includeCleanupSamples: true,
     buildDetails: ({ config, state, error }): Record<string, unknown> =>
       error
@@ -143,7 +145,9 @@ export const runTableDeleteCase = async (
         measurement: verifyMeasurement,
       });
 
-      if (!isExecuteDbIsolated()) {
+      const hasNextSample =
+        sample.iteration < getTableLifecycleSampleCount(config);
+      if (hasNextSample || !isExecuteDbIsolated()) {
         await restoreDeletedSample({
           context,
           perfCase,
@@ -159,7 +163,7 @@ export const runTableDeleteCase = async (
         return;
       }
 
-      for (const sample of state.fixtureSamples) {
+      for (const sample of state.executionSamples) {
         const requestSample = state.requestSamples.find(
           (item) => item.iteration === sample.iteration,
         );

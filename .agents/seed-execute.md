@@ -283,6 +283,18 @@ execute database. Do not gate the skip on the seed cache flag or any other
 condition; the invariant is simply "on a disposable database, no cleanup is
 ever useful".
 
+Restore-style table lifecycle cases are a narrow fixture-count optimization:
+one active table fixture is reused for every measured sample because each
+sample already archives, restores, and verifies that table back to seed-ready
+state. Seed mode therefore builds one fixture even when the case measures 5 or
+10 samples. This is not execute cleanup; the restore is the measured operation
+and the full scan is its normal verification. Delete-style lifecycle cases keep
+separate fixtures unless their measured delete is explicitly reversed between
+samples. The plain table-delete runner takes that explicit path: it restores
+and revalidates the table between measured samples, while link-detach delete
+keeps separate fixtures because V1 destructively converts the surviving link
+field.
+
 For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
 `seedBuildMs`, `seedReadyMs`. A cache miss is a valid run, but the report should
 make the paid construction cost obvious.
