@@ -103,13 +103,37 @@ The generated current plan has these case counts:
 `pnpm check` passes with the adaptive seven-shard design and the table trash
 readiness fix.
 
-## Resume checklist
+## Adaptive seven-shard acceptance
 
-1. Review the calibrated outlier map and weighted packing in
-   `scripts/full-run-shard-model.mjs`.
-2. Push the adaptive commit and table trash readiness fix.
-3. Trigger a full Actions run for the adaptive plan. Its new `shard-N-of-7`
-   cache keys make the first run a real cold-seed validation.
-4. Accept only after result coverage, thresholds, report, and trace manifests
-   are verified. Compare longest seed/execute stage and total wall time against
-   both `29738811090` and `29734699142`.
+Actions run: <https://github.com/teableio/teable-perf-lab/actions/runs/29746682913>
+
+The first adaptive run used new `shard-N-of-7` keys, so all seven seed shards
+were cold builds. The workflow completed successfully on perf-lab commit
+`52dcfab` and teable-ee commit
+`3d49907d6b50c68f2612e316632040c5d5003334`.
+
+- Result coverage: 512 unique case/engine results; 506 pass, 6 skipped, 0 fail;
+  256 V1 and 256 V2.
+- Cold seed longest shard: 13m05s, down from 17m53s in the four-shard cold run.
+- V1 longest shard: 14m04s, down from 16m58s in the four-shard cold run and
+  18m43s in the earlier successful four-shard run.
+- V2 sync longest shard: 11m49s, down from 14m42s in the four-shard cold run
+  and 16m58s in the earlier successful four-shard run.
+- V2 hybrid longest shard: 3m41s; all seven hybrid shards passed.
+- Seed-through-execute wall time: 27m13s, down from 34m53s in the four-shard
+  cold run (-7m40s, about 22%).
+- End-to-end workflow wall time: 44m16s, down from 48m02s in the four-shard
+  cold run. The gain is smaller because report time increased from 12m54s to
+  16m47s; reporting is now the clearest remaining serial tail.
+
+The previously failing `lookup/dual-link-computed-repoint-2k` passed in V2
+hybrid with `lookupPropagationMs=2484.2ms`. The previously failing
+`table-restore/10k-20f-link-1k` passed in both V1 and V2. No case was skipped or
+threshold-relaxed for either failure.
+
+## Accepted state
+
+The adaptive affinity-aware seven-shard design is accepted for the current
+256-case catalog. If total workflow time needs another optimization pass,
+parallelize or batch the Teable result-reporting path rather than adding more
+case shards first.
