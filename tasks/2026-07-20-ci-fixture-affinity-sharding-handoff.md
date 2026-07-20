@@ -16,6 +16,8 @@ runner `seedHash` must remain an indivisible bundle.
 - `20ba365 fix: isolate sharded perf cases`
 - `f4c665d ci: shard seed fixtures by affinity`
 - `5edbdf3 ci: adapt shard count to fixture cost`
+- `52dcfab fix: wait for archived tables to reach trash`
+- `0c79485 perf: batch Performance Track reporting`
 
 The first two commits produced a successful execute-sharded full run:
 
@@ -131,9 +133,38 @@ hybrid with `lookupPropagationMs=2484.2ms`. The previously failing
 `table-restore/10k-20f-link-1k` passed in both V1 and V2. No case was skipped or
 threshold-relaxed for either failure.
 
+## Batched report acceptance
+
+Actions run: <https://github.com/teableio/teable-perf-lab/actions/runs/29751280107>
+
+The report path now prepares payloads concurrently, loads the GitHub artifact
+list once, fetches the current run's Performance Track rows once, and batches
+creates/updates under a 512 KiB request-body ceiling. `Run Key` remains the
+idempotency key, and the request-level regression test runs the same six-result
+report twice to prove that the second run updates instead of duplicating rows.
+
+The full workflow completed successfully on perf-lab commit `0c79485` and the
+same teable-ee commit used for the adaptive-shard acceptance run,
+`3d49907d6b50c68f2612e316632040c5d5003334`.
+
+- Result coverage: 512 unique case/engine results; 506 pass, 6 skipped, 0 fail;
+  256 V1 and 256 V2.
+- Report job: 38s, down from 16m47s in run `29746682913` (-16m09s, about 96%).
+- Report internals: 398ms payload preparation and 13,063ms Teable writes.
+- Teable requests for all 512 results: 2 GET, 0 PATCH, and 9 POST requests.
+  The old serial path performed a per-result lookup and mutation, plus a
+  repeated GitHub artifact-list lookup for each payload.
+- End-to-end workflow wall time: 14m38s. This is not directly comparable to
+  the prior cold-seed 44m16s run because all seven seed shards hit cache and
+  completed in 12-19s; the report-duration comparison is directly applicable.
+- Longest execute shards remained healthy: V1 13m20s, V2 sync 11m47s, and V2
+  hybrid 3m38s.
+
+`pnpm check`, including the report request-shape/idempotency regression test,
+passes with the accepted implementation.
+
 ## Accepted state
 
-The adaptive affinity-aware seven-shard design is accepted for the current
-256-case catalog. If total workflow time needs another optimization pass,
-parallelize or batch the Teable result-reporting path rather than adding more
-case shards first.
+The adaptive affinity-aware seven-shard design and batched Performance Track
+reporter are accepted for the current 256-case catalog. The remaining critical
+path is the slowest V1 execute shard rather than seed preparation or reporting.
