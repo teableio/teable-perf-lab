@@ -68,6 +68,7 @@ export const runTableRestoreLinkCase = async (
   runTableLinkSamplesLifecycle<RestoreLinkLifecycleState>(perfCase, context, {
     runner: "table-restore-link",
     resultRunner: "table-restore",
+    reuseFixtureAcrossSamples: true,
     includeSetupSamples: true,
     createState: () => ({ setupSamples: [] }),
     buildDetails: ({ state, error }): Record<string, unknown> => ({
@@ -187,7 +188,8 @@ export const runTableRestoreLinkCase = async (
         return;
       }
 
-      for (const sample of state.fixtureSamples) {
+      const deletedTableIds = new Set<string>();
+      for (const sample of state.executionSamples) {
         const requestSample = state.requestSamples.find(
           (item) => item.iteration === sample.iteration,
         );
@@ -217,11 +219,15 @@ export const runTableRestoreLinkCase = async (
           }
         }
 
-        if (!(tableIsSeedReady && sample.fixture.reusableSeed)) {
+        if (
+          !(tableIsSeedReady && sample.fixture.reusableSeed) &&
+          !deletedTableIds.has(sample.fixture.tableId)
+        ) {
           await permanentDeleteLinkFixture(
             baseId,
             sample.fixture as TableLinkFixture,
           );
+          deletedTableIds.add(sample.fixture.tableId);
         }
       }
     },

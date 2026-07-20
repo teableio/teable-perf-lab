@@ -144,12 +144,12 @@ export const prepareTableLifecycleFixtures = async (
   config: TableLifecycleCaseConfig,
   perfCase: PerfCase,
   runner: TableLifecycleRunnerKind,
+  fixtureCount = getTableLifecycleSampleCount(config),
 ): Promise<TableLifecycleFixtureSample[]> => {
-  const samples = getTableLifecycleSampleCount(config);
   const fixtures: TableLifecycleFixtureSample[] = [];
   const runSuffix = `${Date.now()}`;
 
-  for (let iteration = 1; iteration <= samples; iteration += 1) {
+  for (let iteration = 1; iteration <= fixtureCount; iteration += 1) {
     const sampleLabel = formatTableLifecycleSample(iteration);
     const tableName = `${config.tableNamePrefix}-${runSuffix}-${sampleLabel}`;
     const prepareMeasurement = await measureAsync(
@@ -683,6 +683,9 @@ export const buildTableLifecycleSamplesResult = ({
     details: {
       runner,
       sampleCount: getTableLifecycleSampleCount(config),
+      fixtureCount: fixtureSamples.length,
+      fixtureReusedAcrossSamples:
+        fixtureSamples.length < getTableLifecycleSampleCount(config),
       rowCount: config.rowCount,
       batchSize: config.batchSize,
       fieldCount: config.fields.length,
@@ -752,6 +755,7 @@ export const seedTableLifecycleCase = async (
     config,
     perfCase,
     runner,
+    1,
   );
 
   return buildTableLifecycleSamplesResult({

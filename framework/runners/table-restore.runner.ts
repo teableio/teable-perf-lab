@@ -71,6 +71,7 @@ export const runTableRestoreCase = async (
 ): Promise<PerfRunResult> =>
   runTableSamplesLifecycle<RestoreLifecycleState>(perfCase, context, {
     runner: "table-restore",
+    reuseFixtureAcrossSamples: true,
     includeSetupSamples: true,
     createState: () => ({ setupSamples: [] }),
     buildDetails: ({ state, error }): Record<string, unknown> =>
@@ -177,7 +178,8 @@ export const runTableRestoreCase = async (
         return;
       }
 
-      for (const sample of state.fixtureSamples) {
+      const deletedTableIds = new Set<string>();
+      for (const sample of state.executionSamples) {
         const requestSample = state.requestSamples.find(
           (item) => item.iteration === sample.iteration,
         );
@@ -207,9 +209,13 @@ export const runTableRestoreCase = async (
           }
         }
 
-        if (!(tableIsSeedReady && sample.fixture.reusableSeed)) {
+        if (
+          !(tableIsSeedReady && sample.fixture.reusableSeed) &&
+          !deletedTableIds.has(sample.fixture.tableId)
+        ) {
           try {
             await permanentDeleteTable(baseId, sample.fixture.tableId);
+            deletedTableIds.add(sample.fixture.tableId);
           } catch (error) {
             console.warn(
               `Failed to cleanup perf table ${sample.fixture.tableId}`,
