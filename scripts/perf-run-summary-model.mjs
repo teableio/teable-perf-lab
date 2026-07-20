@@ -73,20 +73,46 @@ export const findJobGroupDuration = (jobs, name) => {
   return totalDurationMs(matchingJobs);
 };
 
-export const seedCacheStatus = (jobs) => {
-  const seedJob = jobs.find((item) => item.name === "Prepare perf seed DB");
-  const steps = seedJob?.steps ?? [];
-  const hitSummary = steps.find(
-    (step) => step.name === "Publish seed database cache hit summary",
+const findSeedJobs = (jobs) =>
+  jobs.filter(
+    (job) =>
+      job.name === "Prepare perf seed DB" ||
+      job.name.startsWith("Prepare perf seed DB ("),
   );
-  const buildSeed = steps.find((step) => step.name === "Build perf seed DB");
-  if (
-    hitSummary?.conclusion === "success" &&
-    buildSeed?.conclusion === "skipped"
-  ) {
+
+export const seedCacheStatus = (jobs) => {
+  const seedJobs = findSeedJobs(jobs);
+  const statuses = seedJobs.map((seedJob) => {
+    const steps = seedJob.steps ?? [];
+    const hitSummary = steps.find(
+      (step) => step.name === "Publish seed database cache hit summary",
+    );
+    const buildSeed = steps.find((step) => step.name === "Build perf seed DB");
+    if (
+      hitSummary?.conclusion === "success" &&
+      buildSeed?.conclusion === "skipped"
+    ) {
+      return "hit";
+    }
+    if (buildSeed?.conclusion === "success") {
+      return "rebuilt";
+    }
+    return "unknown";
+  });
+
+  if (statuses.length > 0 && statuses.every((status) => status === "hit")) {
     return "命中";
   }
-  if (buildSeed?.conclusion === "success") {
+  if (statuses.length > 0 && statuses.every((status) => status === "rebuilt")) {
+    return "重建";
+  }
+  if (
+    statuses.some((status) => status === "hit") &&
+    statuses.some((status) => status === "rebuilt")
+  ) {
+    return "部分重建";
+  }
+  if (statuses.some((status) => status === "rebuilt")) {
     return "重建";
   }
   return "";
@@ -94,7 +120,7 @@ export const seedCacheStatus = (jobs) => {
 
 export const resolveRunTimingFromJobs = (jobs = []) => ({
   totalMs: totalDurationMs(jobs),
-  seedMs: findJobDuration(jobs, "Prepare perf seed DB"),
+  seedMs: totalDurationMs(findSeedJobs(jobs)),
   seedCache: seedCacheStatus(jobs),
   v1Ms: findJobGroupDuration(jobs, "v1"),
   v2Ms: findJobGroupDuration(jobs, "v2"),

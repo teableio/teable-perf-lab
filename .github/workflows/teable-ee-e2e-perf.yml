@@ -90,6 +90,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       engines: ${{ steps.engines.outputs.engines }}
+      seed_plan: ${{ steps.engines.outputs.seed_plan }}
       execute_plan: ${{ steps.engines.outputs.execute_plan }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
 
@@ -111,15 +112,19 @@ jobs:
           node perf-lab/scripts/run-plan.mjs
 
   seed:
-    name: Prepare perf seed DB
+    name: Prepare perf seed DB (${{ matrix.plan.name }})
     needs: resolve_inputs
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        plan: ${{ fromJSON(needs.resolve_inputs.outputs.seed_plan) }}
 
     env:
-      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed
-      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed
-      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
 
     steps:
       - name: Checkout perf lab
@@ -140,9 +145,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+            perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
 
       - name: Publish seed database cache hit summary
         if: steps.seed-db-cache.outputs.cache-hit == 'true'
@@ -280,11 +285,11 @@ jobs:
           export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-seed-artifacts"
           export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           export PERF_LAB_MODE="seed"
-          export PERF_LAB_CASE_FILTER="${{ inputs.case_filter }}"
+          export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
           export PERF_LAB_ENGINE_LIST="v1"
           export PERF_LAB_SAMPLES="${{ inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
-          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed-${{ matrix.plan.artifactSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
 
           pnpm -F @teable/backend-ee exec vitest run \
@@ -311,7 +316,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ needs.resolve_inputs.outputs.case_filter_key }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed database dump
         if: success()
@@ -321,7 +326,7 @@ jobs:
           # "Re-run failed jobs" of the execute matrix can still resolve the seed
           # dump even when the already-passed seed job does not re-run. overwrite
           # lets a full re-run (seed re-runs too) replace the stale dump.
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}
+          name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}
           path: perf-lab-seed-cache/e2e_test_teable.dump
           if-no-files-found: error
           overwrite: true
@@ -330,7 +335,7 @@ jobs:
         if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: teable-ee-e2e-perf-seed-${{ github.run_id }}-${{ github.run_attempt }}
+          name: teable-ee-e2e-perf-seed-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-seed-artifacts
           if-no-files-found: warn
 
@@ -401,7 +406,7 @@ jobs:
       - name: Download perf seed database dump
         uses: actions/download-artifact@v7
         with:
-          name: teable-ee-e2e-perf-seed-db-${{ github.run_id }}
+          name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.seedArtifactSuffix }}-${{ github.run_id }}
           path: perf-lab-seed-cache
 
       - name: Setup pnpm

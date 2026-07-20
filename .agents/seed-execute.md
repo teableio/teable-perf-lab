@@ -244,16 +244,21 @@ It must not delete reusable seed tables on a cacheable case.
 CI splits seed construction from measured execution:
 
 ```text
-seed job -> restore cached DB or migrate + e2e seed -> initApp once in seed bootstrap mode -> seed all selected fixtures -> pg_dump
-execute v1 pool -> restore seed dump per job -> initApp once per job -> run each shard serially
-execute v2 sync/hybrid pools -> restore seed dump per job -> initApp once per job -> run each shard serially
+seed shard N -> restore shard cache or migrate + e2e seed -> initApp once -> seed shard N fixtures -> pg_dump N
+execute v1 shard N -> restore seed dump N -> initApp once -> run shard N serially
+execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its mode subset serially
 ```
 
-The execute jobs run in parallel when `engine_filter=v1,v2`. A full
-`case_filter=all` run assigns each execution pool round-robin across four jobs;
-explicit case filters remain a single job per engine. Each execute job has its
-own Postgres/Redis containers, so destructive cases can delete or clear their
-restored seed tables without corrupting another shard or engine copy.
+The seed and execute jobs run in parallel for a full `case_filter=all` run.
+`scripts/full-run-shard-model.mjs` treats cases proven to emit the same physical
+`seedHash` as one indivisible fixture-affinity bundle. Sync and hybrid bundles
+are independently assigned to the least-loaded of four shards, then paired to
+balance the combined seed/V1 groups. Seed, V1, V2 sync, and V2 hybrid use this
+one global mapping; shard N always consumes dump N. Explicit case filters remain
+a single seed job and a single job per engine. Every job has its own
+Postgres/Redis containers, network, cache key, dump, and artifact names. A
+digest of the shard's ordered case list is part of its cache key, so regrouping
+cannot exact-hit a dump produced for different members.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:
@@ -269,21 +274,20 @@ The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
    `PERF_LAB_MODE=seed`, where cache-aware runners validate existing
    hash-derived seed tables or build missing/stale fixtures. A successful seed
    job saves a new exact-key `pg_dump -Fc`.
-3. The seed job uploads the selected dump as a
-   `teable-ee-e2e-perf-seed-db-<run>-<attempt>` artifact. Execute jobs download
-   that artifact, restore it into their own databases, set
-   `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and run
+3. Each seed job uploads the selected dump as a
+   `teable-ee-e2e-perf-seed-db-shard-N-of-4-<run>` artifact. Execute shard N
+   downloads that artifact, restores it into its own database, sets
+   `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs
    `PERF_LAB_MODE=execute`. Cache-aware runners run `seedReady`/`sourceReady`
    before measuring execute.
 
 `PERF_LAB_EXECUTE_DB_ISOLATED=true` tells every runner that its current
-database is disposable after the engine job finishes. In that mode **all
-cleanup is skipped, unconditionally** — restores, field deletions, and table
-deletions alike. The next engine already has its own restored copy and the
-next workflow run starts from the seed job dump, never from the mutated
-execute database. Do not gate the skip on the seed cache flag or any other
-condition; the invariant is simply "on a disposable database, no cleanup is
-ever useful".
+database is disposable after the engine job finishes. Cleanup is skipped unless
+another case later in the same shard reuses the same fixture. Shared mutable
+fixtures must still be restored and revalidated between sibling cases; after the
+last sibling, the disposable database can be abandoned. The next engine has its
+own restored copy and the next workflow run starts from the seed dump, never
+from the mutated execute database.
 
 Restore-style table lifecycle cases are a narrow fixture-count optimization:
 one active table fixture is reused for every measured sample because each

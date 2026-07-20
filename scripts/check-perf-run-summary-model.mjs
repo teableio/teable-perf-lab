@@ -137,6 +137,43 @@ assert.deepEqual(resolveRunTimingFromJobs(shardedJobs), {
   v2HybridMs: 180_000,
 });
 
+const shardedSeedJobs = [
+  {
+    name: "Prepare perf seed DB (shard-1-of-4)",
+    started_at: "2026-06-21T00:00:00.000Z",
+    completed_at: "2026-06-21T00:01:00.000Z",
+    steps: [
+      {
+        name: "Publish seed database cache hit summary",
+        conclusion: "success",
+      },
+      { name: "Build perf seed DB", conclusion: "skipped" },
+    ],
+  },
+  {
+    name: "Prepare perf seed DB (shard-2-of-4)",
+    started_at: "2026-06-21T00:00:10.000Z",
+    completed_at: "2026-06-21T00:01:20.000Z",
+    steps: [
+      {
+        name: "Publish seed database cache hit summary",
+        conclusion: "skipped",
+      },
+      { name: "Build perf seed DB", conclusion: "success" },
+    ],
+  },
+];
+
+assert.deepEqual(resolveRunTimingFromJobs(shardedSeedJobs), {
+  totalMs: 80_000,
+  seedMs: 80_000,
+  seedCache: "部分重建",
+  v1Ms: undefined,
+  v2Ms: undefined,
+  v2SyncMs: undefined,
+  v2HybridMs: undefined,
+});
+
 const payloads = [
   {
     caseId: "formula/fast",
