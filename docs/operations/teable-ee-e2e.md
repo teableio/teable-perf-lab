@@ -9,7 +9,8 @@ existing `teable-ee` e2e harness:
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. A seed job prepares a reusable Postgres dump for the selected cases.
 5. V1 and V2 execute jobs restore that same dump into separate Postgres
-   containers and run in parallel through `@teable/backend-ee`.
+   containers and run in parallel through `@teable/backend-ee`. A full
+   `case_filter=all` run splits each execution pool into four round-robin shards.
 
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.
@@ -53,10 +54,11 @@ Manual inputs:
   When `case_filter=all` and this input is empty, the workflow automatically
   splits V2 execution: all normal cases run with the default sync mode, while
   the registered dual-link, computed-chain mutation, and customer upsert
-  computed-flow cases run in a separate V2 hybrid job. Passing an
-  explicit
-  `computed_update_mode` disables that automatic split and applies the requested
-  mode to every selected V2 case in the run.
+  computed-flow cases run in a separate V2 hybrid pool. Each V1, V2 sync, and V2
+  hybrid pool is then divided into four shards. Passing an explicit
+  `computed_update_mode` disables the sync/hybrid pool split, applies the
+  requested mode to every selected V2 case, and still shards the full run four
+  ways.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on
   that repository and store the private key in this repository as
   `TEABLE_EE_CHECKOUT_SSH_KEY`.
@@ -72,6 +74,12 @@ Each execute job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=execute` and a
 single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
 dispatches each case to a runner in `framework/runners/`. Each case writes an
 independent JSON artifact and summary tagged with `engine`.
+
+For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order and
+assigns cases round-robin to four shards. This keeps neighboring cases from the
+same family spread across jobs, while guaranteeing that each registered case is
+selected exactly once per engine/mode pool. Explicit case ids and comma-separated
+case lists remain unsharded.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -144,10 +152,14 @@ artifacts per engine: a lightweight results artifact for normal checks and a
 full artifact for raw Jaeger trace debugging.
 
 Lightweight results artifacts (default for the report job and routine
-downloads):
+downloads) use the engine suffix for filtered runs:
 
 - `teable-ee-e2e-perf-results-v1-<run>-<attempt>`
 - `teable-ee-e2e-perf-results-v2-<run>-<attempt>`
+
+Full runs add the shard suffix, for example
+`teable-ee-e2e-perf-results-v1-shard-1-of-4-<run>-<attempt>` and
+`teable-ee-e2e-perf-results-v2-hybrid-computed-shard-1-of-4-<run>-<attempt>`.
 
 Each results artifact contains only the small files the report and Feishu
 scripts consume:
@@ -158,7 +170,8 @@ scripts consume:
 - `traces/<case-id>-<engine>/manifest.json`: trace refs captured from response
   headers and the list of Jaeger snapshots saved for the run.
 
-Full artifacts (kept for deep debugging and to preserve old links):
+Full artifacts (kept for deep debugging and to preserve old links) follow the
+same suffix rule:
 
 - `teable-ee-e2e-perf-v1-<run>-<attempt>`
 - `teable-ee-e2e-perf-v2-<run>-<attempt>`

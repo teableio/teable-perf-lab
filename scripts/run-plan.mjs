@@ -1,5 +1,9 @@
 import { appendFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
+
+export const FULL_RUN_SHARD_COUNT = 4;
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
@@ -22,6 +26,60 @@ export const HYBRID_COMPUTED_CASES = [
 ];
 
 const VALID_ENGINES = new Set(["v1", "v2"]);
+
+const caseIdFromPath = (casePath) => {
+  const match = /^cases\/(.+)\.case\.ts$/.exec(casePath);
+  if (!match) {
+    throw new Error(`Unsupported registered case path: ${casePath}`);
+  }
+  return match[1];
+};
+
+export const loadRegisteredCaseIds = async () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const registry = await loadRegistry(repoRoot);
+  return registeredCasePathsInOrder(registry).map(caseIdFromPath);
+};
+
+export const shardCaseIds = (caseIds, shardCount = FULL_RUN_SHARD_COUNT) => {
+  if (!Number.isInteger(shardCount) || shardCount < 1) {
+    throw new Error("shardCount must be a positive integer.");
+  }
+  if (caseIds.length === 0) {
+    throw new Error("Cannot shard an empty case list.");
+  }
+
+  const effectiveShardCount = Math.min(shardCount, caseIds.length);
+  const shards = Array.from({ length: effectiveShardCount }, () => []);
+  caseIds.forEach((caseId, index) => {
+    shards[index % effectiveShardCount].push(caseId);
+  });
+  return shards;
+};
+
+const expandShardedPlan = ({
+  name,
+  engine,
+  caseIds,
+  computedUpdateMode,
+  artifactSuffix,
+  otelServiceSuffix,
+}) => {
+  const shards = shardCaseIds(caseIds);
+  return shards.map((shardCaseIds, index) => {
+    const shardNumber = index + 1;
+    const shardLabel = `shard-${shardNumber}-of-${shards.length}`;
+    return {
+      name: `${name}-${shardLabel}`,
+      engine,
+      caseFilter: shardCaseIds.join(","),
+      excludeCaseFilter: "",
+      computedUpdateMode,
+      artifactSuffix: `${artifactSuffix}-${shardLabel}`,
+      otelServiceSuffix: `${otelServiceSuffix}-${shardLabel}`,
+    };
+  });
+};
 
 export const parseEngineList = (engineFilter = "") => {
   const engines = [
@@ -82,6 +140,7 @@ export const resolveExecutePlan = ({
   engineFilter,
   caseFilter,
   computedUpdateMode = "",
+  allCaseIds = [],
 }) => {
   const engines = parseEngineList(engineFilter);
   const caseFilters = parseCaseFiltersForCacheKey(caseFilter);
@@ -89,8 +148,34 @@ export const resolveExecutePlan = ({
   const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
   const requestedComputedUpdateMode = computedUpdateMode.trim();
 
+  if (caseFilterIsAll && allCaseIds.length === 0) {
+    throw new Error(
+      "allCaseIds must include the registered cases for a full run.",
+    );
+  }
+
+  const uniqueAllCaseIds = [...new Set(allCaseIds)];
+  if (uniqueAllCaseIds.length !== allCaseIds.length) {
+    throw new Error("allCaseIds must not include duplicate case ids.");
+  }
+
+  const registeredCaseIds = new Set(uniqueAllCaseIds);
+  const missingHybridCaseIds = HYBRID_COMPUTED_CASES.filter(
+    (caseId) => !registeredCaseIds.has(caseId),
+  );
+  if (
+    caseFilterIsAll &&
+    engines.includes("v2") &&
+    !requestedComputedUpdateMode &&
+    missingHybridCaseIds.length > 0
+  ) {
+    throw new Error(
+      `Hybrid computed cases are not registered: ${missingHybridCaseIds.join(", ")}.`,
+    );
+  }
+
   return engines.flatMap((engine) => {
-    if (engine !== "v2" || !caseFilterIsAll || requestedComputedUpdateMode) {
+    if (!caseFilterIsAll) {
       return [
         {
           name: engine,
@@ -104,25 +189,41 @@ export const resolveExecutePlan = ({
       ];
     }
 
+    if (engine !== "v2" || requestedComputedUpdateMode) {
+      return expandShardedPlan({
+        name: engine,
+        engine,
+        caseIds: uniqueAllCaseIds,
+        computedUpdateMode: requestedComputedUpdateMode,
+        artifactSuffix: engine,
+        otelServiceSuffix: engine,
+      });
+    }
+
+    const hybridCaseIds = uniqueAllCaseIds.filter((caseId) =>
+      HYBRID_COMPUTED_CASES.includes(caseId),
+    );
+    const syncCaseIds = uniqueAllCaseIds.filter(
+      (caseId) => !HYBRID_COMPUTED_CASES.includes(caseId),
+    );
+
     return [
-      {
+      ...expandShardedPlan({
         name: "v2-sync-default",
         engine,
-        caseFilter: rawCaseFilter,
-        excludeCaseFilter: HYBRID_COMPUTED_CASES.join(","),
+        caseIds: syncCaseIds,
         computedUpdateMode: "",
         artifactSuffix: "v2",
         otelServiceSuffix: "v2-sync",
-      },
-      {
+      }),
+      ...expandShardedPlan({
         name: "v2-hybrid-computed",
         engine,
-        caseFilter: HYBRID_COMPUTED_CASES.join(","),
-        excludeCaseFilter: "",
+        caseIds: hybridCaseIds,
         computedUpdateMode: "hybrid",
         artifactSuffix: "v2-hybrid-computed",
         otelServiceSuffix: "v2-hybrid",
-      },
+      }),
     ];
   });
 };
@@ -131,6 +232,7 @@ export const resolveRunPlan = ({
   engineFilter,
   caseFilter,
   computedUpdateMode = "",
+  allCaseIds = [],
 }) => {
   const engines = parseEngineList(engineFilter);
   return {
@@ -139,6 +241,7 @@ export const resolveRunPlan = ({
       engineFilter,
       caseFilter,
       computedUpdateMode,
+      allCaseIds,
     }),
     caseFilterKey: buildCaseFilterKey(caseFilter),
   };
@@ -153,11 +256,13 @@ export const writeGithubOutputs = (
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
 };
 
-const main = () => {
+const main = async () => {
+  const allCaseIds = await loadRegisteredCaseIds();
   const plan = resolveRunPlan({
     engineFilter: process.env.ENGINE_FILTER ?? "",
     caseFilter: process.env.CASE_FILTER ?? "",
     computedUpdateMode: process.env.COMPUTED_UPDATE_MODE ?? "",
+    allCaseIds,
   });
 
   if (process.env.GITHUB_OUTPUT) {
@@ -172,10 +277,8 @@ const main = () => {
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  try {
-    main();
-  } catch (error) {
+  main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  }
+  });
 }

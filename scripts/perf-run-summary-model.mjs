@@ -64,6 +64,15 @@ export const totalDurationMs = (jobs) => {
   return Math.max(...completes) - Math.min(...starts);
 };
 
+export const findJobGroupDuration = (jobs, name) => {
+  const exactName = `Run perf cases (${name})`;
+  const shardPrefix = `Run perf cases (${name}-shard-`;
+  const matchingJobs = jobs.filter(
+    (job) => job.name === exactName || job.name.startsWith(shardPrefix),
+  );
+  return totalDurationMs(matchingJobs);
+};
+
 export const seedCacheStatus = (jobs) => {
   const seedJob = jobs.find((item) => item.name === "Prepare perf seed DB");
   const steps = seedJob?.steps ?? [];
@@ -87,10 +96,10 @@ export const resolveRunTimingFromJobs = (jobs = []) => ({
   totalMs: totalDurationMs(jobs),
   seedMs: findJobDuration(jobs, "Prepare perf seed DB"),
   seedCache: seedCacheStatus(jobs),
-  v1Ms: findJobDuration(jobs, "Run perf cases (v1)"),
-  v2Ms: findJobDuration(jobs, "Run perf cases (v2)"),
-  v2SyncMs: findJobDuration(jobs, "Run perf cases (v2-sync-default)"),
-  v2HybridMs: findJobDuration(jobs, "Run perf cases (v2-hybrid-computed)"),
+  v1Ms: findJobGroupDuration(jobs, "v1"),
+  v2Ms: findJobGroupDuration(jobs, "v2"),
+  v2SyncMs: findJobGroupDuration(jobs, "v2-sync-default"),
+  v2HybridMs: findJobGroupDuration(jobs, "v2-hybrid-computed"),
 });
 
 const rowStatusRank = (status) => {

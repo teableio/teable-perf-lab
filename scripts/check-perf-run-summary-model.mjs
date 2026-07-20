@@ -63,6 +63,80 @@ assert.deepEqual(resolveRunTimingFromJobs(jobs), {
   v2HybridMs: 120_000,
 });
 
+const shardedJobs = [
+  jobs[0],
+  {
+    name: "Run perf cases (v1-shard-1-of-4)",
+    started_at: "2026-06-21T00:01:00.000Z",
+    completed_at: "2026-06-21T00:03:00.000Z",
+  },
+  {
+    name: "Run perf cases (v1-shard-2-of-4)",
+    started_at: "2026-06-21T00:01:10.000Z",
+    completed_at: "2026-06-21T00:02:30.000Z",
+  },
+  {
+    name: "Run perf cases (v1-shard-3-of-4)",
+    started_at: "2026-06-21T00:01:05.000Z",
+    completed_at: "2026-06-21T00:04:00.000Z",
+  },
+  {
+    name: "Run perf cases (v1-shard-4-of-4)",
+    started_at: "2026-06-21T00:01:15.000Z",
+    completed_at: "2026-06-21T00:03:30.000Z",
+  },
+  {
+    name: "Run perf cases (v2-sync-default-shard-1-of-4)",
+    started_at: "2026-06-21T00:01:00.000Z",
+    completed_at: "2026-06-21T00:02:30.000Z",
+  },
+  {
+    name: "Run perf cases (v2-sync-default-shard-2-of-4)",
+    started_at: "2026-06-21T00:01:20.000Z",
+    completed_at: "2026-06-21T00:03:00.000Z",
+  },
+  {
+    name: "Run perf cases (v2-sync-default-shard-3-of-4)",
+    started_at: "2026-06-21T00:01:10.000Z",
+    completed_at: "2026-06-21T00:02:40.000Z",
+  },
+  {
+    name: "Run perf cases (v2-sync-default-shard-4-of-4)",
+    started_at: "2026-06-21T00:01:15.000Z",
+    completed_at: "2026-06-21T00:02:50.000Z",
+  },
+  {
+    name: "Run perf cases (v2-hybrid-computed-shard-1-of-4)",
+    started_at: "2026-06-21T00:02:00.000Z",
+    completed_at: "2026-06-21T00:04:30.000Z",
+  },
+  {
+    name: "Run perf cases (v2-hybrid-computed-shard-2-of-4)",
+    started_at: "2026-06-21T00:02:15.000Z",
+    completed_at: "2026-06-21T00:05:00.000Z",
+  },
+  {
+    name: "Run perf cases (v2-hybrid-computed-shard-3-of-4)",
+    started_at: "2026-06-21T00:02:05.000Z",
+    completed_at: "2026-06-21T00:04:40.000Z",
+  },
+  {
+    name: "Run perf cases (v2-hybrid-computed-shard-4-of-4)",
+    started_at: "2026-06-21T00:02:10.000Z",
+    completed_at: "2026-06-21T00:04:50.000Z",
+  },
+];
+
+assert.deepEqual(resolveRunTimingFromJobs(shardedJobs), {
+  totalMs: 300_000,
+  seedMs: 60_000,
+  seedCache: "命中",
+  v1Ms: 180_000,
+  v2Ms: undefined,
+  v2SyncMs: 120_000,
+  v2HybridMs: 180_000,
+});
+
 const payloads = [
   {
     caseId: "formula/fast",
