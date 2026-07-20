@@ -649,12 +649,12 @@ export const prepareTableLinkFixtures = async (
   config: TableLinkLifecycleCaseConfig,
   perfCase: PerfCase,
   runner: PerfRunnerKind,
+  fixtureCount = getTableLifecycleSampleCount(config),
 ): Promise<TableLinkFixtureSample[]> => {
-  const samples = getTableLifecycleSampleCount(config);
   const fixtures: TableLinkFixtureSample[] = [];
   const runSuffix = `${Date.now()}`;
 
-  for (let iteration = 1; iteration <= samples; iteration += 1) {
+  for (let iteration = 1; iteration <= fixtureCount; iteration += 1) {
     const sampleLabel = formatTableLifecycleSample(iteration);
     const tableName = `${config.tableNamePrefix}-${runSuffix}-${sampleLabel}`;
     const prepareMeasurement = await measureAsync(
@@ -724,6 +724,7 @@ export const seedTableLinkLifecycleCase = async (
     config,
     perfCase,
     runner,
+    runner === "table-restore-link" ? 1 : getTableLifecycleSampleCount(config),
   );
 
   return buildTableLifecycleSamplesResult({

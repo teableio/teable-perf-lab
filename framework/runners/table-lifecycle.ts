@@ -2,6 +2,7 @@ import type { PerfCase, PerfRunContext, PerfRunResult } from "../types";
 import { PerfRunDiagnosticError } from "../types";
 import {
   buildTableLifecycleSamplesResult,
+  getTableLifecycleSampleCount,
   prepareTableLifecycleFixtures,
   type TableLifecycleCaseConfig,
   type TableLifecycleCleanupSample,
@@ -10,6 +11,10 @@ import {
   type TableLifecycleRunnerKind,
   type TableLifecycleVerifySample,
 } from "./table-lifecycle.shared";
+import {
+  buildLifecycleExecutionSamples,
+  getLifecycleFixtureCount,
+} from "./table-lifecycle-model";
 
 // Non-link sibling of `runTableLinkSamplesLifecycle`: the shared archive/restore
 // sample loop for plain (linkless) tables. Both `table-delete` and
@@ -19,6 +24,7 @@ import {
 
 export type TableSamplesLifecycleState<TExtra extends object = object> = {
   fixtureSamples: TableLifecycleFixtureSample[];
+  executionSamples: TableLifecycleFixtureSample[];
   setupSamples: TableLifecycleVerifySample[];
   requestSamples: TableLifecycleRequestSample[];
   verifySamples: TableLifecycleVerifySample[];
@@ -36,6 +42,7 @@ export type TableSamplesLifecycleRunArgs<TExtra extends object = object> = {
 
 export type TableSamplesLifecycleSpec<TExtra extends object = object> = {
   runner: TableLifecycleRunnerKind;
+  reuseFixtureAcrossSamples?: boolean;
   includeSetupSamples?: boolean;
   includeCleanupSamples?: boolean;
   createState?: () => TExtra;
@@ -63,6 +70,7 @@ export const runTableSamplesLifecycle = async <TExtra extends object = object>(
   const baseId = globalThis.testConfig.baseId;
   const state = {
     fixtureSamples: [],
+    executionSamples: [],
     setupSamples: [],
     requestSamples: [],
     verifySamples: [],
@@ -86,15 +94,23 @@ export const runTableSamplesLifecycle = async <TExtra extends object = object>(
     });
 
   try {
+    const sampleCount = getTableLifecycleSampleCount(config);
+    const reuseFixtureAcrossSamples = spec.reuseFixtureAcrossSamples === true;
     state.fixtureSamples = await prepareTableLifecycleFixtures(
       baseId,
       config,
       perfCase,
       spec.runner,
+      getLifecycleFixtureCount(sampleCount, reuseFixtureAcrossSamples),
     );
+    state.executionSamples = buildLifecycleExecutionSamples({
+      fixtureSamples: state.fixtureSamples,
+      sampleCount,
+      reuseFixtureAcrossSamples,
+    });
 
     try {
-      for (const sample of state.fixtureSamples) {
+      for (const sample of state.executionSamples) {
         await spec.runSample({
           perfCase,
           context,

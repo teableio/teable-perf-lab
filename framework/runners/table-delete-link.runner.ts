@@ -191,7 +191,7 @@ export const runTableDeleteLinkCase = async (
         return;
       }
 
-      for (const sample of state.fixtureSamples) {
+      for (const sample of state.executionSamples) {
         let cleanup = state.cleanupSamples.find(
           (item) => item.iteration === sample.iteration,
         );
