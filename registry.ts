@@ -3,6 +3,7 @@ import formula10kCalcCase from "./cases/formula/10k-calc.case";
 import formula10k5ConcurrentCase from "./cases/formula/10k-5-concurrent.case";
 import formula50kCalcCase from "./cases/formula/50k-calc.case";
 import conditionalLookup10kCase from "./cases/lookup/conditional-10k.case";
+import conditionalLookupDirtyHostCreate100_10kCase from "./cases/lookup/v2-only-conditional-dirty-host-create-100-10k.case";
 import conditionalRollup10kCase from "./cases/rollup/conditional-10k.case";
 import conditionalLookupGroupActiveText10kCase from "./cases/lookup/conditional-group-active-text-10k.case";
 import conditionalLookupGroupActiveTextFanout50_10kCase from "./cases/lookup/conditional-group-active-text-fanout50-10k.case";
@@ -262,6 +263,7 @@ const cases = [
   formula10k5ConcurrentCase,
   formula50kCalcCase,
   conditionalLookup10kCase,
+  conditionalLookupDirtyHostCreate100_10kCase,
   conditionalRollup10kCase,
   conditionalLookupGroupTextFanout10_10kCase,
   conditionalLookupGroupTextFanout50_10kCase,
@@ -525,6 +527,10 @@ const caseAliases = new Map([
   ["formula/10k/concurrent", "formula/10k-5-concurrent"],
   ["lookup/conditional", "lookup/conditional-10k"],
   ["conditional-lookup", "lookup/conditional-10k"],
+  [
+    "lookup/conditional-dirty-create",
+    "lookup/v2-only-conditional-dirty-host-create-100-10k",
+  ],
   ["rollup/conditional", "rollup/conditional-10k"],
   ["conditional-rollup", "rollup/conditional-10k"],
   ["lookup/dual-link-first-link", "lookup/dual-link-computed-first-link-4k"],
