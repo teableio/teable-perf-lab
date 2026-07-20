@@ -1,7 +1,7 @@
 // Full-run sharding has two competing goals:
 //
 // 1. keep cases that resolve to the same physical seed fixture in one shard;
-// 2. keep the four execution pools close in size.
+// 2. keep the parallel seed and execution pools close in estimated cost.
 //
 // The affinity list below is intentionally explicit. It was verified against
 // the seedHash values emitted by full-run artifacts, so it describes physical
@@ -157,6 +157,80 @@ export const FULL_RUN_FIXTURE_AFFINITIES = [
   },
 ];
 
+// Keep full-run wall time close to the fixed report stage without creating an
+// unbounded matrix. At the current catalog size this resolves to seven shards;
+// it grows automatically as cases are added, up to the point where the 2026-07
+// calibration showed no material gain from more parallel jobs.
+export const FULL_RUN_TARGET_CASES_PER_SHARD = 40;
+export const FULL_RUN_MAX_SHARD_COUNT = 8;
+
+// A case has execution/trace overhead even when seed mode is effectively free.
+// Adding this baseline keeps seed-heavy LPT packing from producing pathological
+// 3-case and 80-case shards that would move the long tail into execute mode.
+export const FULL_RUN_CASE_OVERHEAD_WEIGHT_MS = 10_000;
+export const FULL_RUN_DEFAULT_SEED_WEIGHT_MS = 1_000;
+
+// Cold-seed caseMs calibration from Actions run 29738811090. Only material
+// outliers are pinned; cheap/unseen cases use the default above. Shared fixture
+// siblings remain one bundle, so the weight is stable even if the case that
+// first creates the physical table changes with catalog order.
+export const FULL_RUN_SEED_WEIGHT_MS_BY_CASE_ID = {
+  "record-read/50k-50fields-50x1k-pages": 440_282,
+  "search/search-index-off-50k-20search-fields": 368_802,
+  "table-delete/10k-20f-link-detach": 105_680,
+  "record-read/10k-50fields-10x1k-pages": 79_696,
+  "lookup/conditional-group-text-fanout100-10k": 72_230,
+  "lookup/conditional-group-text-update-1k-fanout100-30k": 67_153,
+  "lookup/conditional-group-text-update-1k-fanout100-20k": 64_256,
+  "search/search-index-off-10k-20search-fields": 55_569,
+  "record-delete/delete-stream-30k": 47_959,
+  "field-convert/10k-link-to-text": 47_910,
+  "table-delete/30k-20f-link-detach": 41_012,
+  "lookup/dual-link-computed-first-link-4k": 37_938,
+  "formula/50k-calc": 36_517,
+  "field-duplicate/10k-duplicate-rollup-field": 36_219,
+  "lookup/dual-link-computed-first-link-1of4k-get-records": 34_663,
+  "lookup/dual-link-computed-repoint-2k": 32_985,
+  "lookup/conditional-group-text-fanout50-10k": 31_161,
+  "field-duplicate/10k-duplicate-many-many-link-field": 30_649,
+  "lookup/customer-update-user-update-order-4k-depth5": 28_656,
+  "lookup/customer-update-user-first-name-only-create-order-4k-depth5": 28_521,
+  "duplicate-table/10k-20f-selflink": 28_061,
+  "duplicate-table/10k-25f-5formula": 26_434,
+  "lookup/dual-link-computed-first-link-1of4k-get-record": 25_039,
+  "lookup/foreign-first-name-update-1of40-fanout100-4k": 25_005,
+  "field-convert/formula-expression-update-4k-depth5-cascade": 24_785,
+  "field-restore/10k-status-field": 24_705,
+  "lookup/conditional-group-text-fanout10-10k": 24_598,
+  "table-restore/10k-20f": 24_593,
+  "record-delete/delete-stream-10k": 24_448,
+  "field-duplicate/conditional-lookup-10k": 24_260,
+  "field-duplicate/10k-duplicate-conditional-rollup-field": 22_140,
+  "lookup/customer-create-user-create-order-4k-depth5": 21_181,
+  "field-convert/10k-text-to-link": 20_656,
+  "lookup/customer-update-other-user-create-order-4k-depth5": 20_606,
+  "field-convert/10k-text-to-date-mixed": 20_429,
+};
+
+export const resolveFullRunShardCount = (
+  caseCount,
+  {
+    targetCasesPerShard = FULL_RUN_TARGET_CASES_PER_SHARD,
+    maxShardCount = FULL_RUN_MAX_SHARD_COUNT,
+  } = {},
+) => {
+  if (!Number.isInteger(caseCount) || caseCount < 1) {
+    throw new Error("caseCount must be a positive integer.");
+  }
+  assertPositiveShardCount(targetCasesPerShard);
+  assertPositiveShardCount(maxShardCount);
+  return Math.min(maxShardCount, Math.ceil(caseCount / targetCasesPerShard));
+};
+
+export const fullRunCaseWeightMs = (caseId) =>
+  (FULL_RUN_SEED_WEIGHT_MS_BY_CASE_ID[caseId] ??
+    FULL_RUN_DEFAULT_SEED_WEIGHT_MS) + FULL_RUN_CASE_OVERHEAD_WEIGHT_MS;
+
 const assertPositiveShardCount = (shardCount) => {
   if (!Number.isInteger(shardCount) || shardCount < 1) {
     throw new Error("shardCount must be a positive integer.");
@@ -219,17 +293,23 @@ export const validateFixtureAffinities = ({
   return issues;
 };
 
-const buildBundles = (caseIds, affinities) => {
+const buildBundles = (caseIds, affinities, caseWeight) => {
   const membership = affinityByCaseId(affinities);
   const bundles = new Map();
   caseIds.forEach((caseId, index) => {
     const key = membership.get(caseId) ?? `case:${caseId}`;
-    const bundle = bundles.get(key) ?? { caseIds: [], firstIndex: index };
+    const bundle = bundles.get(key) ?? {
+      caseIds: [],
+      firstIndex: index,
+      weight: 0,
+    };
     bundle.caseIds.push(caseId);
+    bundle.weight += caseWeight(caseId);
     bundles.set(key, bundle);
   });
   return [...bundles.values()].sort(
     (left, right) =>
+      right.weight - left.weight ||
       right.caseIds.length - left.caseIds.length ||
       left.firstIndex - right.firstIndex,
   );
@@ -239,6 +319,7 @@ export const shardCaseIdsByFixtureAffinity = ({
   caseIds,
   shardCount,
   affinities = FULL_RUN_FIXTURE_AFFINITIES,
+  caseWeight = fullRunCaseWeightMs,
 }) => {
   assertPositiveShardCount(shardCount);
   if (caseIds.length === 0) {
@@ -252,10 +333,10 @@ export const shardCaseIdsByFixtureAffinity = ({
   const shards = Array.from({ length: shardCount }, () => []);
   const loads = Array.from({ length: shardCount }, () => 0);
 
-  for (const bundle of buildBundles(caseIds, affinities)) {
+  for (const bundle of buildBundles(caseIds, affinities, caseWeight)) {
     const target = loads.indexOf(Math.min(...loads));
     shards[target].push(...bundle.caseIds);
-    loads[target] += bundle.caseIds.length;
+    loads[target] += bundle.weight;
   }
 
   return shards.map((shard) =>
@@ -270,6 +351,7 @@ export const buildFullRunCaseShards = ({
   hybridCaseIds,
   shardCount,
   affinities = FULL_RUN_FIXTURE_AFFINITIES,
+  caseWeight = fullRunCaseWeightMs,
 }) => {
   assertPositiveShardCount(shardCount);
   if (allCaseIds.length === 0) {
@@ -285,26 +367,34 @@ export const buildFullRunCaseShards = ({
     caseIds: syncCaseIds,
     shardCount,
     affinities,
+    caseWeight,
   });
   const hybridShards = shardCaseIdsByFixtureAffinity({
     caseIds: selectedHybridCaseIds,
     shardCount,
     affinities,
+    caseWeight,
   });
 
   // Pair the largest hybrid shard with the smallest sync shard. Both pools stay
   // independently balanced, while their combined seed/V1 shard sizes converge.
   const syncOrder = syncShards
-    .map((caseIds, index) => ({ caseIds, index }))
+    .map((caseIds, index) => ({
+      caseIds,
+      index,
+      weight: caseIds.reduce((total, caseId) => total + caseWeight(caseId), 0),
+    }))
     .sort(
-      (left, right) =>
-        left.caseIds.length - right.caseIds.length || left.index - right.index,
+      (left, right) => left.weight - right.weight || left.index - right.index,
     );
   const hybridOrder = hybridShards
-    .map((caseIds, index) => ({ caseIds, index }))
+    .map((caseIds, index) => ({
+      caseIds,
+      index,
+      weight: caseIds.reduce((total, caseId) => total + caseWeight(caseId), 0),
+    }))
     .sort(
-      (left, right) =>
-        right.caseIds.length - left.caseIds.length || left.index - right.index,
+      (left, right) => right.weight - left.weight || left.index - right.index,
     );
 
   const caseOrder = new Map(allCaseIds.map((caseId, index) => [caseId, index]));

@@ -251,9 +251,11 @@ execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its
 
 The seed and execute jobs run in parallel for a full `case_filter=all` run.
 `scripts/full-run-shard-model.mjs` treats cases proven to emit the same physical
-`seedHash` as one indivisible fixture-affinity bundle. Sync and hybrid bundles
-are independently assigned to the least-loaded of four shards, then paired to
-balance the combined seed/V1 groups. Seed, V1, V2 sync, and V2 hybrid use this
+`seedHash` as one indivisible fixture-affinity bundle. The shard count is derived
+from catalog size (about 40 cases per shard, capped at 8), not fixed in the
+workflow. Calibrated cold-seed cost plus a per-case execute overhead weight is
+used for least-loaded assignment. Sync and hybrid bundles are balanced
+independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid use this
 one global mapping; shard N always consumes dump N. Explicit case filters remain
 a single seed job and a single job per engine. Every job has its own
 Postgres/Redis containers, network, cache key, dump, and artifact names. A
@@ -275,7 +277,7 @@ The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
    hash-derived seed tables or build missing/stale fixtures. A successful seed
    job saves a new exact-key `pg_dump -Fc`.
 3. Each seed job uploads the selected dump as a
-   `teable-ee-e2e-perf-seed-db-shard-N-of-4-<run>` artifact. Execute shard N
+   `teable-ee-e2e-perf-seed-db-shard-N-of-M-<run>` artifact. Execute shard N
    downloads that artifact, restores it into its own database, sets
    `PERF_LAB_EXECUTE_DB_ISOLATED=true`, and runs
    `PERF_LAB_MODE=execute`. Cache-aware runners run `seedReady`/`sourceReady`

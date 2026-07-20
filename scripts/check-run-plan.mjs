@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import {
   FULL_RUN_FIXTURE_AFFINITIES,
+  FULL_RUN_MAX_SHARD_COUNT,
+  FULL_RUN_TARGET_CASES_PER_SHARD,
+  resolveFullRunShardCount,
   shardCaseIdsByFixtureAffinity,
   validateFixtureAffinities,
 } from "./full-run-shard-model.mjs";
 import {
   buildCaseFilterKey,
   buildFullRunShardCaseFilterKey,
-  FULL_RUN_SHARD_COUNT,
   HYBRID_COMPUTED_CASES,
   loadRegisteredCaseIds,
   resolveRunPlan,
@@ -15,6 +17,7 @@ import {
 
 const allCaseIds = await loadRegisteredCaseIds();
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
+const fullRunShardCount = resolveFullRunShardCount(allCaseIds.length);
 
 const assertShardedPlan = ({
   plans,
@@ -25,10 +28,11 @@ const assertShardedPlan = ({
   artifactSuffix,
   otelServiceSuffix,
 }) => {
-  assert.equal(plans.length, FULL_RUN_SHARD_COUNT);
+  const shardCount = expectedCaseShards.length;
+  assert.equal(plans.length, shardCount);
   plans.forEach((plan, index) => {
     const shardNumber = index + 1;
-    const shardLabel = `shard-${shardNumber}-of-${FULL_RUN_SHARD_COUNT}`;
+    const shardLabel = `shard-${shardNumber}-of-${shardCount}`;
     assert.deepEqual(plan, {
       name: `${name}-${shardLabel}`,
       engine,
@@ -70,10 +74,10 @@ const defaultFullRunPlan = resolveRunPlan({
 
 assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
 assert.equal(defaultFullRunPlan.caseFilterKey, "all");
-assert.equal(defaultFullRunPlan.seedPlan.length, FULL_RUN_SHARD_COUNT);
-assert.equal(defaultFullRunPlan.executePlan.length, FULL_RUN_SHARD_COUNT * 3);
+assert.equal(defaultFullRunPlan.seedPlan.length, fullRunShardCount);
+assert.equal(defaultFullRunPlan.executePlan.length, fullRunShardCount * 3);
 const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
-  const shardLabel = `shard-${index + 1}-of-${FULL_RUN_SHARD_COUNT}`;
+  const shardLabel = `shard-${index + 1}-of-${fullRunShardCount}`;
   assert.equal(plan.name, shardLabel);
   const caseIds = plan.caseFilter.split(",");
   assert.equal(
@@ -83,10 +87,7 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.deepEqual(
-  fullRunCaseShards.map((caseIds) => caseIds.length),
-  [64, 64, 64, 64],
-);
+assert.equal(fullRunShardCount, 7);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   allCaseIds.slice().sort(),
@@ -106,7 +107,7 @@ for (const affinity of FULL_RUN_FIXTURE_AFFINITIES) {
 }
 
 assertShardedPlan({
-  plans: defaultFullRunPlan.executePlan.slice(0, FULL_RUN_SHARD_COUNT),
+  plans: defaultFullRunPlan.executePlan.slice(0, fullRunShardCount),
   expectedCaseShards: fullRunCaseShards,
   name: "v1",
   engine: "v1",
@@ -116,8 +117,8 @@ assertShardedPlan({
 });
 assertShardedPlan({
   plans: defaultFullRunPlan.executePlan.slice(
-    FULL_RUN_SHARD_COUNT,
-    FULL_RUN_SHARD_COUNT * 2,
+    fullRunShardCount,
+    fullRunShardCount * 2,
   ),
   expectedCaseShards: fullRunCaseShards.map((caseIds) =>
     caseIds.filter((caseId) => !hybridCaseIdSet.has(caseId)),
@@ -129,7 +130,7 @@ assertShardedPlan({
   otelServiceSuffix: "v2-sync",
 });
 assertShardedPlan({
-  plans: defaultFullRunPlan.executePlan.slice(FULL_RUN_SHARD_COUNT * 2),
+  plans: defaultFullRunPlan.executePlan.slice(fullRunShardCount * 2),
   expectedCaseShards: fullRunCaseShards.map((caseIds) =>
     caseIds.filter((caseId) => hybridCaseIdSet.has(caseId)),
   ),
@@ -222,6 +223,22 @@ assert.deepEqual(syntheticAffinityShards.flat().slice().sort(), [
   "d",
   "e",
 ]);
+const weightedShards = shardCaseIdsByFixtureAffinity({
+  caseIds: ["heavy", "light-a", "light-b", "light-c"],
+  shardCount: 2,
+  affinities: [],
+  caseWeight: (caseId) => (caseId === "heavy" ? 100 : 1),
+});
+assert.deepEqual(weightedShards, [
+  ["heavy"],
+  ["light-a", "light-b", "light-c"],
+]);
+assert.equal(resolveFullRunShardCount(FULL_RUN_TARGET_CASES_PER_SHARD), 1);
+assert.equal(resolveFullRunShardCount(FULL_RUN_TARGET_CASES_PER_SHARD + 1), 2);
+assert.equal(
+  resolveFullRunShardCount(Number.MAX_SAFE_INTEGER),
+  FULL_RUN_MAX_SHARD_COUNT,
+);
 assert.deepEqual(
   validateFixtureAffinities({
     allCaseIds: ["sync", "hybrid"],

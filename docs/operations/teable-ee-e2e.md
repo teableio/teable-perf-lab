@@ -8,8 +8,8 @@ existing `teable-ee` e2e harness:
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. For an explicit case filter, one seed job prepares a reusable Postgres dump.
-   A full `case_filter=all` run instead prepares four fixture-affinity seed
-   shards in parallel.
+   A full `case_filter=all` run instead prepares an adaptive number of
+   fixture-affinity seed shards in parallel.
 5. V1 and V2 execute jobs restore the matching shard dump into separate
    Postgres containers and run in parallel through `@teable/backend-ee`.
 
@@ -56,10 +56,10 @@ Manual inputs:
   splits V2 execution: all normal cases run with the default sync mode, while
   the registered dual-link, computed-chain mutation, and customer upsert
   computed-flow cases run in a separate V2 hybrid pool. Each V1, V2 sync, and V2
-  hybrid pool uses the same four global case shards. Passing an explicit
+  hybrid pool uses the same global case shards. Passing an explicit
   `computed_update_mode` disables the sync/hybrid pool split, applies the
-  requested mode to every selected V2 case, and still shards the full run four
-  ways.
+  requested mode to every selected V2 case, and still uses the adaptive full-run
+  shards.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on
   that repository and store the private key in this repository as
   `TEABLE_EE_CHECKOUT_SSH_KEY`.
@@ -79,12 +79,14 @@ independent JSON artifact and summary tagged with `engine`.
 For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order and
 the verified fixture affinities in `scripts/full-run-shard-model.mjs`. Cases
 that emit the same physical runner `seedHash` are treated as one indivisible
-bundle. The sync and hybrid bundles are greedily assigned to their least-loaded
-shards, then paired largest-to-smallest to produce four equally sized global
-shards. Seed, V1, V2 sync, and V2 hybrid all use that same mapping, so a shared
-fixture is built into exactly one seed dump and every case is selected exactly
-once per applicable engine/mode pool. Explicit case ids and comma-separated
-case lists remain unsharded.
+bundle. The shard count is derived from catalog size at roughly 40 cases per
+shard, capped at 8; the current 256-case catalog resolves to 7. Bundles are
+weighted with calibrated cold-seed cost plus a per-case execute overhead and
+greedily assigned to the least-loaded shard. Sync and hybrid bundles are packed
+independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid all use
+that same mapping, so a shared fixture is built into exactly one seed dump and
+every case is selected exactly once per applicable engine/mode pool. Explicit
+case ids and comma-separated case lists remain unsharded.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -156,8 +158,8 @@ a skip.
 
 Filtered runs upload `teable-ee-e2e-perf-seed-seed-<run>-<attempt>` and
 `teable-ee-e2e-perf-seed-db-seed-<run>`. Full runs upload one pair per shard,
-for example `teable-ee-e2e-perf-seed-shard-1-of-4-<run>-<attempt>` and
-`teable-ee-e2e-perf-seed-db-shard-1-of-4-<run>`. The execute jobs upload two
+for example `teable-ee-e2e-perf-seed-shard-1-of-N-<run>-<attempt>` and
+`teable-ee-e2e-perf-seed-db-shard-1-of-N-<run>`. The execute jobs upload two
 artifacts per engine: a lightweight results artifact for normal checks and a
 full artifact for raw Jaeger trace debugging.
 
