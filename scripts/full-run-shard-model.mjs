@@ -139,7 +139,11 @@ export const FULL_RUN_FIXTURE_AFFINITIES = [
   },
   {
     id: "conditional-computed/10k",
-    caseIds: ["lookup/conditional-10k", "rollup/conditional-10k"],
+    caseIds: [
+      "lookup/conditional-10k",
+      "lookup/v2-only-conditional-dirty-host-create-100-10k",
+      "rollup/conditional-10k",
+    ],
   },
   {
     id: "lookup-search-index/10k-20fields",

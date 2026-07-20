@@ -312,13 +312,13 @@ export const createConditionalLookupField = (
     ),
   );
 
-const createConditionalLookupFieldWithRouting = async (
+export const createConditionalLookupFieldWithRouting = async (
   context: PerfRunContext,
   hostTableId: string,
   sourceTableId: string,
   sourceFields: ConditionalLookupSourceFields,
   hostFields: ConditionalLookupHostFields,
-  config: ConditionalLookupCaseConfig,
+  config: ConditionalLookupSharedConfig,
 ) => {
   const response = await apiCreateField(
     hostTableId,
