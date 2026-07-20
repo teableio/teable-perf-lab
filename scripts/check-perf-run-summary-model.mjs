@@ -9,9 +9,11 @@ import {
 } from "./perf-run-summary-model.mjs";
 import {
   buildPerformanceTrackResultRecord,
+  chunkPerformanceTrackWriteRecords,
   createInMemoryPerformanceTrackAdapter,
   createPerformanceTrackRecordModule,
   createTeablePerformanceTrackAdapter,
+  DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
 } from "./performance-track-record-model.mjs";
 import { PERFORMANCE_TRACK_CONTRACT_FIELDS } from "./performance-track-contract.fixture.mjs";
 
@@ -517,6 +519,131 @@ await assert.rejects(
   /requires a non-empty "Run Key" field/,
 );
 
+const performanceTrackWriteBodyBytes = (records) =>
+  Buffer.byteLength(
+    JSON.stringify({ fieldKeyType: "name", typecast: true, records }),
+  );
+const performanceTrackWriteRecords = [
+  { fields: { "Run Key": "run-1", Result: "pass" } },
+  { fields: { "Run Key": "run-2", Result: "pass" } },
+  { fields: { "Run Key": "run-3", Result: "pass" } },
+];
+const twoPerformanceTrackRecordsMaxBytes = performanceTrackWriteBodyBytes(
+  performanceTrackWriteRecords.slice(0, 2),
+);
+assert.deepEqual(
+  chunkPerformanceTrackWriteRecords(
+    performanceTrackWriteRecords,
+    twoPerformanceTrackRecordsMaxBytes,
+  ),
+  [
+    performanceTrackWriteRecords.slice(0, 2),
+    performanceTrackWriteRecords.slice(2),
+  ],
+);
+assert.equal(DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES, 512 * 1024);
+await assert.rejects(
+  async () =>
+    chunkPerformanceTrackWriteRecords(
+      [performanceTrackWriteRecords[0]],
+      performanceTrackWriteBodyBytes([performanceTrackWriteRecords[0]]) - 1,
+    ),
+  /Performance Track write record run-1 exceeds/,
+);
+
+const batchWriteAdapter = createInMemoryPerformanceTrackAdapter({
+  fields: PERFORMANCE_TRACK_CONTRACT_FIELDS,
+  records: [
+    {
+      id: "rec-existing-batch",
+      fields: {
+        "Run Key": "901-3-formula/existing-v2",
+        "Run ID": "901",
+        "Run Attempt": 3,
+        Result: "pass",
+      },
+    },
+    {
+      id: "rec-other-run",
+      fields: {
+        "Run Key": "900-1-formula/existing-v2",
+        "Run ID": "900",
+        "Run Attempt": 1,
+        Result: "pass",
+      },
+    },
+  ],
+});
+const batchWriteModule = createPerformanceTrackRecordModule(batchWriteAdapter);
+const batchWriteResult = await batchWriteModule.upsertResults({
+  runId: "901",
+  runAttempt: "3",
+  records: [
+    {
+      fields: {
+        "Run Key": "901-3-formula/existing-v2",
+        "Run ID": "901",
+        "Run Attempt": 3,
+        Result: "fail",
+      },
+    },
+    {
+      fields: {
+        "Run Key": "901-3-formula/new-v2",
+        "Run ID": "901",
+        "Run Attempt": 3,
+        Result: "pass",
+      },
+    },
+  ],
+});
+assert.deepEqual(batchWriteResult, {
+  total: 2,
+  updated: [
+    {
+      runKey: "901-3-formula/existing-v2",
+      recordId: "rec-existing-batch",
+    },
+  ],
+  created: [
+    { runKey: "901-3-formula/new-v2", recordId: "rec-memory-3" },
+  ],
+});
+assert.equal(batchWriteAdapter.snapshot().length, 3);
+assert.equal(
+  batchWriteAdapter.snapshot().find(({ id }) => id === "rec-existing-batch")
+    .fields.Result,
+  "fail",
+);
+assert.equal(
+  batchWriteAdapter.snapshot().find(({ id }) => id === "rec-other-run").fields
+    .Result,
+  "pass",
+);
+await assert.rejects(
+  batchWriteModule.upsertResults({
+    runId: "901",
+    runAttempt: 3,
+    records: [
+      {
+        fields: {
+          "Run Key": "duplicate",
+          "Run ID": "901",
+          "Run Attempt": 3,
+        },
+      },
+      {
+        fields: {
+          "Run Key": "duplicate",
+          "Run ID": "901",
+          "Run Attempt": 3,
+        },
+      },
+    ],
+  }),
+  /Duplicate desired Run Key: duplicate/,
+);
+
 const updateRequests = [];
 const updateTrack = createPerformanceTrackRecordModule(
   createTeablePerformanceTrackAdapter({
@@ -612,6 +739,90 @@ assert.deepEqual(createRequests[1], {
     ],
   },
 });
+
+const batchRequests = [];
+const batchTrack = createPerformanceTrackRecordModule(
+  createTeablePerformanceTrackAdapter({
+    tableId: "tbl-performance-track",
+    request: async (request) => {
+      batchRequests.push(request);
+      if (request.method === "GET") {
+        return {
+          records: [
+            {
+              id: "rec-batch-existing",
+              fields: { "Run Key": "902-1-case-existing-v2" },
+            },
+          ],
+        };
+      }
+      if (request.method === "PATCH") {
+        return {};
+      }
+      if (request.method === "POST") {
+        return {
+          records: request.body.records.map((_, index) => ({
+            id: `rec-batch-created-${index + 1}`,
+          })),
+        };
+      }
+      throw new Error(`Unexpected request ${request.method} ${request.path}`);
+    },
+  }),
+);
+assert.deepEqual(
+  await batchTrack.upsertResults({
+    runId: "902",
+    runAttempt: 1,
+    records: [
+      {
+        fields: {
+          "Run Key": "902-1-case-existing-v2",
+          "Run ID": "902",
+          "Run Attempt": 1,
+          Result: "fail",
+        },
+      },
+      {
+        fields: {
+          "Run Key": "902-1-case-new-v2",
+          "Run ID": "902",
+          "Run Attempt": 1,
+          Result: "pass",
+        },
+      },
+    ],
+  }),
+  {
+    total: 2,
+    updated: [
+      {
+        runKey: "902-1-case-existing-v2",
+        recordId: "rec-batch-existing",
+      },
+    ],
+    created: [
+      { runKey: "902-1-case-new-v2", recordId: "rec-batch-created-1" },
+    ],
+  },
+);
+assert.deepEqual(
+  batchRequests.map(({ method }) => method),
+  ["GET", "PATCH", "POST"],
+);
+const batchQuery = new URL(batchRequests[0].path, "https://teable.example");
+assert.equal(batchQuery.searchParams.get("take"), "1000");
+assert.equal(batchQuery.searchParams.get("skip"), "0");
+assert.equal(batchQuery.searchParams.get("projection"), "Run Key");
+assert.deepEqual(JSON.parse(batchQuery.searchParams.get("filter")), {
+  conjunction: "and",
+  filterSet: [
+    { fieldId: "Run ID", operator: "is", value: "902" },
+    { fieldId: "Run Attempt", operator: "is", value: 1 },
+  ],
+});
+assert.equal(batchRequests[1].body.records.length, 1);
+assert.equal(batchRequests[2].body.records.length, 1);
 
 const baselineAdapter = createInMemoryPerformanceTrackAdapter({
   records: [

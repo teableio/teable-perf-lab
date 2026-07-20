@@ -42,6 +42,55 @@ const REQUIRED_FIELD_NAMES = [
 ];
 
 const RUN_KEY_FIELD_ID = "fldBtUJjGxgsPWsqLua";
+const PERFORMANCE_TRACK_READ_PAGE_SIZE = 1_000;
+
+export const DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES = 512 * 1024;
+
+const PERFORMANCE_TRACK_WRITE_EMPTY_BODY_BYTES = Buffer.byteLength(
+  JSON.stringify({ fieldKeyType: "name", typecast: true, records: [] }),
+);
+
+export const chunkPerformanceTrackWriteRecords = (
+  records,
+  maxBytes = DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
+) => {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error(`Invalid Performance Track write byte limit: ${maxBytes}`);
+  }
+
+  const batches = [];
+  let batch = [];
+  let batchBytes = PERFORMANCE_TRACK_WRITE_EMPTY_BODY_BYTES;
+
+  for (const [index, record] of records.entries()) {
+    const recordBytes = Buffer.byteLength(JSON.stringify(record));
+    let nextBytes = batchBytes + recordBytes + (batch.length > 0 ? 1 : 0);
+
+    if (batch.length > 0 && nextBytes > maxBytes) {
+      batches.push(batch);
+      batch = [];
+      batchBytes = PERFORMANCE_TRACK_WRITE_EMPTY_BODY_BYTES;
+      nextBytes = batchBytes + recordBytes;
+    }
+
+    if (nextBytes > maxBytes) {
+      const recordLabel =
+        record.fields?.["Run Key"] ?? record.id ?? `at index ${index}`;
+      throw new Error(
+        `Performance Track write record ${recordLabel} exceeds ${maxBytes} bytes`,
+      );
+    }
+
+    batch.push(record);
+    batchBytes = nextBytes;
+  }
+
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+
+  return batches;
+};
 
 const compactFields = (fields) =>
   Object.fromEntries(
@@ -117,7 +166,7 @@ export const buildPerformanceTrackResultRecord = ({
     fields: compactFields({
       "Run Key": runKey,
       "Run ID": stringOrUndefined(runId),
-      "Run Attempt": numberOrUndefined(context.runAttempt),
+      "Run Attempt": numberOrUndefined(runAttempt),
       "Job ID": stringOrUndefined(context.jobId),
       Workflow: stringOrUndefined(context.workflow),
       "Teable EE Ref": stringOrUndefined(context.teableEeRef),
@@ -154,16 +203,23 @@ export const buildPerformanceTrackResultRecord = ({
   };
 };
 
-export const createTeablePerformanceTrackAdapter = ({ request, tableId }) => ({
+export const createTeablePerformanceTrackAdapter = ({
+  request,
+  tableId,
+  maxWriteBytes = DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
+}) => ({
   async listFields() {
     return request({ method: "GET", path: `/table/${tableId}/field` });
   },
-  async findRecords({ filter, take, projection, orderBy }) {
+  async findRecords({ filter, take, skip, projection, orderBy }) {
     const params = new URLSearchParams({
       fieldKeyType: "name",
       take: String(take),
       filter: JSON.stringify(filter),
     });
+    if (skip != null) {
+      params.set("skip", String(skip));
+    }
     if (projection) {
       params.set("projection", projection);
     }
@@ -177,19 +233,37 @@ export const createTeablePerformanceTrackAdapter = ({ request, tableId }) => ({
     return data?.records ?? [];
   },
   async updateRecords(records) {
-    await request({
-      method: "PATCH",
-      path: `/table/${tableId}/record`,
-      body: { fieldKeyType: "name", typecast: true, records },
-    });
+    for (const batch of chunkPerformanceTrackWriteRecords(
+      records,
+      maxWriteBytes,
+    )) {
+      await request({
+        method: "PATCH",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+    }
   },
   async createRecords(records) {
-    const data = await request({
-      method: "POST",
-      path: `/table/${tableId}/record`,
-      body: { fieldKeyType: "name", typecast: true, records },
-    });
-    return data?.records ?? [];
+    const createdRecords = [];
+    for (const batch of chunkPerformanceTrackWriteRecords(
+      records,
+      maxWriteBytes,
+    )) {
+      const data = await request({
+        method: "POST",
+        path: `/table/${tableId}/record`,
+        body: { fieldKeyType: "name", typecast: true, records: batch },
+      });
+      const createdBatch = data?.records ?? [];
+      if (createdBatch.length !== batch.length) {
+        throw new Error(
+          `Teable created ${createdBatch.length} Performance Track records; expected ${batch.length}`,
+        );
+      }
+      createdRecords.push(...createdBatch);
+    }
+    return createdRecords;
   },
 });
 
@@ -208,7 +282,7 @@ export const createInMemoryPerformanceTrackAdapter = ({
     async listFields() {
       return fields;
     },
-    async findRecords({ filter, take, orderBy }) {
+    async findRecords({ filter, take, skip = 0, orderBy }) {
       let matches = storedRecords.filter((record) =>
         (filter?.filterSet ?? []).every(
           (condition) =>
@@ -226,7 +300,7 @@ export const createInMemoryPerformanceTrackAdapter = ({
           );
         });
       }
-      return matches.slice(0, take);
+      return matches.slice(skip, skip + take);
     },
     async updateRecords(updates) {
       for (const update of updates) {
@@ -258,6 +332,73 @@ export const createInMemoryPerformanceTrackAdapter = ({
   };
 };
 
+const requireRunKey = (fields) => {
+  const runKey = fields?.["Run Key"];
+  if (typeof runKey !== "string" || !runKey.trim()) {
+    throw new Error(
+      'Performance Track result requires a non-empty "Run Key" field',
+    );
+  }
+  return runKey;
+};
+
+const normalizeRunContext = ({ runId, runAttempt }) => {
+  const normalizedRunId = stringOrUndefined(runId);
+  const normalizedRunAttempt = numberOrUndefined(runAttempt);
+  if (!normalizedRunId || !Number.isFinite(normalizedRunAttempt)) {
+    throw new Error(
+      "Performance Track batch upsert requires Run ID and Run Attempt",
+    );
+  }
+  return { runId: normalizedRunId, runAttempt: normalizedRunAttempt };
+};
+
+const assertDesiredRunRecords = ({ records, runId, runAttempt }) => {
+  const seen = new Set();
+  for (const record of records) {
+    const runKey = requireRunKey(record.fields);
+    if (seen.has(runKey)) {
+      throw new Error(`Duplicate desired Run Key: ${runKey}`);
+    }
+    seen.add(runKey);
+
+    if (
+      String(record.fields?.["Run ID"] ?? "") !== runId ||
+      numberOrUndefined(record.fields?.["Run Attempt"]) !== runAttempt
+    ) {
+      throw new Error(
+        `Performance Track result ${runKey} does not match run ${runId} attempt ${runAttempt}`,
+      );
+    }
+  }
+};
+
+const listExistingRunRecords = async (adapter, { runId, runAttempt }) => {
+  const records = [];
+  for (
+    let skip = 0;
+    ;
+    skip += PERFORMANCE_TRACK_READ_PAGE_SIZE
+  ) {
+    const page = await adapter.findRecords({
+      take: PERFORMANCE_TRACK_READ_PAGE_SIZE,
+      skip,
+      projection: "Run Key",
+      filter: {
+        conjunction: "and",
+        filterSet: [
+          { fieldId: "Run ID", operator: "is", value: runId },
+          { fieldId: "Run Attempt", operator: "is", value: runAttempt },
+        ],
+      },
+    });
+    records.push(...page);
+    if (page.length < PERFORMANCE_TRACK_READ_PAGE_SIZE) {
+      return records;
+    }
+  }
+};
+
 export const createPerformanceTrackRecordModule = (adapter) => ({
   async assertContract() {
     const fields = await adapter.listFields();
@@ -269,12 +410,7 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
   },
 
   async upsertResult({ fields }) {
-    const runKey = fields?.["Run Key"];
-    if (typeof runKey !== "string" || !runKey.trim()) {
-      throw new Error(
-        'Performance Track result requires a non-empty "Run Key" field',
-      );
-    }
+    const runKey = requireRunKey(fields);
     const records = await adapter.findRecords({
       take: 1,
       projection: "Run Key",
@@ -300,6 +436,54 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
 
     const [created] = await adapter.createRecords([{ fields }]);
     return { action: "created", recordId: created?.id };
+  },
+
+  async upsertResults({ records, runId, runAttempt }) {
+    const runContext = normalizeRunContext({ runId, runAttempt });
+    assertDesiredRunRecords({ records, ...runContext });
+    if (records.length === 0) {
+      return { total: 0, created: [], updated: [] };
+    }
+
+    const existingRecords = await listExistingRunRecords(adapter, runContext);
+    const existingByRunKey = new Map();
+    for (const existing of existingRecords) {
+      const runKey = requireRunKey(existing.fields);
+      if (existingByRunKey.has(runKey)) {
+        throw new Error(`Duplicate existing Run Key: ${runKey}`);
+      }
+      existingByRunKey.set(runKey, existing);
+    }
+
+    const creates = [];
+    const updates = [];
+    for (const record of records) {
+      const runKey = record.fields["Run Key"];
+      const existing = existingByRunKey.get(runKey);
+      if (existing?.id) {
+        updates.push({ id: existing.id, fields: record.fields });
+      } else {
+        creates.push({ fields: record.fields });
+      }
+    }
+
+    if (updates.length > 0) {
+      await adapter.updateRecords(updates);
+    }
+    const createdRecords =
+      creates.length > 0 ? await adapter.createRecords(creates) : [];
+
+    return {
+      total: records.length,
+      updated: updates.map((record) => ({
+        runKey: record.fields["Run Key"],
+        recordId: record.id,
+      })),
+      created: creates.map((record, index) => ({
+        runKey: record.fields["Run Key"],
+        recordId: createdRecords[index]?.id,
+      })),
+    };
   },
 
   async comparisonBaselines({ payloads, currentRunId }) {
