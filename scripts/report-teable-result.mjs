@@ -11,6 +11,7 @@ import {
   buildPerformanceTrackResultRecord,
   createPerformanceTrackRecordModule,
   createTeablePerformanceTrackAdapter,
+  DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
 } from "./performance-track-record-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
@@ -38,6 +39,18 @@ const requiredEnv = (name) => {
   const value = env(name);
   if (!value) {
     throw new Error(`${name} is required`);
+  }
+  return value;
+};
+
+const reportWriteMaxBytes = () => {
+  const configured = env("PERF_LAB_REPORT_MAX_WRITE_BYTES");
+  if (!configured) {
+    return DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES;
+  }
+  const value = Number(configured);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Invalid PERF_LAB_REPORT_MAX_WRITE_BYTES: ${configured}`);
   }
   return value;
 };
@@ -115,32 +128,34 @@ const githubApi = async (path) => {
   return res.json();
 };
 
-const resolveArtifactUrl = async ({ artifactName, runUrl }) => {
+const loadArtifactUrlByName = async (runUrl) => {
   const repository = env("GITHUB_REPOSITORY");
   const runId = env("GITHUB_RUN_ID");
-  if (!repository || !runId || !artifactName) {
-    return runUrl;
+  if (!repository || !runId) {
+    return new Map();
   }
 
   try {
     const data = await githubApi(
       `/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`,
     );
-    const artifact = data?.artifacts?.find(
-      (item) => item.name === artifactName,
+    return new Map(
+      (data?.artifacts ?? []).map((artifact) => [
+        artifact.name,
+        artifact.id
+          ? `https://github.com/${repository}/actions/runs/${runId}/artifacts/${artifact.id}`
+          : runUrl,
+      ]),
     );
-    if (artifact?.id) {
-      return `https://github.com/${repository}/actions/runs/${runId}/artifacts/${artifact.id}`;
-    }
   } catch (error) {
     console.warn(
-      `Could not resolve artifact id for ${artifactName}: ${
+      `Could not resolve artifact ids for run ${runId}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
 
-  return runUrl;
+  return new Map();
 };
 
 const teableRequest = async ({ endpoint, token, method, path, body }) => {
@@ -184,6 +199,7 @@ const buildReportFields = async ({
   traceManifest,
   summaryMarkdown,
   artifactName,
+  artifactUrlByName,
 }) => {
   const runId = env("GITHUB_RUN_ID");
   const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
@@ -206,10 +222,7 @@ const buildReportFields = async ({
       runId || payload.runId,
       env("GITHUB_RUN_ATTEMPT") || "0",
     ].join("-");
-  const artifactUrl = await resolveArtifactUrl({
-    artifactName: resolvedArtifactName,
-    runUrl,
-  });
+  const artifactUrl = artifactUrlByName.get(resolvedArtifactName) || runUrl;
   const traceUrl = resolvePrimaryTraceUrl({
     payload,
     traceManifest,
@@ -248,6 +261,7 @@ const main = async () => {
   const baseId = env("TEABLE_PERF_LAB_BASE_ID", DEFAULT_BASE_ID);
   const tableId = env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE_ID);
   const artifactDir = requiredEnv("PERF_LAB_ARTIFACT_DIR");
+  const maxWriteBytes = reportWriteMaxBytes();
   const payloads = await readArtifactPayloads({
     artifactDir,
     fallbackCaseId: env("PERF_LAB_CASE_ID"),
@@ -255,11 +269,15 @@ const main = async () => {
     buildMissingPayload,
   });
 
+  const requestCounts = { GET: 0, PATCH: 0, POST: 0 };
   const performanceTrack = createPerformanceTrackRecordModule(
     createTeablePerformanceTrackAdapter({
       tableId,
-      request: ({ method, path, body }) =>
-        teableRequest({ endpoint, token, method, path, body }),
+      maxWriteBytes,
+      request: ({ method, path, body }) => {
+        requestCounts[method] = (requestCounts[method] ?? 0) + 1;
+        return teableRequest({ endpoint, token, method, path, body });
+      },
     }),
   );
   await performanceTrack.assertContract();
@@ -275,36 +293,50 @@ const main = async () => {
     return;
   }
 
-  for (const { payload, payloadPath, artifactName } of reportPayloads) {
-    const caseId = payload.caseId;
-    const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
-    const summaryMarkdown =
-      (await readTextFileIfExists(
-        join(dirname(payloadPath), summaryMarkdownName(caseId, engine)),
-      )) || (await readTextFileIfExists(join(artifactDir, "summary.md")));
-    const traceManifestPath =
-      payload.details?.observability?.traces?.manifestPath;
-    const traceManifest = traceManifestPath
-      ? await readJsonFileIfExists(
-          join(dirname(payloadPath), traceManifestPath),
-        )
-      : undefined;
+  const prepareStartedAt = Date.now();
+  const artifactUrlByName = await loadArtifactUrlByName(buildRunUrl());
+  const reportRecords = await Promise.all(
+    reportPayloads.map(async ({ payload, payloadPath, artifactName }) => {
+      const caseId = payload.caseId;
+      const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
+      const summaryMarkdown =
+        (await readTextFileIfExists(
+          join(dirname(payloadPath), summaryMarkdownName(caseId, engine)),
+        )) || (await readTextFileIfExists(join(artifactDir, "summary.md")));
+      const traceManifestPath =
+        payload.details?.observability?.traces?.manifestPath;
+      const traceManifest = traceManifestPath
+        ? await readJsonFileIfExists(
+            join(dirname(payloadPath), traceManifestPath),
+          )
+        : undefined;
 
-    const { runKey, fields } = await buildReportFields({
-      caseId,
-      payload,
-      traceManifest,
-      summaryMarkdown,
-      artifactName: env("PERF_LAB_ARTIFACT_NAME") || artifactName,
-    });
+      return buildReportFields({
+        caseId,
+        payload,
+        traceManifest,
+        summaryMarkdown,
+        artifactName: env("PERF_LAB_ARTIFACT_NAME") || artifactName,
+        artifactUrlByName,
+      });
+    }),
+  );
+  const prepareMs = Date.now() - prepareStartedAt;
 
-    const result = await performanceTrack.upsertResult({ fields });
+  const writeStartedAt = Date.now();
+  const result = await performanceTrack.upsertResults({
+    records: reportRecords.map(({ fields }) => ({ fields })),
+    runId: env("GITHUB_RUN_ID") || reportPayloads[0]?.payload.runId,
+    runAttempt: env("GITHUB_RUN_ATTEMPT") || "0",
+  });
+  const writeMs = Date.now() - writeStartedAt;
 
-    console.log(
-      `Teable perf report ${result.action}: ${result.recordId ?? "(unknown record id)"}`,
-    );
-    console.log(`Base: ${baseId}, table: ${tableId}, run key: ${runKey}`);
-  }
+  console.log(
+    `Teable perf report complete: ${result.total} results (${result.created.length} created, ${result.updated.length} updated)`,
+  );
+  console.log(
+    `Base: ${baseId}, table: ${tableId}, prepareMs: ${prepareMs}, writeMs: ${writeMs}, requests: GET=${requestCounts.GET}, PATCH=${requestCounts.PATCH}, POST=${requestCounts.POST}`,
+  );
 };
 
 main().catch((error) => {
