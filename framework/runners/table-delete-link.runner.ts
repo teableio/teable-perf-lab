@@ -13,10 +13,10 @@ import {
   archiveTable,
   assertTableNotListed,
   buildTableLifecycleSampleResult,
-  findTableTrashId,
   formatTableLifecycleSample,
   restoreTableTrash,
   type TableTrashLookup,
+  waitForTableTrashId,
 } from "./table-lifecycle.shared";
 import { runTableLinkSamplesLifecycle } from "./table-link-lifecycle";
 import {
@@ -138,7 +138,7 @@ export const runTableDeleteLinkCase = async (
               baseId,
               sample.fixture.link.foreignTableId,
             );
-            const trashLookup = await findTableTrashId(
+            const trashLookup = await waitForTableTrashId(
               baseId,
               sample.fixture.link.foreignTableId,
             );

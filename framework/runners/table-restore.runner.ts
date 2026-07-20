@@ -18,7 +18,6 @@ import {
   assertSampleTextValues,
   assertTableNotListed,
   buildTableLifecycleSampleResult,
-  findTableTrashId,
   formatTableLifecycleSample,
   restoreTableTrash,
   seedTableLifecycleCase,
@@ -27,6 +26,7 @@ import {
   type TableLifecycleSampleVerification,
   type TableLifecycleVerifySample,
   type TableTrashLookup,
+  waitForTableTrashId,
 } from "./table-lifecycle.shared";
 
 type RestoreSetupSample = TableLifecycleVerifySample & {
@@ -111,7 +111,7 @@ export const runTableRestoreCase = async (
               baseId,
               sample.fixture.tableId,
             );
-            const trashLookup = await findTableTrashId(
+            const trashLookup = await waitForTableTrashId(
               baseId,
               sample.fixture.tableId,
             );

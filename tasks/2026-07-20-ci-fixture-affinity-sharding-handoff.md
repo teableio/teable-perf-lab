@@ -15,6 +15,7 @@ runner `seedHash` must remain an indivisible bundle.
 - `bf3bb4d ci: shard full perf runs four ways`
 - `20ba365 fix: isolate sharded perf cases`
 - `f4c665d ci: shard seed fixtures by affinity`
+- `5edbdf3 ci: adapt shard count to fixture cost`
 
 The first two commits produced a successful execute-sharded full run:
 
@@ -34,18 +35,25 @@ passed `pnpm check` before push.
 Actions run: <https://github.com/teableio/teable-perf-lab/actions/runs/29738811090>
 
 This run uses `f4c665d`, so it tests the committed four-shard implementation,
-not the adaptive seven-shard work below. Status captured at 2026-07-20 12:06
-UTC:
+not the adaptive seven-shard work below. Final state:
 
-- Report job was still running; the workflow had not completed.
+- Report job succeeded, but the workflow failed because two execute shards
+  failed.
 - Cold seed shard wall times were 11m27s, 12m45s, 16m03s, and 17m53s.
 - The old unsharded cold seed baseline was 64m07s in run `29725955367`.
 - `v2-hybrid-computed-shard-4-of-4` failed because
   `lookup/dual-link-computed-repoint-2k` recorded
-  `lookupPropagationMs=120399.26ms` against a 40,000ms threshold. The preceding
-  successful full run recorded about 15.0s, and the case is first in its shard,
-  so no threshold change has been made.
-- `v1-shard-2-of-4` also concluded failure. Its error has not been inspected.
+  `lookupPropagationMs=120399.26ms` against a 40,000ms threshold. The job log
+  shows a computed activity projector deadlock followed by
+  `computed:outbox:release_retry_failed`; the task resumed only after a
+  120-second lease takeover and then converged. This is not the already-filed
+  stale-writeback issue, where outbox drains but old computed values remain.
+  The case remains enabled and no threshold change has been made.
+- `v1-shard-2-of-4` failed only
+  `table-restore/10k-20f-link-1k`: the table had disappeared from the live
+  table list but its trash item was not yet visible. The lifecycle runners now
+  poll trash visibility for up to 10 seconds, matching the existing field
+  restore readiness pattern.
 - All other execute shards completed successfully.
 
 Do not treat this run as accepted until both failures are inspected and a
@@ -73,7 +81,7 @@ Historical execute projection showed diminishing returns at eight shards:
 - 7 shards: about 11.1m.
 - 8 shards: about 11.0m.
 
-## Uncommitted adaptive design included with this handoff commit
+## Committed adaptive design
 
 The working change removes the fixed four-shard count:
 
@@ -92,19 +100,16 @@ The generated current plan has these case counts:
 - V2 sync: 38, 23, 44, 17, 35, 37, 45;
 - V2 hybrid: 2, 2, 3, 2, 3, 3, 2.
 
-`pnpm check:run-plan` passes. A complete `pnpm check` has **not** been run after
-the adaptive seven-shard edits.
+`pnpm check` passes with the adaptive seven-shard design and the table trash
+readiness fix.
 
 ## Resume checklist
 
-1. Read the final state of Actions run `29738811090` and inspect the
-   `v1-shard-2-of-4` failure before changing code or thresholds.
-2. Review the calibrated outlier map and weighted packing in
+1. Review the calibrated outlier map and weighted packing in
    `scripts/full-run-shard-model.mjs`.
-3. Run `pnpm check`.
-4. Push the handoff commit only if it is not already on the remote.
-5. Trigger a full Actions run for the adaptive plan. Its new `shard-N-of-7`
+2. Push the adaptive commit and table trash readiness fix.
+3. Trigger a full Actions run for the adaptive plan. Its new `shard-N-of-7`
    cache keys make the first run a real cold-seed validation.
-6. Accept only after result coverage, thresholds, report, and trace manifests
+4. Accept only after result coverage, thresholds, report, and trace manifests
    are verified. Compare longest seed/execute stage and total wall time against
    both `29738811090` and `29734699142`.

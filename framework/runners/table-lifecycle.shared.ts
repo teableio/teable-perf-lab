@@ -3,6 +3,7 @@ import { axios, getTableList, getTrashItems, TrashType } from "@teable/openapi";
 import { getRecords } from "../../../utils/init-app";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
 import { measureAsync, summarizeDurations, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import {
   assertEngineRouting,
   getRoutingResponseHeader,
@@ -252,6 +253,19 @@ export const findTableTrashId = async (
     `Trash item for table ${tableId} not found in base ${baseId} trash`,
   );
 };
+
+export const waitForTableTrashId = (
+  baseId: string,
+  tableId: string,
+): Promise<TableTrashLookup> =>
+  pollUntilReady(
+    {
+      timeoutMs: 10_000,
+      pollIntervalMs: 200,
+      description: `trash item for table ${tableId}`,
+    },
+    () => findTableTrashId(baseId, tableId),
+  );
 
 export const buildTableLifecycleRouting = (
   responseHeaders: TableLifecycleRoutingHeaders | undefined,
