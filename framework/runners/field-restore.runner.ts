@@ -14,6 +14,7 @@ import {
 } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import {
   assertEngineRouting,
@@ -204,7 +205,14 @@ const deleteFieldForRestoreSetup = async (
   expect(deleteResponse.status).toBe(200);
 
   await assertFieldDeleted(fixture.tableId, field.id);
-  const trashLookup = await findFieldTrashId(fixture.tableId, field.id);
+  const trashLookup = await pollUntilReady(
+    {
+      timeoutMs: 10_000,
+      pollIntervalMs: 200,
+      description: `trash item for field ${field.id}`,
+    },
+    () => findFieldTrashId(fixture.tableId, field.id),
+  );
   const responseHeaders = pickResponseHeaders(
     deleteResponse.headers as Record<string, unknown>,
   );

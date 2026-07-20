@@ -107,10 +107,11 @@ const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
     0,
     ...perfCases
       .filter((perfCase) => perfCase.runner === "record-paste")
-      .map(
-        (perfCase) =>
-          (perfCase.config as RecordPasteCaseConfig).maxPasteCells ?? 0,
-      ),
+      .map((perfCase) => {
+        const config = perfCase.config as RecordPasteCaseConfig;
+        const payloadCells = config.rowCount * config.fields.length;
+        return Math.max(config.maxPasteCells ?? 0, payloadCells);
+      }),
   );
 
   if (requiredMaxPasteCells <= 0) {
