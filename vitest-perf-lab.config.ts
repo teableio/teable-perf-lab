@@ -4,6 +4,9 @@ import { configDefaults, defineConfig } from "vitest/config";
 import { overridePathResolvePlugin } from "./vitest-override-plugin";
 
 process.env.TZ = "UTC";
+// The perf suite runs one serial spec against the workflow-managed database.
+// Unlike the general e2e suite, it does not provision per-worker database clones.
+process.env.E2E_WORKER_DB = "0";
 
 const timeout = process.env.CI ? 60000 : 10000;
 const perfLabSpec =
