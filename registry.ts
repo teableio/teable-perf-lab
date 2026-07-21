@@ -237,15 +237,23 @@ import recordDuplicateSingle50SingleLineText10FieldsCase from "./cases/record-du
 import recordDuplicateSingle50SingleSelect10FieldsCase from "./cases/record-duplicate/single-50-single-select-10fields.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordDuplicateSingle500Checkbox10FieldsCase from "./cases/record-duplicate/single-500-checkbox-10fields.case";
+import recordDuplicateSingle500Checkbox100FieldsCase from "./cases/record-duplicate/single-500-checkbox-100fields.case";
 import recordDuplicateSingle500Date10FieldsCase from "./cases/record-duplicate/single-500-date-10fields.case";
+import recordDuplicateSingle500Date100FieldsCase from "./cases/record-duplicate/single-500-date-100fields.case";
 import recordDuplicateSingle500LongText10FieldsCase from "./cases/record-duplicate/single-500-long-text-10fields.case";
+import recordDuplicateSingle500LongText100FieldsCase from "./cases/record-duplicate/single-500-long-text-100fields.case";
 import recordDuplicateSingle500Mixed20FieldsCase from "./cases/record-duplicate/single-500-mixed-20fields.case";
 import recordDuplicateSingle500MultipleSelect10FieldsCase from "./cases/record-duplicate/single-500-multiple-select-10fields.case";
+import recordDuplicateSingle500MultipleSelect100FieldsCase from "./cases/record-duplicate/single-500-multiple-select-100fields.case";
 import recordDuplicateSingle500Number10FieldsCase from "./cases/record-duplicate/single-500-number-10fields.case";
+import recordDuplicateSingle500Number100FieldsCase from "./cases/record-duplicate/single-500-number-100fields.case";
 import recordDuplicateSingle500PrimaryOnlyCase from "./cases/record-duplicate/single-500-primary-only.case";
 import recordDuplicateSingle500Rating10FieldsCase from "./cases/record-duplicate/single-500-rating-10fields.case";
+import recordDuplicateSingle500Rating100FieldsCase from "./cases/record-duplicate/single-500-rating-100fields.case";
 import recordDuplicateSingle500SingleLineText10FieldsCase from "./cases/record-duplicate/single-500-single-line-text-10fields.case";
+import recordDuplicateSingle500SingleLineText100FieldsCase from "./cases/record-duplicate/single-500-single-line-text-100fields.case";
 import recordDuplicateSingle500SingleSelect10FieldsCase from "./cases/record-duplicate/single-500-single-select-10fields.case";
+import recordDuplicateSingle500SingleSelect100FieldsCase from "./cases/record-duplicate/single-500-single-select-100fields.case";
 import recordDuplicateSingleRecordSequential1000Case from "./cases/record-duplicate/single-record-sequential-1000.case";
 import recordRead10k50Fields10x1kPagesCase from "./cases/record-read/10k-50fields-10x1k-pages.case";
 import recordRead10k50FieldsFilterTextNotEmptyCase from "./cases/record-read/10k-50fields-filter-text-not-empty.case";
@@ -628,6 +636,14 @@ const cases = [
   recordDuplicateSingle500MultipleSelect10FieldsCase,
   recordDuplicateSingle500Rating10FieldsCase,
   recordDuplicateSingle500Mixed20FieldsCase,
+  recordDuplicateSingle500SingleLineText100FieldsCase,
+  recordDuplicateSingle500LongText100FieldsCase,
+  recordDuplicateSingle500Number100FieldsCase,
+  recordDuplicateSingle500Date100FieldsCase,
+  recordDuplicateSingle500Checkbox100FieldsCase,
+  recordDuplicateSingle500SingleSelect100FieldsCase,
+  recordDuplicateSingle500MultipleSelect100FieldsCase,
+  recordDuplicateSingle500Rating100FieldsCase,
   recordUpdateMixed1k20FieldsBulkUpdateCase,
   recordUpdate1kSingleLineTextFieldsBulkUpdateCase,
   recordUpdate1kLongTextFieldsBulkUpdateCase,

@@ -1018,6 +1018,32 @@ workload.
   deterministic 1,000-row, 20-field mixed table. The primary metric remains
   per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate
   loop cost. V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-single-line-text-100fields`: Scale-up of
+  `single-500-single-line-text-10fields`: duplicate 500 source records
+  sequentially while increasing each record from 10 to 100 single-line text
+  fields.
+- `record-duplicate/single-500-long-text-100fields`: Scale-up of
+  `single-500-long-text-10fields`: duplicate 500 source records sequentially
+  while increasing each record from 10 to 100 long-text fields.
+- `record-duplicate/single-500-number-100fields`: Scale-up of
+  `single-500-number-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 number fields.
+- `record-duplicate/single-500-date-100fields`: Scale-up of
+  `single-500-date-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 date fields.
+- `record-duplicate/single-500-checkbox-100fields`: Scale-up of
+  `single-500-checkbox-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 checkbox fields.
+- `record-duplicate/single-500-single-select-100fields`: Scale-up of
+  `single-500-single-select-10fields`: duplicate 500 source records sequentially
+  while increasing each record from 10 to 100 single-select fields.
+- `record-duplicate/single-500-multiple-select-100fields`: Scale-up of
+  `single-500-multiple-select-10fields`: duplicate 500 source records
+  sequentially while increasing each record from 10 to 100 multiple-select
+  fields.
+- `record-duplicate/single-500-rating-100fields`: Scale-up of
+  `single-500-rating-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 rating fields.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
