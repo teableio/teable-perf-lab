@@ -16,6 +16,16 @@ const requireReplayField = (
 };
 
 const titleField = requireReplayField("Title");
+const scalarMatrixFieldNames = [
+  "Owner Text",
+  "Description",
+  "Amount",
+  "Start Date",
+  "Active",
+  "Status",
+  "Tags",
+  "Score",
+];
 
 export const scalarFieldDuplicateConfig = (
   fieldName: string,
@@ -35,6 +45,35 @@ export const scalarFieldDuplicateConfig = (
   },
   verify: {
     sampleRows: [0, 4_999, 9_999],
+    fullScanPageSize: 1_000,
+  },
+  duplicate: {
+    sourceFieldName: fieldName,
+    name: `${fieldName} Copy`,
+  },
+});
+
+export const scalarFieldDuplicate50kConfig = (
+  fieldName: string,
+): Omit<ScalarFieldDuplicateCaseConfig, "threshold"> => ({
+  mode: "scalar",
+  baseId: "seed-base",
+  tableNamePrefix: "perf-field-duplicate-scalar-50k",
+  seedIdentity: "scalar-matrix-50k",
+  rowCount: 50_000,
+  batchSize: 1_000,
+  fields: [
+    titleField,
+    ...scalarMatrixFieldNames.map((name) => requireReplayField(name)),
+  ],
+  generator: {
+    type: "mixed-undo-redo",
+    titlePrefix: "Item",
+    payloadPrefix: "Field duplicate",
+    source: "perf-lab-field-duplicate-scalar-50k",
+  },
+  verify: {
+    sampleRows: [0, 24_999, 49_999],
     fullScanPageSize: 1_000,
   },
   duplicate: {

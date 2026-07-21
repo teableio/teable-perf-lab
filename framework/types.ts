@@ -829,6 +829,9 @@ export type ComputedFieldDuplicateCaseConfig =
 export interface ScalarFieldDuplicateCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   mode: "scalar";
+  // Cases with an identical stored-field fixture may share one reusable seed;
+  // the selected source/copy field remains execute-only.
+  seedIdentity?: string;
   duplicate: {
     sourceFieldName: string;
     name: string;
@@ -842,6 +845,7 @@ export interface ScalarFieldDuplicateCaseConfig
 export interface StructuredFieldDuplicateCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   mode: "structured";
+  seedIdentity?: string;
   duplicate: {
     sourceFieldName: string;
     name: string;
