@@ -34,3 +34,12 @@ export const scalarFieldCreateBase = {
   FieldCreateCaseConfig,
   "tableNamePrefix" | "field" | "fields" | "ready" | "threshold"
 >;
+
+export const scalarFieldCreate50kBase = {
+  ...scalarFieldCreateBase,
+  seedIdentity: "scalar-title-only-50k",
+  rowCount: 50_000,
+} satisfies Omit<
+  FieldCreateCaseConfig,
+  "tableNamePrefix" | "field" | "fields" | "ready" | "threshold"
+>;

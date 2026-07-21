@@ -1,0 +1,21 @@
+import { definePerfCase } from "../../framework/types";
+import {
+  scalarFieldCreate50kBase,
+  scalarFieldCreateTraceRuntimeEnv,
+} from "../field-create.shared";
+import { scalarFieldAddMatrix } from "../scalar-field-matrix.shared";
+
+export default definePerfCase({
+  id: "field-create/50k-create-20-single-line-text-fields",
+  title: "Create 20 single-line text fields on a 50k-record table",
+  runner: "field-create",
+  timeoutMs: 900_000,
+  watchdogMs: 300_000,
+  runtimeEnv: scalarFieldCreateTraceRuntimeEnv(20),
+  config: {
+    ...scalarFieldCreate50kBase,
+    tableNamePrefix: "perf-field-create-50k-20-single-line-text",
+    fields: scalarFieldAddMatrix.singleLineText20,
+    threshold: { metric: "createScalarFieldsMs", maxMs: 180_000 },
+  },
+});
