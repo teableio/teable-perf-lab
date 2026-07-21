@@ -87,3 +87,18 @@ three verified samples, and 500 matched route checks. Local tracing was disabled
 both artifacts report zero failed or missing trace fetches. The 10-field values
 come from run `29815167099`; the 100-field values come from Batch 08's completed
 local run. The observed ratios are evidence only and do not retune the workload.
+
+## CI evidence
+
+Corrected run `29849361612` passed both engines:
+
+| Engine |       p95 | Total for 500 requests | Selected/saved traces |
+| ------ | --------: | ---------------------: | --------------------: |
+| V1     | 338.55 ms |          132,290.98 ms |                 3 / 3 |
+| V2     | 242.44 ms |          106,229.26 ms |                 3 / 3 |
+
+Both artifacts report the same 500 fields, 1,000 source rows, 500 duplicate
+requests, 500 checked duplicates, final 1,500-row count, three verified samples,
+and 500 matched route checks as local acceptance. Each captured 500 trace refs,
+selected requests 1/250/500, saved all three JSON snapshots, and reported zero
+failed or missing fetches.
