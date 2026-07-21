@@ -74,3 +74,22 @@ reported 5,000 affected records, and all three deterministic samples passed.
 Each result captured one trace reference. Local trace snapshot fetches were
 expectedly unavailable because no Jaeger or trace-link endpoint was configured;
 CI remains the trace-artifact acceptance environment.
+
+## CI Acceptance
+
+[Workflow run 29827505760](https://github.com/teableio/teable-perf-lab/actions/runs/29827505760)
+passed on both engines. All 18 result artifacts passed routing and deterministic
+sample verification, reported 5,000 affected records, and saved their measured
+trace without a fetch failure.
+
+| Case                    | V1 primary | V2 primary |
+| ----------------------- | ---------: | ---------: |
+| create date             |    1,659ms |    2,128ms |
+| create long text        |    2,514ms |    2,430ms |
+| create single-line text |    3,647ms |    2,980ms |
+| create single select    |    2,556ms |    2,006ms |
+| update date             |    2,375ms |    2,328ms |
+| update long text        |    2,469ms |    2,431ms |
+| update multiple select  |    2,485ms |    1,426ms |
+| update single-line text |    3,081ms |    2,786ms |
+| update single select    |    2,425ms |    1,775ms |
