@@ -1166,6 +1166,25 @@ workload.
   grid-pasting 1,000 records into a fixed-width ten-field table.
 - `record-paste/1k-mixed-20fields`: Measure a bounded 1,000-row grid paste
   across the established 20-field mixed scalar schema.
+- `record-paste/5k-single-line-text-10fields`: Scale the 1k single-line-text
+  paste baseline to one 5,000-row request while preserving its ten-field table
+  shape.
+- `record-paste/5k-long-text-10fields`: Scale the 1k long-text paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-number-10fields`: Scale the 1k number paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-date-10fields`: Scale the 1k date paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-checkbox-10fields`: Scale the 1k checkbox paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-single-select-10fields`: Scale the 1k single-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-multiple-select-10fields`: Scale the 1k multiple-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-rating-10fields`: Scale the 1k rating paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-mixed-20fields`: Scale the 1k mixed paste baseline to one
+  5,000-row request while preserving its 20-field stored-value mix.
 - `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
   for inserting 10,000 flat records into an empty 20-field table through
   `PATCH /api/table/{tableId}/selection/paste`.
