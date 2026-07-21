@@ -13,3 +13,11 @@ export const getStoredFieldDuplicateSeedIdentityCase = (
 
 export const getStoredFieldDuplicateSeedIdentity = (seedIdentity?: string) =>
   seedIdentity ? { seedIdentity } : undefined;
+
+export const shouldCleanupStoredFieldDuplicateFixture = ({
+  executeDbIsolated,
+  reusableSeed,
+}: {
+  executeDbIsolated: boolean;
+  reusableSeed: boolean;
+}) => reusableSeed || !executeDbIsolated;

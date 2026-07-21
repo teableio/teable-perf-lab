@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   getStoredFieldDuplicateSeedIdentity,
   getStoredFieldDuplicateSeedIdentityCase,
+  shouldCleanupStoredFieldDuplicateFixture,
 } from "./field-duplicate-stored-model.ts";
 
 test("stored field duplicate siblings can share one explicit seed identity", () => {
@@ -22,4 +23,28 @@ test("stored field duplicate siblings can share one explicit seed identity", () 
     seedIdentity,
   });
   assert.equal(getStoredFieldDuplicateSeedIdentity(), undefined);
+});
+
+test("isolated execute jobs still restore reusable sibling fixtures", () => {
+  assert.equal(
+    shouldCleanupStoredFieldDuplicateFixture({
+      executeDbIsolated: true,
+      reusableSeed: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldCleanupStoredFieldDuplicateFixture({
+      executeDbIsolated: true,
+      reusableSeed: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldCleanupStoredFieldDuplicateFixture({
+      executeDbIsolated: false,
+      reusableSeed: false,
+    }),
+    true,
+  );
 });

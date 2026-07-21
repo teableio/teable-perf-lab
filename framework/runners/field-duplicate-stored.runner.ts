@@ -42,6 +42,7 @@ import {
 import {
   getStoredFieldDuplicateSeedIdentity,
   getStoredFieldDuplicateSeedIdentityCase,
+  shouldCleanupStoredFieldDuplicateFixture,
 } from "./field-duplicate-stored-model";
 
 type NamedField = {
@@ -504,7 +505,13 @@ const storedFieldDuplicateSpec: FieldAddLifecycleSpec<
     });
   },
   cleanup: async ({ baseId, fixture, config }) => {
-    if (isExecuteDbIsolated() || !fixture?.tableId) {
+    if (
+      !fixture?.tableId ||
+      !shouldCleanupStoredFieldDuplicateFixture({
+        executeDbIsolated: isExecuteDbIsolated(),
+        reusableSeed: fixture.reusableSeed,
+      })
+    ) {
       return;
     }
     if (fixture.reusableSeed) {
