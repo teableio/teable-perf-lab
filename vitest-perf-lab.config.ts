@@ -35,7 +35,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    setupFiles: ["./vitest-e2e.setup.ts", "./vitest-e2e-init-app.setup.ts"],
+    setupFiles: [
+      "./vitest-e2e.setup.ts",
+      "../../community/apps/nestjs-backend/test/perf-lab/framework/perf-runtime-env.setup.ts",
+      "./vitest-e2e-init-app.setup.ts",
+    ],
     testTimeout: timeout,
     hookTimeout: timeout,
     passWithNoTests: false,

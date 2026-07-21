@@ -23,6 +23,7 @@ import {
 import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import { assertEngineRouting, assertStreamEngineRouting } from "../routing";
 import {
@@ -30,6 +31,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { queryPerfDb } from "../sql";
 import { perfStreamSse } from "../sse";
 import type {
   PerfCase,
@@ -109,6 +111,10 @@ type RestoreVerificationOptions = {
 export type RecordReplaySetupMeasurements = {
   deleteSetupMeasurement?: Measurement<unknown>;
   deleteSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
+  deleteReplayReadyMeasurement?: Measurement<{
+    signal: string;
+    recordCount: number;
+  }>;
   undoSetupMeasurement?: Measurement<unknown>;
   undoSetupVerifyMeasurement?: Measurement<RecordReplayVerification>;
 };
@@ -662,6 +668,50 @@ export const deleteAllRowsViaSelectionDelete = async (
       traceparent: headers.traceparent,
     },
   };
+};
+
+export const waitForDeleteReplayReady = async (
+  fixture: RecordReplayFixture,
+  context: Pick<PerfRunContext, "engine">,
+  deletedAfter: Date,
+  options: { timeoutMs?: number; pollIntervalMs?: number } = {},
+) => {
+  // V2 records the undo command synchronously in its own stack. V1 publishes
+  // the undo operation and trash snapshot asynchronously after the delete
+  // response, so a large selection can otherwise be "undone" before its
+  // snapshot exists. In that race V1 reports fulfilled but restores nothing.
+  if (context.engine !== "v1") {
+    return {
+      signal: "v2-undo-stack",
+      recordCount: fixture.seededRecords.length,
+    };
+  }
+
+  return pollUntilReady(
+    {
+      timeoutMs: options.timeoutMs ?? 120_000,
+      pollIntervalMs: options.pollIntervalMs ?? 250,
+      description: "V1 selection-delete replay snapshot",
+    },
+    async () => {
+      const rows = await queryPerfDb<{ recordCount: string }>(
+        `SELECT CAST(jsonb_array_length(snapshot::jsonb) AS text) AS "recordCount"
+           FROM table_trash
+          WHERE table_id = $1
+            AND created_time >= $2
+          ORDER BY created_time DESC
+          LIMIT 1`,
+        [fixture.tableId, deletedAfter],
+      );
+      const recordCount = Number(rows[0]?.recordCount ?? 0);
+      if (recordCount !== fixture.seededRecords.length) {
+        throw new Error(
+          `Expected replay snapshot for ${fixture.seededRecords.length} deleted records, got ${recordCount}`,
+        );
+      }
+      return { signal: "v1-table-trash", recordCount };
+    },
+  );
 };
 
 // Same user behavior ("delete the selected rows"), engine-specific endpoint:
@@ -1246,6 +1296,12 @@ export const buildRecordReplayResult = ({
               setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
           }
         : {}),
+      ...(setupMeasurements?.deleteReplayReadyMeasurement
+        ? {
+            deleteReplayReadyMs:
+              setupMeasurements.deleteReplayReadyMeasurement.durationMs,
+          }
+        : {}),
       ...(setupMeasurements?.undoSetupMeasurement
         ? {
             [undoSetupMetricKey!]:
@@ -1302,6 +1358,15 @@ export const buildRecordReplayResult = ({
               name: setupMeasurements.deleteSetupVerifyMeasurement.name,
               durationMs:
                 setupMeasurements.deleteSetupVerifyMeasurement.durationMs,
+            },
+          ]
+        : []),
+      ...(setupMeasurements?.deleteReplayReadyMeasurement
+        ? [
+            {
+              name: setupMeasurements.deleteReplayReadyMeasurement.name,
+              durationMs:
+                setupMeasurements.deleteReplayReadyMeasurement.durationMs,
             },
           ]
         : []),
@@ -1383,6 +1448,13 @@ export const buildRecordReplayResult = ({
               : {}),
             deleteSetupVerifyMs:
               setupMeasurements.deleteSetupVerifyMeasurement?.durationMs,
+            deleteReplayReady: setupMeasurements.deleteReplayReadyMeasurement
+              ? {
+                  durationMs:
+                    setupMeasurements.deleteReplayReadyMeasurement.durationMs,
+                  ...setupMeasurements.deleteReplayReadyMeasurement.result,
+                }
+              : undefined,
             ...(setupMeasurements.undoSetupMeasurement && undoSetupMetricKey
               ? {
                   [undoSetupMetricKey]:
