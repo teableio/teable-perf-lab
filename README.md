@@ -532,6 +532,22 @@ workload.
   multiple-select field and its 10,000 arrays.
 - `field-duplicate/10k-duplicate-score-field`: Measure duplicating one populated
   rating field and its 10,000 bounded values.
+- `field-duplicate/50k-duplicate-owner-text-field`: Scale populated
+  single-line-text field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-description-field`: Scale populated long-text
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-amount-field`: Scale populated number-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-start-date-field`: Scale populated date-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-active-field`: Scale populated checkbox-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-status-field`: Scale populated single-select
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-tags-field`: Scale populated multiple-select
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-score-field`: Scale populated rating-field
+  duplication from 10k to 50k rows.
 - `field-duplicate/10k-duplicate-assignee-field`: Measure duplicating one
   populated User field and its 10,000 structured values.
 - `field-duplicate/10k-duplicate-attachments-field`: Measure duplicating one

@@ -39,6 +39,10 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
+import {
+  getStoredFieldDuplicateSeedIdentity,
+  getStoredFieldDuplicateSeedIdentityCase,
+} from "./field-duplicate-stored-model";
 
 type NamedField = {
   id: string;
@@ -423,8 +427,12 @@ const storedFieldDuplicateSpec: FieldAddLifecycleSpec<
     const tableName = `${config.tableNamePrefix}-${seedMode ? "seed-" : ""}${Date.now()}`;
     const prepareMeasurement = await measureAsync("prepare", () =>
       prepareRecordReplayFixture(baseId, tableName, config, {
-        perfCase,
+        perfCase: getStoredFieldDuplicateSeedIdentityCase(
+          perfCase,
+          config.seedIdentity,
+        ),
         runner: "field-duplicate",
+        seedIdentity: getStoredFieldDuplicateSeedIdentity(config.seedIdentity),
         seedCodeFiles: [new URL(import.meta.url)],
         ...(config.mode === "structured"
           ? {

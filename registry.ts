@@ -132,6 +132,14 @@ import fieldDuplicate10kDuplicateActiveFieldCase from "./cases/field-duplicate/1
 import fieldDuplicate10kDuplicateStatusFieldCase from "./cases/field-duplicate/10k-duplicate-status-field.case";
 import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k-duplicate-tags-field.case";
 import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
+import fieldDuplicate50kDuplicateOwnerTextFieldCase from "./cases/field-duplicate/50k-duplicate-owner-text-field.case";
+import fieldDuplicate50kDuplicateDescriptionFieldCase from "./cases/field-duplicate/50k-duplicate-description-field.case";
+import fieldDuplicate50kDuplicateAmountFieldCase from "./cases/field-duplicate/50k-duplicate-amount-field.case";
+import fieldDuplicate50kDuplicateStartDateFieldCase from "./cases/field-duplicate/50k-duplicate-start-date-field.case";
+import fieldDuplicate50kDuplicateActiveFieldCase from "./cases/field-duplicate/50k-duplicate-active-field.case";
+import fieldDuplicate50kDuplicateStatusFieldCase from "./cases/field-duplicate/50k-duplicate-status-field.case";
+import fieldDuplicate50kDuplicateTagsFieldCase from "./cases/field-duplicate/50k-duplicate-tags-field.case";
+import fieldDuplicate50kDuplicateScoreFieldCase from "./cases/field-duplicate/50k-duplicate-score-field.case";
 import fieldDuplicate10kDuplicateAssigneeFieldCase from "./cases/field-duplicate/10k-duplicate-assignee-field.case";
 import fieldDuplicate10kDuplicateAttachmentsFieldCase from "./cases/field-duplicate/10k-duplicate-attachments-field.case";
 import fieldDuplicate10kDuplicateManyManyLinkFieldCase from "./cases/field-duplicate/10k-duplicate-many-many-link-field.case";
@@ -473,6 +481,14 @@ const cases = [
   fieldDuplicate10kDuplicateStatusFieldCase,
   fieldDuplicate10kDuplicateTagsFieldCase,
   fieldDuplicate10kDuplicateScoreFieldCase,
+  fieldDuplicate50kDuplicateOwnerTextFieldCase,
+  fieldDuplicate50kDuplicateDescriptionFieldCase,
+  fieldDuplicate50kDuplicateAmountFieldCase,
+  fieldDuplicate50kDuplicateStartDateFieldCase,
+  fieldDuplicate50kDuplicateActiveFieldCase,
+  fieldDuplicate50kDuplicateStatusFieldCase,
+  fieldDuplicate50kDuplicateTagsFieldCase,
+  fieldDuplicate50kDuplicateScoreFieldCase,
   fieldDuplicate10kDuplicateAssigneeFieldCase,
   fieldDuplicate10kDuplicateAttachmentsFieldCase,
   fieldDuplicate10kDuplicateManyManyLinkFieldCase,
