@@ -63,3 +63,25 @@ is also excluded.
   trace without collection failures.
 - Report the 1k-to-5k primary-metric ratio per engine; do not infer sensitivity
   before observing those results.
+
+## Local validation
+
+Local V1/V2 execution passed all 12 runs in 117.44 seconds against teable-ee
+`3834e0111`. Every artifact reports 5,000 prepared and scanned rows, 50,000
+paste cells, ten fields, five full-scan pages, matched engine routing, and the
+three expected deterministic samples. The local trace backend was unavailable,
+so each artifact captured one trace reference but correctly reported the
+snapshot as missing; CI remains the trace acceptance surface.
+
+| Case             |       V1 5k | V1 ratio |       V2 5k | V2 ratio |
+| ---------------- | ----------: | -------: | ----------: | -------: |
+| single-line text | 3,116.65 ms |    2.49× |   965.16 ms |    2.47× |
+| number           | 2,328.77 ms |    2.47× |   845.92 ms |    2.13× |
+| checkbox         | 3,524.35 ms |    3.01× |   997.52 ms |    2.51× |
+| single select    | 3,187.13 ms |    1.97× |   869.19 ms |    1.98× |
+| multiple select  | 4,951.74 ms |    2.56× | 1,410.17 ms |    3.32× |
+| rating           | 4,613.64 ms |    2.55× |   765.33 ms |    3.65× |
+
+All six workloads are observably row-volume sensitive on both engines. The
+5× row increase produced roughly 1.97×–3.65× primary-metric growth locally;
+none remains in the sub-500 ms review range.
