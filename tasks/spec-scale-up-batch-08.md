@@ -60,6 +60,12 @@ does not assume field-width sensitivity; local and CI measurements decide that.
 - Compare 10-field and 100-field p95 per engine without tuning width to a target
   duration.
 
+Trace selection is limited to duplicate requests 1, 250, and 500, with any
+duplicate request available as fallback. The first CI attempt selected all 500
+requests per case; V2 saved 482–500 traces and reported up to 18 missing fetches,
+so that green job is not accepted. Representative selection keeps the evidence
+boundary deterministic without turning the case into an exporter-retention test.
+
 ## Local acceptance
 
 The run completed all 16 V1/V2 combinations on `teable-ee/develop` commit
@@ -87,3 +93,25 @@ The controlled 10-to-100-field step increased the comparable p95 values by only
 well below 500 ms across the matrix. This observed result justifies testing a single
 500-field maximum-width canary before expanding that much more expensive fixture to
 all scalar types.
+
+## CI attempt 1
+
+Run `29847510570` completed successfully and all 16 functional artifacts passed:
+
+| Field type       |    V1 p95 |    V2 p95 |
+| ---------------- | --------: | --------: |
+| Single-line text | 182.61 ms | 113.59 ms |
+| Long text        | 163.97 ms |  99.65 ms |
+| Number           | 158.61 ms |  98.27 ms |
+| Date             | 155.48 ms | 129.91 ms |
+| Checkbox         | 151.99 ms |  89.42 ms |
+| Single select    | 173.48 ms |  99.72 ms |
+| Multiple select  | 161.69 ms | 110.00 ms |
+| Rating           | 150.13 ms | 122.41 ms |
+
+Every artifact reports 100 fields, 1,000 source rows, 500 duplicate requests,
+500 checked duplicates, a final count of 1,500, three samples, and 500 matched
+route checks. However, the default trace selector chose all 500 requests per case.
+V1 saved 484–500 and V2 saved 482–500, with `missingFetchCount` up to 18. The
+functional measurements remain useful, but this run is not final acceptance; the
+representative trace selector above must pass in a corrected CI run.

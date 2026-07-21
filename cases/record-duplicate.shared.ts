@@ -280,3 +280,8 @@ export const recordDuplicateSingle500Base = {
   RecordDuplicateSingleCaseConfig,
   "baseId" | "rowCount" | "batchSize" | "generator" | "duplicate" | "verify"
 >;
+
+export const recordDuplicateSingle500TraceRuntimeEnv = {
+  PERF_LAB_TRACE_INCLUDE_STEP_PATTERN: "^duplicateSingleP95Ms-(1|250|500)$",
+  PERF_LAB_TRACE_FALLBACK_STEP_PATTERN: "^duplicateSingleP95Ms-\\d+$",
+};
