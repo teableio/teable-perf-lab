@@ -34,6 +34,11 @@ export const selectRecordReadPrimaryMetricValue = ({
   return queryDurationMs;
 };
 
+export const getRecordReadPageCount = (
+  expectedRecordCount: number,
+  pageSize: number,
+) => Math.max(1, Math.ceil(expectedRecordCount / pageSize));
+
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
 
 export const sourceValueName = (index: number) => `Source Value ${index}`;

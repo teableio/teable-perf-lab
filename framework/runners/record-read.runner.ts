@@ -51,6 +51,7 @@ import {
   formulaName,
   getExpectedValue,
   getFormulaExpression,
+  getRecordReadPageCount,
   getProjectionFieldNames,
   getSourceFieldNames,
   HOST_LOOKUP_KEY_FIELD_NAME,
@@ -937,14 +938,16 @@ const readPagedScan = async (
   context: PerfRunContext,
   config: RecordReadCaseConfig,
   query: Record<string, unknown> = {},
+  expectedRecordCount = config.rowCount,
 ): Promise<ReadPagedScanResult> => {
   const pages: ReadPageResult[] = [];
 
-  for (
-    let skip = config.skip;
-    skip < config.rowCount;
-    skip += config.pageSize
-  ) {
+  const pageCount = getRecordReadPageCount(
+    expectedRecordCount,
+    config.pageSize,
+  );
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    const skip = config.skip + pageIndex * config.pageSize;
     pages.push(await readPage(fixture, context, config, skip, query));
   }
 
@@ -1128,7 +1131,11 @@ const verifyReadPagedScan = (
     | null = config.queryVariant,
 ): ReadPagedScanVerification => {
   const isQueryVariant = Boolean(queryVariant);
-  const expectedPageCount = config.rowCount / config.pageSize;
+  const expectedRecordCount = queryVariant?.expectedRowCount ?? config.rowCount;
+  const expectedPageCount = getRecordReadPageCount(
+    expectedRecordCount,
+    config.pageSize,
+  );
   if (readResult.pages.length !== expectedPageCount) {
     throw new Error(
       `Expected ${expectedPageCount} getRecords pages, got ${readResult.pages.length}`,
@@ -1149,7 +1156,6 @@ const verifyReadPagedScan = (
     }
   });
 
-  const expectedRecordCount = queryVariant?.expectedRowCount ?? config.rowCount;
   if (readResult.records.length !== expectedRecordCount) {
     throw new Error(
       `${isQueryVariant ? "Query variant" : "Baseline"} expected ${expectedRecordCount} records, got ${readResult.records.length}`,
@@ -1568,6 +1574,7 @@ const recordReadSpec: ReadLifecycleSpec<
             context,
             config,
             buildQueryVariant(fixture, config),
+            config.queryVariant?.expectedRowCount,
           ),
         ),
     );
