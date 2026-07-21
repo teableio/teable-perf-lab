@@ -922,6 +922,13 @@ workload.
 - `record-read/50k-50fields-filter-sort-groupby-selective`: Scale the matching
   10k query variant to the shared deterministic 50,000-row, 50-field fixture and
   filter A to its upper half, sort, and group.
+- `record-read/100k-50fields-filter-number-greater-half`: Scale the 50k
+  upper-half numeric filter to a shared 100k-row, 50-field fixture.
+- `record-read/100k-50fields-filter-number-range-middle-half`: Scale the 50k
+  middle-range numeric filter to a shared 100k-row, 50-field fixture.
+- `record-read/100k-50fields-filter-number-sort-descending`: Scale the 50k
+  upper-half numeric filter and descending sort to a shared 100k-row, 50-field
+  fixture.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
