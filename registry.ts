@@ -279,6 +279,9 @@ import recordRead50k50FieldsSortThreeFieldsCase from "./cases/record-read/50k-50
 import recordRead50k50FieldsGroupNumberLowCardinalityCase from "./cases/record-read/50k-50fields-group-number-low-cardinality.case";
 import recordRead50k50FieldsFilterNumberSortDescendingCase from "./cases/record-read/50k-50fields-filter-number-sort-descending.case";
 import recordRead50k50FieldsFilterSortGroupbySelectiveCase from "./cases/record-read/50k-50fields-filter-sort-groupby-selective.case";
+import recordRead100k50FieldsFilterNumberGreaterHalfCase from "./cases/record-read/100k-50fields-filter-number-greater-half.case";
+import recordRead100k50FieldsFilterNumberRangeMiddleHalfCase from "./cases/record-read/100k-50fields-filter-number-range-middle-half.case";
+import recordRead100k50FieldsFilterNumberSortDescendingCase from "./cases/record-read/100k-50fields-filter-number-sort-descending.case";
 import recordPaste1kPrimaryOnlyCase from "./cases/record-paste/1k-primary-only.case";
 import recordPaste10kPrimaryOnlyCase from "./cases/record-paste/10k-primary-only.case";
 import recordPaste1kSingleLineText10FieldsCase from "./cases/record-paste/1k-single-line-text-10fields.case";
@@ -584,6 +587,9 @@ const cases = [
   recordRead50k50FieldsGroupNumberLowCardinalityCase,
   recordRead50k50FieldsFilterNumberSortDescendingCase,
   recordRead50k50FieldsFilterSortGroupbySelectiveCase,
+  recordRead100k50FieldsFilterNumberGreaterHalfCase,
+  recordRead100k50FieldsFilterNumberRangeMiddleHalfCase,
+  recordRead100k50FieldsFilterNumberSortDescendingCase,
   recordCreateMixed1k20FieldsBulkCreateCase,
   recordCreate1kSingleLineTextFieldsBulkCreateCase,
   recordCreate1kLongTextFieldsBulkCreateCase,
