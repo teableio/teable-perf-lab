@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
+import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { executeRegisteredRunner } from "./runner-registry";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import { runWithWatchdog } from "./watchdog";
@@ -24,18 +25,6 @@ const evaluateThresholds = (
       passed: typeof actual === "number" && actual <= threshold.max,
     };
   });
-
-const normalizeError = (error: unknown) => {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    };
-  }
-
-  return { message: String(error) };
-};
 
 const withTraceDetails = async (
   context: PerfRunContext,
@@ -122,7 +111,7 @@ export const runPerfCase = async (
     }
   } catch (error) {
     if (payloadWritten) {
-      throw error;
+      throw toPerfTestFailure(error);
     }
 
     if (error instanceof PerfRunDiagnosticError) {
@@ -148,11 +137,11 @@ export const runPerfCase = async (
           perfCase,
           error.result.details,
         ),
-        error: normalizeError(error),
+        error: normalizePerfError(error),
       };
 
       await writePerfArtifacts(context.artifactDir, perfCase, payload);
-      throw error;
+      throw toPerfTestFailure(error);
     }
 
     const payload: PerfArtifactPayload = {
@@ -168,10 +157,10 @@ export const runPerfCase = async (
       metrics: {},
       thresholds: [],
       details: await withTraceDetails(context, perfCase, undefined),
-      error: normalizeError(error),
+      error: normalizePerfError(error),
     };
 
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
-    throw error;
+    throw toPerfTestFailure(error);
   }
 };

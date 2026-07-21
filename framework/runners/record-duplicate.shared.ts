@@ -469,7 +469,6 @@ export const assertDuplicateSourceReady = async (
         getRecords(fixture.tableId, {
           viewId: fixture.viewId,
           fieldKeyType: FieldKeyType.Id,
-          projection: fixture.projection,
           skip,
           take,
         }),
@@ -498,7 +497,6 @@ export const assertDuplicateSourceReady = async (
   const beyondLastPage = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,
     fieldKeyType: FieldKeyType.Id,
-    projection: fixture.projection,
     skip: config.rowCount,
     take: 1,
   });
@@ -571,7 +569,6 @@ export const getSourceRecords = async (
   const result = await getRecords(fixture.tableId, {
     viewId: fixture.viewId,
     fieldKeyType: FieldKeyType.Id,
-    projection: fixture.projection,
     skip: 0,
     take: sourceRowCount,
   });
@@ -608,7 +605,6 @@ const getRecordsByIds = async (
       fieldKeyType: FieldKeyType.Id,
       ignoreViewQuery: true,
       selectedRecordIds: recordIdBatch,
-      projection: fixture.projection,
       take: recordIdBatch.length,
     });
     pageCount += 1;

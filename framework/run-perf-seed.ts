@@ -1,21 +1,10 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
+import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { seedRegisteredRunner } from "./runner-registry";
 import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
 import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
-
-const normalizeError = (error: unknown) => {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    };
-  }
-
-  return { message: String(error) };
-};
 
 const withTraceDetails = async (
   context: PerfRunContext,
@@ -85,10 +74,10 @@ export const seedPerfCase = async (
       metrics: {},
       thresholds: [],
       details: await withTraceDetails(context, perfCase, undefined),
-      error: normalizeError(error),
+      error: normalizePerfError(error),
     };
 
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
-    throw error;
+    throw toPerfTestFailure(error);
   }
 };
