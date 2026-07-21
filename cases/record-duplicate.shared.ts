@@ -30,6 +30,20 @@ const withNineFields = (
   ...Array.from({ length: 9 }, (_, index) => buildField(index + 1)),
 ];
 
+const withOneHundredFields = (
+  buildField: (index: number) => DuplicateField,
+): DuplicateFields => [
+  titleField(),
+  ...Array.from({ length: 99 }, (_, index) => buildField(index + 1)),
+];
+
+const withFiveHundredFields = (
+  buildField: (index: number) => DuplicateField,
+): DuplicateFields => [
+  titleField(),
+  ...Array.from({ length: 499 }, (_, index) => buildField(index + 1)),
+];
+
 const numberedName = (prefix: string, index: number) =>
   `${prefix} ${String(index).padStart(2, "0")}`;
 
@@ -84,6 +98,69 @@ const multipleSelect10 = withNineFields((index) => ({
 }));
 
 const rating10 = withNineFields((index) => ({
+  name: numberedName("Rating", index),
+  type: FieldType.Rating,
+  options: {
+    icon: "star",
+    color: Colors.YellowBright,
+    max: 5,
+  },
+}));
+
+const singleLineText100 = withOneHundredFields((index) => ({
+  name: numberedName("Text", index),
+  type: FieldType.SingleLineText,
+}));
+
+const longText100 = withOneHundredFields((index) => ({
+  name: numberedName("Long Text", index),
+  type: FieldType.LongText,
+}));
+
+const number100 = withOneHundredFields((index) => ({
+  name: numberedName("Number", index),
+  type: FieldType.Number,
+}));
+
+const date100 = withOneHundredFields((index) => ({
+  name: numberedName("Date", index),
+  type: FieldType.Date,
+  options: {
+    formatting: {
+      date: "YYYY-MM-DD",
+      time: "None",
+      timeZone: "UTC",
+    },
+  },
+}));
+
+const checkbox100 = withOneHundredFields((index) => ({
+  name: numberedName("Checkbox", index),
+  type: FieldType.Checkbox,
+}));
+
+const checkbox500 = withFiveHundredFields((index) => ({
+  name: numberedName("Checkbox", index),
+  type: FieldType.Checkbox,
+}));
+
+const singleSelect100 = withOneHundredFields((index) => ({
+  name: numberedName("Single Select", index),
+  type: FieldType.SingleSelect,
+  options: {
+    choices: selectChoices(["Alpha", "Beta", "Gamma"]),
+  },
+}));
+
+const multipleSelect100 = withOneHundredFields((index) => ({
+  name: numberedName("Multiple Select", index),
+  type: FieldType.MultipleSelect,
+  options: {
+    choices: selectChoices(["Alpha", "Beta", "Gamma", "Delta"]),
+  },
+}));
+
+const rating100 = withOneHundredFields((index) => ({
   name: numberedName("Rating", index),
   type: FieldType.Rating,
   options: {
@@ -167,6 +244,21 @@ export const recordDuplicateSingle50Fields = {
   mixed20,
 };
 
+export const recordDuplicateSingle500WideFields = {
+  singleLineText100,
+  longText100,
+  number100,
+  date100,
+  checkbox100,
+  singleSelect100,
+  multipleSelect100,
+  rating100,
+};
+
+export const recordDuplicateSingleMaxWidthFields = {
+  checkbox500,
+};
+
 export const recordDuplicateSingle50Base = {
   baseId: "seed-base",
   rowCount: 100,
@@ -204,3 +296,8 @@ export const recordDuplicateSingle500Base = {
   RecordDuplicateSingleCaseConfig,
   "baseId" | "rowCount" | "batchSize" | "generator" | "duplicate" | "verify"
 >;
+
+export const recordDuplicateSingle500TraceRuntimeEnv = {
+  PERF_LAB_TRACE_INCLUDE_STEP_PATTERN: "^duplicateSingleP95Ms-(1|250|500)$",
+  PERF_LAB_TRACE_FALLBACK_STEP_PATTERN: "^duplicateSingleP95Ms-\\d+$",
+};

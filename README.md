@@ -376,6 +376,36 @@ workload.
 - `field-create/10k-create-20-single-line-text-fields`: Measure homogeneous
   request-count scaling by doubling the ten-field text workload to twenty
   sequential field-create requests.
+- `field-create/50k-create-1-single-line-text-field`: Measure creating 1
+  single-line text field on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-single-line-text-fields`: Measure creating 10
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-long-text-fields`: Measure creating 10 long-text
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-number-fields`: Measure creating 10 number fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-10-date-fields`: Measure creating 10 date fields on a
+  populated 50,000-row table as the row-count scale sibling of the existing 10k
+  case.
+- `field-create/50k-create-10-checkbox-fields`: Measure creating 10 checkbox
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-single-select-fields`: Measure creating 10
+  single-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-multiple-select-fields`: Measure creating 10
+  multiple-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-rating-fields`: Measure creating 10 rating fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-20-single-line-text-fields`: Measure creating 20
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
 - `field-create/mixed-10k-create-19-fields`: Measure the external field creation
   path for adding 19 mixed-type fields to a 10,000-row table.
 - `field-create/single-select-1k-options`: Measure the field creation path for
@@ -532,6 +562,22 @@ workload.
   multiple-select field and its 10,000 arrays.
 - `field-duplicate/10k-duplicate-score-field`: Measure duplicating one populated
   rating field and its 10,000 bounded values.
+- `field-duplicate/50k-duplicate-owner-text-field`: Scale populated
+  single-line-text field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-description-field`: Scale populated long-text
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-amount-field`: Scale populated number-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-start-date-field`: Scale populated date-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-active-field`: Scale populated checkbox-field
+  duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-status-field`: Scale populated single-select
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-tags-field`: Scale populated multiple-select
+  field duplication from 10k to 50k rows.
+- `field-duplicate/50k-duplicate-score-field`: Scale populated rating-field
+  duplication from 10k to 50k rows.
 - `field-duplicate/10k-duplicate-assignee-field`: Measure duplicating one
   populated User field and its 10,000 structured values.
 - `field-duplicate/10k-duplicate-attachments-field`: Measure duplicating one
@@ -747,6 +793,22 @@ workload.
   text records through a Form view. `formSubmitP95Ms` keeps the per-request
   latency contract; the loop phase records aggregate work. V1/V2 routing and all
   500 stored rows are verified.
+- `form-submit/sequential-500-single-line-text-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 text fields.
+- `form-submit/sequential-500-long-text-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 long-text fields.
+- `form-submit/sequential-500-number-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 numeric fields.
+- `form-submit/sequential-500-date-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 date fields.
+- `form-submit/sequential-500-checkbox-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 checkbox fields.
+- `form-submit/sequential-500-single-select-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 single-select fields.
+- `form-submit/sequential-500-multiple-select-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 multiple-select fields.
+- `form-submit/sequential-500-rating-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 rating fields.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through
@@ -1002,6 +1064,9 @@ workload.
   fields. The primary metric remains per-request `duplicateSingleP95Ms`;
   `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
   500 created rows are verified.
+- `record-duplicate/single-500-checkbox-500fields`: Maximum-width canary for the
+  record-duplicate matrix: duplicate 500 source records sequentially when each
+  record has `Title` plus 499 checkbox fields.
 - `record-duplicate/single-500-single-select-10fields`: Scale-up of
   `single-50-single-select-10fields`: sequentially duplicates 500 source records
   from a deterministic 1,000-row table with one primary text field and nine
@@ -1025,6 +1090,32 @@ workload.
   deterministic 1,000-row, 20-field mixed table. The primary metric remains
   per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate
   loop cost. V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-single-line-text-100fields`: Scale-up of
+  `single-500-single-line-text-10fields`: duplicate 500 source records
+  sequentially while increasing each record from 10 to 100 single-line text
+  fields.
+- `record-duplicate/single-500-long-text-100fields`: Scale-up of
+  `single-500-long-text-10fields`: duplicate 500 source records sequentially
+  while increasing each record from 10 to 100 long-text fields.
+- `record-duplicate/single-500-number-100fields`: Scale-up of
+  `single-500-number-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 number fields.
+- `record-duplicate/single-500-date-100fields`: Scale-up of
+  `single-500-date-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 date fields.
+- `record-duplicate/single-500-checkbox-100fields`: Scale-up of
+  `single-500-checkbox-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 checkbox fields.
+- `record-duplicate/single-500-single-select-100fields`: Scale-up of
+  `single-500-single-select-10fields`: duplicate 500 source records sequentially
+  while increasing each record from 10 to 100 single-select fields.
+- `record-duplicate/single-500-multiple-select-100fields`: Scale-up of
+  `single-500-multiple-select-10fields`: duplicate 500 source records
+  sequentially while increasing each record from 10 to 100 multiple-select
+  fields.
+- `record-duplicate/single-500-rating-100fields`: Scale-up of
+  `single-500-rating-10fields`: duplicate 500 source records sequentially while
+  increasing each record from 10 to 100 rating fields.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
@@ -1143,6 +1234,25 @@ workload.
   grid-pasting 1,000 records into a fixed-width ten-field table.
 - `record-paste/1k-mixed-20fields`: Measure a bounded 1,000-row grid paste
   across the established 20-field mixed scalar schema.
+- `record-paste/5k-single-line-text-10fields`: Scale the 1k single-line-text
+  paste baseline to one 5,000-row request while preserving its ten-field table
+  shape.
+- `record-paste/5k-long-text-10fields`: Scale the 1k long-text paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-number-10fields`: Scale the 1k number paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-date-10fields`: Scale the 1k date paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-checkbox-10fields`: Scale the 1k checkbox paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-single-select-10fields`: Scale the 1k single-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-multiple-select-10fields`: Scale the 1k multiple-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-rating-10fields`: Scale the 1k rating paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-mixed-20fields`: Scale the 1k mixed paste baseline to one
+  5,000-row request while preserving its 20-field stored-value mix.
 - `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
   for inserting 10,000 flat records into an empty 20-field table through
   `PATCH /api/table/{tableId}/selection/paste`.
