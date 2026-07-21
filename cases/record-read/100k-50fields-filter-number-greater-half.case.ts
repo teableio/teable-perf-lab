@@ -6,7 +6,7 @@ export default definePerfCase({
   title: "Filter a 100k 50-field record read to the upper numeric half",
   runner: "record-read",
   timeoutMs: 3_600_000,
-  watchdogMs: 900_000,
+  watchdogMs: 1_200_000,
   config: {
     ...recordRead100k50FieldsBaseConfig,
     queryVariant: {

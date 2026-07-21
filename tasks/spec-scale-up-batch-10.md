@@ -58,6 +58,16 @@ The data-scale variable is row count (50k to 100k). The primary-metric change
 fixes the existing zero-floor observability problem; it does not tune workload
 size toward a desired duration.
 
+The first local run exposed a runner mismatch: query variants still issued the
+full table's 100-page request plan even though these predicates return 50 pages.
+That added 50 empty requests to the timed query and contradicted the case spec.
+The runner now derives query page count from `expectedRowCount` while retaining
+the full 100-page baseline. A model check covers exact, partial, and empty result
+page plans. The same run built the shared fixture in 842.87 seconds and completed
+the first case in 879.24 seconds, leaving only 20.76 seconds under the original
+900-second watchdog. The watchdog is therefore 1,200 seconds; this is execution
+headroom only and does not change the measured workload or threshold.
+
 ## Acceptance
 
 - All three cases pass locally and in GitHub Actions on V1 and V2.

@@ -9,6 +9,7 @@ import {
   getExpectedValue,
   getFormulaExpression,
   getProjectionFieldNames,
+  getRecordReadPageCount,
   getSourceFieldNames,
   parseRowNumberFromTitle,
   resolveFieldIds,
@@ -79,6 +80,9 @@ assertConfigShape({
 });
 assert.equal(getSourceFieldNames(config).length, 6);
 assert.equal(getProjectionFieldNames(config).length, 50);
+assert.equal(getRecordReadPageCount(50_000, 1_000), 50);
+assert.equal(getRecordReadPageCount(50_001, 1_000), 51);
+assert.equal(getRecordReadPageCount(0, 1_000), 1);
 
 assert.equal(
   selectRecordReadPrimaryMetricValue({
