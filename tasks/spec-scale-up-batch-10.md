@@ -77,3 +77,20 @@ headroom only and does not change the measured workload or threshold.
 - CI saves every selected representative trace with zero failures.
 - Compare actual query duration at 100k with the existing artifacts' secondary
   `getRecordsQueryPagedScanMs`; do not compare it to the clamped overhead value.
+
+## Local acceptance
+
+The corrected run `/tmp/perf-scale-batch10-local-corrected2.20260721` completed
+all six V1/V2 combinations successfully:
+
+| Query                | V1 query scan | V2 query scan |
+| -------------------- | ------------: | ------------: |
+| Greater than half    |      9.42 sec |     34.09 sec |
+| Middle-half range    |      6.62 sec |     30.63 sec |
+| Greater half, sorted |     50.04 sec |     31.36 sec |
+
+Every artifact reports the shared seed hash `542cfc14fa61497c`, 100,000 rows,
+50 projected fields, a 100-request baseline, a 50-request query, 50,000 returned
+records, 50 matched query routes, and four verified samples. The first case built
+the seed; the other five restored the same fixture. The full local run completed
+in 1,345.64 seconds.
