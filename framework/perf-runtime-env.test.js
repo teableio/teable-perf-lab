@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   applyCaseRuntimeEnv,
+  applyPerfObservabilityRuntimeEnv,
   applySingleEngineBootstrapEnv,
 } from "./perf-runtime-env.ts";
 
@@ -10,12 +11,16 @@ const ENV_KEYS = [
   "E2E_SHARED_APP",
   "FORCE_V2_ALL",
   "MAX_PASTE_CELLS",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+  "OTEL_EXPORT_RATIO",
   "OTEL_SERVICE_NAME",
   "PERF_LAB_COMPUTED_UPDATE_MODE",
   "PERF_LAB_ENGINE",
   "PERF_LAB_ENGINE_LIST",
   "PERF_LAB_MODE",
   "PERF_LAB_OTEL_SERVICE_PREFIX",
+  "PERF_LAB_TRACE_ENABLED",
   "TABLE_LIMIT_SELECT_CHOICES_MAX",
   "V2_COMPUTED_UPDATE_MODE",
 ];
@@ -68,6 +73,37 @@ test("multi-engine local runs keep private per-engine app booting", () =>
     process.env.PERF_LAB_ENGINE_LIST = "v1,v2";
     applySingleEngineBootstrapEnv();
     assert.equal(process.env.E2E_SHARED_APP, undefined);
+  }));
+
+test("trace-disabled local runs suppress development OTLP defaults", () =>
+  withCleanEnv(() => {
+    process.env.PERF_LAB_TRACE_ENABLED = "false";
+
+    applyPerfObservabilityRuntimeEnv();
+
+    assert.equal(process.env.OTEL_EXPORTER_OTLP_ENDPOINT, "");
+    assert.equal(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, "");
+    assert.equal(process.env.OTEL_EXPORT_RATIO, "0");
+  }));
+
+test("trace runtime environment preserves explicit exporter settings", () =>
+  withCleanEnv(() => {
+    process.env.PERF_LAB_TRACE_ENABLED = "false";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector/v1/traces";
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = "http://collector/v1/logs";
+    process.env.OTEL_EXPORT_RATIO = "0.25";
+
+    applyPerfObservabilityRuntimeEnv();
+
+    assert.equal(
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+      "http://collector/v1/traces",
+    );
+    assert.equal(
+      process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+      "http://collector/v1/logs",
+    );
+    assert.equal(process.env.OTEL_EXPORT_RATIO, "0.25");
   }));
 
 test("case runtime limits are applied before the app baseline is captured", () =>

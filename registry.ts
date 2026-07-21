@@ -142,6 +142,14 @@ import fieldDuplicate10kDuplicateActiveFieldCase from "./cases/field-duplicate/1
 import fieldDuplicate10kDuplicateStatusFieldCase from "./cases/field-duplicate/10k-duplicate-status-field.case";
 import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k-duplicate-tags-field.case";
 import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
+import fieldDuplicate50kDuplicateOwnerTextFieldCase from "./cases/field-duplicate/50k-duplicate-owner-text-field.case";
+import fieldDuplicate50kDuplicateDescriptionFieldCase from "./cases/field-duplicate/50k-duplicate-description-field.case";
+import fieldDuplicate50kDuplicateAmountFieldCase from "./cases/field-duplicate/50k-duplicate-amount-field.case";
+import fieldDuplicate50kDuplicateStartDateFieldCase from "./cases/field-duplicate/50k-duplicate-start-date-field.case";
+import fieldDuplicate50kDuplicateActiveFieldCase from "./cases/field-duplicate/50k-duplicate-active-field.case";
+import fieldDuplicate50kDuplicateStatusFieldCase from "./cases/field-duplicate/50k-duplicate-status-field.case";
+import fieldDuplicate50kDuplicateTagsFieldCase from "./cases/field-duplicate/50k-duplicate-tags-field.case";
+import fieldDuplicate50kDuplicateScoreFieldCase from "./cases/field-duplicate/50k-duplicate-score-field.case";
 import fieldDuplicate10kDuplicateAssigneeFieldCase from "./cases/field-duplicate/10k-duplicate-assignee-field.case";
 import fieldDuplicate10kDuplicateAttachmentsFieldCase from "./cases/field-duplicate/10k-duplicate-attachments-field.case";
 import fieldDuplicate10kDuplicateManyManyLinkFieldCase from "./cases/field-duplicate/10k-duplicate-many-many-link-field.case";
@@ -213,6 +221,14 @@ import formSubmitSequential500SingleSelect10FieldsCase from "./cases/form-submit
 import formSubmitSequential500MultipleSelect10FieldsCase from "./cases/form-submit/sequential-500-multiple-select-10fields.case";
 import formSubmitSequential500Rating10FieldsCase from "./cases/form-submit/sequential-500-rating-10fields.case";
 import formSubmitSequential500SingleLineText20FieldsCase from "./cases/form-submit/sequential-500-single-line-text-20fields.case";
+import formSubmitSequential500SingleLineText100FieldsCase from "./cases/form-submit/sequential-500-single-line-text-100fields.case";
+import formSubmitSequential500LongText100FieldsCase from "./cases/form-submit/sequential-500-long-text-100fields.case";
+import formSubmitSequential500Number100FieldsCase from "./cases/form-submit/sequential-500-number-100fields.case";
+import formSubmitSequential500Date100FieldsCase from "./cases/form-submit/sequential-500-date-100fields.case";
+import formSubmitSequential500Checkbox100FieldsCase from "./cases/form-submit/sequential-500-checkbox-100fields.case";
+import formSubmitSequential500SingleSelect100FieldsCase from "./cases/form-submit/sequential-500-single-select-100fields.case";
+import formSubmitSequential500MultipleSelect100FieldsCase from "./cases/form-submit/sequential-500-multiple-select-100fields.case";
+import formSubmitSequential500Rating100FieldsCase from "./cases/form-submit/sequential-500-rating-100fields.case";
 import recordCreate1kSingleLineTextFieldsBulkCreateCase from "./cases/record-create/1k-single-line-text-fields-bulk-create.case";
 import recordCreate1kLongTextFieldsBulkCreateCase from "./cases/record-create/1k-long-text-fields-bulk-create.case";
 import recordCreate1kNumberFieldsBulkCreateCase from "./cases/record-create/1k-number-fields-bulk-create.case";
@@ -503,6 +519,14 @@ const cases = [
   fieldDuplicate10kDuplicateStatusFieldCase,
   fieldDuplicate10kDuplicateTagsFieldCase,
   fieldDuplicate10kDuplicateScoreFieldCase,
+  fieldDuplicate50kDuplicateOwnerTextFieldCase,
+  fieldDuplicate50kDuplicateDescriptionFieldCase,
+  fieldDuplicate50kDuplicateAmountFieldCase,
+  fieldDuplicate50kDuplicateStartDateFieldCase,
+  fieldDuplicate50kDuplicateActiveFieldCase,
+  fieldDuplicate50kDuplicateStatusFieldCase,
+  fieldDuplicate50kDuplicateTagsFieldCase,
+  fieldDuplicate50kDuplicateScoreFieldCase,
   fieldDuplicate10kDuplicateAssigneeFieldCase,
   fieldDuplicate10kDuplicateAttachmentsFieldCase,
   fieldDuplicate10kDuplicateManyManyLinkFieldCase,
@@ -573,6 +597,14 @@ const cases = [
   formSubmitSequential500MultipleSelect10FieldsCase,
   formSubmitSequential500Rating10FieldsCase,
   formSubmitSequential500SingleLineText20FieldsCase,
+  formSubmitSequential500SingleLineText100FieldsCase,
+  formSubmitSequential500LongText100FieldsCase,
+  formSubmitSequential500Number100FieldsCase,
+  formSubmitSequential500Date100FieldsCase,
+  formSubmitSequential500Checkbox100FieldsCase,
+  formSubmitSequential500SingleSelect100FieldsCase,
+  formSubmitSequential500MultipleSelect100FieldsCase,
+  formSubmitSequential500Rating100FieldsCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDelete1kCase,
