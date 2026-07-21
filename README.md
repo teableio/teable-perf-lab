@@ -888,9 +888,19 @@ workload.
 - `record-create/1k-wide-table-title-only-bulk-create`: Measure a one-field
   1,000-record create payload against a 20-field mixed table to expose
   schema-width overhead independently of request width.
+- `record-create/5k-single-line-text-fields-bulk-create`: Scale
+  `record-create/1k-single-line-text-fields-bulk-create` from 1,000 to 5,000
+  records while preserving its four-field projection and one-request create
+  behavior.
+- `record-create/5k-long-text-fields-bulk-create`: Scale
+  `record-create/1k-long-text-fields-bulk-create` from 1,000 to 5,000 records
+  while preserving its three-field projection and one-request create behavior.
 - `record-create/5k-checkbox-fields-bulk-create`: Measure one 5,000-record
   create request containing the same two checkbox fields as the 1k baseline. Only
   the record count changes.
+- `record-create/5k-date-fields-bulk-create`: Scale
+  `record-create/1k-date-fields-bulk-create` from 1,000 to 5,000 records while
+  preserving its two-date-field projection and one-request create behavior.
 - `record-create/5k-multiple-select-fields-bulk-create`: Scale
   `record-create/1k-multiple-select-fields-bulk-create` from 1,000 to 5,000
   records while preserving the same field projection and one-request create
@@ -904,6 +914,9 @@ workload.
 - `record-create/5k-rating-field-bulk-create`: Scale
   `record-create/1k-rating-field-bulk-create` from 1,000 to 5,000 records while
   preserving the same field projection and one-request create behavior.
+- `record-create/5k-single-select-fields-bulk-create`: Scale
+  `record-create/1k-single-select-fields-bulk-create` from 1,000 to 5,000 records
+  while preserving its three-field projection and one-request create behavior.
 - `record-create/5k-wide-table-title-only-bulk-create`: Scale
   `record-create/1k-wide-table-title-only-bulk-create` from 1,000 to 5,000
   records while preserving the same field projection and one-request create
@@ -1032,9 +1045,23 @@ workload.
 - `record-update/1k-wide-table-title-only-bulk-update`: Separate wide-schema
   planning cost from payload width by updating only `Title` in the same 20-field
   fixture used by the aggregate mixed update case.
+- `record-update/5k-single-line-text-fields-bulk-update`: Scale
+  `record-update/1k-single-line-text-fields-bulk-update` from 1,000 to 5,000
+  records while preserving its four-field projection and one-request update
+  behavior.
+- `record-update/5k-long-text-fields-bulk-update`: Scale
+  `record-update/1k-long-text-fields-bulk-update` from 1,000 to 5,000 records
+  while preserving its three-field projection and one-request update behavior.
 - `record-update/5k-checkbox-fields-bulk-update`: Measure one 5,000-record
   checkbox update. This keeps the 1k baseline's table shape and partial payload
   while increasing only the records in the request.
+- `record-update/5k-date-fields-bulk-update`: Scale
+  `record-update/1k-date-fields-bulk-update` from 1,000 to 5,000 records while
+  preserving its two-date-field projection and one-request update behavior.
+- `record-update/5k-multiple-select-fields-bulk-update`: Scale
+  `record-update/1k-multiple-select-fields-bulk-update` from 1,000 to 5,000
+  records while preserving its two-field projection and one-request update
+  behavior.
 - `record-update/5k-number-fields-bulk-update`: Scale
   `record-update/1k-number-fields-bulk-update` from 1,000 to 5,000 records while
   preserving its field projection and one-request update behavior.
@@ -1044,6 +1071,9 @@ workload.
 - `record-update/5k-rating-field-bulk-update`: Scale
   `record-update/1k-rating-field-bulk-update` from 1,000 to 5,000 records while
   preserving its field projection and one-request update behavior.
+- `record-update/5k-single-select-fields-bulk-update`: Scale
+  `record-update/1k-single-select-fields-bulk-update` from 1,000 to 5,000 records
+  while preserving its three-field projection and one-request update behavior.
 - `record-update/5k-wide-table-title-only-bulk-update`: Scale
   `record-update/1k-wide-table-title-only-bulk-update` from 1,000 to 5,000
   records while preserving its field projection and one-request update behavior.

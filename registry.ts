@@ -214,11 +214,15 @@ import recordCreate1kRatingFieldBulkCreateCase from "./cases/record-create/1k-ra
 import recordCreate1kPrimaryTextOnlyBulkCreateCase from "./cases/record-create/1k-primary-text-only-bulk-create.case";
 import recordCreate1kWideTableTitleOnlyBulkCreateCase from "./cases/record-create/1k-wide-table-title-only-bulk-create.case";
 import recordCreateMixed1k20FieldsBulkCreateCase from "./cases/record-create/mixed-1k-20fields-bulk-create.case";
+import recordCreate5kSingleLineTextFieldsBulkCreateCase from "./cases/record-create/5k-single-line-text-fields-bulk-create.case";
+import recordCreate5kLongTextFieldsBulkCreateCase from "./cases/record-create/5k-long-text-fields-bulk-create.case";
 import recordCreate5kCheckboxFieldsBulkCreateCase from "./cases/record-create/5k-checkbox-fields-bulk-create.case";
+import recordCreate5kDateFieldsBulkCreateCase from "./cases/record-create/5k-date-fields-bulk-create.case";
 import recordCreate5kMultipleSelectFieldsBulkCreateCase from "./cases/record-create/5k-multiple-select-fields-bulk-create.case";
 import recordCreate5kNumberFieldsBulkCreateCase from "./cases/record-create/5k-number-fields-bulk-create.case";
 import recordCreate5kPrimaryTextOnlyBulkCreateCase from "./cases/record-create/5k-primary-text-only-bulk-create.case";
 import recordCreate5kRatingFieldBulkCreateCase from "./cases/record-create/5k-rating-field-bulk-create.case";
+import recordCreate5kSingleSelectFieldsBulkCreateCase from "./cases/record-create/5k-single-select-fields-bulk-create.case";
 import recordCreate5kWideTableTitleOnlyBulkCreateCase from "./cases/record-create/5k-wide-table-title-only-bulk-create.case";
 import recordDuplicateGridBlockDuplicate1kCase from "./cases/record-duplicate/grid-block-duplicate-1k.case";
 import recordDuplicateSingle50Checkbox10FieldsCase from "./cases/record-duplicate/single-50-checkbox-10fields.case";
@@ -302,10 +306,15 @@ import recordUpdate1kMultipleSelectFieldsBulkUpdateCase from "./cases/record-upd
 import recordUpdate1kRatingFieldBulkUpdateCase from "./cases/record-update/1k-rating-field-bulk-update.case";
 import recordUpdate1kPrimaryTextOnlyBulkUpdateCase from "./cases/record-update/1k-primary-text-only-bulk-update.case";
 import recordUpdate1kWideTableTitleOnlyBulkUpdateCase from "./cases/record-update/1k-wide-table-title-only-bulk-update.case";
+import recordUpdate5kSingleLineTextFieldsBulkUpdateCase from "./cases/record-update/5k-single-line-text-fields-bulk-update.case";
+import recordUpdate5kLongTextFieldsBulkUpdateCase from "./cases/record-update/5k-long-text-fields-bulk-update.case";
 import recordUpdate5kCheckboxFieldsBulkUpdateCase from "./cases/record-update/5k-checkbox-fields-bulk-update.case";
+import recordUpdate5kDateFieldsBulkUpdateCase from "./cases/record-update/5k-date-fields-bulk-update.case";
+import recordUpdate5kMultipleSelectFieldsBulkUpdateCase from "./cases/record-update/5k-multiple-select-fields-bulk-update.case";
 import recordUpdate5kNumberFieldsBulkUpdateCase from "./cases/record-update/5k-number-fields-bulk-update.case";
 import recordUpdate5kPrimaryTextOnlyBulkUpdateCase from "./cases/record-update/5k-primary-text-only-bulk-update.case";
 import recordUpdate5kRatingFieldBulkUpdateCase from "./cases/record-update/5k-rating-field-bulk-update.case";
+import recordUpdate5kSingleSelectFieldsBulkUpdateCase from "./cases/record-update/5k-single-select-fields-bulk-update.case";
 import recordUpdate5kWideTableTitleOnlyBulkUpdateCase from "./cases/record-update/5k-wide-table-title-only-bulk-update.case";
 import recordUpdateAttachmentInsert100Case from "./cases/record-update/attachment-insert-100.case";
 import recordUpdateAttachmentInsert1kCase from "./cases/record-update/attachment-insert-1k.case";
@@ -586,11 +595,15 @@ const cases = [
   recordCreate1kRatingFieldBulkCreateCase,
   recordCreate1kPrimaryTextOnlyBulkCreateCase,
   recordCreate1kWideTableTitleOnlyBulkCreateCase,
+  recordCreate5kSingleLineTextFieldsBulkCreateCase,
+  recordCreate5kLongTextFieldsBulkCreateCase,
   recordCreate5kCheckboxFieldsBulkCreateCase,
+  recordCreate5kDateFieldsBulkCreateCase,
   recordCreate5kMultipleSelectFieldsBulkCreateCase,
   recordCreate5kNumberFieldsBulkCreateCase,
   recordCreate5kPrimaryTextOnlyBulkCreateCase,
   recordCreate5kRatingFieldBulkCreateCase,
+  recordCreate5kSingleSelectFieldsBulkCreateCase,
   recordCreate5kWideTableTitleOnlyBulkCreateCase,
   recordDuplicateGridBlockDuplicate1kCase,
   recordDuplicateSingleRecordSequential100Case,
@@ -626,10 +639,15 @@ const cases = [
   recordUpdate1kRatingFieldBulkUpdateCase,
   recordUpdate1kPrimaryTextOnlyBulkUpdateCase,
   recordUpdate1kWideTableTitleOnlyBulkUpdateCase,
+  recordUpdate5kSingleLineTextFieldsBulkUpdateCase,
+  recordUpdate5kLongTextFieldsBulkUpdateCase,
   recordUpdate5kCheckboxFieldsBulkUpdateCase,
+  recordUpdate5kDateFieldsBulkUpdateCase,
+  recordUpdate5kMultipleSelectFieldsBulkUpdateCase,
   recordUpdate5kNumberFieldsBulkUpdateCase,
   recordUpdate5kPrimaryTextOnlyBulkUpdateCase,
   recordUpdate5kRatingFieldBulkUpdateCase,
+  recordUpdate5kSingleSelectFieldsBulkUpdateCase,
   recordUpdate5kWideTableTitleOnlyBulkUpdateCase,
   recordUpdateAttachmentInsert100Case,
   recordUpdateAttachmentInsert1kCase,
