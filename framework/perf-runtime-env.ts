@@ -60,6 +60,19 @@ export const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
   process.env.MAX_PASTE_CELLS = String(requiredMaxPasteCells);
 };
 
+export const applyPerfObservabilityRuntimeEnv = () => {
+  if (process.env.PERF_LAB_TRACE_ENABLED !== "false") {
+    return;
+  }
+
+  // Teable's development defaults point traces and logs at localhost:4318.
+  // A local perf run that explicitly disables trace collection should not
+  // create exporter retries against a collector that is intentionally absent.
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ??= "";
+  process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ??= "";
+  process.env.OTEL_EXPORT_RATIO ??= "0";
+};
+
 export const applySingleEngineBootstrapEnv = () => {
   const engines = (process.env.PERF_LAB_ENGINE_LIST ?? "v1,v2")
     .split(",")

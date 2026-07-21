@@ -109,6 +109,15 @@ const multipleSelect10 = withFields(10, multipleSelectField);
 const rating10 = withFields(10, ratingField);
 const singleLineText20 = withFields(20, singleLineTextField);
 
+const singleLineText100 = withFields(100, singleLineTextField);
+const longText100 = withFields(100, longTextField);
+const number100 = withFields(100, numberField);
+const date100 = withFields(100, dateField);
+const checkbox100 = withFields(100, checkboxField);
+const singleSelect100 = withFields(100, singleSelectField);
+const multipleSelect100 = withFields(100, multipleSelectField);
+const rating100 = withFields(100, ratingField);
+
 export const scalarFieldMatrix = {
   primaryOnly,
   singleLineText10,
@@ -120,6 +129,17 @@ export const scalarFieldMatrix = {
   multipleSelect10,
   rating10,
   singleLineText20,
+};
+
+export const scalarFieldMatrix100 = {
+  singleLineText100,
+  longText100,
+  number100,
+  date100,
+  checkbox100,
+  singleSelect100,
+  multipleSelect100,
+  rating100,
 };
 
 // Field-add workloads need only the new columns, without an existing primary

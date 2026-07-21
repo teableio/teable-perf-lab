@@ -1,7 +1,11 @@
 import type { FormSubmitCaseConfig } from "../framework/types";
-import { scalarFieldMatrix } from "./scalar-field-matrix.shared";
+import {
+  scalarFieldMatrix,
+  scalarFieldMatrix100,
+} from "./scalar-field-matrix.shared";
 
 export const formSubmit50Fields = scalarFieldMatrix;
+export const formSubmit100Fields = scalarFieldMatrix100;
 
 export const formSubmit50RuntimeEnv = {
   PERF_LAB_TRACE_INCLUDE_STEP_PATTERN: "^formSubmitP95Ms:(1|25|50)$",

@@ -1,5 +1,6 @@
 import {
   applyCaseRuntimeEnv,
+  applyPerfObservabilityRuntimeEnv,
   applySingleEngineBootstrapEnv,
 } from "./perf-runtime-env";
 import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "../registry";
@@ -12,4 +13,5 @@ const perfCaseIds = resolvePerfCaseIdsWithExclusions(
 );
 
 applyCaseRuntimeEnv(perfCaseIds.map(getPerfCase));
+applyPerfObservabilityRuntimeEnv();
 applySingleEngineBootstrapEnv();
