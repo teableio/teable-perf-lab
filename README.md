@@ -1007,6 +1007,9 @@ workload.
   nine multiple-select fields. The primary metric remains per-request
   `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate loop cost.
   V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-multiple-select-500fields`: Maximum-width canary
+  for the record-duplicate matrix: duplicate 500 source records sequentially when
+  each record has `Title` plus 499 multiple-select fields.
 - `record-duplicate/single-500-rating-10fields`: Scale-up of
   `single-50-rating-10fields`: sequentially duplicates 500 source records from a
   deterministic 1,000-row table with one primary text field and nine rating

@@ -30,6 +30,13 @@ const withNineFields = (
   ...Array.from({ length: 9 }, (_, index) => buildField(index + 1)),
 ];
 
+const withFiveHundredFields = (
+  buildField: (index: number) => DuplicateField,
+): DuplicateFields => [
+  titleField(),
+  ...Array.from({ length: 499 }, (_, index) => buildField(index + 1)),
+];
+
 const numberedName = (prefix: string, index: number) =>
   `${prefix} ${String(index).padStart(2, "0")}`;
 
@@ -90,6 +97,14 @@ const rating10 = withNineFields((index) => ({
     icon: "star",
     color: Colors.YellowBright,
     max: 5,
+  },
+}));
+
+const multipleSelect500 = withFiveHundredFields((index) => ({
+  name: numberedName("Multiple Select", index),
+  type: FieldType.MultipleSelect,
+  options: {
+    choices: selectChoices(["Alpha", "Beta", "Gamma", "Delta"]),
   },
 }));
 
@@ -165,6 +180,10 @@ export const recordDuplicateSingle50Fields = {
   multipleSelect10,
   rating10,
   mixed20,
+};
+
+export const recordDuplicateSingleMaxWidthFields = {
+  multipleSelect500,
 };
 
 export const recordDuplicateSingle50Base = {
