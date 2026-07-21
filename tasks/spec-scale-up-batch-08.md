@@ -115,3 +115,30 @@ route checks. However, the default trace selector chose all 500 requests per cas
 V1 saved 484–500 and V2 saved 482–500, with `missingFetchCount` up to 18. The
 functional measurements remain useful, but this run is not final acceptance; the
 representative trace selector above must pass in a corrected CI run.
+
+## CI attempt 2
+
+Run `29849361390` completed successfully with the representative selector and all
+16 functional artifacts passed:
+
+| Field type       |    V1 p95 |    V2 p95 |
+| ---------------- | --------: | --------: |
+| Single-line text | 144.56 ms | 103.20 ms |
+| Long text        | 130.39 ms |  89.37 ms |
+| Number           | 421.52 ms |  86.48 ms |
+| Date             | 127.55 ms |  96.29 ms |
+| Checkbox         | 121.58 ms |  83.45 ms |
+| Single select    | 148.51 ms |  91.13 ms |
+| Multiple select  | 427.15 ms |  94.56 ms |
+| Rating           | 132.44 ms | 100.77 ms |
+
+Every artifact again reports 100 fields, 1,000 source rows, 500 duplicate
+requests, 500 checked duplicates, a final count of 1,500, three verified samples,
+and 500 matched route checks. The selector chose exactly three traces in every
+case. Fourteen of the sixteen manifests saved all three; the V1 number and V2
+single-line-text manifests each missed one Jaeger fetch without a case failure.
+Targeted runs `29850578035` and `29850475241` retain the same workload and engines
+to complete those two trace-evidence gaps without changing the measurement. Both
+targeted artifacts passed with 500 trace references, exactly three selected and
+saved traces, zero failures, and zero missing fetches. Together with the full-matrix
+functional evidence, these runs satisfy final CI acceptance.
