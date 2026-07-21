@@ -85,3 +85,26 @@ snapshot as missing; CI remains the trace acceptance surface.
 All six workloads are observably row-volume sensitive on both engines. The
 5× row increase produced roughly 1.97×–3.65× primary-metric growth locally;
 none remains in the sub-500 ms review range.
+
+## CI acceptance
+
+GitHub Actions run
+[`29844032258`](https://github.com/teableio/teable-perf-lab/actions/runs/29844032258)
+passed seed, V1, V2, and report jobs. All 12 result artifacts passed the
+30-second threshold and independently proved 5,000 prepared rows, 50,000 paste
+cells, ten fields, five full-scan pages covering 5,000 records, three sampled
+rows, and matched engine routing. Each case selected and saved its one request
+trace; all 12 manifests report zero failed or missing fetches.
+
+| Case             |       V1 5k | V1 ratio |       V2 5k | V2 ratio |
+| ---------------- | ----------: | -------: | ----------: | -------: |
+| single-line text | 6,223.65 ms |    4.98× | 1,689.45 ms |    4.32× |
+| number           | 4,412.64 ms |    4.69× | 1,644.97 ms |    4.13× |
+| checkbox         | 5,580.98 ms |    4.77× | 1,317.56 ms |    3.32× |
+| single select    | 5,469.48 ms |    3.39× | 1,441.83 ms |    3.29× |
+| multiple select  | 8,464.38 ms |    4.37× | 1,638.81 ms |    3.86× |
+| rating           | 7,862.43 ms |    4.35× | 1,018.13 ms |    4.85× |
+
+The official environment confirms all six operations are row-volume sensitive.
+The 5× row increase produced 3.29×–4.98× primary-metric growth, and the scaled
+V2 cases now measure 1.02–1.69 seconds instead of sub-500 ms.
