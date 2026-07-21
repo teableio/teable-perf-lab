@@ -104,3 +104,33 @@ records, a 50,000-row source/copy full scan, and equal source/copy types. The
 first result was the only cache miss; the remaining 15 were hits. Local trace
 collection was disabled because the sandbox has no trace backend; CI remains
 the trace-body acceptance surface.
+
+## CI acceptance
+
+The first GitHub Actions run exposed a runner lifecycle bug that local sequential
+execution did not reproduce: execute jobs run against an isolated database, and the
+stored-field cleanup path treated isolation as sufficient reason to retain the copied
+field. Because all siblings intentionally share one seed table, each case therefore
+left an extra field for the next case. The runner now restores reusable seed fixtures
+even inside isolated execute jobs; only non-reusable fixtures may rely on database
+isolation for cleanup. A focused contract test covers that distinction.
+
+The corrected run `29844062385` completed all workflow jobs successfully. Its primary
+metrics and ratios against the 10k history run `29815167099` are:
+
+| Source field |       V1 50k | V1 ratio |      V2 50k | V2 ratio |
+| ------------ | -----------: | -------: | ----------: | -------: |
+| Owner Text   | 12,167.25 ms |    4.90x | 1,322.10 ms |    7.32x |
+| Description  | 11,425.69 ms |    3.97x |   834.04 ms |    4.51x |
+| Amount       | 14,278.91 ms |    5.25x |   938.46 ms |    5.17x |
+| Start Date   | 14,488.27 ms |    6.26x |   736.96 ms |    3.74x |
+| Active       | 12,684.10 ms |    6.40x | 1,203.17 ms |    6.55x |
+| Status       |  9,265.81 ms |    3.67x | 1,074.90 ms |    6.24x |
+| Tags         | 10,190.37 ms |    4.18x |   829.61 ms |    3.48x |
+| Score        | 15,364.81 ms |    6.09x |   829.07 ms |    4.52x |
+
+All 16 execute artifacts passed. They report one table id and seed hash, 50,000
+ready and full-scan records in 50 pages, three verified samples, matched engine and
+`duplicateField` routing, and one selected/saved trace with zero failures or missing
+fetches per case. The seed preparation artifacts likewise show one cache miss followed
+by seven hits for the shared table.
