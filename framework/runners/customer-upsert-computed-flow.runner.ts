@@ -85,6 +85,7 @@ import {
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
+  shouldRestoreSharedMutableSeed,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
@@ -2227,11 +2228,19 @@ const cleanupFixture = async ({
   fixture: Fixture | undefined;
   config: CustomerUpsertComputedFlowCaseConfig;
 }) => {
-  if (!fixture || isExecuteDbIsolated()) return;
+  if (!fixture) return;
   if (!fixture.reusableSeed) {
-    await deleteFixtureTables(baseId, fixture);
+    if (!isExecuteDbIsolated()) {
+      await deleteFixtureTables(baseId, fixture);
+    }
     return;
   }
+  const restoreMutableSeed = shouldRestoreSharedMutableSeed({
+    reusableSeed: fixture.reusableSeed,
+    executeDbIsolated: isExecuteDbIsolated(),
+    sharedSeedIdentity: true,
+  });
+  if (!restoreMutableSeed) return;
   try {
     if (fixture.executeState.createdOrderRecordId) {
       await deleteRecords(fixture.ordersTableId, [
