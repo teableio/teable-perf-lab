@@ -188,3 +188,19 @@ export const recordDuplicateSingle50Base = {
   RecordDuplicateSingleCaseConfig,
   "baseId" | "rowCount" | "batchSize" | "generator" | "duplicate" | "verify"
 >;
+
+export const recordDuplicateSingle500Base = {
+  ...recordDuplicateSingle50Base,
+  rowCount: 1_000,
+  batchSize: 1_000,
+  duplicate: {
+    sourceRowCount: 500,
+  },
+  verify: {
+    sampleRows: [0, 249, 499],
+    fullScanPageSize: 1_000,
+  },
+} satisfies Pick<
+  RecordDuplicateSingleCaseConfig,
+  "baseId" | "rowCount" | "batchSize" | "generator" | "duplicate" | "verify"
+>;

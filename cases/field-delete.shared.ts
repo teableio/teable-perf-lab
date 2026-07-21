@@ -36,3 +36,16 @@ export const scalarFieldDeleteConfig = (
   },
   delete: { fieldNames: [fieldName] },
 });
+
+export const scalarFieldDelete50kConfig = (
+  fieldName: string,
+  tableNameSuffix: string,
+): Omit<FieldDeleteCaseConfig, "threshold"> => ({
+  ...scalarFieldDeleteConfig(fieldName, tableNameSuffix),
+  tableNamePrefix: `perf-field-delete-50k-${tableNameSuffix}`,
+  rowCount: 50_000,
+  verify: {
+    sampleRows: [0, 24_999, 49_999],
+    fullScanPageSize: 1_000,
+  },
+});

@@ -70,6 +70,8 @@ type LookupSearchIndexFixture = {
 const SOURCE_KEY = "Source Key";
 const HOST_KEY = "Host Key";
 const SHARED_SEED_CASE_ID = "search/search-index-10k-20search-fields-seed";
+const SHARED_SEED_FIXTURE_VERSION =
+  "lookup-search-index-v2-fixture-only-identity";
 
 const sourceTextName = (index: number) => `Source Text ${index}`;
 const sourceNumberName = (index: number) => `Source Number ${index}`;
@@ -266,9 +268,7 @@ const getSeedConfig = (config: LookupSearchIndexCaseConfig) => ({
   generator: config.generator,
   sourceFieldNames,
   hostSearchFieldNames,
-  keywords: config.keywords,
-  verifySampleRows: config.verify.sampleRows,
-  fixtureVersion: "lookup-search-index-v1",
+  fixtureVersion: SHARED_SEED_FIXTURE_VERSION,
 });
 
 const ensurePerfUsers = async (
@@ -935,7 +935,7 @@ const prepareLookupSearchIndexFixture = async (
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase: seedPerfCase,
     runner: "lookup-search-index",
-    fixtureVersion: "lookup-search-index-v1",
+    fixtureVersion: SHARED_SEED_FIXTURE_VERSION,
     seedConfig: getSeedConfig(config),
     seedCodeFiles: [
       new URL("./lookup-search-index.runner.ts", import.meta.url),

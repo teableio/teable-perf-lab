@@ -906,7 +906,7 @@ export interface RecordPasteCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "paste1kMs" | "paste10kMs" | "pasteExpand10kMs";
+    metric: "paste1kMs" | "paste5kMs" | "paste10kMs" | "pasteExpand10kMs";
     maxMs: number;
   };
 }
@@ -1234,7 +1234,7 @@ export interface RecordCreateCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "bulkCreate1kMs";
+    metric: "bulkCreate1kMs" | "bulkCreate5kMs";
     maxMs: number;
   };
 }
@@ -1260,7 +1260,7 @@ export interface RecordUpdateCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "bulkUpdate1kMs";
+    metric: "bulkUpdate1kMs" | "bulkUpdate5kMs";
     maxMs: number;
   };
 }
@@ -1534,7 +1534,7 @@ export interface TableRestoreLinkCaseConfig
 
 export interface RecordDeleteCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "delete1kMs";
+    metric: "delete1kMs" | "delete5kMs";
     maxMs: number;
   };
 }
@@ -1543,7 +1543,7 @@ export interface RecordDeleteLinkCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   link: TableLifecycleLinkConfig;
   threshold: {
-    metric: "deleteLinked1kMs";
+    metric: "deleteLinked1kMs" | "deleteLinked5kMs";
     maxMs: number;
   };
 }
@@ -1571,7 +1571,7 @@ export interface RecordUndoCaseConfig extends RecordUndoRedoBaseCaseConfig {
 
 export interface RecordRedoCaseConfig extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "redoReplay1kMs";
+    metric: "redoReplay1kMs" | "redoReplay10kMs";
     maxMs: number;
   };
 }

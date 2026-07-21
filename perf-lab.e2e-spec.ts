@@ -5,7 +5,8 @@ import { initApp } from "../utils/init-app";
 import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
 import { seedPerfCase } from "./framework/run-perf-seed";
-import type { PerfCase, RecordPasteCaseConfig } from "./framework/types";
+import { applyCaseRuntimeEnv } from "./framework/perf-runtime-env";
+import type { PerfCase } from "./framework/types";
 import {
   installPerfTraceCollector,
   setPerfTraceFlush,
@@ -71,66 +72,6 @@ const getForceV2All = (engine: Engine) => (engine === "v2" ? "true" : "false");
 
 const getMode = (): Mode =>
   process.env.PERF_LAB_MODE === "seed" ? "seed" : "execute";
-
-const getRuntimeEnvValue = (value: string | number | boolean) =>
-  typeof value === "string" ? value : String(value);
-
-const shouldOverrideRuntimeEnv = (
-  currentValue: string | undefined,
-  requiredValue: string,
-) => {
-  if (currentValue == null || currentValue === "") {
-    return true;
-  }
-
-  const currentNumber = Number.parseFloat(currentValue);
-  const requiredNumber = Number.parseFloat(requiredValue);
-
-  if (Number.isFinite(currentNumber) && Number.isFinite(requiredNumber)) {
-    return currentNumber < requiredNumber;
-  }
-
-  return false;
-};
-
-const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
-  for (const perfCase of perfCases) {
-    for (const [key, value] of Object.entries(perfCase.runtimeEnv ?? {})) {
-      const requiredValue = getRuntimeEnvValue(value);
-      if (shouldOverrideRuntimeEnv(process.env[key], requiredValue)) {
-        process.env[key] = requiredValue;
-      }
-    }
-  }
-
-  const requiredMaxPasteCells = Math.max(
-    0,
-    ...perfCases
-      .filter((perfCase) => perfCase.runner === "record-paste")
-      .map((perfCase) => {
-        const config = perfCase.config as RecordPasteCaseConfig;
-        const payloadCells = config.rowCount * config.fields.length;
-        return Math.max(config.maxPasteCells ?? 0, payloadCells);
-      }),
-  );
-
-  if (requiredMaxPasteCells <= 0) {
-    return;
-  }
-
-  const currentMaxPasteCells = Number.parseInt(
-    process.env.MAX_PASTE_CELLS ?? "",
-    10,
-  );
-  if (
-    Number.isFinite(currentMaxPasteCells) &&
-    currentMaxPasteCells >= requiredMaxPasteCells
-  ) {
-    return;
-  }
-
-  process.env.MAX_PASTE_CELLS = String(requiredMaxPasteCells);
-};
 
 const resetAxiosInterceptors = () => {
   uninstallPerfTraceCollector();

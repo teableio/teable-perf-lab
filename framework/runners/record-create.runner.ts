@@ -702,7 +702,7 @@ const buildRecordCreateCaseResult = ({
         : {}),
       ...(primaryMeasurement
         ? {
-            bulkCreate1kMs: primaryMeasurement.durationMs,
+            [config.threshold.metric]: primaryMeasurement.durationMs,
             createRequestMs: primaryMeasurement.durationMs,
             ...(primaryResult?.verifyCreatedMs != null
               ? { verifyCreatedMs: primaryResult.verifyCreatedMs }
