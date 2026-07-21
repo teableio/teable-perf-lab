@@ -94,3 +94,21 @@ Every artifact reports the shared seed hash `542cfc14fa61497c`, 100,000 rows,
 records, 50 matched query routes, and four verified samples. The first case built
 the seed; the other five restored the same fixture. The full local run completed
 in 1,345.64 seconds.
+
+## CI acceptance
+
+Run `29851938303` completed successfully on both engines:
+
+| Query                | V1 query scan | V2 query scan |
+| -------------------- | ------------: | ------------: |
+| Greater than half    |      8.73 sec |      9.99 sec |
+| Middle-half range    |      8.33 sec |      9.99 sec |
+| Greater half, sorted |      9.34 sec |     11.12 sec |
+
+All six execute artifacts report CI seed hash `755ae561e41223b4`, 100,000 rows,
+50 projected fields, a 100-request baseline, a 50-request query, 50,000 returned
+records, 50 matched query routes, and four verified samples. The seed job built
+and uploaded the one shared fixture once in 23 minutes; V1 and V2 restored that
+same dump. Each case emitted 150 trace references across baseline and query,
+selected and saved two representative traces, and reported zero trace failures
+and zero missing fetches.
