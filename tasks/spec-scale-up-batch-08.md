@@ -59,3 +59,31 @@ does not assume field-width sensitivity; local and CI measurements decide that.
 - GitHub Actions saves every selected request trace with zero failures.
 - Compare 10-field and 100-field p95 per engine without tuning width to a target
   duration.
+
+## Local acceptance
+
+The run completed all 16 V1/V2 combinations on `teable-ee/develop` commit
+`3834e0111` in 775.23 seconds:
+
+| Field type       | V1 100-field p95 | V1 ratio | V2 100-field p95 | V2 ratio |
+| ---------------- | ---------------: | -------: | ---------------: | -------: |
+| Single-line text |        108.44 ms |    1.15x |         77.75 ms |    1.06x |
+| Long text        |        108.25 ms |    1.09x |         78.81 ms |    1.09x |
+| Number           |        105.93 ms |    1.10x |         77.08 ms |    1.09x |
+| Date             |        108.01 ms |    1.08x |         80.90 ms |    0.53x |
+| Checkbox         |        104.44 ms |    1.15x |         88.44 ms |    1.22x |
+| Single select    |        116.96 ms |      n/a |         81.85 ms |    1.17x |
+| Multiple select  |        121.46 ms |    1.18x |         81.16 ms |    1.15x |
+| Rating           |        110.78 ms |    1.01x |         78.69 ms |    1.03x |
+
+The referenced history run did not emit the 10-field single-select V1 artifact, so
+that ratio is intentionally unreported. Every result passed and reports 1,000 ready
+source rows, 100 fields, 500 duplicate requests and routing checks, 500 fully checked
+duplicates, a final count of 1,500, three deterministic samples, and zero trace
+failures with local trace collection disabled.
+
+The controlled 10-to-100-field step increased the comparable p95 values by only
+1% to 22%, except for the faster date V2 sample. The primary metric therefore remains
+well below 500 ms across the matrix. This observed result justifies testing a single
+500-field maximum-width canary before expanding that much more expensive fixture to
+all scalar types.
