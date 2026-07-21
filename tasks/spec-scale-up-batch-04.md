@@ -79,3 +79,35 @@ created cells. All 20 results used the same physical table; the first result
 built it and the other 19 reported a seed-cache hit. Local trace references
 were selected correctly, but trace bodies were not saved because the sandbox
 has no trace backend; CI remains the trace-body acceptance surface.
+
+## CI Acceptance
+
+[GitHub Actions run 29840606872](https://github.com/teableio/teable-perf-lab/actions/runs/29840606872)
+completed successfully for the shared seed, V1, V2, and result-reporting jobs.
+The following comparison uses the same full-CI platform and the 10k results
+from run `29815167099`:
+
+| Case shape                 |   V1 10k |   V1 50k | V1 ratio | V2 10k |  V2 50k | V2 ratio |
+| -------------------------- | -------: | -------: | -------: | -----: | ------: | -------: |
+| 1 single-line text field   |    830ms |  3,168ms |    3.82x |   86ms |    80ms |    0.94x |
+| 10 single-line text fields |  7,088ms | 30,346ms |    4.28x |  528ms |   784ms |    1.49x |
+| 10 long-text fields        |  6,660ms | 28,055ms |    4.21x |  475ms | 1,205ms |    2.54x |
+| 10 number fields           |  6,489ms | 27,815ms |    4.29x |  473ms | 1,318ms |    2.79x |
+| 10 date fields             |  6,596ms | 31,082ms |    4.71x |  501ms |   819ms |    1.63x |
+| 10 checkbox fields         |  6,915ms | 30,380ms |    4.39x |  454ms |   648ms |    1.43x |
+| 10 single-select fields    |  6,659ms | 27,516ms |    4.13x |  497ms |   730ms |    1.47x |
+| 10 multiple-select fields  |  6,662ms | 25,090ms |    3.77x |  474ms |   707ms |    1.49x |
+| 10 rating fields           |  6,726ms | 28,329ms |    4.21x |  478ms | 1,247ms |    2.61x |
+| 20 single-line text fields | 13,821ms | 59,637ms |    4.31x |  935ms |   941ms |    1.01x |
+
+All 20 execute artifacts passed. Every artifact reports the same table id,
+50,000 seed records, the exact requested field count, matched V1/V2 routes, and
+a complete 50,000-row empty-cell scan (50,000 to 1,000,000 checked cells). The
+seed job built the physical fixture once and returned nine cache hits; all V1
+and V2 execute artifacts restored that same fixture. Each artifact saved every
+selected trace (one for the single-field case and three for wider cases) with
+zero trace failures.
+
+The result establishes the scale response rather than assuming it: V1 grows
+3.77x to 4.71x for the ten comparable shapes, while V2 ranges from effectively
+flat to 2.79x depending on field type and request width.
