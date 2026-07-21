@@ -66,3 +66,27 @@ All artifacts report matched engine routing, 5,000 scanned records, three
 verified samples, and one measured-request trace reference. Local trace bodies
 were not saved because the sandbox has no trace backend; CI is the trace-body
 acceptance environment.
+
+## CI Acceptance
+
+[GitHub Actions run 29838330267](https://github.com/teableio/teable-perf-lab/actions/runs/29838330267)
+passed all nine cases on both engines.
+
+| Case shape                  | V1 `paste5kMs` | V2 `paste5kMs` |
+| --------------------------- | -------------: | -------------: |
+| checkbox, 10 fields         |     6,225.97ms |     1,207.69ms |
+| date, 10 fields             |     6,619.95ms |     3,521.66ms |
+| long text, 10 fields        |     5,960.21ms |     1,401.92ms |
+| mixed, 20 fields            |    11,894.69ms |     2,670.22ms |
+| multiple select, 10 fields  |     9,535.87ms |     1,293.06ms |
+| number, 10 fields           |     4,102.80ms |       832.08ms |
+| rating, 10 fields           |     9,223.51ms |       818.44ms |
+| single-line text, 10 fields |     6,194.45ms |     1,267.52ms |
+| single select, 10 fields    |     6,932.24ms |     1,055.98ms |
+
+Every artifact reports matched routing, 5,000 scanned records, three verified
+samples, one trace reference, one saved trace body, and zero failed trace
+fetches. Compared with the historical 1k run on the same CI platform, the
+available pairs increased by `3.86x-5.32x` on V1 and `2.09x-3.90x` on V2. The
+historical artifact set did not contain the V1 long-text baseline, so no ratio
+is claimed for that pair.
