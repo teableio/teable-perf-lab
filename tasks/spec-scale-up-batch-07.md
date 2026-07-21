@@ -64,3 +64,35 @@ not assume field-width sensitivity; the resulting history will answer that.
 - GitHub Actions saves each selected request trace without collection failures.
 - Compare 10-field and 100-field p95 per engine. Do not infer sensitivity until
   the results are observed.
+
+## Local acceptance
+
+Two initial attempts were discarded because disabling perf-lab trace collection did
+not disable Teable's development-default OTLP exporters. With no local collector,
+every submission generated an exporter connection error. The framework now clears
+the development trace/log exporter defaults when `PERF_LAB_TRACE_ENABLED=false`,
+while preserving any explicitly configured exporter. Focused tests cover both paths.
+
+The clean run completed all 16 V1/V2 combinations on `teable-ee/develop` commit
+`3834e0111` in 603.48 seconds:
+
+| Field type       | V1 100-field p95 | V1 ratio | V2 100-field p95 | V2 ratio |
+| ---------------- | ---------------: | -------: | ---------------: | -------: |
+| Single-line text |        100.30 ms |    1.10x |         55.45 ms |    1.05x |
+| Long text        |         99.13 ms |    1.04x |         57.75 ms |    0.49x |
+| Number           |         97.15 ms |    1.11x |         52.87 ms |    0.88x |
+| Date             |         98.29 ms |      n/a |         55.72 ms |    0.98x |
+| Checkbox         |         99.95 ms |    1.03x |         52.81 ms |    0.94x |
+| Single select    |        131.98 ms |      n/a |         55.73 ms |    0.90x |
+| Multiple select  |        111.52 ms |    1.22x |         55.86 ms |    0.94x |
+| Rating           |        107.28 ms |    1.11x |         53.60 ms |    0.98x |
+
+The referenced history run did not emit V1 artifacts for date and single select, so
+those two V1 ratios remain unreported instead of mixing runs. Every local artifact
+passed and reports 500 submissions, 100 fields, a 500-row one-page full scan, three
+verified deterministic samples, matched `formSubmit` routing, and zero trace failures
+with local trace collection intentionally disabled.
+
+The 10-to-100-field step therefore did not materially increase the V2 p95 and raised
+the comparable V1 p95 by only 3% to 22%. That observed result supports a subsequent
+step to the product's 500-field limit; it was not assumed before this run.
