@@ -186,3 +186,16 @@ export const recordPaste1kBase = {
   RecordPasteCaseConfig,
   "baseId" | "rowCount" | "maxPasteCells" | "generator" | "verify"
 >;
+
+export const recordPaste5kBase = {
+  ...recordPaste1kBase,
+  rowCount: 5_000,
+  maxPasteCells: 50_000,
+  verify: {
+    sampleRows: [0, 2_499, 4_999],
+    fullScanPageSize: 1_000,
+  },
+} satisfies Pick<
+  RecordPasteCaseConfig,
+  "baseId" | "rowCount" | "maxPasteCells" | "generator" | "verify"
+>;

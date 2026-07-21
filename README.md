@@ -1136,6 +1136,18 @@ workload.
   grid-pasting 1,000 records into a fixed-width ten-field table.
 - `record-paste/1k-mixed-20fields`: Measure a bounded 1,000-row grid paste
   across the established 20-field mixed scalar schema.
+- `record-paste/5k-single-line-text-10fields`: Measure one 5,000-row clipboard
+  paste into a fixed-width ten-field text table.
+- `record-paste/5k-number-10fields`: Measure one 5,000-row clipboard paste into
+  a fixed-width ten-field number table.
+- `record-paste/5k-checkbox-10fields`: Measure one 5,000-row clipboard paste
+  into a fixed-width ten-field checkbox table.
+- `record-paste/5k-single-select-10fields`: Measure one 5,000-row clipboard
+  paste into a fixed-width ten-field single-select table.
+- `record-paste/5k-multiple-select-10fields`: Measure one 5,000-row clipboard
+  paste into a fixed-width ten-field multiple-select table.
+- `record-paste/5k-rating-10fields`: Measure one 5,000-row clipboard paste into
+  a fixed-width ten-field rating table.
 - `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
   for inserting 10,000 flat records into an empty 20-field table through
   `PATCH /api/table/{tableId}/selection/paste`.
