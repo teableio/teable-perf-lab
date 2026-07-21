@@ -30,6 +30,13 @@ const withNineFields = (
   ...Array.from({ length: 9 }, (_, index) => buildField(index + 1)),
 ];
 
+const withFiveHundredFields = (
+  buildField: (index: number) => DuplicateField,
+): DuplicateFields => [
+  titleField(),
+  ...Array.from({ length: 499 }, (_, index) => buildField(index + 1)),
+];
+
 const numberedName = (prefix: string, index: number) =>
   `${prefix} ${String(index).padStart(2, "0")}`;
 
@@ -91,6 +98,11 @@ const rating10 = withNineFields((index) => ({
     color: Colors.YellowBright,
     max: 5,
   },
+}));
+
+const checkbox500 = withFiveHundredFields((index) => ({
+  name: numberedName("Checkbox", index),
+  type: FieldType.Checkbox,
 }));
 
 const mixed20: DuplicateFields = [
@@ -165,6 +177,10 @@ export const recordDuplicateSingle50Fields = {
   multipleSelect10,
   rating10,
   mixed20,
+};
+
+export const recordDuplicateSingleMaxWidthFields = {
+  checkbox500,
 };
 
 export const recordDuplicateSingle50Base = {
