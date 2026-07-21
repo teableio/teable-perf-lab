@@ -54,10 +54,12 @@ import {
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
+  shouldRestoreSharedMutableSeed,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
-const FIXTURE_VERSION = "computed-chain-mutation-v1";
+const FIXTURE_VERSION = "computed-chain-mutation-v2-shared-family-seed";
+const SHARED_SEED_CASE_ID = "lookup/computed-chain-mutation-shared-seed";
 const METADATA_PREFIX = "perf-lab-computed-chain-mutation:";
 
 const USER_TITLE = "Key";
@@ -1235,8 +1237,12 @@ const prepareFixture = async (
   context: PerfRunContext,
 ) => {
   resolveCascadeImpact(shapeFor(config));
+  const seedPerfCase = {
+    ...perfCase,
+    id: SHARED_SEED_CASE_ID,
+  };
   const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
+    perfCase: seedPerfCase,
     runner: "computed-chain-mutation",
     fixtureVersion: FIXTURE_VERSION,
     seedConfig: getSeedConfig(config),
@@ -1724,11 +1730,34 @@ const cleanupFixture = async ({
   fixture: Fixture | undefined;
   config: ComputedChainMutationCaseConfig;
 }) => {
-  if (!fixture || isExecuteDbIsolated()) {
+  if (!fixture) {
     return;
   }
-  if (!fixture.reusableSeed || isFormulaMutation(config.mutation)) {
+
+  const executeDbIsolated = isExecuteDbIsolated();
+  if (!fixture.reusableSeed) {
+    if (!executeDbIsolated) {
+      await deleteFixtureTables(baseId, fixture);
+    }
+    return;
+  }
+
+  // Every computed-chain case resolves to SHARED_SEED_CASE_ID. Formula
+  // mutations are not cheaply reversible, so remove the shared fixture and
+  // force the next sibling to rebuild it. Foreign-cell mutations are cheap to
+  // reverse and must be restored even in an isolated execute job: isolation is
+  // job-scoped, while sibling cases run serially in that same database.
+  if (isFormulaMutation(config.mutation)) {
     await deleteFixtureTables(baseId, fixture);
+    return;
+  }
+  if (
+    !shouldRestoreSharedMutableSeed({
+      reusableSeed: fixture.reusableSeed,
+      executeDbIsolated,
+      sharedSeedIdentity: true,
+    })
+  ) {
     return;
   }
   try {

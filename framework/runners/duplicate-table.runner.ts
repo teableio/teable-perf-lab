@@ -2,6 +2,7 @@ import { FieldKeyType, FieldType, Relationship } from "@teable/core";
 import {
   axios,
   createField,
+  deleteField,
   updateRecords,
   updateTableDescription,
 } from "@teable/openapi";
@@ -60,6 +61,13 @@ type FormulaField = NonNullable<
   id: string;
 };
 
+type SelfLinkField = {
+  id: string;
+  name: string;
+  type?: FieldType;
+  options?: unknown;
+};
+
 type ExpectedCellValue = string | number | boolean | string[] | null;
 
 type DuplicateTableFixture = {
@@ -68,6 +76,7 @@ type DuplicateTableFixture = {
   viewId: string;
   fields: DuplicateField[];
   formulas: FormulaField[];
+  selfLinkField?: SelfLinkField;
   projection: string[];
   seedCacheInfo: SeedCacheInfo;
   seedCacheHit: boolean;
@@ -95,10 +104,12 @@ type DuplicateTablePrimaryResult = {
   responseHeaders: Record<string, string>;
   routing: EngineRouting;
   duplicatedFormulaFields: Array<{ id: string; name: string }>;
+  duplicatedSelfLinkField?: SelfLinkField;
   verifiedRows: Awaited<ReturnType<typeof waitForDuplicatedRows>>;
 };
 
-const DUPLICATE_TABLE_FIXTURE_VERSION = "duplicate-table-v2-self-link";
+const DUPLICATE_TABLE_FIXTURE_VERSION =
+  "duplicate-table-v3-self-link-verification";
 const DUPLICATE_TABLE_METADATA_PREFIX = "perf-lab-duplicate-table:";
 
 const STATUS_CHOICES = ["Todo", "Doing", "Done"];
@@ -321,6 +332,49 @@ const valuesMatch = (
 const formulaValuesMatch = (expectedValue: number, actualValue: unknown) =>
   Math.abs(Number(actualValue) - expectedValue) < 0.000001;
 
+const normalizeSelfLinkTitles = (value: unknown): string[] => {
+  let normalized = value;
+  if (typeof normalized === "string") {
+    const serialized = normalized;
+    try {
+      normalized = JSON.parse(serialized) as unknown;
+    } catch {
+      return serialized ? [serialized] : [];
+    }
+  }
+  if (!Array.isArray(normalized)) {
+    return [];
+  }
+  return normalized.flatMap((item) => {
+    if (typeof item === "string") {
+      return [item];
+    }
+    if (typeof item !== "object" || item === null) {
+      return [];
+    }
+    const title = (item as { title?: unknown }).title;
+    return typeof title === "string" ? [title] : [];
+  });
+};
+
+const expectedSelfLinkTitles = (
+  rowNumber: number,
+  config: DuplicateTableCaseConfig,
+): string[] => {
+  if (!config.selfLink) {
+    return [];
+  }
+  const populatedCount = Math.min(
+    config.selfLink.maxLinks ?? config.rowCount,
+    config.rowCount,
+  );
+  if (rowNumber > populatedCount) {
+    return [];
+  }
+  const targetRowNumber = rowNumber === config.rowCount ? 1 : rowNumber + 1;
+  return [`${config.generator.titlePrefix} ${padRowNumber(targetRowNumber)}`];
+};
+
 const resolveFields = (
   tableFields: NamedField[],
   config: DuplicateTableCaseConfig,
@@ -363,6 +417,24 @@ const resolveFormulas = (
       id: resolvedField.id,
     };
   });
+};
+
+const resolveSelfLinkField = (
+  tableFields: NamedField[],
+  config: DuplicateTableCaseConfig,
+): SelfLinkField | undefined => {
+  if (!config.selfLink) {
+    return;
+  }
+  const field = tableFields.find(
+    (candidate) => candidate.name === config.selfLink!.name,
+  );
+  if (!field) {
+    throw new Error(
+      `Missing duplicate table self-link field ${config.selfLink.name}`,
+    );
+  }
+  return field;
 };
 
 const compileFormulaExpression = (
@@ -527,14 +599,20 @@ const assertDuplicatedRows = async (
   viewId: string,
   fields: DuplicateField[],
   formulas: FormulaField[],
+  selfLinkField: SelfLinkField | undefined,
   config: DuplicateTableCaseConfig,
   options: { verifyFormulaValues: boolean },
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedFormulas = options.verifyFormulaValues ? formulas : [];
-  const projection = [...fields, ...verifiedFormulas].map((field) => field.id);
+  const projection = [
+    ...fields,
+    ...verifiedFormulas,
+    ...(selfLinkField ? [selfLinkField] : []),
+  ].map((field) => field.id);
   const verifiedSamples = [];
+  let populatedSelfLinkCount = 0;
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
       totalRows: config.rowCount,
@@ -557,6 +635,24 @@ const assertDuplicatedRows = async (
         record.fields,
         config,
       );
+      if (selfLinkField) {
+        const expectedTitles = expectedSelfLinkTitles(rowNumber, config);
+        const actualTitles = normalizeSelfLinkTitles(
+          record.fields[selfLinkField.id],
+        );
+        if (JSON.stringify(actualTitles) !== JSON.stringify(expectedTitles)) {
+          throw new Error(
+            `Row ${rowNumber} ${selfLinkField.name} mismatch: expected ${JSON.stringify(
+              expectedTitles,
+            )}, actual ${JSON.stringify(actualTitles)}`,
+          );
+        }
+        if (actualTitles.length > 0) {
+          populatedSelfLinkCount += 1;
+        }
+        verifiedRow.actual[selfLinkField.name] = actualTitles;
+        verifiedRow.expected[selfLinkField.name] = expectedTitles;
+      }
       const rowOffset = rowNumber - 1;
 
       if (sampleRowOffsets.has(rowOffset)) {
@@ -576,6 +672,18 @@ const assertDuplicatedRows = async (
     );
   }
 
+  const expectedPopulatedSelfLinkCount = selfLinkField
+    ? Math.min(config.selfLink?.maxLinks ?? config.rowCount, config.rowCount)
+    : 0;
+  if (
+    selfLinkField &&
+    populatedSelfLinkCount !== expectedPopulatedSelfLinkCount
+  ) {
+    throw new Error(
+      `Duplicated self-link count mismatch: expected ${expectedPopulatedSelfLinkCount}, actual ${populatedSelfLinkCount}`,
+    );
+  }
+
   return {
     scannedRecords,
     pageSize,
@@ -583,6 +691,14 @@ const assertDuplicatedRows = async (
     formulaValueVerification: options.verifyFormulaValues
       ? "verified"
       : "skipped",
+    selfLinkVerification: selfLinkField
+      ? {
+          fieldId: selfLinkField.id,
+          fieldName: selfLinkField.name,
+          expectedPopulatedCount: expectedPopulatedSelfLinkCount,
+          populatedCount: populatedSelfLinkCount,
+        }
+      : undefined,
     verifiedSamples: verifiedSamples.sort(
       (left, right) => left.rowOffset - right.rowOffset,
     ),
@@ -594,6 +710,7 @@ const waitForDuplicatedRows = async (
   viewId: string,
   fields: DuplicateField[],
   formulas: FormulaField[],
+  selfLinkField: SelfLinkField | undefined,
   config: DuplicateTableCaseConfig,
   options: { verifyFormulaValues: boolean },
 ) => {
@@ -611,6 +728,7 @@ const waitForDuplicatedRows = async (
         viewId,
         fields,
         formulas,
+        selfLinkField,
         config,
         options,
       );
@@ -685,6 +803,7 @@ const buildBaseFixture = async (
 
   const fields = resolveFields(tableFields, config);
   const formulas = resolveFormulas(tableFields, config);
+  const selfLinkField = resolveSelfLinkField(tableFields, config);
 
   return {
     tableId,
@@ -692,7 +811,12 @@ const buildBaseFixture = async (
     viewId,
     fields,
     formulas,
-    projection: [...fields, ...formulas].map((field) => field.id),
+    selfLinkField,
+    projection: [
+      ...fields,
+      ...formulas,
+      ...(selfLinkField ? [selfLinkField] : []),
+    ].map((field) => field.id),
   };
 };
 
@@ -710,7 +834,7 @@ const getDuplicateTableSeedConfig = (config: DuplicateTableCaseConfig) => ({
 const assertSeedReady = async (
   fixture: Pick<
     DuplicateTableFixture,
-    "tableId" | "viewId" | "fields" | "formulas"
+    "tableId" | "viewId" | "fields" | "formulas" | "selfLinkField"
   >,
   config: DuplicateTableCaseConfig,
 ) => {
@@ -719,6 +843,7 @@ const assertSeedReady = async (
     fixture.viewId,
     fixture.fields,
     fixture.formulas,
+    fixture.selfLinkField,
     config,
     { verifyFormulaValues: true },
   );
@@ -726,6 +851,7 @@ const assertSeedReady = async (
     scannedRecords: verified.scannedRecords,
     pageSize: verified.pageSize,
     pageCount: verified.pageCount,
+    selfLinkVerification: verified.selfLinkVerification,
   };
 };
 
@@ -811,13 +937,19 @@ const prepareDuplicateTableFixture = async (
     tableFields = await getFields(table.id);
     fields = resolveFields(tableFields, config);
     const formulas = resolveFormulas(tableFields, config);
+    const selfLinkField = resolveSelfLinkField(tableFields, config);
     const fixture = {
       tableId: table.id,
       tableName: actualTableName,
       viewId: (await getViews(table.id))[0]?.id,
       fields,
       formulas,
-      projection: [...fields, ...formulas].map((field) => field.id),
+      selfLinkField,
+      projection: [
+        ...fields,
+        ...formulas,
+        ...(selfLinkField ? [selfLinkField] : []),
+      ].map((field) => field.id),
     };
     if (!fixture.viewId) {
       throw new Error(
@@ -859,7 +991,9 @@ const resolveDuplicatedFields = async (
   duplicateTableId: string,
   sourceFields: DuplicateField[],
   sourceFormulas: FormulaField[],
+  sourceSelfLinkField: SelfLinkField | undefined,
   fieldMap: Record<string, string>,
+  allowMissingSelfLink: boolean,
 ) => {
   const duplicatedTableFields = await getFields(duplicateTableId);
   const fieldById = new Map(
@@ -903,7 +1037,19 @@ const resolveDuplicatedFields = async (
     };
   });
 
-  return { fields, formulas };
+  const selfLinkField = sourceSelfLinkField
+    ? (fieldById.get(fieldMap[sourceSelfLinkField.id]) ??
+      duplicatedTableFields.find(
+        (candidate) => candidate.name === sourceSelfLinkField.name,
+      ))
+    : undefined;
+  if (sourceSelfLinkField && !selfLinkField && !allowMissingSelfLink) {
+    throw new Error(
+      `Missing duplicated self-link field ${sourceSelfLinkField.name}`,
+    );
+  }
+
+  return { fields, formulas, selfLinkField };
 };
 
 const duplicateTableAndVerify = async (
@@ -950,13 +1096,16 @@ const duplicateTableAndVerify = async (
     duplicateTableId,
     fixture.fields,
     fixture.formulas,
+    fixture.selfLinkField,
     fieldMap,
+    context.engine === "v1",
   );
   const verifiedRows = await waitForDuplicatedRows(
     duplicateTableId,
     duplicatedViewId,
     duplicatedFields.fields,
     duplicatedFields.formulas,
+    duplicatedFields.selfLinkField,
     config,
     { verifyFormulaValues: false },
   );
@@ -974,6 +1123,7 @@ const duplicateTableAndVerify = async (
       id: formula.id,
       name: formula.name,
     })),
+    duplicatedSelfLinkField: duplicatedFields.selfLinkField,
     verifiedRows,
   };
 };
@@ -1094,6 +1244,7 @@ const buildDuplicateTableCaseResult = ({
         name: formula.name,
         expression: formula.expression,
       })),
+      sourceSelfLinkField: fixture?.selfLinkField,
       prepare: fixture
         ? {
             durationMs: prepareMeasurement.durationMs,
@@ -1124,6 +1275,21 @@ const buildDuplicateTableCaseResult = ({
             duplicatedFormulaFields: primaryResult.duplicatedFormulaFields,
             formulaValueVerification:
               primaryResult.verifiedRows.formulaValueVerification,
+            selfLinkField: primaryResult.duplicatedSelfLinkField,
+            selfLinkVerification:
+              primaryResult.verifiedRows.selfLinkVerification,
+            selfLinkCopy: config.selfLink
+              ? {
+                  sourceFieldId: fixture?.selfLinkField?.id,
+                  copiedFieldId: primaryResult.duplicatedSelfLinkField?.id,
+                  copiedFieldPresent: Boolean(
+                    primaryResult.duplicatedSelfLinkField,
+                  ),
+                  status: primaryResult.verifiedRows.selfLinkVerification
+                    ? "verified"
+                    : "legacy-v1-field-absent",
+                }
+              : undefined,
             requestOnlyPrimaryMetric: true,
             responseHeaders: primaryResult.responseHeaders,
             routing: primaryResult.routing,
@@ -1138,6 +1304,8 @@ const buildDuplicateTableCaseResult = ({
             waitedMs: primaryResult.verifiedRows.waitedMs,
             formulaValueVerification:
               primaryResult.verifiedRows.formulaValueVerification,
+            selfLinkVerification:
+              primaryResult.verifiedRows.selfLinkVerification,
           }
         : undefined,
       verifiedSamples: primaryResult?.verifiedRows.verifiedSamples,
@@ -1147,6 +1315,8 @@ const buildDuplicateTableCaseResult = ({
               primaryMeasurement.durationMs - primaryResult.duplicateRequestMs,
             ),
             scannedRecords: primaryResult.verifiedRows.scannedRecords,
+            selfLinkVerification:
+              primaryResult.verifiedRows.selfLinkVerification,
             metric: "duplicateTableFullScanReadyMs",
             participatesInThreshold: false,
           }
@@ -1169,6 +1339,7 @@ type DuplicateTableLifecycleFixture = DuplicateTableFixture & {
   // Parked by runPrimary once the duplicate request returns, so cleanup can drop
   // the created copy even if the copy-readiness scan throws afterwards.
   duplicateTableId?: string;
+  duplicateSelfLinkFieldId?: string;
 };
 
 // duplicate-table is the first member of the duplicate lifecycle: seed (or
@@ -1208,6 +1379,8 @@ const duplicateTableSpec: DuplicateLifecycleSpec<
         ),
     );
     fixture.duplicateTableId = primaryMeasurement.result.duplicateTableId;
+    fixture.duplicateSelfLinkFieldId =
+      primaryMeasurement.result.duplicatedSelfLinkField?.id;
     return primaryMeasurement;
   },
   buildResult: ({ config, fixture, seedReadyMeasurement, primary, error }) => {
@@ -1232,6 +1405,12 @@ const duplicateTableSpec: DuplicateLifecycleSpec<
     }
     if (fixture.duplicateTableId) {
       try {
+        if (fixture.duplicateSelfLinkFieldId) {
+          await deleteField(
+            fixture.duplicateTableId,
+            fixture.duplicateSelfLinkFieldId,
+          );
+        }
         await permanentDeleteTable(baseId, fixture.duplicateTableId);
       } catch (error) {
         console.warn(
