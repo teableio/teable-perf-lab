@@ -71,6 +71,16 @@ import fieldCreate10kCreate10SingleSelectFieldsCase from "./cases/field-create/1
 import fieldCreate10kCreate10MultipleSelectFieldsCase from "./cases/field-create/10k-create-10-multiple-select-fields.case";
 import fieldCreate10kCreate10RatingFieldsCase from "./cases/field-create/10k-create-10-rating-fields.case";
 import fieldCreate10kCreate20SingleLineTextFieldsCase from "./cases/field-create/10k-create-20-single-line-text-fields.case";
+import fieldCreate50kCreate1SingleLineTextFieldCase from "./cases/field-create/50k-create-1-single-line-text-field.case";
+import fieldCreate50kCreate10SingleLineTextFieldsCase from "./cases/field-create/50k-create-10-single-line-text-fields.case";
+import fieldCreate50kCreate10LongTextFieldsCase from "./cases/field-create/50k-create-10-long-text-fields.case";
+import fieldCreate50kCreate10NumberFieldsCase from "./cases/field-create/50k-create-10-number-fields.case";
+import fieldCreate50kCreate10DateFieldsCase from "./cases/field-create/50k-create-10-date-fields.case";
+import fieldCreate50kCreate10CheckboxFieldsCase from "./cases/field-create/50k-create-10-checkbox-fields.case";
+import fieldCreate50kCreate10SingleSelectFieldsCase from "./cases/field-create/50k-create-10-single-select-fields.case";
+import fieldCreate50kCreate10MultipleSelectFieldsCase from "./cases/field-create/50k-create-10-multiple-select-fields.case";
+import fieldCreate50kCreate10RatingFieldsCase from "./cases/field-create/50k-create-10-rating-fields.case";
+import fieldCreate50kCreate20SingleLineTextFieldsCase from "./cases/field-create/50k-create-20-single-line-text-fields.case";
 import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
 import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
@@ -421,6 +431,16 @@ const cases = [
   fieldCreate10kCreate10MultipleSelectFieldsCase,
   fieldCreate10kCreate10RatingFieldsCase,
   fieldCreate10kCreate20SingleLineTextFieldsCase,
+  fieldCreate50kCreate1SingleLineTextFieldCase,
+  fieldCreate50kCreate10SingleLineTextFieldsCase,
+  fieldCreate50kCreate10LongTextFieldsCase,
+  fieldCreate50kCreate10NumberFieldsCase,
+  fieldCreate50kCreate10DateFieldsCase,
+  fieldCreate50kCreate10CheckboxFieldsCase,
+  fieldCreate50kCreate10SingleSelectFieldsCase,
+  fieldCreate50kCreate10MultipleSelectFieldsCase,
+  fieldCreate50kCreate10RatingFieldsCase,
+  fieldCreate50kCreate20SingleLineTextFieldsCase,
   fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
   fieldCreate10xSingleSelect1kOptionsCase,
