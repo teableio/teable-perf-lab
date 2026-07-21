@@ -747,6 +747,22 @@ workload.
   text records through a Form view. `formSubmitP95Ms` keeps the per-request
   latency contract; the loop phase records aggregate work. V1/V2 routing and all
   500 stored rows are verified.
+- `form-submit/sequential-500-single-line-text-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 text fields.
+- `form-submit/sequential-500-long-text-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 long-text fields.
+- `form-submit/sequential-500-number-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 numeric fields.
+- `form-submit/sequential-500-date-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 date fields.
+- `form-submit/sequential-500-checkbox-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 checkbox fields.
+- `form-submit/sequential-500-single-select-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 single-select fields.
+- `form-submit/sequential-500-multiple-select-100fields`: Measure single-record
+  Form submission p95 when each request writes 100 multiple-select fields.
+- `form-submit/sequential-500-rating-100fields`: Measure single-record Form
+  submission p95 when each request writes 100 rating fields.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through

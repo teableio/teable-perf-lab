@@ -203,6 +203,14 @@ import formSubmitSequential500SingleSelect10FieldsCase from "./cases/form-submit
 import formSubmitSequential500MultipleSelect10FieldsCase from "./cases/form-submit/sequential-500-multiple-select-10fields.case";
 import formSubmitSequential500Rating10FieldsCase from "./cases/form-submit/sequential-500-rating-10fields.case";
 import formSubmitSequential500SingleLineText20FieldsCase from "./cases/form-submit/sequential-500-single-line-text-20fields.case";
+import formSubmitSequential500SingleLineText100FieldsCase from "./cases/form-submit/sequential-500-single-line-text-100fields.case";
+import formSubmitSequential500LongText100FieldsCase from "./cases/form-submit/sequential-500-long-text-100fields.case";
+import formSubmitSequential500Number100FieldsCase from "./cases/form-submit/sequential-500-number-100fields.case";
+import formSubmitSequential500Date100FieldsCase from "./cases/form-submit/sequential-500-date-100fields.case";
+import formSubmitSequential500Checkbox100FieldsCase from "./cases/form-submit/sequential-500-checkbox-100fields.case";
+import formSubmitSequential500SingleSelect100FieldsCase from "./cases/form-submit/sequential-500-single-select-100fields.case";
+import formSubmitSequential500MultipleSelect100FieldsCase from "./cases/form-submit/sequential-500-multiple-select-100fields.case";
+import formSubmitSequential500Rating100FieldsCase from "./cases/form-submit/sequential-500-rating-100fields.case";
 import recordCreate1kSingleLineTextFieldsBulkCreateCase from "./cases/record-create/1k-single-line-text-fields-bulk-create.case";
 import recordCreate1kLongTextFieldsBulkCreateCase from "./cases/record-create/1k-long-text-fields-bulk-create.case";
 import recordCreate1kNumberFieldsBulkCreateCase from "./cases/record-create/1k-number-fields-bulk-create.case";
@@ -543,6 +551,14 @@ const cases = [
   formSubmitSequential500MultipleSelect10FieldsCase,
   formSubmitSequential500Rating10FieldsCase,
   formSubmitSequential500SingleLineText20FieldsCase,
+  formSubmitSequential500SingleLineText100FieldsCase,
+  formSubmitSequential500LongText100FieldsCase,
+  formSubmitSequential500Number100FieldsCase,
+  formSubmitSequential500Date100FieldsCase,
+  formSubmitSequential500Checkbox100FieldsCase,
+  formSubmitSequential500SingleSelect100FieldsCase,
+  formSubmitSequential500MultipleSelect100FieldsCase,
+  formSubmitSequential500Rating100FieldsCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   selectionClearFlat10k20FieldsCellClearStreamCase,
   recordDelete1kCase,
