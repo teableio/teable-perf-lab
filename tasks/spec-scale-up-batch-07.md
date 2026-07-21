@@ -96,3 +96,26 @@ with local trace collection intentionally disabled.
 The 10-to-100-field step therefore did not materially increase the V2 p95 and raised
 the comparable V1 p95 by only 3% to 22%. That observed result supports a subsequent
 step to the product's 500-field limit; it was not assumed before this run.
+
+## CI acceptance
+
+GitHub Actions run `29846330502` completed every workflow job successfully. Its
+primary metrics and ratios against the 10-field history run are:
+
+| Field type       | V1 100-field p95 | V1 ratio | V2 100-field p95 | V2 ratio |
+| ---------------- | ---------------: | -------: | ---------------: | -------: |
+| Single-line text |        156.14 ms |    1.72x |         67.56 ms |    1.27x |
+| Long text        |        145.60 ms |    1.53x |         60.01 ms |    0.51x |
+| Number           |        142.80 ms |    1.63x |         59.18 ms |    0.98x |
+| Date             |        139.83 ms |      n/a |         60.59 ms |    1.06x |
+| Checkbox         |        139.38 ms |    1.43x |         57.64 ms |    1.03x |
+| Single select    |        157.08 ms |      n/a |         62.28 ms |    1.00x |
+| Multiple select  |        168.13 ms |    1.85x |         62.81 ms |    1.06x |
+| Rating           |        154.62 ms |    1.60x |         57.52 ms |    1.05x |
+
+All 16 execute artifacts passed. Each reports 500 submissions, 100 fields, a
+500-row one-page full scan, three verified samples, matched engine and `formSubmit`
+routing, 500 captured trace references, and three selected/saved representative
+traces with zero failures or missing fetches. The CI measurements confirm that the
+100-field step raises V1 more clearly than the local run but still leaves every
+primary metric below 170 ms; V2 remains below 68 ms.
