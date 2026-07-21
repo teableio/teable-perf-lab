@@ -39,6 +39,11 @@ import {
   seedFieldAddLifecycle,
   type FieldAddLifecycleSpec,
 } from "./field-add-lifecycle";
+import {
+  getStoredFieldDuplicateSeedIdentity,
+  getStoredFieldDuplicateSeedIdentityCase,
+  shouldCleanupStoredFieldDuplicateFixture,
+} from "./field-duplicate-stored-model";
 
 type NamedField = {
   id: string;
@@ -423,8 +428,12 @@ const storedFieldDuplicateSpec: FieldAddLifecycleSpec<
     const tableName = `${config.tableNamePrefix}-${seedMode ? "seed-" : ""}${Date.now()}`;
     const prepareMeasurement = await measureAsync("prepare", () =>
       prepareRecordReplayFixture(baseId, tableName, config, {
-        perfCase,
+        perfCase: getStoredFieldDuplicateSeedIdentityCase(
+          perfCase,
+          config.seedIdentity,
+        ),
         runner: "field-duplicate",
+        seedIdentity: getStoredFieldDuplicateSeedIdentity(config.seedIdentity),
         seedCodeFiles: [new URL(import.meta.url)],
         ...(config.mode === "structured"
           ? {
@@ -496,7 +505,13 @@ const storedFieldDuplicateSpec: FieldAddLifecycleSpec<
     });
   },
   cleanup: async ({ baseId, fixture, config }) => {
-    if (isExecuteDbIsolated() || !fixture?.tableId) {
+    if (
+      !fixture?.tableId ||
+      !shouldCleanupStoredFieldDuplicateFixture({
+        executeDbIsolated: isExecuteDbIsolated(),
+        reusableSeed: fixture.reusableSeed,
+      })
+    ) {
       return;
     }
     if (fixture.reusableSeed) {
