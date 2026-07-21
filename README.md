@@ -376,6 +376,36 @@ workload.
 - `field-create/10k-create-20-single-line-text-fields`: Measure homogeneous
   request-count scaling by doubling the ten-field text workload to twenty
   sequential field-create requests.
+- `field-create/50k-create-1-single-line-text-field`: Measure creating 1
+  single-line text field on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-single-line-text-fields`: Measure creating 10
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-long-text-fields`: Measure creating 10 long-text
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-number-fields`: Measure creating 10 number fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-10-date-fields`: Measure creating 10 date fields on a
+  populated 50,000-row table as the row-count scale sibling of the existing 10k
+  case.
+- `field-create/50k-create-10-checkbox-fields`: Measure creating 10 checkbox
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-single-select-fields`: Measure creating 10
+  single-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-multiple-select-fields`: Measure creating 10
+  multiple-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-rating-fields`: Measure creating 10 rating fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-20-single-line-text-fields`: Measure creating 20
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
 - `field-create/mixed-10k-create-19-fields`: Measure the external field creation
   path for adding 19 mixed-type fields to a 10,000-row table.
 - `field-create/single-select-1k-options`: Measure the field creation path for
