@@ -71,6 +71,16 @@ import fieldCreate10kCreate10SingleSelectFieldsCase from "./cases/field-create/1
 import fieldCreate10kCreate10MultipleSelectFieldsCase from "./cases/field-create/10k-create-10-multiple-select-fields.case";
 import fieldCreate10kCreate10RatingFieldsCase from "./cases/field-create/10k-create-10-rating-fields.case";
 import fieldCreate10kCreate20SingleLineTextFieldsCase from "./cases/field-create/10k-create-20-single-line-text-fields.case";
+import fieldCreate50kCreate1SingleLineTextFieldCase from "./cases/field-create/50k-create-1-single-line-text-field.case";
+import fieldCreate50kCreate10SingleLineTextFieldsCase from "./cases/field-create/50k-create-10-single-line-text-fields.case";
+import fieldCreate50kCreate10LongTextFieldsCase from "./cases/field-create/50k-create-10-long-text-fields.case";
+import fieldCreate50kCreate10NumberFieldsCase from "./cases/field-create/50k-create-10-number-fields.case";
+import fieldCreate50kCreate10DateFieldsCase from "./cases/field-create/50k-create-10-date-fields.case";
+import fieldCreate50kCreate10CheckboxFieldsCase from "./cases/field-create/50k-create-10-checkbox-fields.case";
+import fieldCreate50kCreate10SingleSelectFieldsCase from "./cases/field-create/50k-create-10-single-select-fields.case";
+import fieldCreate50kCreate10MultipleSelectFieldsCase from "./cases/field-create/50k-create-10-multiple-select-fields.case";
+import fieldCreate50kCreate10RatingFieldsCase from "./cases/field-create/50k-create-10-rating-fields.case";
+import fieldCreate50kCreate20SingleLineTextFieldsCase from "./cases/field-create/50k-create-20-single-line-text-fields.case";
 import fieldCreateMixed10kCreate19FieldsCase from "./cases/field-create/mixed-10k-create-19-fields.case";
 import fieldCreateSimple10kCreate5FieldsCase from "./cases/field-create/10k-create-5-simple-fields.case";
 import fieldCreateSingleSelect1kOptionsCase from "./cases/field-create/single-select-1k-options.case";
@@ -132,6 +142,14 @@ import fieldDuplicate10kDuplicateActiveFieldCase from "./cases/field-duplicate/1
 import fieldDuplicate10kDuplicateStatusFieldCase from "./cases/field-duplicate/10k-duplicate-status-field.case";
 import fieldDuplicate10kDuplicateTagsFieldCase from "./cases/field-duplicate/10k-duplicate-tags-field.case";
 import fieldDuplicate10kDuplicateScoreFieldCase from "./cases/field-duplicate/10k-duplicate-score-field.case";
+import fieldDuplicate50kDuplicateOwnerTextFieldCase from "./cases/field-duplicate/50k-duplicate-owner-text-field.case";
+import fieldDuplicate50kDuplicateDescriptionFieldCase from "./cases/field-duplicate/50k-duplicate-description-field.case";
+import fieldDuplicate50kDuplicateAmountFieldCase from "./cases/field-duplicate/50k-duplicate-amount-field.case";
+import fieldDuplicate50kDuplicateStartDateFieldCase from "./cases/field-duplicate/50k-duplicate-start-date-field.case";
+import fieldDuplicate50kDuplicateActiveFieldCase from "./cases/field-duplicate/50k-duplicate-active-field.case";
+import fieldDuplicate50kDuplicateStatusFieldCase from "./cases/field-duplicate/50k-duplicate-status-field.case";
+import fieldDuplicate50kDuplicateTagsFieldCase from "./cases/field-duplicate/50k-duplicate-tags-field.case";
+import fieldDuplicate50kDuplicateScoreFieldCase from "./cases/field-duplicate/50k-duplicate-score-field.case";
 import fieldDuplicate10kDuplicateAssigneeFieldCase from "./cases/field-duplicate/10k-duplicate-assignee-field.case";
 import fieldDuplicate10kDuplicateAttachmentsFieldCase from "./cases/field-duplicate/10k-duplicate-attachments-field.case";
 import fieldDuplicate10kDuplicateManyManyLinkFieldCase from "./cases/field-duplicate/10k-duplicate-many-many-link-field.case";
@@ -298,6 +316,15 @@ import recordPaste1kSingleSelect10FieldsCase from "./cases/record-paste/1k-singl
 import recordPaste1kMultipleSelect10FieldsCase from "./cases/record-paste/1k-multiple-select-10fields.case";
 import recordPaste1kRating10FieldsCase from "./cases/record-paste/1k-rating-10fields.case";
 import recordPaste1kMixed20FieldsCase from "./cases/record-paste/1k-mixed-20fields.case";
+import recordPaste5kSingleLineText10FieldsCase from "./cases/record-paste/5k-single-line-text-10fields.case";
+import recordPaste5kLongText10FieldsCase from "./cases/record-paste/5k-long-text-10fields.case";
+import recordPaste5kNumber10FieldsCase from "./cases/record-paste/5k-number-10fields.case";
+import recordPaste5kDate10FieldsCase from "./cases/record-paste/5k-date-10fields.case";
+import recordPaste5kCheckbox10FieldsCase from "./cases/record-paste/5k-checkbox-10fields.case";
+import recordPaste5kSingleSelect10FieldsCase from "./cases/record-paste/5k-single-select-10fields.case";
+import recordPaste5kMultipleSelect10FieldsCase from "./cases/record-paste/5k-multiple-select-10fields.case";
+import recordPaste5kRating10FieldsCase from "./cases/record-paste/5k-rating-10fields.case";
+import recordPaste5kMixed20FieldsCase from "./cases/record-paste/5k-mixed-20fields.case";
 import recordPasteFlat10k20FieldsCopyPasteCase from "./cases/record-paste/flat-10k-20fields-copy-paste.case";
 import recordPasteFlat10k4FieldsCopyPasteCase from "./cases/record-paste/flat-10k-4fields-copy-paste.case";
 import recordPasteMixed10k20FieldsComplexCopyPasteCase from "./cases/record-paste/mixed-10k-20fields-complex-copy-paste.case";
@@ -420,6 +447,16 @@ const cases = [
   fieldCreate10kCreate10MultipleSelectFieldsCase,
   fieldCreate10kCreate10RatingFieldsCase,
   fieldCreate10kCreate20SingleLineTextFieldsCase,
+  fieldCreate50kCreate1SingleLineTextFieldCase,
+  fieldCreate50kCreate10SingleLineTextFieldsCase,
+  fieldCreate50kCreate10LongTextFieldsCase,
+  fieldCreate50kCreate10NumberFieldsCase,
+  fieldCreate50kCreate10DateFieldsCase,
+  fieldCreate50kCreate10CheckboxFieldsCase,
+  fieldCreate50kCreate10SingleSelectFieldsCase,
+  fieldCreate50kCreate10MultipleSelectFieldsCase,
+  fieldCreate50kCreate10RatingFieldsCase,
+  fieldCreate50kCreate20SingleLineTextFieldsCase,
   fieldCreateMixed10kCreate19FieldsCase,
   fieldCreateSingleSelect1kOptionsCase,
   fieldCreate10xSingleSelect1kOptionsCase,
@@ -481,6 +518,14 @@ const cases = [
   fieldDuplicate10kDuplicateStatusFieldCase,
   fieldDuplicate10kDuplicateTagsFieldCase,
   fieldDuplicate10kDuplicateScoreFieldCase,
+  fieldDuplicate50kDuplicateOwnerTextFieldCase,
+  fieldDuplicate50kDuplicateDescriptionFieldCase,
+  fieldDuplicate50kDuplicateAmountFieldCase,
+  fieldDuplicate50kDuplicateStartDateFieldCase,
+  fieldDuplicate50kDuplicateActiveFieldCase,
+  fieldDuplicate50kDuplicateStatusFieldCase,
+  fieldDuplicate50kDuplicateTagsFieldCase,
+  fieldDuplicate50kDuplicateScoreFieldCase,
   fieldDuplicate10kDuplicateAssigneeFieldCase,
   fieldDuplicate10kDuplicateAttachmentsFieldCase,
   fieldDuplicate10kDuplicateManyManyLinkFieldCase,
@@ -687,6 +732,15 @@ const cases = [
   recordPaste1kMultipleSelect10FieldsCase,
   recordPaste1kRating10FieldsCase,
   recordPaste1kMixed20FieldsCase,
+  recordPaste5kSingleLineText10FieldsCase,
+  recordPaste5kLongText10FieldsCase,
+  recordPaste5kNumber10FieldsCase,
+  recordPaste5kDate10FieldsCase,
+  recordPaste5kCheckbox10FieldsCase,
+  recordPaste5kSingleSelect10FieldsCase,
+  recordPaste5kMultipleSelect10FieldsCase,
+  recordPaste5kRating10FieldsCase,
+  recordPaste5kMixed20FieldsCase,
   recordPasteFlat10k20FieldsCopyPasteCase,
   recordPasteFlat10k4FieldsCopyPasteCase,
   recordPasteMixed10k20FieldsComplexCopyPasteCase,

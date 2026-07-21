@@ -13,7 +13,7 @@ inventory and registered case catalog. The generated block is checked by
 <!-- Generated from framework/runner-registry.ts and registry.ts. -->
 <!-- Do not edit by hand; run `pnpm sync:readme` to regenerate. -->
 
-**Lifecycle: 39 / 43 runner kinds · 329 / 345 cases. Direct: 4 runner kinds · 16 cases.**
+**Lifecycle: 39 / 43 runner kinds · 356 / 372 cases. Direct: 4 runner kinds · 16 cases.**
 
 | Runner kind                        | Implementation                                      | Registered cases |
 | ---------------------------------- | --------------------------------------------------- | ---------------: |
@@ -27,13 +27,13 @@ inventory and registered case catalog. The generated block is checked by
 | `computed-chain-mutation`          | `record-mutation-lifecycle`                         |               12 |
 | `customer-upsert-computed-flow`    | `record-mutation-lifecycle`                         |                9 |
 | `lookup-search-index`              | `read-lifecycle`                                    |                6 |
-| `field-create`                     | `field-add-lifecycle`                               |               15 |
+| `field-create`                     | `field-add-lifecycle`                               |               25 |
 | `field-convert`                    | `field-convert-lifecycle`                           |               17 |
 | `field-convert-link`               | `field-convert-lifecycle`                           |                2 |
 | `field-update`                     | `record-mutation-lifecycle`                         |                1 |
 | `field-delete`                     | `field-delete-lifecycle`                            |               17 |
 | `field-restore`                    | direct                                              |                8 |
-| `field-duplicate`                  | `field-add-lifecycle`                               |               18 |
+| `field-duplicate`                  | `field-add-lifecycle`                               |               26 |
 | `duplicate-table`                  | `duplicate-lifecycle`                               |                5 |
 | `duplicate-view`                   | direct                                              |                2 |
 | `duplicate-base`                   | `duplicate-lifecycle`                               |                3 |
@@ -46,7 +46,7 @@ inventory and registered case catalog. The generated block is checked by
 | `table-restore-link`               | `table-link-lifecycle`                              |                2 |
 | `csv-import`                       | `csv-import-lifecycle`                              |                3 |
 | `form-submit`                      | `record-mutation-lifecycle`                         |               30 |
-| `record-paste`                     | `record-mutation-lifecycle`                         |               15 |
+| `record-paste`                     | `record-mutation-lifecycle`                         |               24 |
 | `record-read`                      | `read-lifecycle`                                    |               32 |
 | `record-create`                    | `record-mutation-lifecycle`                         |               21 |
 | `record-update`                    | `record-mutation-lifecycle`                         |               21 |
