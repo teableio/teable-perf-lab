@@ -376,6 +376,36 @@ workload.
 - `field-create/10k-create-20-single-line-text-fields`: Measure homogeneous
   request-count scaling by doubling the ten-field text workload to twenty
   sequential field-create requests.
+- `field-create/50k-create-1-single-line-text-field`: Measure creating 1
+  single-line text field on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-single-line-text-fields`: Measure creating 10
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-long-text-fields`: Measure creating 10 long-text
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-number-fields`: Measure creating 10 number fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-10-date-fields`: Measure creating 10 date fields on a
+  populated 50,000-row table as the row-count scale sibling of the existing 10k
+  case.
+- `field-create/50k-create-10-checkbox-fields`: Measure creating 10 checkbox
+  fields on a populated 50,000-row table as the row-count scale sibling of the
+  existing 10k case.
+- `field-create/50k-create-10-single-select-fields`: Measure creating 10
+  single-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-multiple-select-fields`: Measure creating 10
+  multiple-select fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
+- `field-create/50k-create-10-rating-fields`: Measure creating 10 rating fields
+  on a populated 50,000-row table as the row-count scale sibling of the existing
+  10k case.
+- `field-create/50k-create-20-single-line-text-fields`: Measure creating 20
+  single-line text fields on a populated 50,000-row table as the row-count scale
+  sibling of the existing 10k case.
 - `field-create/mixed-10k-create-19-fields`: Measure the external field creation
   path for adding 19 mixed-type fields to a 10,000-row table.
 - `field-create/single-select-1k-options`: Measure the field creation path for
@@ -1139,6 +1169,25 @@ workload.
   grid-pasting 1,000 records into a fixed-width ten-field table.
 - `record-paste/1k-mixed-20fields`: Measure a bounded 1,000-row grid paste
   across the established 20-field mixed scalar schema.
+- `record-paste/5k-single-line-text-10fields`: Scale the 1k single-line-text
+  paste baseline to one 5,000-row request while preserving its ten-field table
+  shape.
+- `record-paste/5k-long-text-10fields`: Scale the 1k long-text paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-number-10fields`: Scale the 1k number paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-date-10fields`: Scale the 1k date paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-checkbox-10fields`: Scale the 1k checkbox paste baseline to
+  one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-single-select-10fields`: Scale the 1k single-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-multiple-select-10fields`: Scale the 1k multiple-select paste
+  baseline to one 5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-rating-10fields`: Scale the 1k rating paste baseline to one
+  5,000-row request while preserving its ten-field table shape.
+- `record-paste/5k-mixed-20fields`: Scale the 1k mixed paste baseline to one
+  5,000-row request while preserving its 20-field stored-value mix.
 - `record-paste/flat-10k-20fields-copy-paste`: Measure the grid paste API path
   for inserting 10,000 flat records into an empty 20-field table through
   `PATCH /api/table/{tableId}/selection/paste`.
