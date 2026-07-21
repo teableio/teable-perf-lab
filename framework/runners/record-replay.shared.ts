@@ -1031,8 +1031,9 @@ export const waitForRowsRestored = async (
     verifySamples?: boolean;
   } = {},
 ): Promise<RecordReplayVerification> => {
-  const timeoutMs = options.timeoutMs ?? 15_000;
-  const pollIntervalMs = options.pollIntervalMs ?? 250;
+  const timeoutMs = options.timeoutMs ?? config.verify.timeoutMs ?? 15_000;
+  const pollIntervalMs =
+    options.pollIntervalMs ?? config.verify.pollIntervalMs ?? 250;
   const started = Date.now();
   let lastError: unknown;
 

@@ -25,8 +25,10 @@ self-link tables (T6156 follow-up).
 ## Execute
 
 `POST /duplicate` with `includeRecords: true`, then full-scan verify base
-field values (link cell verification is structural — field must exist on
-the copy).
+field values. V2 must copy the self-link field and all configured link values.
+The legacy V1 comparator does not create the one-way self-link field; the
+artifact records that boundary as `legacy-v1-field-absent` instead of implying
+that both engines copied the same schema.
 
 ## Primary metric
 

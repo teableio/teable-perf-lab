@@ -57,7 +57,8 @@ import {
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
-const FIXTURE_VERSION = "computed-chain-mutation-v1";
+const FIXTURE_VERSION = "computed-chain-mutation-v2-shared-family-seed";
+const SHARED_SEED_CASE_ID = "lookup/computed-chain-mutation-shared-seed";
 const METADATA_PREFIX = "perf-lab-computed-chain-mutation:";
 
 const USER_TITLE = "Key";
@@ -1235,8 +1236,12 @@ const prepareFixture = async (
   context: PerfRunContext,
 ) => {
   resolveCascadeImpact(shapeFor(config));
+  const seedPerfCase = {
+    ...perfCase,
+    id: SHARED_SEED_CASE_ID,
+  };
   const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
+    perfCase: seedPerfCase,
     runner: "computed-chain-mutation",
     fixtureVersion: FIXTURE_VERSION,
     seedConfig: getSeedConfig(config),

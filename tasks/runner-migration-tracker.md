@@ -13,53 +13,53 @@ inventory and registered case catalog. The generated block is checked by
 <!-- Generated from framework/runner-registry.ts and registry.ts. -->
 <!-- Do not edit by hand; run `pnpm sync:readme` to regenerate. -->
 
-**Lifecycle: 39 / 43 runner kinds · 243 / 257 cases. Direct: 4 runner kinds · 14 cases.**
+**Lifecycle: 39 / 43 runner kinds · 312 / 328 cases. Direct: 4 runner kinds · 16 cases.**
 
 | Runner kind                        | Implementation                                      | Registered cases |
 | ---------------------------------- | --------------------------------------------------- | ---------------: |
-| `http-endpoint`                    | direct                                              |                1 |
+| `http-endpoint`                    | direct                                              |                2 |
 | `formula-table`                    | `field-add-lifecycle`                               |                3 |
 | `conditional-lookup`               | `field-add-lifecycle`                               |                1 |
 | `conditional-lookup-record-create` | `record-mutation-lifecycle`                         |                1 |
 | `conditional-rollup`               | `field-add-lifecycle`                               |                1 |
 | `conditional-query`                | `field-add-lifecycle` + `record-mutation-lifecycle` |               31 |
 | `link-computed-propagation`        | `record-mutation-lifecycle`                         |                4 |
-| `computed-chain-mutation`          | `record-mutation-lifecycle`                         |                8 |
-| `customer-upsert-computed-flow`    | `record-mutation-lifecycle`                         |                7 |
-| `lookup-search-index`              | `read-lifecycle`                                    |                4 |
-| `field-create`                     | `field-add-lifecycle`                               |               14 |
+| `computed-chain-mutation`          | `record-mutation-lifecycle`                         |               12 |
+| `customer-upsert-computed-flow`    | `record-mutation-lifecycle`                         |                9 |
+| `lookup-search-index`              | `read-lifecycle`                                    |                6 |
+| `field-create`                     | `field-add-lifecycle`                               |               15 |
 | `field-convert`                    | `field-convert-lifecycle`                           |               17 |
 | `field-convert-link`               | `field-convert-lifecycle`                           |                2 |
 | `field-update`                     | `record-mutation-lifecycle`                         |                1 |
-| `field-delete`                     | `field-delete-lifecycle`                            |                9 |
+| `field-delete`                     | `field-delete-lifecycle`                            |               17 |
 | `field-restore`                    | direct                                              |                8 |
 | `field-duplicate`                  | `field-add-lifecycle`                               |               18 |
-| `duplicate-table`                  | `duplicate-lifecycle`                               |                3 |
-| `duplicate-view`                   | direct                                              |                1 |
+| `duplicate-table`                  | `duplicate-lifecycle`                               |                5 |
+| `duplicate-view`                   | direct                                              |                2 |
 | `duplicate-base`                   | `duplicate-lifecycle`                               |                3 |
 | `import-base`                      | direct                                              |                4 |
-| `record-delete-link`               | `table-link-lifecycle`                              |                1 |
-| `table-create`                     | `table-create-lifecycle`                            |               13 |
-| `table-delete`                     | `table-lifecycle`                                   |                1 |
+| `record-delete-link`               | `table-link-lifecycle`                              |                2 |
+| `table-create`                     | `table-create-lifecycle`                            |               14 |
+| `table-delete`                     | `table-lifecycle`                                   |                2 |
 | `table-delete-link`                | `table-link-lifecycle`                              |                2 |
-| `table-restore`                    | `table-lifecycle`                                   |                1 |
-| `table-restore-link`               | `table-link-lifecycle`                              |                1 |
+| `table-restore`                    | `table-lifecycle`                                   |                2 |
+| `table-restore-link`               | `table-link-lifecycle`                              |                2 |
 | `csv-import`                       | `csv-import-lifecycle`                              |                3 |
-| `form-submit`                      | `record-mutation-lifecycle`                         |               11 |
-| `record-paste`                     | `record-mutation-lifecycle`                         |               14 |
-| `record-read`                      | `read-lifecycle`                                    |               23 |
-| `record-create`                    | `record-mutation-lifecycle`                         |               11 |
-| `record-update`                    | `record-mutation-lifecycle`                         |               11 |
+| `form-submit`                      | `record-mutation-lifecycle`                         |               22 |
+| `record-paste`                     | `record-mutation-lifecycle`                         |               15 |
+| `record-read`                      | `read-lifecycle`                                    |               32 |
+| `record-create`                    | `record-mutation-lifecycle`                         |               17 |
+| `record-update`                    | `record-mutation-lifecycle`                         |               16 |
 | `record-update-attachment`         | `record-mutation-lifecycle`                         |                2 |
 | `record-update-link`               | `record-mutation-lifecycle`                         |                1 |
 | `record-reorder`                   | `record-mutation-lifecycle`                         |                1 |
-| `record-delete`                    | `record-replay-lifecycle`                           |                1 |
+| `record-delete`                    | `record-replay-lifecycle`                           |                2 |
 | `record-delete-stream`             | `record-mutation-lifecycle`                         |                3 |
 | `record-undo`                      | `record-replay-lifecycle`                           |                1 |
-| `record-redo`                      | `record-replay-lifecycle`                           |                1 |
+| `record-redo`                      | `record-replay-lifecycle`                           |                2 |
 | `selection-clear`                  | `record-mutation-lifecycle`                         |                2 |
 | `selection-duplicate`              | `record-duplicate-lifecycle`                        |                1 |
-| `record-duplicate-single`          | `record-duplicate-lifecycle`                        |               11 |
+| `record-duplicate-single`          | `record-duplicate-lifecycle`                        |               22 |
 
 <!-- END GENERATED RUNNER INVENTORY -->
 

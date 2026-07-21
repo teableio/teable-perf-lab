@@ -143,6 +143,8 @@ workload.
 
 - `smoke/auth-user`: Verify that the seeded e2e user can call the authenticated
   user profile endpoint and measure basic request latency.
+- `smoke/auth-user-burst-100`: Scale the authenticated user-profile probe from
+  ten to 100 sequential samples.
 - `formula/10k-calc`: Measure how long it takes to create one formula field on a
   10k-row table and make the computed values fully readable.
 - `formula/10k-5-concurrent`: Measure concurrent creation of five formula fields
@@ -284,10 +286,14 @@ workload.
   propagation gap when one cell on a linked foreign record changes while every
   order link record id stays unchanged. One User Status update fans out through
   lookups, five formula levels, purchase rollups, and purchase formulas.
+- `lookup/foreign-select-flip-1of40-fanout500-20k`: Scale one foreign-select
+  mutation from a 100-order to a 500-order depth-5 fanout.
 - `lookup/foreign-first-name-update-1of40-fanout100-4k`: Measure the same
   unchanged-link propagation path for a normal one-cell text edit. This matches
   the user operation: edit one field once, rather than sending a synthetic
   multi-field update.
+- `lookup/foreign-first-name-update-1of40-fanout500-20k`: Scale one foreign-text
+  mutation from a 100-order to a 500-order depth-5 fanout.
 - `lookup/customer-update-user-create-order-4k-depth5`: Reproduce the customer
   import order: update an existing User, immediately create a linked Order, then
   read that Order. This tests whether the second write can observe and propagate
@@ -305,6 +311,8 @@ workload.
 - `lookup/customer-create-order-only-4k-depth5`: Measure whether creating a
   fully linked Order has an inherent propagation delay when no User write
   precedes it.
+- `lookup/customer-create-order-only-20k-depth5`: Scale the order graph from
+  4,000 to 20,000 rows and per-user fanout from 100 to 500.
 - `lookup/customer-update-user-first-name-only-create-order-4k-depth5`: Measure
   whether changing one User field inside the lookup dependency graph is enough to
   delay an immediately created linked Order, without resubmitting the User title
@@ -312,6 +320,8 @@ workload.
 - `lookup/customer-update-user-control-field-create-order-4k-depth5`: Measure
   whether any preceding User write delays a linked Order create when the changed
   field is completely outside the lookup and formula dependency graph.
+- `lookup/customer-update-user-control-field-create-order-20k-depth5`: Scale the
+  order graph from 4,000 to 20,000 rows and per-user fanout from 100 to 500.
 - `lookup/customer-update-other-user-create-order-4k-depth5`: Measure whether a
   User update delays an immediately created Order whose User and Purchase links
   belong to a different dependency subgraph.
@@ -327,6 +337,10 @@ workload.
 - `search/search-index-on-50k-20search-fields`: Measure global
   `aggregation/search-index` latency on the 50k-row host table whose
   `TableIndex.search` is enabled.
+- `search/search-index-off-100k-20search-fields`: Scale the index-off lookup
+  global-search fixture from 50,000 to 100,000 linked host/source rows.
+- `search/search-index-on-100k-20search-fields`: Scale the index-on lookup
+  global-search fixture from 50,000 to 100,000 linked host/source rows.
 - `field-create/10k-create-5-simple-fields`: Measure create-request latency for
   adding 5 simple fields to a 10,000-record table. This case is paired with
   `field-create/10k-create-5-formula-fields` to compare whether the request
@@ -366,6 +380,9 @@ workload.
   path for adding 19 mixed-type fields to a 10,000-row table.
 - `field-create/single-select-1k-options`: Measure the field creation path for
   adding one single select field with 1,000 deterministic options.
+- `field-create/10x-single-select-1k-options`: Scale one 1,000-option
+  single-select creation to ten sequential fields at the same per-field product
+  limit.
 - `field-convert/10k-multi-select-to-text`: Catch regressions in converting a
   populated multiple select column to single line text on a 10k-row grid — the
   standard field type conversion path that rewrites every cell value of the
@@ -461,6 +478,23 @@ workload.
 - `field-delete/10k-delete-score-field`: Measure deleting one populated rating
   field from a 10,000-row table and isolate bounded numeric option deletion from
   other scalar field types.
+- `field-delete/50k-delete-owner-text-field`: Measure deleting the populated
+  `Owner Text` field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-description-field`: Measure deleting the populated
+  `Description` field after scaling the affected table from 10,000 to 50,000
+  rows.
+- `field-delete/50k-delete-amount-field`: Measure deleting the populated
+  `Amount` field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-start-date-field`: Measure deleting the populated
+  `Start Date` field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-active-field`: Measure deleting the populated
+  `Active` field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-status-field`: Measure deleting the populated
+  `Status` field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-tags-field`: Measure deleting the populated `Tags`
+  field after scaling the affected table from 10,000 to 50,000 rows.
+- `field-delete/50k-delete-score-field`: Measure deleting the populated `Score`
+  field after scaling the affected table from 10,000 to 50,000 rows.
 - `field-restore/10k-description-field`: Measure restoring one deleted populated
   text field on a 10,000-row mixed table, including the field schema restore and
   every row's cell value restoration.
@@ -526,15 +560,22 @@ workload.
   until the copy is correct across every host row.
 - `duplicate-table/10k-20f`: Measure duplicating a 10,000-record mixed 20-field
   table with records included.
+- `duplicate-table/50k-20f`: Measure one duplicate-table request for a
+  50,000-record mixed 20-field table. Compared with `duplicate-table/10k-20f`,
+  only the source record count changes.
 - `duplicate-table/10k-25f-5formula`: Measure duplicating a 10,000-record
   complex mixed table with 25 stored fields, 5 formula fields, and records
   included.
 - `duplicate-table/10k-20f-selflink`: Measure duplicating a 10,000-record mixed
   20-field table that includes a self manyMany link with records. Exercises the
   V2 physical bulk path for self-link tables (T6156 follow-up).
+- `duplicate-table/10k-20f-selflink-2k-links`: Scale populated self-link cells
+  from 500 to 2,000 while keeping the 10,000-row, 20-field table fixed.
 - `duplicate-view/complex-grid-20fields-p95`: Cover the distinct `duplicateView`
   canary route and track p95 latency for a real grid view carrying filters,
   sorts, grouping, and 20 fields of column metadata.
+- `duplicate-view/complex-grid-500fields-p95`: Scale the complex grid from 20 to
+  the 500-field product boundary.
 - `duplicate-base/10k-3tables-link-2workflow`: Measure duplicating a base that
   contains a 10,000-record mixed 20-field main table, a 1,000-record table linked
   to it, a 100-record small table, and 2 workflows, with records included.
@@ -572,6 +613,9 @@ workload.
 - `table-create/1x-1f-1k-primary-only`: Establish the narrowest `createTable`
   baseline by creating one primary-only table with 1,000 inline records in the
   measured request.
+- `table-create/1x-1f-5k-primary-only`: Measure one primary-only table-create
+  request with 5,000 inline records. Compared with
+  `table-create/1x-1f-1k-primary-only`, only record count changes.
 - `table-create/1x-10f-1k-single-line-text`: Isolate plain-text inline insertion
   by creating one ten-field text table with 1,000 records in the measured
   `createTable` request.
@@ -594,6 +638,8 @@ workload.
   `createTable` request.
 - `table-delete/10k-20f`: Measure repeated archive-to-trash requests for 10
   independent 10,000-record mixed 20-field tables in one run.
+- `table-delete/50k-20f`: Scale the archived mixed table from 10,000 to 50,000
+  rows.
 - `table-delete/10k-20f-link-detach`: The data-scaling path of `deleteTable`:
   archive a small foreign table while a 10,000-record mixed 20-field table still
   links to it.
@@ -607,6 +653,10 @@ workload.
   restore 5 independent 10,000-record mixed 20-field tables that each own a
   **populated one-way link field** (10,000 link cells pointing at a 1,000-record
   foreign table).
+- `table-restore/50k-20f`: Scale the restored mixed table from 10,000 to 50,000
+  rows.
+- `table-restore/50k-20f-link-1k`: Scale the restored link-owning host table
+  from 10,000 to 50,000 rows while keeping the foreign table at 1,000 rows.
 - `csv-import/mixed-1k-20fields-create-table-import`: Measure CSV import that
   creates a new table through `POST /api/import/{baseId}`. This covers the
   product path where a user uploads a CSV file and imports it as a new table. V1
@@ -643,6 +693,60 @@ workload.
   typecasting in public form submissions.
 - `form-submit/sequential-50-single-line-text-20fields`: Expose form
   payload-width cost with 50 sequential 20-field text submissions.
+- `form-submit/sequential-1000`: Scale-up of `sequential-200`: submits 1,000
+  deterministic 20-field mixed records through a Form view. `formSubmitP95Ms`
+  keeps the per-request latency contract; the loop phase records aggregate work.
+  V1/V2 routing and all 1,000 stored rows are verified.
+- `form-submit/sequential-500-primary-only`: Scale-up of
+  `sequential-50-primary-only`: submits 500 deterministic primary-only records
+  through a Form view. `formSubmitP95Ms` keeps the per-request latency contract;
+  the loop phase records aggregate work. V1/V2 routing and all 500 stored rows
+  are verified.
+- `form-submit/sequential-500-single-line-text-10fields`: Scale-up of
+  `sequential-50-single-line-text-10fields`: submits 500 deterministic 10-field
+  text records through a Form view. `formSubmitP95Ms` keeps the per-request
+  latency contract; the loop phase records aggregate work. V1/V2 routing and all
+  500 stored rows are verified.
+- `form-submit/sequential-500-long-text-10fields`: Scale-up of
+  `sequential-50-long-text-10fields`: submits 500 deterministic 10-field
+  long-text records through a Form view. `formSubmitP95Ms` keeps the per-request
+  latency contract; the loop phase records aggregate work. V1/V2 routing and all
+  500 stored rows are verified.
+- `form-submit/sequential-500-number-10fields`: Scale-up of
+  `sequential-50-number-10fields`: submits 500 deterministic 10-field number
+  records through a Form view. `formSubmitP95Ms` keeps the per-request latency
+  contract; the loop phase records aggregate work. V1/V2 routing and all 500
+  stored rows are verified.
+- `form-submit/sequential-500-date-10fields`: Scale-up of
+  `sequential-50-date-10fields`: submits 500 deterministic 10-field date records
+  through a Form view. `formSubmitP95Ms` keeps the per-request latency contract;
+  the loop phase records aggregate work. V1/V2 routing and all 500 stored rows
+  are verified.
+- `form-submit/sequential-500-checkbox-10fields`: Scale-up of
+  `sequential-50-checkbox-10fields`: submits 500 deterministic 10-field checkbox
+  records through a Form view. `formSubmitP95Ms` keeps the per-request latency
+  contract; the loop phase records aggregate work. V1/V2 routing and all 500
+  stored rows are verified.
+- `form-submit/sequential-500-single-select-10fields`: Scale-up of
+  `sequential-50-single-select-10fields`: submits 500 deterministic 10-field
+  single-select records through a Form view. `formSubmitP95Ms` keeps the
+  per-request latency contract; the loop phase records aggregate work. V1/V2
+  routing and all 500 stored rows are verified.
+- `form-submit/sequential-500-multiple-select-10fields`: Scale-up of
+  `sequential-50-multiple-select-10fields`: submits 500 deterministic 10-field
+  multiple-select records through a Form view. `formSubmitP95Ms` keeps the
+  per-request latency contract; the loop phase records aggregate work. V1/V2
+  routing and all 500 stored rows are verified.
+- `form-submit/sequential-500-rating-10fields`: Scale-up of
+  `sequential-50-rating-10fields`: submits 500 deterministic 10-field rating
+  records through a Form view. `formSubmitP95Ms` keeps the per-request latency
+  contract; the loop phase records aggregate work. V1/V2 routing and all 500
+  stored rows are verified.
+- `form-submit/sequential-500-single-line-text-20fields`: Scale-up of
+  `sequential-50-single-line-text-20fields`: submits 500 deterministic 20-field
+  text records through a Form view. `formSubmitP95Ms` keeps the per-request
+  latency contract; the loop phase records aggregate work. V1/V2 routing and all
+  500 stored rows are verified.
 - `selection-clear/flat-1k-20fields-cell-clear-stream`: Measure the grid
   selection-clear stream path for clearing every visible cell across 1,000 rows
   and 20 mixed fields through
@@ -652,6 +756,8 @@ workload.
   regressions beyond the existing 1k stream baseline.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
+- `record-delete/delete-5k`: Scale synchronous selection delete from 1,000 to
+  5,000 mixed records.
 - `record-delete/delete-stream-1k`: Measure the grid **streaming**
   selection-delete path for deleting every record of a 1,000-row, 20-field table.
   This is the streaming sibling of `record-delete/delete-1k`: the product
@@ -671,6 +777,8 @@ workload.
 - `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
   whose rows contain populated link cells, covering the record-trash path for
   linked records rather than plain scalar-row deletion.
+- `record-delete/link-trash-5k`: Scale linked selection delete from 1,000 to
+  5,000 referenced records.
 - `record-read/10k-50fields-10x1k-pages`: Measure
   `GET /api/table/{tableId}/record` latency for reading a full 10,000-row table
   as ten sequential maximum-size 1,000-record pages with 50 projected fields,
@@ -725,6 +833,33 @@ workload.
 - `record-read/50k-50fields-50x1k-pages`: Measure a complete 50,000-row read
   through fifty 1,000-row pages while projecting 50 fields, including 20 lookups
   and five formulas.
+- `record-read/50k-50fields-filter-text-not-empty`: Scale the matching 10k query
+  variant to the shared deterministic 50,000-row, 50-field fixture and filter
+  Text 1 to non-empty values.
+- `record-read/50k-50fields-filter-number-greater-half`: Scale the matching 10k
+  query variant to the shared deterministic 50,000-row, 50-field fixture and
+  filter A to its upper half.
+- `record-read/50k-50fields-filter-number-range-middle-half`: Scale the matching
+  10k query variant to the shared deterministic 50,000-row, 50-field fixture and
+  filter A to its middle half.
+- `record-read/50k-50fields-search-title-visible-rows`: Scale the matching 10k
+  query variant to the shared deterministic 50,000-row, 50-field fixture and
+  search visible Title rows for 00042.
+- `record-read/50k-50fields-sort-text-ascending`: Scale the matching 10k query
+  variant to the shared deterministic 50,000-row, 50-field fixture and sort by
+  Text 1 ascending.
+- `record-read/50k-50fields-sort-three-fields`: Scale the matching 10k query
+  variant to the shared deterministic 50,000-row, 50-field fixture and sort by C,
+  B, and A.
+- `record-read/50k-50fields-group-number-low-cardinality`: Scale the matching
+  10k query variant to the shared deterministic 50,000-row, 50-field fixture and
+  group by the seven-value numeric field C.
+- `record-read/50k-50fields-filter-number-sort-descending`: Scale the matching
+  10k query variant to the shared deterministic 50,000-row, 50-field fixture and
+  filter A to the upper half and sort descending.
+- `record-read/50k-50fields-filter-sort-groupby-selective`: Scale the matching
+  10k query variant to the shared deterministic 50,000-row, 50-field fixture and
+  filter A to its upper half, sort, and group.
 - `record-create/mixed-1k-20fields-bulk-create`: Measure
   `POST /api/table/{tableId}/record` for creating 1,000 typed records in one
   request against an empty 20-field mixed table.
@@ -753,6 +888,26 @@ workload.
 - `record-create/1k-wide-table-title-only-bulk-create`: Measure a one-field
   1,000-record create payload against a 20-field mixed table to expose
   schema-width overhead independently of request width.
+- `record-create/5k-checkbox-fields-bulk-create`: Measure one 5,000-record
+  create request containing the same two checkbox fields as the 1k baseline. Only
+  the record count changes.
+- `record-create/5k-multiple-select-fields-bulk-create`: Scale
+  `record-create/1k-multiple-select-fields-bulk-create` from 1,000 to 5,000
+  records while preserving the same field projection and one-request create
+  behavior.
+- `record-create/5k-number-fields-bulk-create`: Scale
+  `record-create/1k-number-fields-bulk-create` from 1,000 to 5,000 records while
+  preserving the same field projection and one-request create behavior.
+- `record-create/5k-primary-text-only-bulk-create`: Scale
+  `record-create/1k-primary-text-only-bulk-create` from 1,000 to 5,000 records in
+  one create request.
+- `record-create/5k-rating-field-bulk-create`: Scale
+  `record-create/1k-rating-field-bulk-create` from 1,000 to 5,000 records while
+  preserving the same field projection and one-request create behavior.
+- `record-create/5k-wide-table-title-only-bulk-create`: Scale
+  `record-create/1k-wide-table-title-only-bulk-create` from 1,000 to 5,000
+  records while preserving the same field projection and one-request create
+  behavior.
 - `record-duplicate/grid-block-duplicate-1k`: Catch regressions in the grid
   duplicate selected rows path by duplicating a block of 1,000 rows in a
   10,000-row mixed table through
@@ -787,6 +942,69 @@ workload.
 - `record-duplicate/single-50-mixed-20fields`: Provide a 50-request wide-table
   comparison using the established 20-field mix of text, select, number, date,
   checkbox, and rating cells.
+- `record-duplicate/single-record-sequential-1000`: Scale-up of
+  `single-record-sequential-100`: sequentially duplicates all 1,000 source
+  records from a deterministic 1,000-row, 20-field mixed table. The primary
+  metric remains per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs`
+  captures aggregate loop cost. V1/V2 routing and all 1,000 created rows are
+  verified.
+- `record-duplicate/single-500-primary-only`: Scale-up of
+  `single-50-primary-only`: sequentially duplicates 500 source records from a
+  deterministic 1,000-row primary-only table. The primary metric remains
+  per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate
+  loop cost. V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-single-line-text-10fields`: Scale-up of
+  `single-50-single-line-text-10fields`: sequentially duplicates 500 source
+  records from a deterministic 1,000-row, 10-field text table. The primary metric
+  remains per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures
+  aggregate loop cost. V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-long-text-10fields`: Scale-up of
+  `single-50-long-text-10fields`: sequentially duplicates 500 source records from
+  a deterministic 1,000-row table with one primary text field and nine long-text
+  fields. The primary metric remains per-request `duplicateSingleP95Ms`;
+  `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
+  500 created rows are verified.
+- `record-duplicate/single-500-number-10fields`: Scale-up of
+  `single-50-number-10fields`: sequentially duplicates 500 source records from a
+  deterministic 1,000-row table with one primary text field and nine number
+  fields. The primary metric remains per-request `duplicateSingleP95Ms`;
+  `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
+  500 created rows are verified.
+- `record-duplicate/single-500-date-10fields`: Scale-up of
+  `single-50-date-10fields`: sequentially duplicates 500 source records from a
+  deterministic 1,000-row table with one primary text field and nine date fields.
+  The primary metric remains per-request `duplicateSingleP95Ms`;
+  `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
+  500 created rows are verified.
+- `record-duplicate/single-500-checkbox-10fields`: Scale-up of
+  `single-50-checkbox-10fields`: sequentially duplicates 500 source records from
+  a deterministic 1,000-row table with one primary text field and nine checkbox
+  fields. The primary metric remains per-request `duplicateSingleP95Ms`;
+  `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
+  500 created rows are verified.
+- `record-duplicate/single-500-single-select-10fields`: Scale-up of
+  `single-50-single-select-10fields`: sequentially duplicates 500 source records
+  from a deterministic 1,000-row table with one primary text field and nine
+  single-select fields. The primary metric remains per-request
+  `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate loop cost.
+  V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-multiple-select-10fields`: Scale-up of
+  `single-50-multiple-select-10fields`: sequentially duplicates 500 source
+  records from a deterministic 1,000-row table with one primary text field and
+  nine multiple-select fields. The primary metric remains per-request
+  `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate loop cost.
+  V1/V2 routing and all 500 created rows are verified.
+- `record-duplicate/single-500-rating-10fields`: Scale-up of
+  `single-50-rating-10fields`: sequentially duplicates 500 source records from a
+  deterministic 1,000-row table with one primary text field and nine rating
+  fields. The primary metric remains per-request `duplicateSingleP95Ms`;
+  `duplicateSingleTotalMs` captures aggregate loop cost. V1/V2 routing and all
+  500 created rows are verified.
+- `record-duplicate/single-500-mixed-20fields`: Scale-up of
+  `single-50-mixed-20fields`: sequentially duplicates 500 source records from a
+  deterministic 1,000-row, 20-field mixed table. The primary metric remains
+  per-request `duplicateSingleP95Ms`; `duplicateSingleTotalMs` captures aggregate
+  loop cost. V1/V2 routing and all 500 created rows are verified.
 - `record-update/mixed-1k-20fields-bulk-update`: Measure OpenAPI bulk record
   update performance for updating 1,000 existing records across 20 mixed fields
   through `PATCH /api/table/{tableId}/record`.
@@ -814,6 +1032,21 @@ workload.
 - `record-update/1k-wide-table-title-only-bulk-update`: Separate wide-schema
   planning cost from payload width by updating only `Title` in the same 20-field
   fixture used by the aggregate mixed update case.
+- `record-update/5k-checkbox-fields-bulk-update`: Measure one 5,000-record
+  checkbox update. This keeps the 1k baseline's table shape and partial payload
+  while increasing only the records in the request.
+- `record-update/5k-number-fields-bulk-update`: Scale
+  `record-update/1k-number-fields-bulk-update` from 1,000 to 5,000 records while
+  preserving its field projection and one-request update behavior.
+- `record-update/5k-primary-text-only-bulk-update`: Scale
+  `record-update/1k-primary-text-only-bulk-update` from 1,000 to 5,000 records in
+  one PATCH.
+- `record-update/5k-rating-field-bulk-update`: Scale
+  `record-update/1k-rating-field-bulk-update` from 1,000 to 5,000 records while
+  preserving its field projection and one-request update behavior.
+- `record-update/5k-wide-table-title-only-bulk-update`: Scale
+  `record-update/1k-wide-table-title-only-bulk-update` from 1,000 to 5,000
+  records while preserving its field projection and one-request update behavior.
 - `record-update/attachment-insert-100`: Measure bulk insertion of attachment
   references into 100 existing records. This isolates attachment payload
   validation and attachment cell serialization from the scalar bulk-update path,
@@ -830,9 +1063,15 @@ workload.
   the distinct single-record `updateRecord` route for one normal text-cell edit
   and its propagation through 100 Orders, five formula levels, and 10 Purchase
   aggregates.
+- `record-update/single-foreign-first-name-update-1of40-fanout500-20k`: Scale
+  the single-record foreign-text update from a 100-order to a 500-order depth-5
+  fanout.
 - `record-update/single-foreign-select-update-1of40-fanout100-4k`: Measure the
   single-record `updateRecord` route for one option-backed Status edit and its
   propagation through the same 100-Order depth-five computed fanout.
+- `record-update/single-foreign-select-update-1of40-fanout500-20k`: Scale the
+  single-record foreign-select update from a 100-order to a 500-order depth-5
+  fanout.
 - `record-reorder/10k-move-last-1k-to-front`: Measure block reorder performance
   in a 10,000-row grid by moving the original last 1,000 visible records to the
   front in one operation.
@@ -840,8 +1079,13 @@ workload.
   1,000 mixed-type records through the grid selection delete path.
 - `record-redo/delete-1k`: Measure redo replay performance after a user deletes
   1,000 mixed-type records and then undoes that delete.
+- `record-redo/delete-10k`: Scale redo of a selection delete from 1,000 to
+  10,000 mixed records.
 - `record-paste/1k-primary-only`: Measure the lower-bound grid paste path for
   inserting 1,000 records into an empty primary-only table.
+- `record-paste/10k-primary-only`: Measure one 10,000-row paste into a
+  primary-only table. Compared with `record-paste/1k-primary-only`, only row
+  count changes.
 - `record-paste/1k-single-line-text-10fields`: Measure grid paste performance
   for 1,000 records in a fixed-width ten-field single-line text table.
 - `record-paste/1k-long-text-10fields`: Measure grid paste performance for 1,000

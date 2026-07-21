@@ -87,7 +87,7 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.equal(fullRunShardCount, 7);
+assert.equal(fullRunShardCount, 8);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   allCaseIds.slice().sort(),

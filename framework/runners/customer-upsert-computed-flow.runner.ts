@@ -88,7 +88,8 @@ import {
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
-const FIXTURE_VERSION = "customer-upsert-computed-flow-v2";
+const FIXTURE_VERSION = "customer-upsert-computed-flow-v3-max-shared-seed";
+const SHARED_SEED_CASE_ID = "lookup/customer-upsert-computed-flow-shared-seed";
 const METADATA_PREFIX = "perf-lab-customer-upsert-computed-flow:";
 
 const USER_TITLE = "Key";
@@ -243,10 +244,7 @@ const resolveNamedField = (fields: NamedField[], name: string) => {
   return field;
 };
 
-const resolveUserFields = (
-  fields: NamedField[],
-  config: CustomerUpsertComputedFlowCaseConfig,
-): UserFieldIds => ({
+const resolveUserFields = (fields: NamedField[]): UserFieldIds => ({
   title: resolveNamedField(fields, USER_TITLE).id,
   attributes: Object.fromEntries(
     USER_ATTRIBUTE_NAMES.map((name) => [
@@ -254,9 +252,7 @@ const resolveUserFields = (
       resolveNamedField(fields, name).id,
     ]),
   ) as UserFieldIds["attributes"],
-  ...(isUserControlUpdateScenario(config.scenario)
-    ? { control: resolveNamedField(fields, USER_CONTROL_FIELD).id }
-    : {}),
+  control: resolveNamedField(fields, USER_CONTROL_FIELD).id,
 });
 
 const resolveOrderFields = (fields: NamedField[]): OrderFieldIds => ({
@@ -378,9 +374,7 @@ const getSeedConfig = (config: CustomerUpsertComputedFlowCaseConfig) => ({
   batchSize: config.batchSize,
   userBatchSize: config.userBatchSize,
   userAttributes: [...USER_ATTRIBUTE_NAMES],
-  userControlField: isUserControlUpdateScenario(config.scenario)
-    ? USER_CONTROL_FIELD
-    : null,
+  userControlField: USER_CONTROL_FIELD,
   orderValues: [...ORDER_VALUE_NAMES],
   lookupCount: USER_ATTRIBUTE_NAMES.length,
   formulas: formulaDefinitions(),
@@ -424,15 +418,11 @@ const buildUserPayload = (
     scenario: config.scenario,
     phase,
   }),
-  ...(isUserControlUpdateScenario(config.scenario)
-    ? {
-        [USER_CONTROL_FIELD]: buildUserControlValue(row, {
-          shape: shapeFor(config),
-          scenario: config.scenario,
-          phase,
-        }),
-      }
-    : {}),
+  [USER_CONTROL_FIELD]: buildUserControlValue(row, {
+    shape: shapeFor(config),
+    scenario: config.scenario,
+    phase,
+  }),
 });
 
 const buildUserUpdatePayload = (
@@ -632,16 +622,13 @@ const createFixture = async (
           name,
           type: FieldType.SingleLineText,
         })),
-        ...(isUserControlUpdateScenario(config.scenario)
-          ? [{ name: USER_CONTROL_FIELD, type: FieldType.SingleLineText }]
-          : []),
+        { name: USER_CONTROL_FIELD, type: FieldType.SingleLineText },
       ],
       records: [],
     });
     createdTableIds.push(users.id);
     const userFields = resolveUserFields(
       (await getFields(users.id)) as NamedField[],
-      config,
     );
     const seededUsers = await createRecordsInBatches(
       users.id,
@@ -848,7 +835,6 @@ const restoreFixture = async (
       purchaseTableId: companionIds.purchaseTableId,
       userFields: resolveUserFields(
         (await getFields(users.id)) as NamedField[],
-        config,
       ),
       orderFields: resolveOrderFields(
         (await getFields(orders.id)) as NamedField[],
@@ -933,8 +919,12 @@ const prepareFixture = async (
     );
   }
   resolveImpact(shape, config.scenario);
+  const seedPerfCase = {
+    ...perfCase,
+    id: SHARED_SEED_CASE_ID,
+  };
   const seedCacheInfo = await buildSeedCacheInfo({
-    perfCase,
+    perfCase: seedPerfCase,
     runner: "customer-upsert-computed-flow",
     fixtureVersion: FIXTURE_VERSION,
     seedConfig: getSeedConfig(config),
