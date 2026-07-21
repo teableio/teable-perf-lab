@@ -100,12 +100,9 @@ const rating10 = withNineFields((index) => ({
   },
 }));
 
-const multipleSelect500 = withFiveHundredFields((index) => ({
-  name: numberedName("Multiple Select", index),
-  type: FieldType.MultipleSelect,
-  options: {
-    choices: selectChoices(["Alpha", "Beta", "Gamma", "Delta"]),
-  },
+const checkbox500 = withFiveHundredFields((index) => ({
+  name: numberedName("Checkbox", index),
+  type: FieldType.Checkbox,
 }));
 
 const mixed20: DuplicateFields = [
@@ -183,7 +180,7 @@ export const recordDuplicateSingle50Fields = {
 };
 
 export const recordDuplicateSingleMaxWidthFields = {
-  multipleSelect500,
+  checkbox500,
 };
 
 export const recordDuplicateSingle50Base = {

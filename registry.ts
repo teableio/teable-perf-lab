@@ -237,11 +237,11 @@ import recordDuplicateSingle50SingleLineText10FieldsCase from "./cases/record-du
 import recordDuplicateSingle50SingleSelect10FieldsCase from "./cases/record-duplicate/single-50-single-select-10fields.case";
 import recordDuplicateSingleRecordSequential100Case from "./cases/record-duplicate/single-record-sequential-100.case";
 import recordDuplicateSingle500Checkbox10FieldsCase from "./cases/record-duplicate/single-500-checkbox-10fields.case";
+import recordDuplicateSingle500Checkbox500FieldsCase from "./cases/record-duplicate/single-500-checkbox-500fields.case";
 import recordDuplicateSingle500Date10FieldsCase from "./cases/record-duplicate/single-500-date-10fields.case";
 import recordDuplicateSingle500LongText10FieldsCase from "./cases/record-duplicate/single-500-long-text-10fields.case";
 import recordDuplicateSingle500Mixed20FieldsCase from "./cases/record-duplicate/single-500-mixed-20fields.case";
 import recordDuplicateSingle500MultipleSelect10FieldsCase from "./cases/record-duplicate/single-500-multiple-select-10fields.case";
-import recordDuplicateSingle500MultipleSelect500FieldsCase from "./cases/record-duplicate/single-500-multiple-select-500fields.case";
 import recordDuplicateSingle500Number10FieldsCase from "./cases/record-duplicate/single-500-number-10fields.case";
 import recordDuplicateSingle500PrimaryOnlyCase from "./cases/record-duplicate/single-500-primary-only.case";
 import recordDuplicateSingle500Rating10FieldsCase from "./cases/record-duplicate/single-500-rating-10fields.case";
@@ -625,9 +625,9 @@ const cases = [
   recordDuplicateSingle500Number10FieldsCase,
   recordDuplicateSingle500Date10FieldsCase,
   recordDuplicateSingle500Checkbox10FieldsCase,
+  recordDuplicateSingle500Checkbox500FieldsCase,
   recordDuplicateSingle500SingleSelect10FieldsCase,
   recordDuplicateSingle500MultipleSelect10FieldsCase,
-  recordDuplicateSingle500MultipleSelect500FieldsCase,
   recordDuplicateSingle500Rating10FieldsCase,
   recordDuplicateSingle500Mixed20FieldsCase,
   recordUpdateMixed1k20FieldsBulkUpdateCase,

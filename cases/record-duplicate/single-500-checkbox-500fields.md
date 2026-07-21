@@ -4,16 +4,17 @@ tags: [record-duplicate, scale-up, sequential, max-width, v1-v2]
 enabled: true
 ---
 
-# `record-duplicate/single-500-multiple-select-500fields`
+# `record-duplicate/single-500-checkbox-500fields`
 
 ## Goal
 
 Maximum-width canary for the record-duplicate matrix: duplicate 500 source records
-sequentially when each record has `Title` plus 499 multiple-select fields.
+sequentially when each record has `Title` plus 499 checkbox fields.
 
 ## Seed Phase
 
 Create and validate 1,000 deterministic rows at the supported 500-field table limit.
+Seed writes use 100-row transport batches and remain outside the primary timer.
 
 ## Execute Phase
 
