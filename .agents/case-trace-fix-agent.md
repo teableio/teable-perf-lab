@@ -83,7 +83,7 @@ The performance monitor should treat trace warnings with these shapes:
      `skippedTraceCount` explains the unsaved refs.
    - One selected representative sampled request ref is unstable in Jaeger -> use
      `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` when the default same-request-shape
-     fallback pool needs narrowing, so another equivalent read ref can save the
+     fallback pool needs narrowing, so another equivalent request ref can save the
      representative raw snapshot while the failed selection is skipped with an
      explicit replacement reason.
    - Unsampled refs -> verify sampling expectation, not case failure.
