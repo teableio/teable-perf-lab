@@ -50,6 +50,10 @@ ready.
   report, and Teable registry sync.
 - `scripts/full-run-shard-model.mjs`: fixture-affinity bundles, calibrated seed
   weights, and deterministic adaptive grouping shared by seed and execute plans.
+- `scripts/full-run-feedback-model.mjs`: pure evaluation of a complete full-run
+  plan plus telemetry: active workflow wall time, phase windows, stage
+  stragglers, cross-shard seed rebuilds, trace wait budgets, result coverage,
+  and cold/warm SLOs.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
   payload projection, primary metric, trace URL, and trace-waste helpers used by
   report adapters.

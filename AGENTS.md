@@ -28,10 +28,10 @@ Run this before finishing code or documentation changes:
 pnpm check
 ```
 
-This chains: `format:check`, `check:yaml`, `check:ts`, `check:types`,
-`check:trace`, `check:catalog`, `check:run-plan`,
-`check:artifact-read-model`, `check:run-summary-model`,
-`check:artifact-diff-model`, `check:record-read-model`, `check:cases`,
+This runs the full check chain declared in `package.json`, including
+`format:check`, `check:yaml`, `check:ts`, `check:types`, `check:trace`,
+`check:catalog`, `check:run-plan`, `check:full-run-feedback`, artifact and
+summary model checks, runner/workload model checks, `check:cases`, and
 `check:readme`. `check:catalog` fails loud if the disk case files, the
 `registry.ts` imports, and the registered `cases` array disagree — so adding a
 case requires all of: the `*.case.ts` plus its same-name `*.md`, the import in
