@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 import {
   buildFullRunCaseShards,
+  resolveFullRunCaseIds,
   resolveFullRunShardCount,
   validateFixtureAffinities,
 } from "./full-run-shard-model.mjs";
@@ -24,8 +25,10 @@ export const HYBRID_COMPUTED_CASES = [
   "lookup/customer-update-user-update-order-4k-depth5",
   "lookup/customer-create-user-create-order-4k-depth5",
   "lookup/customer-create-order-only-4k-depth5",
+  "lookup/customer-create-order-only-20k-depth5",
   "lookup/customer-update-user-first-name-only-create-order-4k-depth5",
   "lookup/customer-update-user-control-field-create-order-4k-depth5",
+  "lookup/customer-update-user-control-field-create-order-20k-depth5",
   "lookup/customer-update-other-user-create-order-4k-depth5",
 ];
 
@@ -248,6 +251,9 @@ export const resolveRunPlan = ({
   }
 
   const registeredCaseIds = new Set(allCaseIds);
+  const fullRunCaseIds = caseFilterIsAll
+    ? resolveFullRunCaseIds({ allCaseIds })
+    : [];
   const missingHybridCaseIds = HYBRID_COMPUTED_CASES.filter(
     (caseId) => !registeredCaseIds.has(caseId),
   );
@@ -274,9 +280,9 @@ export const resolveRunPlan = ({
 
   const fullRunCaseShards = caseFilterIsAll
     ? buildFullRunCaseShards({
-        allCaseIds,
+        allCaseIds: fullRunCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
-        shardCount: resolveFullRunShardCount(allCaseIds.length),
+        shardCount: resolveFullRunShardCount(fullRunCaseIds.length),
       })
     : [];
 

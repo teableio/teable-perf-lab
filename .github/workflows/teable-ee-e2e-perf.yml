@@ -683,14 +683,10 @@ jobs:
 
       - name: Publish combined summary
         if: always()
-        run: |
-          shopt -s nullglob
-          summaries=(perf-lab-artifacts/*/summary-*.md)
-          if [ "${#summaries[@]}" -gt 0 ]; then
-            for summary in "${summaries[@]}"; do
-              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
-              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
-            done
-          else
-            echo "No combined perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
+          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
+        run: node scripts/write-github-perf-summary.mjs
