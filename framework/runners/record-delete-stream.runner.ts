@@ -17,6 +17,7 @@ import type {
   PerfRunContext,
   PerfRunResult,
   RecordDeleteStreamCaseConfig,
+  RecordUndoRedoBaseCaseConfig,
 } from "../types";
 import {
   runRecordMutationLifecycle,
@@ -32,7 +33,7 @@ import {
   type RecordReplayVerification,
 } from "./record-replay.shared";
 
-type DeleteStreamResult = {
+export type DeleteStreamResult = {
   totalCount: number;
   deletedCount: number;
   deletedRecordIds: string[];
@@ -46,6 +47,34 @@ type DeleteStreamResult = {
     traceLink?: string;
   };
 };
+
+// record-restore measures the inverse operation against the same flat fixture.
+// Canonicalize the seed case id + runner here so both runners resolve the same
+// seed hash for identical row/field/generator configs.
+export const prepareRecordTrashFixture = ({
+  baseId,
+  tableName,
+  config,
+  perfCase,
+}: {
+  baseId: string;
+  tableName: string;
+  config: RecordUndoRedoBaseCaseConfig;
+  perfCase: PerfCase;
+}) =>
+  prepareRecordReplayFixture(baseId, tableName, config, {
+    perfCase: {
+      ...perfCase,
+      id: `record-trash/shared-${config.rowCount}-${config.fields.length}f`,
+    } as PerfCase,
+    runner: "record-delete-stream",
+    seedIdentity: {
+      family: "record-trash",
+      rowCount: config.rowCount,
+      fieldCount: config.fields.length,
+    },
+    seedCodeFiles: [new URL(import.meta.url)],
+  });
 
 // The single measured operation bundles the trace-wrapped delete stream and the
 // post-delete empty-table verification, mirroring selection-clear: the driver
@@ -97,9 +126,9 @@ const buildDeleteByIdBody = (fixture: RecordReplayFixture) =>
 // streams the by-id delete (PATCH /selection/delete-by-id-stream). Both emit
 // IDeleteSelectionStreamEvent, so the done-event assertions and the routing
 // check below are identical for both engines.
-const deleteAllRowsByEngineStream = async (
+export const deleteAllRowsByEngineStream = async (
   fixture: RecordReplayFixture,
-  config: RecordDeleteStreamCaseConfig,
+  stepId: string,
   perfCase: PerfCase,
   context: PerfRunContext,
   windowId: string,
@@ -116,7 +145,7 @@ const deleteAllRowsByEngineStream = async (
   const sseResult = await perfStreamSse<IDeleteSelectionStreamEvent>({
     context,
     perfCase,
-    stepId: config.threshold.metric,
+    stepId,
     url,
     method: isV2 ? "PATCH" : "GET",
     headers: {
@@ -189,7 +218,7 @@ const runDeleteStreamMeasuredOperation = async (
       measureAsync(config.threshold.metric, () =>
         deleteAllRowsByEngineStream(
           fixture,
-          config,
+          config.threshold.metric,
           perfCase,
           context,
           windowId,
@@ -281,11 +310,7 @@ const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
   DeleteStreamPrimaryResult
 > = {
   prepareFixture: ({ baseId, tableName, config, perfCase }) =>
-    prepareRecordReplayFixture(baseId, tableName, config, {
-      perfCase,
-      runner: "record-delete-stream",
-      seedCodeFiles: [new URL(import.meta.url)],
-    }),
+    prepareRecordTrashFixture({ baseId, tableName, config, perfCase }),
   assertSeedReady: ({ fixture, config }) => assertRowsRestored(fixture, config),
   runMeasuredOperation: ({ perfCase, context, config, fixture, windowId }) =>
     runDeleteStreamMeasuredOperation(

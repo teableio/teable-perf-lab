@@ -816,6 +816,12 @@ workload.
 - `selection-clear/flat-10k-20fields-cell-clear-stream`: Measure clearing every
   visible cell in a 10,000-row, 20-field mixed grid and catch nonlinear
   regressions beyond the existing 1k stream baseline.
+- `record-restore/restore-1k`: Measure restoring 1,000 deleted records from a
+  table's trash through the real V1/V2 restore route.
+- `record-restore/restore-10k`: Measure restoring 10,000 deleted records from a
+  table's trash through the real V1/V2 restore route.
+- `record-restore/restore-50k`: Measure restoring 50,000 deleted records from a
+  table's trash through the real V1/V2 restore route.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
 - `record-delete/delete-5k`: Scale synchronous selection delete from 1,000 to

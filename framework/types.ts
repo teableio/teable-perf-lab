@@ -45,6 +45,7 @@ export interface PerfCaseConfigByRunner {
   "record-reorder": RecordReorderCaseConfig;
   "record-delete": RecordDeleteCaseConfig;
   "record-delete-stream": RecordDeleteStreamCaseConfig;
+  "record-restore": RecordRestoreCaseConfig;
   "record-undo": RecordUndoCaseConfig;
   "record-redo": RecordRedoCaseConfig;
   "selection-clear": SelectionClearCaseConfig;
@@ -1562,6 +1563,16 @@ export interface RecordDeleteStreamCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   threshold: {
     metric: "deleteStream1kMs" | "deleteStream10kMs" | "deleteStream30kMs";
+    maxMs: number;
+  };
+}
+
+export interface RecordRestoreCaseConfig extends RecordUndoRedoBaseCaseConfig {
+  threshold: {
+    metric:
+      | "restoreRecords1kMs"
+      | "restoreRecords10kMs"
+      | "restoreRecords50kMs";
     maxMs: number;
   };
 }
