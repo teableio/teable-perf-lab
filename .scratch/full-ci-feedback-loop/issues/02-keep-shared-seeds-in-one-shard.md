@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Establish full-run feedback-loop regression gates.
 
-**Status:** completed
+**Status:** implemented-awaiting-full-ci
 
 - [x] 三个 100k numeric record-read siblings 在 full plan 中位于同一个 seed shard。
 - [x] 两个 100k search-index siblings 在 full plan 中位于同一个 seed shard。

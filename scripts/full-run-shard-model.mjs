@@ -429,14 +429,20 @@ const assertPositiveShardCount = (shardCount) => {
   }
 };
 
-const affinityByCaseId = (affinities) => {
+const indexAffinitiesById = (affinities) => {
   const result = new Map();
-  const affinityIds = new Set();
   for (const affinity of affinities) {
-    if (affinityIds.has(affinity.id)) {
+    if (result.has(affinity.id)) {
       throw new Error(`Duplicate fixture affinity id: ${affinity.id}`);
     }
-    affinityIds.add(affinity.id);
+    result.set(affinity.id, affinity);
+  }
+  return result;
+};
+
+const affinityByCaseId = (affinities) => {
+  const result = new Map();
+  for (const affinity of indexAffinitiesById(affinities).values()) {
     for (const caseId of affinity.caseIds) {
       const previous = result.get(caseId);
       if (previous) {
@@ -460,16 +466,12 @@ export const resolveFixtureAffinities = ({
   affinities = FULL_RUN_FIXTURE_AFFINITIES,
   seedAffinityDeclarations = [],
 }) => {
-  const byAffinityId = new Map();
-  for (const affinity of affinities) {
-    if (byAffinityId.has(affinity.id)) {
-      throw new Error(`Duplicate fixture affinity id: ${affinity.id}`);
-    }
-    byAffinityId.set(affinity.id, {
-      ...affinity,
-      caseIds: [...affinity.caseIds],
-    });
-  }
+  const byAffinityId = new Map(
+    [...indexAffinitiesById(affinities)].map(([affinityId, affinity]) => [
+      affinityId,
+      { ...affinity, caseIds: [...affinity.caseIds] },
+    ]),
+  );
 
   const declaredCaseIds = new Set();
   for (const { caseId, affinityId } of seedAffinityDeclarations) {
