@@ -13,7 +13,7 @@ inventory and registered case catalog. The generated block is checked by
 <!-- Generated from framework/runner-registry.ts and registry.ts. -->
 <!-- Do not edit by hand; run `pnpm sync:readme` to regenerate. -->
 
-**Lifecycle: 39 / 43 runner kinds · 368 / 384 cases. Direct: 4 runner kinds · 16 cases.**
+**Lifecycle: 40 / 44 runner kinds · 371 / 387 cases. Direct: 4 runner kinds · 16 cases.**
 
 | Runner kind                        | Implementation                                      | Registered cases |
 | ---------------------------------- | --------------------------------------------------- | ---------------: |
@@ -55,6 +55,7 @@ inventory and registered case catalog. The generated block is checked by
 | `record-reorder`                   | `record-mutation-lifecycle`                         |                1 |
 | `record-delete`                    | `record-replay-lifecycle`                           |                2 |
 | `record-delete-stream`             | `record-mutation-lifecycle`                         |                3 |
+| `record-restore`                   | `record-mutation-lifecycle`                         |                3 |
 | `record-undo`                      | `record-replay-lifecycle`                           |                1 |
 | `record-redo`                      | `record-replay-lifecycle`                           |                2 |
 | `selection-clear`                  | `record-mutation-lifecycle`                         |                2 |
