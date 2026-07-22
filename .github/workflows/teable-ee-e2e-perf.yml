@@ -37,6 +37,20 @@ on:
         required: false
         default: ""
         type: string
+      seed_cache_namespace:
+        description: >-
+          Optional isolated namespace for controlled cold/warm seed-cache
+          acceptance. Leave empty for the shared default cache.
+        required: false
+        default: ""
+        type: string
+      expected_perf_lab_sha:
+        description: >-
+          Optional exact perf-lab commit SHA guard for cold/warm acceptance.
+          The workflow fails before planning if the dispatched ref moved.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -102,6 +116,8 @@ jobs:
       seed_plan: ${{ steps.engines.outputs.seed_plan }}
       execute_plan: ${{ steps.engines.outputs.execute_plan }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
+      seed_cache_namespace: ${{ steps.engines.outputs.seed_cache_namespace }}
+      seed_cache_namespace_segment: ${{ steps.engines.outputs.seed_cache_namespace_segment }}
       plan_summary: ${{ steps.engines.outputs.plan_summary }}
 
     steps:
@@ -110,12 +126,25 @@ jobs:
         with:
           path: perf-lab
 
+      - name: Verify pinned perf-lab revision
+        if: inputs.expected_perf_lab_sha != ''
+        env:
+          EXPECTED_PERF_LAB_SHA: ${{ inputs.expected_perf_lab_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_SHA}" != "${EXPECTED_PERF_LAB_SHA}" ]; then
+            echo "Expected perf-lab ${EXPECTED_PERF_LAB_SHA}, dispatched ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
       - name: Resolve engine matrix
         id: engines
         env:
           ENGINE_FILTER: ${{ inputs.engine_filter }}
           CASE_FILTER: ${{ inputs.case_filter }}
           COMPUTED_UPDATE_MODE: ${{ inputs.computed_update_mode }}
+          SEED_CACHE_NAMESPACE: ${{ inputs.seed_cache_namespace }}
         run: |
           set -euo pipefail
 
@@ -150,14 +179,19 @@ jobs:
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
+      - name: Resolve teable-ee revision
+        id: teable-ee-revision
+        working-directory: teable-ee
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Restore perf seed database cache
         id: seed-db-cache
         uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-
+            perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-
 
       - name: Record seed database cache mode
         id: seed-cache-mode
@@ -168,6 +202,9 @@ jobs:
           CASE_SET_DIGEST: ${{ matrix.plan.caseSetDigest }}
           STABLE_SLOT: ${{ matrix.plan.stableSlot }}
           SEED_CONTRACT_GENERATION: ${{ matrix.plan.seedContractGeneration }}
+          SEED_CACHE_NAMESPACE: ${{ needs.resolve_inputs.outputs.seed_cache_namespace }}
+          PERF_LAB_SHA: ${{ github.sha }}
+          TEABLE_EE_SHA: ${{ steps.teable-ee-revision.outputs.sha }}
           OUTPUT_PATH: perf-lab-seed-artifacts/seed-cache-status-${{ matrix.plan.artifactSuffix }}.json
         run: node perf-lab/scripts/write-seed-cache-status.mjs
 
@@ -338,7 +375,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed database dump
         if: success()

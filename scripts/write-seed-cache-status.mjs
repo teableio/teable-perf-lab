@@ -18,6 +18,9 @@ const status = buildSeedCacheStatus({
   caseSetDigest: requiredEnv("CASE_SET_DIGEST"),
   stableSlot: requiredEnv("STABLE_SLOT"),
   seedContractGeneration: requiredEnv("SEED_CONTRACT_GENERATION"),
+  cacheNamespace: process.env.SEED_CACHE_NAMESPACE,
+  perfLabSha: requiredEnv("PERF_LAB_SHA"),
+  teableEeSha: requiredEnv("TEABLE_EE_SHA"),
 });
 
 await mkdir(dirname(outputPath), { recursive: true });

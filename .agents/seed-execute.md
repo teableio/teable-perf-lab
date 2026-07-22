@@ -82,8 +82,8 @@ tables named with that case's `seedHash`.
 The seed DB cache uses an exact key plus a compatible restore prefix:
 
 ```text
-exact:      perf-seed-db-<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
-compatible: perf-seed-db-<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-
+exact:      perf-seed-db-[<namespace>-]<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-[<namespace>-]<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-
 ```
 
 `teable-prisma-schema-hash` is `hashFiles()` over these checked-out `teable-ee`
@@ -112,6 +112,16 @@ stable shard slot. It permits safe catalog or source changes to restore an old
 dump only as a candidate; `PERF_LAB_MODE=seed` must then validate every runner's
 seed identity/readiness and rebuild missing or stale fixtures before saving a
 new exact snapshot.
+
+`seed_cache_namespace` is empty by default, preserving the historical key
+shape. For a controlled cold/warm acceptance pair, pass one new validated
+namespace (maximum 40 cache-key-safe characters) to isolate both the exact key
+and compatible prefix, then reuse that namespace unchanged on the same commit
+and case set. Every seed cache-status artifact records the namespace; a
+compatible candidate does not count as warm evidence. Controlled acceptance
+also pins the dispatched perf-lab SHA and resolves `teable_ee_ref` to a commit
+SHA; every status records both resolved SHAs so an exact hit cannot hide a code
+change between the two runs.
 
 All runners with a seed fixture are cache-aware today (formula-table,
 conditional-lookup, conditional-lookup-record-create, conditional-rollup, conditional-query, lookup-search-index, field-create, field-delete,

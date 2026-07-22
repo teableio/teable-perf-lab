@@ -8,9 +8,21 @@ import {
   buildCaseSetDigest,
   buildSeedCacheIdentity,
   buildSeedCacheStatus,
+  normalizeSeedCacheNamespace,
   resolveSeedCacheOutcome,
   SEED_CONTRACT_GENERATION,
 } from "./seed-cache-model.mjs";
+
+assert.equal(normalizeSeedCacheNamespace(), "");
+assert.equal(normalizeSeedCacheNamespace(" ticket-07-cold-warm "), "ticket-07-cold-warm");
+assert.throws(
+  () => normalizeSeedCacheNamespace("unsafe/cache"),
+  /seed_cache_namespace must contain only/,
+);
+assert.throws(
+  () => normalizeSeedCacheNamespace("x".repeat(41)),
+  /seed_cache_namespace must be at most 40 characters/,
+);
 
 const commonIdentity = {
   runnerOs: "Linux",
@@ -38,7 +50,18 @@ const catalogChangedIdentity = buildSeedCacheIdentity({
   caseSetDigest: expandedCaseSetDigest,
   sourceHash: "source-2",
 });
+const isolatedIdentity = buildSeedCacheIdentity({
+  ...commonIdentity,
+  cacheNamespace: "ticket-07-cold-warm",
+  caseSetDigest: firstCaseSetDigest,
+  sourceHash: "source-1",
+});
 assert.notEqual(firstIdentity.exactKey, catalogChangedIdentity.exactKey);
+assert.notEqual(firstIdentity.exactKey, isolatedIdentity.exactKey);
+assert.match(
+  isolatedIdentity.compatibleRestorePrefix,
+  /^perf-seed-db-ticket-07-cold-warm-Linux-/,
+);
 assert.equal(
   firstIdentity.compatibleRestorePrefix,
   catalogChangedIdentity.compatibleRestorePrefix,
@@ -110,6 +133,8 @@ const commonStatus = {
   caseSetDigest: expandedCaseSetDigest,
   stableSlot: commonIdentity.stableSlot,
   seedContractGeneration: SEED_CONTRACT_GENERATION,
+  perfLabSha: "a".repeat(40),
+  teableEeSha: "b".repeat(40),
 };
 assert.deepEqual(
   buildSeedCacheStatus({
@@ -125,7 +150,14 @@ assert.deepEqual(
     caseSetDigest: expandedCaseSetDigest,
     stableSlot: "slot-3",
     seedContractGeneration: SEED_CONTRACT_GENERATION,
+    cacheNamespace: "",
+    perfLabSha: "a".repeat(40),
+    teableEeSha: "b".repeat(40),
   },
+);
+assert.throws(
+  () => buildSeedCacheStatus({ ...commonStatus, perfLabSha: "branch-name" }),
+  /perfLabSha must be a 40-character commit SHA/,
 );
 assert.equal(
   buildSeedCacheStatus({
@@ -184,6 +216,9 @@ try {
           CASE_SET_DIGEST: expandedCaseSetDigest,
           STABLE_SLOT: "slot-3",
           SEED_CONTRACT_GENERATION,
+          SEED_CACHE_NAMESPACE: "ticket-07-cold-warm",
+          PERF_LAB_SHA: "a".repeat(40),
+          TEABLE_EE_SHA: "b".repeat(40),
           OUTPUT_PATH: outputPath,
           GITHUB_OUTPUT: githubOutputPath,
         },
@@ -196,6 +231,9 @@ try {
       String(writtenStatus.requiresRunnerValidation),
       path.expectedValidation,
     );
+    assert.equal(writtenStatus.cacheNamespace, "ticket-07-cold-warm");
+    assert.equal(writtenStatus.perfLabSha, "a".repeat(40));
+    assert.equal(writtenStatus.teableEeSha, "b".repeat(40));
     const githubOutput = await readFile(githubOutputPath, "utf8");
     assert.match(githubOutput, new RegExp(`cache_mode=${path.expectedMode}`));
     assert.match(
@@ -270,12 +308,48 @@ assert.deepEqual(
 const workflow = parse(
   await readFile(".github/workflows/teable-ee-e2e-perf.yml", "utf8"),
 );
+assert.equal(
+  workflow.on.workflow_dispatch.inputs.seed_cache_namespace.default,
+  "",
+);
+assert.equal(
+  workflow.on.workflow_dispatch.inputs.expected_perf_lab_sha.default,
+  "",
+);
+assert.equal(
+  workflow.jobs.resolve_inputs.outputs.seed_cache_namespace,
+  "${{ steps.engines.outputs.seed_cache_namespace }}",
+);
+assert.equal(
+  workflow.jobs.resolve_inputs.outputs.seed_cache_namespace_segment,
+  "${{ steps.engines.outputs.seed_cache_namespace_segment }}",
+);
 const seedSteps = workflow.jobs.seed.steps;
+const revisionStep = workflow.jobs.resolve_inputs.steps.find(
+  (step) => step.name === "Verify pinned perf-lab revision",
+);
+assert.equal(revisionStep.if, "inputs.expected_perf_lab_sha != ''");
+assert.equal(
+  revisionStep.env.EXPECTED_PERF_LAB_SHA,
+  "${{ inputs.expected_perf_lab_sha }}",
+);
+assert.match(revisionStep.run, /GITHUB_SHA/);
+const teableEeRevisionStep = seedSteps.find(
+  (step) => step.id === "teable-ee-revision",
+);
+assert.equal(teableEeRevisionStep["working-directory"], "teable-ee");
+assert.match(teableEeRevisionStep.run, /git rev-parse HEAD/);
 const restoreStep = seedSteps.find((step) => step.id === "seed-db-cache");
+assert.match(restoreStep.with.key, /seed_cache_namespace_segment/);
 assert.match(restoreStep.with.key, /matrix\.plan\.caseSetDigest/);
 assert.match(restoreStep.with.key, /matrix\.plan\.stableSlot/);
 assert.match(restoreStep.with.key, /matrix\.plan\.seedContractGeneration/);
 assert.doesNotMatch(restoreStep.with["restore-keys"], /caseFilterKey/);
+assert.match(
+  restoreStep.with["restore-keys"],
+  /seed_cache_namespace_segment/,
+);
+assert.doesNotMatch(restoreStep.with.key, /inputs\.seed_cache_namespace/);
 assert.match(restoreStep.with["restore-keys"], /matrix\.plan\.stableSlot/);
 assert.match(
   restoreStep.with["restore-keys"],
@@ -297,6 +371,15 @@ assert.equal(
 assert.equal(
   statusStep.env.CASE_SET_DIGEST,
   "${{ matrix.plan.caseSetDigest }}",
+);
+assert.equal(
+  statusStep.env.SEED_CACHE_NAMESPACE,
+  "${{ needs.resolve_inputs.outputs.seed_cache_namespace }}",
+);
+assert.equal(statusStep.env.PERF_LAB_SHA, "${{ github.sha }}");
+assert.equal(
+  statusStep.env.TEABLE_EE_SHA,
+  "${{ steps.teable-ee-revision.outputs.sha }}",
 );
 
 const buildStep = seedSteps.find((step) => step.name === "Build perf seed DB");

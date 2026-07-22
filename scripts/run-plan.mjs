@@ -15,6 +15,7 @@ import { FULL_RUN_HISTORICAL_BUNDLE_SLOTS } from "./full-run-historical-bundle-s
 import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
 import {
   buildCaseSetDigest,
+  normalizeSeedCacheNamespace,
   SEED_CONTRACT_GENERATION,
 } from "./seed-cache-model.mjs";
 import {
@@ -298,6 +299,7 @@ export const resolveRunPlan = ({
   engineFilter,
   caseFilter,
   computedUpdateMode = "",
+  seedCacheNamespace = "",
   allCaseIds = [],
   seedAffinityDeclarations = [],
 }) => {
@@ -306,6 +308,8 @@ export const resolveRunPlan = ({
   const rawCaseFilter = caseFilter ?? "";
   const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
   const requestedComputedUpdateMode = computedUpdateMode.trim();
+  const normalizedSeedCacheNamespace =
+    normalizeSeedCacheNamespace(seedCacheNamespace);
   if (
     requestedComputedUpdateMode &&
     !["sync", "hybrid"].includes(requestedComputedUpdateMode)
@@ -434,6 +438,7 @@ export const resolveRunPlan = ({
       fullRunCaseShards,
     }),
     caseFilterKey: buildCaseFilterKey(caseFilter),
+    seedCacheNamespace: normalizedSeedCacheNamespace,
     planSummary: {
       shardCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
       stableSlotCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
@@ -443,6 +448,9 @@ export const resolveRunPlan = ({
         (total, movement) => total + movement.estimatedCacheImpactMs,
         0,
       ),
+      ...(normalizedSeedCacheNamespace
+        ? { seedCacheNamespace: normalizedSeedCacheNamespace }
+        : {}),
       ...(stageSimulation
         ? {
             stagePlan: compactStageSimulation(
@@ -456,13 +464,30 @@ export const resolveRunPlan = ({
 };
 
 export const writeGithubOutputs = (
-  { engines, seedPlan, executePlan, caseFilterKey, planSummary },
+  {
+    engines,
+    seedPlan,
+    executePlan,
+    caseFilterKey,
+    seedCacheNamespace,
+    planSummary,
+  },
   outputPath,
 ) => {
   appendFileSync(outputPath, `engines=${JSON.stringify(engines)}\n`);
   appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
+  appendFileSync(
+    outputPath,
+    `seed_cache_namespace=${seedCacheNamespace}\n`,
+  );
+  appendFileSync(
+    outputPath,
+    `seed_cache_namespace_segment=${
+      seedCacheNamespace ? `${seedCacheNamespace}-` : ""
+    }\n`,
+  );
   appendFileSync(outputPath, `plan_summary=${JSON.stringify(planSummary)}\n`);
 };
 
@@ -475,6 +500,9 @@ export const renderPlanSummaryMarkdown = (summary) => {
     `- Preserved bundles: ${summary.preservedBundleCount}`,
     `- Estimated cache impact: ${summary.estimatedCacheImpactMs} ms cold seed`,
   ];
+  if (summary.seedCacheNamespace) {
+    lines.push(`- Seed cache namespace: ${summary.seedCacheNamespace}`);
+  }
   if (summary.movedBundles.length === 0) {
     lines.push("- Bundle moves: none");
   } else {
@@ -508,6 +536,7 @@ const main = async () => {
     engineFilter: process.env.ENGINE_FILTER ?? "",
     caseFilter: process.env.CASE_FILTER ?? "",
     computedUpdateMode: process.env.COMPUTED_UPDATE_MODE ?? "",
+    seedCacheNamespace: process.env.SEED_CACHE_NAMESPACE ?? "",
     allCaseIds,
     seedAffinityDeclarations: registeredCases
       .filter(({ seedAffinity }) => seedAffinity != null)

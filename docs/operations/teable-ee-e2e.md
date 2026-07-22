@@ -60,9 +60,19 @@ Manual inputs:
   `computed_update_mode` disables the sync/hybrid pool split, applies the
   requested mode to every selected V2 case, and still uses the stage-aware full-run
   shards.
-  Because `teableio/teable-ee` is private, configure a read-only deploy key on
-  that repository and store the private key in this repository as
-  `TEABLE_EE_CHECKOUT_SSH_KEY`.
+- `seed_cache_namespace`: optional isolated namespace used only for controlled
+  cold/warm cache acceptance. It accepts at most 40 letters, digits, dots,
+  underscores, or hyphens and must start with a letter or digit. Leave it empty
+  for the existing shared cache. A new value isolates both the exact key and the
+  compatible restore prefix, so its first run is a real miss; reuse the same
+  value on the same commit and case set for a true exact-hit warm run.
+- `expected_perf_lab_sha`: optional exact 40-character commit guard for a
+  cold/warm acceptance pair. Resolve the workflow branch before dispatch and
+  pass the same SHA to both runs; planning fails if the branch moved.
+
+Because `teableio/teable-ee` is private, configure a read-only deploy key on
+that repository and store the private key in this repository as
+`TEABLE_EE_CHECKOUT_SSH_KEY`.
 
 ## Case model
 
@@ -147,8 +157,8 @@ The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. It uses an exact key
 and a narrower compatible restore prefix:
 
 ```text
-exact:      perf-seed-db-<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
-compatible: perf-seed-db-<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-
+exact:      perf-seed-db-[<namespace>-]<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-[<namespace>-]<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-
 ```
 
 The exact key binds the complete sorted case set and all seed-relevant perf-lab
@@ -156,6 +166,11 @@ source. The compatible prefix never crosses runner OS, Prisma schema/migrations,
 seed contract generation, or stable shard slot. Neither key includes the target
 `teable-ee` commit SHA, so ordinary backend changes can reuse a dump while
 schema or seed-contract changes cannot.
+The optional namespace is validated before it reaches the cache action. Empty
+keeps the historical key shape; a non-empty namespace scopes both keys and is
+recorded in every `seed-cache-status-*.json` artifact.
+Those status files also record the resolved perf-lab and teable-ee commit SHAs,
+so cache mode evidence is tied to one namespace, case-set digest, and code pair.
 
 The schema hash is computed from:
 
@@ -410,3 +425,29 @@ gh workflow run teable-ee-e2e-perf.yml \
   -f case_filter=all \
   -f engine_filter=v1,v2
 ```
+
+Run a controlled cold/warm full acceptance pair from one commit. Wait for the
+first run to finish before dispatching the second command unchanged:
+
+```bash
+PERF_LAB_REF=codex/feishu-summary-compact
+SEED_CACHE_NAMESPACE=accept-20260723-01
+PERF_LAB_SHA="$(gh api "repos/teableio/teable-perf-lab/commits/${PERF_LAB_REF}" --jq .sha)"
+TEABLE_EE_SHA="$(gh api repos/teableio/teable-ee/commits/develop --jq .sha)"
+
+gh workflow run teable-ee-e2e-perf.yml \
+  --repo teableio/teable-perf-lab \
+  --ref "$PERF_LAB_REF" \
+  -f teable_ee_ref="$TEABLE_EE_SHA" \
+  -f expected_perf_lab_sha="$PERF_LAB_SHA" \
+  -f case_filter=all \
+  -f engine_filter=v1,v2 \
+  -f seed_cache_namespace="$SEED_CACHE_NAMESPACE"
+```
+
+Do not push the workflow branch between the two dispatches. The SHA guard makes
+a moved branch fail instead of silently testing another perf-lab commit. The
+cold run must report only `cache-miss`; the second run must report only
+`exact-hit`. Every status artifact must contain the same `perfLabSha`,
+`teableEeSha`, `cacheNamespace`, and slot-specific `caseSetDigest`. A
+`compatible-candidate` result is not warm acceptance.
