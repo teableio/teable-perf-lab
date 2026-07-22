@@ -74,7 +74,9 @@ measured formula, lookup, delete, undo, redo, or clear operation.
 Each execute job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=execute` and a
 single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
 dispatches each case to a runner in `framework/runners/`. Each case writes an
-independent JSON artifact and summary tagged with `engine`.
+independent JSON artifact and summary tagged with `engine` before trace
+retrieval. One bounded job tail then finalizes all per-case trace manifests and
+rewrites only the trace block in those payloads/summaries.
 
 For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order,
 top-level string-literal `seedAffinity` declarations, and the accepted legacy
@@ -260,14 +262,16 @@ the endpoint URLs here.
 `perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
 `initApp()` creates the Nest test app. The perf framework captures `traceparent`
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
-requests that use the perf SSE helper. It then polls Jaeger at
-`/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
-directory. During each case, the runner can call the Teable OpenTelemetry SDK's
-force flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps
-large cases from holding all spans in the batch processor until the end. Before
-polling, the runner also asks the SDK to flush pending spans one final time, then
-waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path
-have a short settle window. The workflow saves up to
+requests that use the perf SSE helper. A case snapshots those refs and writes
+its measured payload plus a `pending-job-tail` manifest immediately; it does not
+wait for Jaeger. After every case in the engine job completes,
+`perf-lab.e2e-spec.ts` performs one final exporter flush and one
+`PERF_LAB_TRACE_FETCH_SETTLE_MS` settle, then polls Jaeger at
+`/api/traces/<traceId>`. It writes raw JSON snapshots and replaces the pending
+trace block in each case payload, summary, and manifest. During a large case,
+the runner may still call the Teable OpenTelemetry SDK's force flush periodically
+with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans from accumulating in
+the batch processor. The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
 with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
 automatically select one representative per semantic request shape (normalized
@@ -293,7 +297,22 @@ path opens `hard-outage` immediately.
 `traceFetchWaitMs`, `traceFetchJobWaitMs`, breaker state/reason, recovery-probe
 counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
 manifest and case summary. These bounds reduce evidence-collection overhead;
-they do not hide missing-trace warnings or disable sampling. Stream artifacts
+the job bound includes the shared final flush and settle. A case budget only
+stops that case; the job budget and partial-loss breaker are shared by the whole
+tail, so remaining refs receive an explicit skipped reason.
+`PERF_LAB_TRACE_FINALIZE_RESERVE_MS` reserves the final 5 seconds of the job
+budget for atomic raw/manifest/payload writes; network retrieval closes before
+that reserve. The job-tail lifecycle includes both trace retrieval and the
+payload/summary/manifest reconciliation. `traceFetchJobWaitMs` records its real
+elapsed time rather than clamping an overrun to the configured budget, so an SLO
+miss remains visible.
+If the process stops before finalization, the provisional `pending-job-tail`
+state explains the incomplete evidence. Payloads, summaries, raw snapshots, and
+manifests use same-directory temporary files plus atomic rename. A reconciliation
+failure retries every writable result/summary/manifest as one `tail-error` set;
+an unrecoverable filesystem failure leaves the prior valid file rather than a
+truncated performance result. These bounds do not hide missing-trace warnings
+or disable sampling. Stream artifacts
 should also include the response routing headers, such as `x-teable-v2`, so V1
 legacy streams and V2 streams can be distinguished even when they share the same
 HTTP endpoint.

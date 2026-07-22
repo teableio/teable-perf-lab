@@ -46,6 +46,10 @@ ready.
   to its case config interface, plus `PerfRunnerKind`, the `PerfCase` discriminated
   union derived from that map, and result types.
 - `framework/seed-cache.ts`: runner-level seed hash and affinity metadata helpers.
+- `framework/trace-collector.ts`: request trace-ref capture plus deferred,
+  job-tail flush/settle/fetch with shared budgets and per-case manifests.
+- `framework/artifacts.ts`: case payload/summary writes and the trace-only rewrite
+  used after bounded job-tail collection finishes.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
 - `scripts/full-run-shard-model.mjs`: authoritative case-declared plus accepted
@@ -145,6 +149,12 @@ shards for `case_filter=all`):
   fixture stay in one shard. Cache-aware runners run `seedReady`/`sourceReady`
   again before execute. Destructive cases may mutate their isolated execute
   database, restoring shared fixtures between sibling cases when required.
+- Each case writes its measured result before trace retrieval. After all cases
+  in one engine job finish, one bounded tail flushes and settles the exporter,
+  fetches selected Jaeger traces, then rewrites only the trace block in each
+  payload and summary with atomic file replacement. The tail reserves time for
+  artifact finalization and reports real elapsed time, so Jaeger latency does not
+  inflate case duration and a tail overrun cannot be hidden by telemetry clamping.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload

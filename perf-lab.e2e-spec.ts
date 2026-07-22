@@ -5,11 +5,13 @@ import { initApp } from "../utils/init-app";
 import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
 import { seedPerfCase } from "./framework/run-perf-seed";
+import { updatePerfArtifactTraceSummary } from "./framework/artifacts";
 import { applyCaseRuntimeEnv } from "./framework/perf-runtime-env";
 import type { PerfCase } from "./framework/types";
 import {
   installPerfTraceCollector,
-  resetPerfTraceJobBudget,
+  finalizePerfTraceJobTailLifecycle,
+  resetPerfTraceJobTail,
   setPerfTraceFlush,
   uninstallPerfTraceCollector,
 } from "./framework/trace-collector";
@@ -215,7 +217,7 @@ describe("perf-lab serial case runner (e2e)", () => {
 
       beforeAll(async () => {
         logPhase("engine:beforeAll:start", { engine });
-        resetPerfTraceJobBudget();
+        resetPerfTraceJobTail();
         await withRunEngineEnv(engine, async () => {
           resetAxiosInterceptors();
           const initStarted = performance.now();
@@ -232,6 +234,41 @@ describe("perf-lab serial case runner (e2e)", () => {
       });
 
       afterAll(async () => {
+        try {
+          const traceTail = await withRunEngineEnv(engine, () =>
+            finalizePerfTraceJobTailLifecycle({
+              reconcileArtifact: (traceResult) =>
+                updatePerfArtifactTraceSummary({
+                  artifactDir: traceResult.artifactDir,
+                  perfCase: traceResult.perfCase,
+                  engine: traceResult.engine,
+                  traceSummary: traceResult.summary,
+                }),
+            }),
+          );
+          for (const artifactError of traceTail.artifactErrors) {
+            console.warn(
+              `[perf-lab] trace-tail artifact update failed caseId=${artifactError.caseId} engine=${artifactError.engine}: ${artifactError.message}`,
+            );
+          }
+          logPhase("engine:trace-tail:done", {
+            engine,
+            cases: traceTail.results.length,
+            tailErrors: traceTail.results.filter(
+              ({ tailError, summary }) =>
+                tailError != null ||
+                summary.traceFetchBreakerState === "tail-error",
+            ).length,
+            traceTailMs: traceTail.elapsedMs,
+            traceTailBudgetExceeded: traceTail.exceededBudget,
+          });
+        } catch (error) {
+          console.warn(
+            `[perf-lab] trace-tail failed engine=${engine}; provisional manifests remain available: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
         const closeStarted = performance.now();
         await app?.close();
         logPhase("engine:afterAll:closed", {

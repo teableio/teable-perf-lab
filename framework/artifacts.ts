@@ -1,5 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { writeFileAtomically } from "./atomic-file.js";
+import type { PerfTraceArtifactSummary } from "./trace-collector";
 import type { TraceFetchArtifactState } from "./trace-fetch-control";
 import type { MetricThreshold, PerfCase, PerfRunResult } from "./types";
 
@@ -234,10 +236,26 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
   return lines.join("\n");
 };
 
+const assertWritesSettled = (
+  outcomes: PromiseSettledResult<void>[],
+  label: string,
+) => {
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === "rejected" ? [outcome.reason] : [],
+  );
+  if (failures.length > 0) {
+    const reasons = failures
+      .map((error) => (error instanceof Error ? error.message : String(error)))
+      .join("; ");
+    throw new AggregateError(failures, `${label}: ${reasons}`);
+  }
+};
+
 export const writePerfArtifacts = async (
   artifactDir: string | undefined,
   perfCase: PerfCase,
   payload: PerfArtifactPayload,
+  writeArtifactFile: PerfArtifactFileWriter = writeFileAtomically,
 ) => {
   if (!artifactDir) {
     return;
@@ -245,12 +263,145 @@ export const writePerfArtifacts = async (
 
   await mkdir(artifactDir, { recursive: true });
   const summaryMarkdown = buildSummaryMarkdown(payload);
-  await writeFile(
-    join(artifactDir, getArtifactJsonName(perfCase.id, payload.engine)),
-    JSON.stringify(payload, null, 2),
+  const outcomes = await Promise.allSettled([
+    writeArtifactFile(
+      join(artifactDir, getArtifactJsonName(perfCase.id, payload.engine)),
+      JSON.stringify(payload, null, 2),
+    ),
+    writeArtifactFile(
+      join(artifactDir, getSummaryMarkdownName(perfCase.id, payload.engine)),
+      summaryMarkdown,
+    ),
+  ]);
+  assertWritesSettled(outcomes, "Perf artifact set update failed");
+};
+
+type PerfArtifactFileWriter = (path: string, contents: string) => Promise<void>;
+
+const withTraceSummary = (
+  payload: PerfArtifactPayload,
+  traceSummary: PerfTraceArtifactSummary,
+): PerfArtifactPayload => {
+  const details = payload.details ?? {};
+  const observability =
+    details.observability &&
+    typeof details.observability === "object" &&
+    !Array.isArray(details.observability)
+      ? details.observability
+      : {};
+  return {
+    ...payload,
+    details: {
+      ...details,
+      observability: {
+        ...observability,
+        traces: traceSummary,
+      },
+    },
+  };
+};
+
+const writeTraceArtifactSet = async ({
+  artifactDir,
+  perfCase,
+  payload,
+  traceSummary,
+  writeArtifactFile,
+}: {
+  artifactDir: string;
+  perfCase: PerfCase;
+  payload: PerfArtifactPayload;
+  traceSummary: PerfTraceArtifactSummary;
+  writeArtifactFile: PerfArtifactFileWriter;
+}) => {
+  const updatedPayload = withTraceSummary(payload, traceSummary);
+  const writes = [
+    {
+      path: join(artifactDir, getArtifactJsonName(perfCase.id, payload.engine)),
+      contents: JSON.stringify(updatedPayload, null, 2),
+    },
+    {
+      path: join(
+        artifactDir,
+        getSummaryMarkdownName(perfCase.id, payload.engine),
+      ),
+      contents: buildSummaryMarkdown(updatedPayload),
+    },
+  ];
+  if (traceSummary.manifestPath) {
+    const manifestPath = join(artifactDir, traceSummary.manifestPath);
+    await mkdir(dirname(manifestPath), { recursive: true });
+    writes.push({
+      path: manifestPath,
+      contents: JSON.stringify(traceSummary, null, 2),
+    });
+  }
+  const outcomes = await Promise.allSettled(
+    writes.map(({ path, contents }) => writeArtifactFile(path, contents)),
   );
-  await writeFile(
-    join(artifactDir, getSummaryMarkdownName(perfCase.id, payload.engine)),
-    summaryMarkdown,
+  assertWritesSettled(outcomes, "Trace artifact set update failed");
+};
+
+export const updatePerfArtifactTraceSummary = async ({
+  artifactDir,
+  perfCase,
+  engine,
+  traceSummary,
+  writeArtifactFile = writeFileAtomically,
+}: {
+  artifactDir?: string;
+  perfCase: PerfCase;
+  engine: string;
+  traceSummary: PerfTraceArtifactSummary;
+  writeArtifactFile?: PerfArtifactFileWriter;
+}) => {
+  if (!artifactDir) {
+    return;
+  }
+  const payloadPath = join(
+    artifactDir,
+    getArtifactJsonName(perfCase.id, engine),
   );
+  const payload = JSON.parse(
+    await readFile(payloadPath, "utf8"),
+  ) as PerfArtifactPayload;
+  if (payload.caseId !== perfCase.id || payload.engine !== engine) {
+    throw new Error(
+      `Perf artifact identity mismatch at ${payloadPath}: expected ${perfCase.id}/${engine}, received ${payload.caseId}/${payload.engine}`,
+    );
+  }
+  try {
+    await writeTraceArtifactSet({
+      artifactDir,
+      perfCase,
+      payload,
+      traceSummary,
+      writeArtifactFile,
+    });
+    return traceSummary;
+  } catch (error) {
+    const reason = `Trace artifact reconciliation failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    const tailErrorSummary: PerfTraceArtifactSummary = {
+      ...traceSummary,
+      traceFetchBreakerState: "tail-error",
+      traceFetchBreakerReason: reason,
+    };
+    try {
+      await writeTraceArtifactSet({
+        artifactDir,
+        perfCase,
+        payload,
+        traceSummary: tailErrorSummary,
+        writeArtifactFile,
+      });
+    } catch (fallbackError) {
+      throw new AggregateError(
+        [error, fallbackError],
+        `${reason}; tail-error artifact reconciliation also failed`,
+      );
+    }
+    return tailErrorSummary;
+  }
 };

@@ -3,15 +3,10 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { executeRegisteredRunner } from "./runner-registry";
-import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
+import { deferPerfTraceDetails, resetPerfTraceRefs } from "./trace-collector";
 import { runWithWatchdog } from "./watchdog";
 import { PerfRunDiagnosticError } from "./types";
-import type {
-  MetricThreshold,
-  PerfCase,
-  PerfRunContext,
-  PerfRunResult,
-} from "./types";
+import type { MetricThreshold, PerfCase, PerfRunContext } from "./types";
 
 const evaluateThresholds = (
   metrics: Record<string, number>,
@@ -25,25 +20,6 @@ const evaluateThresholds = (
       passed: typeof actual === "number" && actual <= threshold.max,
     };
   });
-
-const withTraceDetails = async (
-  context: PerfRunContext,
-  perfCase: PerfCase,
-  details: PerfRunResult["details"],
-) => {
-  const traceArtifacts = await writeTraceArtifacts({
-    artifactDir: context.artifactDir,
-    perfCase,
-    engine: context.engine,
-  });
-
-  return {
-    ...details,
-    observability: {
-      traces: traceArtifacts,
-    },
-  };
-};
 
 export const runPerfCase = async (
   perfCase: PerfCase,
@@ -95,7 +71,11 @@ export const runPerfCase = async (
       metrics: result.metrics,
       thresholds: thresholdResults,
       phases: result.phases,
-      details: await withTraceDetails(context, perfCase, result.details),
+      details: await deferPerfTraceDetails({
+        context,
+        perfCase,
+        details: result.details,
+      }),
     };
 
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
@@ -132,11 +112,11 @@ export const runPerfCase = async (
         metrics: error.result.metrics,
         thresholds: thresholdResults,
         phases: error.result.phases,
-        details: await withTraceDetails(
+        details: await deferPerfTraceDetails({
           context,
           perfCase,
-          error.result.details,
-        ),
+          details: error.result.details,
+        }),
         error: normalizePerfError(error),
       };
 
@@ -156,7 +136,7 @@ export const runPerfCase = async (
       durationMs: roundMetric(performance.now() - started),
       metrics: {},
       thresholds: [],
-      details: await withTraceDetails(context, perfCase, undefined),
+      details: await deferPerfTraceDetails({ context, perfCase }),
       error: normalizePerfError(error),
     };
 

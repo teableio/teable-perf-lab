@@ -135,7 +135,7 @@ pnpm check
 This runs the full chain declared in `package.json`, including `format:check`,
 `check:yaml`, `check:ts`, `check:types`, `check:trace`, `check:catalog`,
 `check:run-plan`, `check:stage-plan`, `check:stage-observation`,
-`check:full-run-feedback`, artifact and summary model checks,
+`check:full-run-feedback`, trace artifact rewrite, artifact and summary model checks,
 runner/workload model checks, `check:cases`, and `check:readme`.
 Between them they validate formatting, workflow YAML, TypeScript syntax and
 types (incl. the runner↔config binding — pairing a runner with the wrong config
@@ -149,7 +149,8 @@ run-plan split (`check:run-plan`), five-stage shard simulation and SLO selection
 (`check:run-summary-model`), the artifact diff masking profile
 (`check:artifact-diff-model`), the record-read workload model
 (`check:record-read-model`), the full-run feedback SLO and telemetry contract
-(`check:full-run-feedback`), the metadata Teable sync needs (`check:cases`), and
+(`check:full-run-feedback`), the post-case trace-only artifact rewrite
+(`check:artifacts`), the metadata Teable sync needs (`check:cases`), and
 that the root README "Available Cases" list matches the registry. It does
 **not** execute anything against a real Teable — that is step 8.
 
