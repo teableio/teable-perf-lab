@@ -14,3 +14,10 @@
 - [ ] Feishu、Performance Track 和 GitHub summary 成功，且不重新触发 100KB/1MB payload 限制。
 - [ ] 不放宽 case threshold、不减少 measured samples、不删除保留的 scale-up case 来取得通过。
 - [ ] run ids、阶段耗时、关键 shard、预测误差和 cache/trace 证据回写到 spec 或验收记录，供下一轮校准使用。
+
+## First acceptance attempt
+
+- Commit `5d8294585cbdc052a92718256635be938e73aab8`，teable-ee `0725368fe370202b79bb18271aeeeb8c626213b6`，隔离 namespace `cw-5d82945-20260723-a7c91f2b`。
+- Cold run `29951887405`：全部 seed shard 为 cache miss，结果/路由/trace/report 完整，但 active wall 49m39s，未达到 45m；最长 seed 31m33s，最长 V1 17m04s。
+- Warm run `29955363070`：全部 seed shard 为 exact hit，active wall 20m14s，达到 25m；结果/路由/trace/report 完整。
+- Cold 关键路径同时包含 shard 1 的最长 seed 与最长 V1；即使移除全局 seed barrier，估算仍约 49 分钟，因此不满足 Ticket 08 的实施条件。剩余问题归因于 Ticket 05 的 case-level cold-seed 校准不完整，已据两轮 artifact 重校准后重跑本 ticket。

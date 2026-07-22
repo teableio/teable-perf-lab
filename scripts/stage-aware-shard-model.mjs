@@ -451,9 +451,7 @@ const attachCandidateMetrics = ({ plan, fixedCosts, coldSloMs, warmSloMs }) => {
     predictedStages.coldSeedMs + executeCriticalMs + fixedCosts.reportMs;
   const warmWallMs =
     fixedCosts.warmSeedMs + executeCriticalMs + fixedCosts.reportMs;
-  const v1Jobs = plan.shardStageCosts.filter(
-    (costs) => costs.v1Ms > 0,
-  ).length;
+  const v1Jobs = plan.shardStageCosts.filter((costs) => costs.v1Ms > 0).length;
   const v2SyncJobs = plan.shardStageCosts.filter(
     (costs) => costs.v2SyncMs > 0,
   ).length;
@@ -703,7 +701,7 @@ export const renderStagePlanSummaryMarkdown = ({
   if (!summary.observed) {
     lines.push(
       summary.calibrationSource
-        ? `Cost calibration source: run ${summary.calibrationSource.sourceRunId}. Current-run observations will be appended by the report job.`
+        ? `Cost calibration source: cold run ${summary.calibrationSource.sourceRunId}${summary.calibrationSource.pairedWarmRunId ? ` and exact-hit warm run ${summary.calibrationSource.pairedWarmRunId}` : ""}. Current-run observations will be appended by the report job.`
         : "Current-run observations will be appended by the report job.",
     );
   } else {

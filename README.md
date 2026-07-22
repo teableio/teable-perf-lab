@@ -58,13 +58,13 @@ ready.
 - `scripts/stage-aware-shard-model.mjs`: deterministic five-stage bundle
   packing, 6–12 shard simulation, SLO selection, cache-movement accounting, and
   predicted-versus-observed plan summaries.
-- `scripts/full-run-historical-bundle-slots.mjs`: accepted scalar-plan slots for
-  every shared and singleton bundle, used to bound cache churn after unrelated
-  catalog edits.
+- `scripts/full-run-historical-bundle-slots.mjs`: accepted stage-aware
+  eight-shard slots for every shared and singleton bundle, used to bound cache
+  churn after unrelated catalog edits.
 - `scripts/full-run-execute-calibration.mjs` and
-  `scripts/full-run-stage-calibration.mjs`: versioned case artifact durations,
-  100k cold-seed observations, and observed stage maxima from the trusted
-  calibration run.
+  `scripts/full-run-stage-calibration.mjs`: versioned case-level cold-seed,
+  execute, and trace-attribution durations plus observed stage maxima from the
+  trusted calibration run.
 - `scripts/stage-plan-observation-model.mjs` and
   `scripts/observe-stage-plan.mjs`: current-run GitHub job/trace observation,
   seed cache-mode classification, prediction drift rendering, and the
