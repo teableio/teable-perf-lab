@@ -2,7 +2,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
-import { createTraceEvidencePolicy } from "./trace-evidence-policy";
+import {
+  createTraceEvidencePolicy,
+  normalizeTraceRequestBodyShape,
+} from "./trace-evidence-policy";
+import {
+  createTraceFetchControl,
+  type TraceFetchDecision,
+} from "./trace-fetch-control";
 import type { PerfCase, PerfRunContext } from "./types";
 
 type HeaderBag = Record<string, unknown> & {
@@ -25,6 +32,7 @@ export interface PerfTraceRef extends PerfTraceStep {
   traceLink?: string;
   method?: string;
   url?: string;
+  requestBodyShape?: string;
   status?: number;
   capturedAt: string;
 }
@@ -43,6 +51,14 @@ export interface PerfTraceArtifactSummary {
   // caseMs vs durationMs from the logs.
   missingFetchCount: number;
   wastedFetchMs: number;
+  traceFetchCaseBudgetMs: number;
+  traceFetchJobBudgetMs: number;
+  traceFetchWaitMs: number;
+  traceFetchJobWaitMs: number;
+  traceFetchBreakerState?: string;
+  traceFetchBreakerReason?: string;
+  traceFetchRecoveryProbeCount: number;
+  traceFetchRecoverySucceeded: boolean;
   maxSnapshotCount: number;
   fetchConcurrency: number;
   backgroundFlushIntervalMs?: number;
@@ -89,6 +105,7 @@ type JaegerTraceFetchResult =
       error: string;
       attempts: number;
       durationMs: number;
+      unavailable?: boolean;
     };
 
 const PERF_HEADER_RUN_ID = "x-teable-perf-run-id";
@@ -109,6 +126,7 @@ let traceFlushChain: Promise<void> = Promise.resolve();
 let backgroundFlushCount = 0;
 let backgroundFlushErrorCount = 0;
 let backgroundFlushLastError: string | undefined;
+let traceFetchJobWaitMs = 0;
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -121,6 +139,34 @@ const getNonNegativeIntegerEnv = (name: string, fallback: number) => {
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitUntilDeadline = async <T>(
+  promise: Promise<T>,
+  deadlineAt: number,
+  timeoutMessage: string,
+) => {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) {
+    throw new Error(timeoutMessage);
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(timeoutMessage)),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+};
 
 const isTraceCollectionEnabled = () =>
   process.env.PERF_LAB_TRACE_ENABLED !== "false";
@@ -274,6 +320,10 @@ export const resetPerfTraceRefs = () => {
   resetPerfTraceBackgroundFlushCounters();
 };
 
+export const resetPerfTraceJobBudget = () => {
+  traceFetchJobWaitMs = 0;
+};
+
 export const recordPerfTraceRefFromHeaders = ({
   context,
   perfCase,
@@ -281,6 +331,7 @@ export const recordPerfTraceRefFromHeaders = ({
   headers,
   method,
   url,
+  requestBody,
   status,
 }: {
   context: PerfRunContext;
@@ -289,6 +340,7 @@ export const recordPerfTraceRefFromHeaders = ({
   headers: unknown;
   method?: string;
   url?: string;
+  requestBody?: unknown;
   status?: number;
 }) => {
   if (!isTraceCollectionEnabled()) {
@@ -301,6 +353,7 @@ export const recordPerfTraceRefFromHeaders = ({
     return undefined;
   }
 
+  const requestBodyShape = normalizeTraceRequestBodyShape(requestBody);
   const ref: PerfTraceRef = {
     runId: context.runId,
     caseId: perfCase.id,
@@ -311,6 +364,7 @@ export const recordPerfTraceRefFromHeaders = ({
     traceLink: parseTraceLink(getHeaderValue(headers, "link")),
     method: method?.toUpperCase(),
     url,
+    ...(requestBodyShape ? { requestBodyShape } : {}),
     status,
     capturedAt: new Date().toISOString(),
   };
@@ -426,6 +480,7 @@ const runWithConcurrency = async <T, R>(
 const fetchJaegerTrace = async (
   jaegerApiBaseUrl: string,
   traceId: string,
+  deadlineAt: number,
 ): Promise<JaegerTraceFetchResult> => {
   const timeoutMs = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FETCH_TIMEOUT_MS",
@@ -439,10 +494,17 @@ const fetchJaegerTrace = async (
   let lastError = "";
   let attempts = 0;
 
-  while (Date.now() - startedAt <= timeoutMs) {
+  const fetchDeadlineAt = Math.min(startedAt + timeoutMs, deadlineAt);
+
+  while (Date.now() < fetchDeadlineAt) {
     attempts += 1;
+    const controller = new AbortController();
+    const remainingRequestMs = fetchDeadlineAt - Date.now();
+    const timeout = setTimeout(() => controller.abort(), remainingRequestMs);
     try {
-      const res = await fetch(`${jaegerApiBaseUrl}/api/traces/${traceId}`);
+      const res = await fetch(`${jaegerApiBaseUrl}/api/traces/${traceId}`, {
+        signal: controller.signal,
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           data?: unknown[];
@@ -459,12 +521,41 @@ const fetchJaegerTrace = async (
         lastError = "Jaeger returned an empty trace response";
       } else {
         lastError = `Jaeger API returned ${res.status}`;
+        if (res.status >= 500) {
+          return {
+            status: "error",
+            traceId,
+            error: lastError,
+            attempts,
+            durationMs: Date.now() - startedAt,
+            unavailable: true,
+          };
+        }
       }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted) {
+        lastError = "Trace fetch request exceeded the fetch budget";
+        break;
+      }
+      if (isTraceServiceUnavailableError(lastError)) {
+        return {
+          status: "error",
+          traceId,
+          error: lastError,
+          attempts,
+          durationMs: Date.now() - startedAt,
+          unavailable: true,
+        };
+      }
+    } finally {
+      clearTimeout(timeout);
     }
 
-    await delay(pollIntervalMs);
+    const remainingMs = fetchDeadlineAt - Date.now();
+    if (remainingMs > 0) {
+      await delay(Math.min(pollIntervalMs, remainingMs));
+    }
   }
 
   return {
@@ -476,7 +567,7 @@ const fetchJaegerTrace = async (
   };
 };
 
-const isOtelExporterUnavailableError = (error?: string) =>
+const isTraceServiceUnavailableError = (error?: string) =>
   error != null &&
   /\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|UND_ERR_CONNECT_TIMEOUT)\b|connect timeout|fetch failed|socket hang up/i.test(
     error,
@@ -510,6 +601,9 @@ export const installPerfTraceCollector = () => {
       return response;
     }
 
+    const requestBodyShape = normalizeTraceRequestBodyShape(
+      response.config.data,
+    );
     pushTraceRef({
       ...step,
       ...parsedTraceparent,
@@ -517,6 +611,7 @@ export const installPerfTraceCollector = () => {
       traceLink: parseTraceLink(getHeaderValue(response.headers, "link")),
       method: response.config.method?.toUpperCase(),
       url: resolveRequestUrl(response.config),
+      ...(requestBodyShape ? { requestBodyShape } : {}),
       status: response.status,
       capturedAt: new Date().toISOString(),
     });
@@ -581,6 +676,24 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_FETCH_CONCURRENCY",
     8,
   );
+  const traceFetchCaseBudgetMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_CASE_BUDGET_MS",
+    15_000,
+  );
+  const traceFetchJobBudgetMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_JOB_BUDGET_MS",
+    60_000,
+  );
+  const traceFetchControl = createTraceFetchControl({
+    partialLossThreshold: getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD",
+      3,
+    ),
+    recoveryProbeLimit: getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT",
+      1,
+    ),
+  });
   const runRefs = uniqueTraceRefsForRun(perfCase, engine);
   const evidencePolicy = enabled
     ? createTraceEvidencePolicy({
@@ -608,6 +721,12 @@ export const writeTraceArtifacts = async ({
     skippedTraceCount: 0,
     missingFetchCount: 0,
     wastedFetchMs: 0,
+    traceFetchCaseBudgetMs,
+    traceFetchJobBudgetMs,
+    traceFetchWaitMs: 0,
+    traceFetchJobWaitMs,
+    traceFetchRecoveryProbeCount: 0,
+    traceFetchRecoverySucceeded: false,
     maxSnapshotCount,
     fetchConcurrency,
     backgroundFlushIntervalMs: getBackgroundFlushIntervalMs(),
@@ -634,8 +753,70 @@ export const writeTraceArtifacts = async ({
   );
   const traceDir = join(artifactDir, traceRelativeDir);
   await mkdir(traceDir, { recursive: true });
+  const traceFetchStartedAt = selectedRefs.length > 0 ? Date.now() : undefined;
+  const remainingJobBudgetMs = Math.max(
+    traceFetchJobBudgetMs - traceFetchJobWaitMs,
+    0,
+  );
+  const allowedFetchWaitMs = Math.min(
+    traceFetchCaseBudgetMs,
+    remainingJobBudgetMs,
+  );
+  const fetchDeadlineAt =
+    traceFetchStartedAt == null
+      ? Number.POSITIVE_INFINITY
+      : traceFetchStartedAt + allowedFetchWaitMs;
+  const deadlineBudgetState =
+    remainingJobBudgetMs <= traceFetchCaseBudgetMs
+      ? "job-budget"
+      : "case-budget";
+  let traceFetchFinalized = false;
+
+  const stopForDeadline = () => {
+    const budgetMs =
+      deadlineBudgetState === "job-budget"
+        ? traceFetchJobBudgetMs
+        : traceFetchCaseBudgetMs;
+    traceFetchControl.stop(
+      deadlineBudgetState,
+      `Trace fetch ${
+        deadlineBudgetState === "job-budget" ? "job" : "case"
+      } budget ${budgetMs}ms exhausted`,
+    );
+  };
+
+  if (selectedRefs.length > 0 && allowedFetchWaitMs <= 0) {
+    stopForDeadline();
+  }
 
   const writeSummary = async () => {
+    if (!traceFetchFinalized) {
+      const traceFetchWaitMs =
+        traceFetchStartedAt == null
+          ? 0
+          : Math.min(Date.now() - traceFetchStartedAt, allowedFetchWaitMs);
+      traceFetchJobWaitMs = Math.min(
+        traceFetchJobBudgetMs,
+        traceFetchJobWaitMs + traceFetchWaitMs,
+      );
+      const control = traceFetchControl.snapshot();
+      summary.traceFetchWaitMs = traceFetchWaitMs;
+      summary.traceFetchJobWaitMs = traceFetchJobWaitMs;
+      summary.traceFetchBreakerState ??= control.state;
+      summary.traceFetchBreakerReason ??= control.reason;
+      summary.traceFetchRecoveryProbeCount = control.recoveryProbeCount;
+      summary.traceFetchRecoverySucceeded = control.recoverySucceeded;
+      traceFetchFinalized = true;
+    }
+    const accountedTraceCount =
+      summary.savedTraceCount +
+      summary.failedTraceCount +
+      summary.skippedTraceCount;
+    if (accountedTraceCount !== summary.uniqueTraceCount) {
+      throw new Error(
+        `Trace manifest count mismatch: saved + failed + skipped = ${accountedTraceCount}, unique refs = ${summary.uniqueTraceCount}`,
+      );
+    }
     summary.artifactDir = traceRelativeDir;
     summary.manifestPath = join(traceRelativeDir, "manifest.json");
     await writeFile(
@@ -660,7 +841,16 @@ export const writeTraceArtifacts = async ({
   if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
     const flushStartedAt = Date.now();
     try {
-      await flushTraceProvider();
+      const remainingMs = fetchDeadlineAt - Date.now();
+      if (remainingMs <= 0) {
+        stopForDeadline();
+      } else {
+        await waitUntilDeadline(
+          flushTraceProvider(),
+          fetchDeadlineAt,
+          "Trace flush exceeded the fetch budget",
+        );
+      }
       summary.flushDurationMs = Date.now() - flushStartedAt;
     } catch (error) {
       summary.flushDurationMs = Date.now() - flushStartedAt;
@@ -671,8 +861,10 @@ export const writeTraceArtifacts = async ({
 
   if (
     selectedRefs.length > 0 &&
-    isOtelExporterUnavailableError(summary.flushError)
+    isTraceServiceUnavailableError(summary.flushError)
   ) {
+    summary.traceFetchBreakerState = "exporter-outage";
+    summary.traceFetchBreakerReason = summary.flushError;
     summary.traceFetchSkippedReason = `Trace service unavailable; skipped Jaeger fetch: ${summary.flushError}`;
     for (const ref of runRefs) {
       addSkippedTrace(ref, summary.traceFetchSkippedReason);
@@ -685,28 +877,56 @@ export const writeTraceArtifacts = async ({
     5_000,
   );
   if (selectedRefs.length > 0) {
-    await delay(settleMs);
+    const remainingMs = fetchDeadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      stopForDeadline();
+    } else {
+      await delay(Math.min(settleMs, remainingMs));
+      if (Date.now() >= fetchDeadlineAt) {
+        stopForDeadline();
+      }
+    }
   }
 
   const fetchTraceRef = async (ref: PerfTraceRef) => {
-    if (!jaegerApiBaseUrl) {
-      return {
-        ref,
-        result: {
-          status: "missing" as const,
-          traceId: ref.traceId,
-          error:
-            "PERF_LAB_JAEGER_API_BASE_URL or TRACE_LINK_BASE_URL is not set",
-          attempts: 0,
-          durationMs: 0,
-        },
-      };
+    if (Date.now() >= fetchDeadlineAt) {
+      stopForDeadline();
+    }
+    const decision: TraceFetchDecision = traceFetchControl.next();
+    if (decision.action === "skip") {
+      return { ref, skippedReason: decision.reason };
     }
 
-    return {
-      ref,
-      result: await fetchJaegerTrace(jaegerApiBaseUrl, ref.traceId),
-    };
+    let result: JaegerTraceFetchResult;
+    if (!jaegerApiBaseUrl) {
+      result = {
+        status: "error",
+        traceId: ref.traceId,
+        error: "PERF_LAB_JAEGER_API_BASE_URL or TRACE_LINK_BASE_URL is not set",
+        attempts: 0,
+        durationMs: 0,
+        unavailable: true,
+      };
+    } else {
+      result = await fetchJaegerTrace(
+        jaegerApiBaseUrl,
+        ref.traceId,
+        fetchDeadlineAt,
+      );
+    }
+
+    traceFetchControl.record(
+      decision,
+      result.status === "saved"
+        ? { status: "saved" }
+        : "unavailable" in result && result.unavailable
+          ? { status: "unavailable", error: result.error }
+          : { status: "missing", error: result.error },
+    );
+    if (Date.now() >= fetchDeadlineAt) {
+      stopForDeadline();
+    }
+    return { ref, result, decision };
   };
 
   const addSavedTrace = async (
@@ -789,7 +1009,15 @@ export const writeTraceArtifacts = async ({
 
       attempts += 1;
       fallbackTraceIds.add(fallbackRef.traceId);
-      const { result } = await fetchTraceRef(fallbackRef);
+      const fallbackAttempt = await fetchTraceRef(fallbackRef);
+      if (!("result" in fallbackAttempt)) {
+        skippedTraceErrors.set(
+          fallbackRef.traceId,
+          `Fallback trace was not fetched while replacing ${failedRef.stepId}: ${fallbackAttempt.skippedReason}`,
+        );
+        return null;
+      }
+      const { result } = fallbackAttempt;
       if (result.status === "saved") {
         skippedTraceErrors.set(
           failedRef.traceId,
@@ -821,7 +1049,13 @@ export const writeTraceArtifacts = async ({
     result: Exclude<JaegerTraceFetchResult, { status: "saved" }>;
   }> = [];
 
-  for (const { ref, result } of fetchResults) {
+  for (const fetchResult of fetchResults) {
+    const { ref } = fetchResult;
+    if (!("result" in fetchResult)) {
+      skippedTraceErrors.set(ref.traceId, fetchResult.skippedReason);
+      continue;
+    }
+    const { result } = fetchResult;
     if (result.status === "saved") {
       await addSavedTrace(ref, result);
       continue;

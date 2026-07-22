@@ -89,6 +89,14 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               skippedTraceCount?: number;
               missingFetchCount?: number;
               wastedFetchMs?: number;
+              traceFetchCaseBudgetMs?: number;
+              traceFetchJobBudgetMs?: number;
+              traceFetchWaitMs?: number;
+              traceFetchJobWaitMs?: number;
+              traceFetchBreakerState?: string;
+              traceFetchBreakerReason?: string;
+              traceFetchRecoveryProbeCount?: number;
+              traceFetchRecoverySucceeded?: boolean;
               maxSnapshotCount?: number;
               fetchConcurrency?: number;
               backgroundFlushIntervalMs?: number;
@@ -125,7 +133,31 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
       `| skipped trace fetches | ${traces.skippedTraceCount ?? 0} |`,
+      `| trace fetch budget | case ${traces.traceFetchWaitMs ?? 0}/${
+        traces.traceFetchCaseBudgetMs ?? 0
+      } ms · job ${traces.traceFetchJobWaitMs ?? 0}/${
+        traces.traceFetchJobBudgetMs ?? 0
+      } ms |`,
     );
+    if (
+      traces.traceFetchBreakerState &&
+      traces.traceFetchBreakerState !== "closed"
+    ) {
+      lines.push(
+        `| trace fetch breaker | \`${traces.traceFetchBreakerState}\`${
+          traces.traceFetchBreakerReason
+            ? ` — ${traces.traceFetchBreakerReason}`
+            : ""
+        } |`,
+      );
+    }
+    if (traces.traceFetchRecoveryProbeCount) {
+      lines.push(
+        `| trace recovery probes | ${traces.traceFetchRecoveryProbeCount} · ${
+          traces.traceFetchRecoverySucceeded ? "recovered" : "not recovered"
+        } |`,
+      );
+    }
     if (traces.missingFetchCount) {
       // wastedFetchMs sums poll time across concurrent lanes; divide by the
       // fetch concurrency to estimate the wall-clock added to the run.

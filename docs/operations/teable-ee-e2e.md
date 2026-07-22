@@ -230,18 +230,30 @@ polling, the runner also asks the SDK to flush pending spans one final time, the
 waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path
 have a short settle window. The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Cases that generate many
-same-shape request traces may set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` in their
-case runtime env to save representative raw snapshots instead of requiring every
-request trace to survive Jaeger ingestion. If a selected representative trace is
-sampled but cannot be fetched from Jaeger, cases may set
+with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
+automatically select one representative per semantic request shape (normalized
+step, method, URL shape, and request-body structure); all captured refs remain in
+the manifest. Cases may still set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow
+which shapes are eligible. If a selected representative trace is sampled but
+cannot be fetched from Jaeger, cases may set
 `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
 sampled fallback refs before recording a failed fetch. Refs with an unsampled
 `traceparent` are kept in the manifest but skipped for Jaeger fetch because
 those traces are not expected to be stored. Sampled refs above the snapshot cap,
 outside a case's include pattern, replaced by a saved fallback trace, or covered
 by an already saved same-shape trace are also recorded as skipped so the manifest
-explains any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts
+explains any intentional `uniqueTraceCount > savedTraceCount` gap.
+
+Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
+(15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (60 seconds). After
+`PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
+partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
+probe, then records the remaining refs as skipped instead of polling each one.
+An unavailable exporter or Jaeger opens a hard-outage breaker immediately.
+`traceFetchWaitMs`, `traceFetchJobWaitMs`, breaker state/reason, recovery-probe
+counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
+manifest and case summary. These bounds reduce evidence-collection overhead;
+they do not hide missing-trace warnings or disable sampling. Stream artifacts
 should also include the response routing headers, such as `x-teable-v2`, so V1
 legacy streams and V2 streams can be distinguished even when they share the same
 HTTP endpoint.

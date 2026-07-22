@@ -9,6 +9,7 @@ import { applyCaseRuntimeEnv } from "./framework/perf-runtime-env";
 import type { PerfCase } from "./framework/types";
 import {
   installPerfTraceCollector,
+  resetPerfTraceJobBudget,
   setPerfTraceFlush,
   uninstallPerfTraceCollector,
 } from "./framework/trace-collector";
@@ -214,6 +215,7 @@ describe("perf-lab serial case runner (e2e)", () => {
 
       beforeAll(async () => {
         logPhase("engine:beforeAll:start", { engine });
+        resetPerfTraceJobBudget();
         await withRunEngineEnv(engine, async () => {
           resetAxiosInterceptors();
           const initStarted = performance.now();

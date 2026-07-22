@@ -195,6 +195,7 @@ export const perfStreamSse = async <T extends PerfSseEvent>({
     headers: responseHeaders,
     method,
     url,
+    requestBody: body,
     status: response.status,
   });
 

@@ -112,6 +112,16 @@ only if you are not already holding the payload.
   "savedTraceCount": 20,
   "failedTraceCount": 1,
   "skippedTraceCount": 16,
+  "missingFetchCount": 1,
+  "wastedFetchMs": 3000,
+  "traceFetchCaseBudgetMs": 15000,
+  "traceFetchJobBudgetMs": 60000,
+  "traceFetchWaitMs": 8120,
+  "traceFetchJobWaitMs": 42100,
+  "traceFetchBreakerState": "partial-loss",
+  "traceFetchBreakerReason": "Trace fetch breaker open: partial loss threshold 3 reached",
+  "traceFetchRecoveryProbeCount": 1,
+  "traceFetchRecoverySucceeded": false,
   "maxSnapshotCount": 100,
   "fetchConcurrency": 8,
   "backgroundFlushIntervalMs": 1000,
@@ -131,6 +141,7 @@ only if you are not already holding the payload.
       "traceLink": "http://host:16686/trace/0af7651916cd43dd8448eb211c80319c?uiEmbed=v0",
       "method": "POST",
       "url": "http://127.0.0.1:3000/api/table/tblXXX/field",
+      "requestBodyShape": "{\"name\":\"string\",\"type\":\"string\"}",
       "status": 201,
       "capturedAt": "2026-06-14T03:21:30.000Z"
     }
@@ -159,18 +170,28 @@ only if you are not already holding the payload.
 }
 ```
 
-Count relationships (a healthy run): `savedTraceCount + failedTraceCount +
-skippedTraceCount` accounts for every fetched/skipped ref. `skipped` covers
+Count relationships: `savedTraceCount + failedTraceCount + skippedTraceCount`
+accounts for every unique ref in `refs[]` and therefore equals
+`uniqueTraceCount`. `traceRefCount` is the raw captured count and can be higher
+when duplicate trace IDs were observed. `skipped` covers
 unsampled refs, sampled refs above `maxSnapshotCount`, sampled refs outside a
-case include pattern, repeated sampled `GET` refs covered by a saved
-representative for the same request shape (`stepId` shape + method + URL path
-shape), and whole-case fetch skips when the Trace service was unavailable before
-Jaeger fetch began. Each skipped entry carries an `error` string explaining why
-it was not fetched. `refs[]` lists every captured request; `savedTraces[]` lists
-the fetch outcome per selected trace plus skipped refs.
+case include pattern, repeated sampled GET or POST refs covered by a saved
+representative for the same semantic request shape (normalized step + method +
+URL path/query-key shape + request-body structure), and whole-case fetch skips
+when the Trace service was unavailable or a trace budget/breaker opened. Each
+skipped entry carries an `error` string explaining why it was not fetched.
+`refs[]` lists every unique captured trace; `savedTraces[]` lists one outcome per
+unique ref.
 `traceFetchSkippedReason` is set only when the collector skipped Jaeger fetch for
 the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.
+
+`traceFetchWaitMs` is the case-attributed wait capped by
+`traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is cumulative for the execute job
+and capped by `traceFetchJobBudgetMs`. A non-`closed`
+`traceFetchBreakerState` plus `traceFetchBreakerReason` preserves why retrieval
+stopped. `partial-loss` can recover through a bounded probe;
+`traceFetchRecoverySucceeded` records that transition.
 
 ## `traces/<case-id>-<engine>/<step-id>-<trace-id>.json` — raw Jaeger snapshot
 
