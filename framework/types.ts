@@ -59,6 +59,10 @@ interface PerfCaseBase {
   id: string;
   title: string;
   timeoutMs: number;
+  // Stable physical-fixture identity shared by the runtime seed contract and
+  // the full-run planner. Cases that declare the same value are an
+  // indivisible seed bundle.
+  seedAffinity?: string;
   // Opt-in idle watchdog (see framework/watchdog.ts). When set, the case fails
   // fast with a clear diagnostic if the server makes no HTTP/SSE progress for
   // this many ms, instead of hanging until `timeoutMs`. Set it comfortably above

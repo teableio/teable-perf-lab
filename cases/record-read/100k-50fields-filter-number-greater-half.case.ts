@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-read/100k-50fields-filter-number-greater-half",
   title: "Filter a 100k 50-field record read to the upper numeric half",
   runner: "record-read",
+  seedAffinity: "record-read/100k-50fields",
   timeoutMs: 3_600_000,
   watchdogMs: 1_200_000,
   config: {

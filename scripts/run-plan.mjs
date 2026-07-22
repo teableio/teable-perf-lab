@@ -1,13 +1,16 @@
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 import {
   buildFullRunCaseShards,
+  resolveFixtureAffinities,
   resolveFullRunCaseIds,
   resolveFullRunShardCount,
   validateFixtureAffinities,
+  validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
 
 export const HYBRID_COMPUTED_CASES = [
@@ -43,9 +46,42 @@ const caseIdFromPath = (casePath) => {
 };
 
 export const loadRegisteredCaseIds = async () => {
+  const registeredCases = await loadRegisteredCases();
+  return registeredCases.map(({ id }) => id);
+};
+
+export const parseCaseSeedAffinity = (caseSource) => {
+  const declarations = [...caseSource.matchAll(/^\s*seedAffinity\s*:/gm)];
+  const matches = [
+    ...caseSource.matchAll(/^\s*seedAffinity:\s*["']([^"']+)["'],?\s*$/gm),
+  ];
+  if (declarations.length > 1) {
+    throw new Error("seedAffinity must be declared at most once per case.");
+  }
+  if (declarations.length === 1 && matches.length !== 1) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  const seedAffinity = matches[0]?.[1];
+  if (seedAffinity != null && seedAffinity.trim().length === 0) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  return seedAffinity;
+};
+
+export const loadRegisteredCases = async () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const registry = await loadRegistry(repoRoot);
-  return registeredCasePathsInOrder(registry).map(caseIdFromPath);
+  return Promise.all(
+    registeredCasePathsInOrder(registry).map(async (casePath) => {
+      const seedAffinity = parseCaseSeedAffinity(
+        await readFile(join(repoRoot, casePath), "utf8"),
+      );
+      return {
+        id: caseIdFromPath(casePath),
+        ...(seedAffinity ? { seedAffinity } : {}),
+      };
+    }),
+  );
 };
 
 const expandShardedPlan = ({
@@ -234,6 +270,7 @@ export const resolveRunPlan = ({
   caseFilter,
   computedUpdateMode = "",
   allCaseIds = [],
+  seedAffinityDeclarations = [],
 }) => {
   const engines = parseEngineList(engineFilter);
   const caseFilters = parseCaseFiltersForCacheKey(caseFilter);
@@ -268,10 +305,14 @@ export const resolveRunPlan = ({
     );
   }
 
+  const fixtureAffinities = caseFilterIsAll
+    ? resolveFixtureAffinities({ seedAffinityDeclarations })
+    : [];
   const affinityIssues = caseFilterIsAll
     ? validateFixtureAffinities({
         allCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
+        affinities: fixtureAffinities,
       })
     : [];
   if (affinityIssues.length > 0) {
@@ -283,8 +324,18 @@ export const resolveRunPlan = ({
         allCaseIds: fullRunCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
         shardCount: resolveFullRunShardCount(fullRunCaseIds.length),
+        affinities: fixtureAffinities,
       })
     : [];
+  const assignmentIssues = caseFilterIsAll
+    ? validateShardAffinityAssignments({
+        caseShards: fullRunCaseShards,
+        affinities: fixtureAffinities,
+      })
+    : [];
+  if (assignmentIssues.length > 0) {
+    throw new Error(assignmentIssues.join("\n"));
+  }
 
   return {
     engines,
@@ -315,12 +366,19 @@ export const writeGithubOutputs = (
 };
 
 const main = async () => {
-  const allCaseIds = await loadRegisteredCaseIds();
+  const registeredCases = await loadRegisteredCases();
+  const allCaseIds = registeredCases.map(({ id }) => id);
   const plan = resolveRunPlan({
     engineFilter: process.env.ENGINE_FILTER ?? "",
     caseFilter: process.env.CASE_FILTER ?? "",
     computedUpdateMode: process.env.COMPUTED_UPDATE_MODE ?? "",
     allCaseIds,
+    seedAffinityDeclarations: registeredCases
+      .filter(({ seedAffinity }) => seedAffinity != null)
+      .map(({ id, seedAffinity }) => ({
+        caseId: id,
+        affinityId: seedAffinity,
+      })),
   });
 
   if (process.env.GITHUB_OUTPUT) {

@@ -1,28 +1,184 @@
 import assert from "node:assert/strict";
+import { resolveSeedIdentityCaseId } from "../framework/seed-contract.ts";
 import {
   FULL_RUN_FIXTURE_AFFINITIES,
   FULL_RUN_MAX_SHARD_COUNT,
   FULL_RUN_SCALE_REPLACEMENTS,
   FULL_RUN_TARGET_CASES_PER_SHARD,
   resolveFullRunCaseIds,
+  resolveFixtureAffinities,
   resolveFullRunShardCount,
   shardCaseIdsByFixtureAffinity,
   validateFullRunScaleReplacements,
   validateFixtureAffinities,
+  validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
 import {
   buildCaseFilterKey,
   buildFullRunShardCaseFilterKey,
   HYBRID_COMPUTED_CASES,
-  loadRegisteredCaseIds,
+  loadRegisteredCases,
+  parseCaseSeedAffinity,
   resolveRunPlan,
 } from "./run-plan.mjs";
 
-const allCaseIds = await loadRegisteredCaseIds();
+const registeredCases = await loadRegisteredCases();
+const allCaseIds = registeredCases.map(({ id }) => id);
 const expectedFullRunCaseIds = resolveFullRunCaseIds({ allCaseIds });
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
 const fullRunShardCount = resolveFullRunShardCount(
   expectedFullRunCaseIds.length,
+);
+const targetSeedAffinityDeclarations = [
+  {
+    caseId: "record-read/100k-50fields-filter-number-greater-half",
+    affinityId: "record-read/100k-50fields",
+  },
+  {
+    caseId: "record-read/100k-50fields-filter-number-range-middle-half",
+    affinityId: "record-read/100k-50fields",
+  },
+  {
+    caseId: "record-read/100k-50fields-filter-number-sort-descending",
+    affinityId: "record-read/100k-50fields",
+  },
+  {
+    caseId: "search/search-index-off-100k-20search-fields",
+    affinityId: "lookup-search-index/100k-20fields",
+  },
+  {
+    caseId: "search/search-index-on-100k-20search-fields",
+    affinityId: "lookup-search-index/100k-20fields",
+  },
+];
+const registeredSeedAffinityDeclarations = registeredCases
+  .filter(({ seedAffinity }) => seedAffinity != null)
+  .map(({ id, seedAffinity }) => ({
+    caseId: id,
+    affinityId: seedAffinity,
+  }));
+assert.deepEqual(
+  registeredSeedAffinityDeclarations
+    .filter(({ caseId }) =>
+      targetSeedAffinityDeclarations.some(
+        (declaration) => declaration.caseId === caseId,
+      ),
+    )
+    .sort((left, right) => left.caseId.localeCompare(right.caseId)),
+  targetSeedAffinityDeclarations
+    .slice()
+    .sort((left, right) => left.caseId.localeCompare(right.caseId)),
+);
+assert.equal(
+  resolveSeedIdentityCaseId(
+    {
+      id: "record-read/query-a",
+      seedAffinity: "record-read/100k-50fields",
+    },
+    "record-read/shared-fixture",
+  ),
+  resolveSeedIdentityCaseId(
+    {
+      id: "record-read/query-b",
+      seedAffinity: "record-read/100k-50fields",
+    },
+    "record-read/shared-fixture",
+  ),
+);
+assert.equal(
+  resolveSeedIdentityCaseId(
+    { id: "record-read/legacy-query" },
+    "record-read/shared-fixture",
+  ),
+  "record-read/shared-fixture",
+);
+assert.throws(
+  () =>
+    parseCaseSeedAffinity(`
+      seedAffinity: "fixture/first",
+      seedAffinity: "fixture/second",
+    `),
+  /seedAffinity must be declared at most once per case/,
+);
+assert.throws(
+  () => parseCaseSeedAffinity('seedAffinity: "   ",'),
+  /seedAffinity must be a non-empty string literal/,
+);
+assert.throws(
+  () => parseCaseSeedAffinity("seedAffinity: sharedSeedAffinity,"),
+  /seedAffinity must be a non-empty string literal/,
+);
+assert.throws(
+  () =>
+    resolveFixtureAffinities({
+      affinities: [
+        { id: "duplicate", caseIds: ["a"] },
+        { id: "duplicate", caseIds: ["b"] },
+      ],
+    }),
+  /Duplicate fixture affinity id: duplicate/,
+);
+assert.throws(
+  () =>
+    resolveFixtureAffinities({
+      affinities: [],
+      seedAffinityDeclarations: [
+        { caseId: "a", affinityId: "shared-a" },
+        { caseId: "a", affinityId: "shared-a" },
+      ],
+    }),
+  /Duplicate seed affinity declaration for case a/,
+);
+assert.deepEqual(
+  validateShardAffinityAssignments({
+    caseShards: [["a", "c"], ["b"]],
+    affinities: [{ id: "shared-ab", caseIds: ["a", "b"] }],
+  }),
+  ["Fixture affinity shared-ab spans seed shards: shard-1=[a], shard-2=[b]"],
+);
+assert.throws(
+  () =>
+    resolveFixtureAffinities({
+      affinities: [],
+      seedAffinityDeclarations: [{ caseId: "", affinityId: "shared" }],
+    }),
+  /Seed affinity declaration caseId must be a non-empty string/,
+);
+assert.throws(
+  () =>
+    resolveFixtureAffinities({
+      affinities: [],
+      seedAffinityDeclarations: [{ caseId: "a", affinityId: "   " }],
+    }),
+  /Seed affinity declaration affinityId must be a non-empty string/,
+);
+const declaredUnknownAffinity = resolveFixtureAffinities({
+  affinities: [],
+  seedAffinityDeclarations: [
+    { caseId: "missing", affinityId: "declared-unknown" },
+  ],
+});
+assert.deepEqual(
+  validateFixtureAffinities({
+    allCaseIds: ["known"],
+    affinities: declaredUnknownAffinity,
+  }),
+  ["Fixture affinity declared-unknown references unknown case missing"],
+);
+const declaredCrossModeAffinity = resolveFixtureAffinities({
+  affinities: [],
+  seedAffinityDeclarations: [
+    { caseId: "sync", affinityId: "declared-cross-mode" },
+    { caseId: "hybrid", affinityId: "declared-cross-mode" },
+  ],
+});
+assert.deepEqual(
+  validateFixtureAffinities({
+    allCaseIds: ["sync", "hybrid"],
+    hybridCaseIds: ["hybrid"],
+    affinities: declaredCrossModeAffinity,
+  }),
+  ["Fixture affinity declared-cross-mode crosses V2 sync and hybrid pools"],
 );
 
 const assertShardedPlan = ({
@@ -76,6 +232,7 @@ const defaultFullRunPlan = resolveRunPlan({
   caseFilter: "all",
   computedUpdateMode: "",
   allCaseIds,
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
 });
 
 assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
@@ -146,6 +303,19 @@ for (const affinity of FULL_RUN_FIXTURE_AFFINITIES) {
     `${affinity.id} must stay in one seed shard`,
   );
 }
+for (const affinityId of [
+  "record-read/100k-50fields",
+  "lookup-search-index/100k-20fields",
+]) {
+  const caseIds = targetSeedAffinityDeclarations
+    .filter((declaration) => declaration.affinityId === affinityId)
+    .map((declaration) => declaration.caseId);
+  assert.equal(
+    new Set(caseIds.map((caseId) => shardIndexByCaseId.get(caseId))).size,
+    1,
+    `${affinityId} authoritative seed affinity must stay in one seed shard`,
+  );
+}
 
 assertShardedPlan({
   plans: defaultFullRunPlan.executePlan.slice(0, fullRunShardCount),
@@ -187,6 +357,7 @@ const explicitHybridFullRunPlan = resolveRunPlan({
   caseFilter: "all",
   computedUpdateMode: "hybrid",
   allCaseIds,
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
 });
 
 assert.deepEqual(explicitHybridFullRunPlan.engines, ["v2"]);

@@ -63,11 +63,18 @@ assert.deepEqual(
 );
 assert.deepEqual(
   slowColdRun.seed.duplicates.map(
-    ({ seedHash, affinityIds, shards, avoidableBuildMs }) => ({
+    ({
       seedHash,
       affinityIds,
       shards,
       avoidableBuildMs,
+      staticAffinityIssue,
+    }) => ({
+      seedHash,
+      affinityIds,
+      shards,
+      avoidableBuildMs,
+      staticAffinityIssue,
     }),
   ),
   [
@@ -76,12 +83,14 @@ assert.deepEqual(
       affinityIds: ["record-read/100k-50fields"],
       shards: ["shard-3-of-8", "shard-4-of-8", "shard-5-of-8"],
       avoidableBuildMs: 2_102_534,
+      staticAffinityIssue: "declared-affinity-spans-shards",
     },
     {
       seedHash: "search-index-100k-shared",
       affinityIds: ["lookup-search-index/100k-20fields"],
       shards: ["shard-2-of-8", "shard-4-of-8"],
       avoidableBuildMs: 585_386,
+      staticAffinityIssue: "declared-affinity-spans-shards",
     },
   ],
 );
@@ -130,6 +139,25 @@ assert.equal(duplicateOnlyRun.passed, false);
 assert.deepEqual(
   duplicateOnlyRun.failures.map((failure) => failure.code),
   ["cross-shard-seed-duplication"],
+);
+
+const missingAffinityFixture = structuredClone(duplicateOnlyFixture);
+for (const observation of missingAffinityFixture.seedObservations) {
+  delete observation.affinityId;
+}
+const missingAffinityRun = evaluateFullRunFeedback(missingAffinityFixture);
+assert.equal(
+  missingAffinityRun.seed.duplicates[0].staticAffinityIssue,
+  "missing-affinity-declaration",
+);
+
+const affinityDriftFixture = structuredClone(duplicateOnlyFixture);
+affinityDriftFixture.seedObservations[1].affinityId =
+  "record-read/other-100k-fixture";
+const affinityDriftRun = evaluateFullRunFeedback(affinityDriftFixture);
+assert.equal(
+  affinityDriftRun.seed.duplicates[0].staticAffinityIssue,
+  "seed-hash-maps-to-multiple-affinities",
 );
 
 const acceptedWarmRun = evaluateFullRunFeedback(
@@ -245,6 +273,10 @@ assert.match(slowColdCli.stdout, /v2-sync v2-sync-default-shard-2-of-8 26m08s/);
 assert.match(
   slowColdCli.stdout,
   /Seed 755ae561e41223b4: shard-3-of-8, shard-4-of-8, shard-5-of-8/,
+);
+assert.match(
+  slowColdCli.stdout,
+  /static affinity declared-affinity-spans-shards/,
 );
 assert.match(slowColdCli.stdout, /affinity record-read\/100k-50fields/);
 assert.match(

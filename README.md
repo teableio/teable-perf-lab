@@ -45,11 +45,12 @@ ready.
 - `framework/types.ts`: the `PerfCaseConfigByRunner` map that binds each runner kind
   to its case config interface, plus `PerfRunnerKind`, the `PerfCase` discriminated
   union derived from that map, and result types.
-- `framework/seed-cache.ts`: runner-level seed hash helpers.
+- `framework/seed-cache.ts`: runner-level seed hash and affinity metadata helpers.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `scripts/full-run-shard-model.mjs`: fixture-affinity bundles, calibrated seed
-  weights, and deterministic adaptive grouping shared by seed and execute plans.
+- `scripts/full-run-shard-model.mjs`: authoritative case-declared plus accepted
+  legacy fixture-affinity bundles, calibrated seed weights, and deterministic
+  adaptive grouping shared by seed and execute plans.
 - `scripts/full-run-feedback-model.mjs`: pure evaluation of a complete full-run
   plan plus telemetry: active workflow wall time, phase windows, stage
   stragglers, cross-shard seed rebuilds, trace wait budgets, result coverage,
