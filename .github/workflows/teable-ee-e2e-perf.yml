@@ -97,6 +97,7 @@ jobs:
       seed_plan: ${{ steps.engines.outputs.seed_plan }}
       execute_plan: ${{ steps.engines.outputs.execute_plan }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
+      plan_summary: ${{ steps.engines.outputs.plan_summary }}
 
     steps:
       - name: Checkout perf lab
@@ -149,12 +150,24 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+            perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-
+
+      - name: Record seed database cache mode
+        id: seed-cache-mode
+        env:
+          CACHE_HIT: ${{ steps.seed-db-cache.outputs.cache-hit }}
+          CACHE_PRIMARY_KEY: ${{ steps.seed-db-cache.outputs.cache-primary-key }}
+          CACHE_MATCHED_KEY: ${{ steps.seed-db-cache.outputs.cache-matched-key }}
+          CASE_SET_DIGEST: ${{ matrix.plan.caseSetDigest }}
+          STABLE_SLOT: ${{ matrix.plan.stableSlot }}
+          SEED_CONTRACT_GENERATION: ${{ matrix.plan.seedContractGeneration }}
+          OUTPUT_PATH: perf-lab-seed-artifacts/seed-cache-status-${{ matrix.plan.artifactSuffix }}.json
+        run: node perf-lab/scripts/write-seed-cache-status.mjs
 
       - name: Publish seed database cache hit summary
-        if: steps.seed-db-cache.outputs.cache-hit == 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'false'
         run: |
           set -euo pipefail
 
@@ -168,13 +181,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: pnpm/action-setup@v5
         with:
           version: 9.13.0
 
       - name: Setup Node.js
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22.18.0
@@ -182,12 +195,12 @@ jobs:
           cache-dependency-path: teable-ee/pnpm-lock.yaml
 
       - name: Install teable-ee dependencies
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma clients
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -196,7 +209,7 @@ jobs:
           pnpm -F @teable/db-data-prisma prisma-generate-ci
 
       - name: Install perf cases
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         run: |
           set -euo pipefail
 
@@ -211,7 +224,7 @@ jobs:
           cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
 
       - name: Start e2e services
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -245,7 +258,7 @@ jobs:
           done
 
       - name: Prepare e2e database
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -281,7 +294,7 @@ jobs:
           pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
       - name: Build perf seed DB
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -302,7 +315,7 @@ jobs:
             --silent=false
 
       - name: Dump perf seed database
-        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -316,11 +329,11 @@ jobs:
           ls -lh "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Save perf seed database cache
-        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed database dump
         if: success()
@@ -336,7 +349,7 @@ jobs:
           overwrite: true
 
       - name: Upload perf seed artifacts
-        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-seed-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -358,7 +371,7 @@ jobs:
           fi
 
       - name: Cleanup teable-ee e2e services
-        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: always() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set +e

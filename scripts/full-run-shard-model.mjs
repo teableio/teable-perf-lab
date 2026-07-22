@@ -162,6 +162,25 @@ export const FULL_RUN_FIXTURE_AFFINITIES = [
   },
 ];
 
+// Stable slots capture the accepted eight-shard assignment before compatible
+// cache restore was introduced. They are a secondary constraint: the planner
+// keeps these affinity bundles in place while the modeled max load stays within
+// tolerance, and reports any move that is required to protect the critical path.
+export const FULL_RUN_HISTORICAL_SHARD_SLOTS = {
+  "record-read/10k-50fields": 4,
+  "conditional-query/fanout10-host10k": 1,
+  "field-create/scalar-title-only-10k": 7,
+  "record-create/mixed-1k-20fields": 5,
+  "record-update/mixed-1k-20fields": 5,
+  "conditional-query/fanout100-host10k": 6,
+  "conditional-query/fanout50-host10k": 2,
+  "conditional-query/fanout100-host30k": 8,
+  "conditional-query/fanout100-host20k": 2,
+  "conditional-computed/10k": 6,
+  "lookup-search-index/100k-20fields": 8,
+  "record-read/100k-50fields": 7,
+};
+
 // Full regression keeps the scale-up sibling for low-signal workloads while
 // preserving the smaller case in the registry for targeted/manual runs. This
 // first batch was calibrated from full run 29912515531: the omitted case had a
@@ -420,8 +439,10 @@ export const resolveFullRunShardCount = (
 };
 
 export const fullRunCaseWeightMs = (caseId) =>
-  (FULL_RUN_SEED_WEIGHT_MS_BY_CASE_ID[caseId] ??
-    FULL_RUN_DEFAULT_SEED_WEIGHT_MS) + FULL_RUN_CASE_OVERHEAD_WEIGHT_MS;
+  fullRunCaseSeedWeightMs(caseId) + FULL_RUN_CASE_OVERHEAD_WEIGHT_MS;
+
+export const fullRunCaseSeedWeightMs = (caseId) =>
+  FULL_RUN_SEED_WEIGHT_MS_BY_CASE_ID[caseId] ?? FULL_RUN_DEFAULT_SEED_WEIGHT_MS;
 
 const assertPositiveShardCount = (shardCount) => {
   if (!Number.isInteger(shardCount) || shardCount < 1) {
@@ -565,18 +586,21 @@ export const validateShardAffinityAssignments = ({
   return issues;
 };
 
-const buildBundles = (caseIds, affinities, caseWeight) => {
+const buildBundles = (caseIds, affinities, caseWeight, caseCacheImpact) => {
   const membership = affinityByCaseId(affinities);
   const bundles = new Map();
   caseIds.forEach((caseId, index) => {
     const key = membership.get(caseId) ?? `case:${caseId}`;
     const bundle = bundles.get(key) ?? {
+      id: key,
       caseIds: [],
       firstIndex: index,
       weight: 0,
+      cacheImpactMs: 0,
     };
     bundle.caseIds.push(caseId);
     bundle.weight += caseWeight(caseId);
+    bundle.cacheImpactMs += caseCacheImpact(caseId);
     bundles.set(key, bundle);
   });
   return [...bundles.values()].sort(
@@ -587,43 +611,284 @@ const buildBundles = (caseIds, affinities, caseWeight) => {
   );
 };
 
-export const shardCaseIdsByFixtureAffinity = ({
+const placeBundlesGreedily = ({ bundles, shardCount }) => {
+  const bundleShards = Array.from({ length: shardCount }, () => []);
+  const loads = Array.from({ length: shardCount }, () => 0);
+  for (const bundle of bundles) {
+    const target = loads.indexOf(Math.min(...loads));
+    bundleShards[target].push(bundle);
+    loads[target] += bundle.weight;
+  }
+  return { bundleShards, loads };
+};
+
+const maxLoad = (loads) => Math.max(...loads, 0);
+
+const descendingLoadVector = (loads) =>
+  loads.slice().sort((left, right) => right - left);
+
+const compareLoadVectors = (left, right) => {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return 0;
+};
+
+const MAX_STABLE_SEARCH_STATES = 50_000;
+
+const visitCombinations = ({ items, size, state, visit }) => {
+  const selected = [];
+  const walk = (start) => {
+    if (state.evaluated >= MAX_STABLE_SEARCH_STATES) {
+      return;
+    }
+    if (selected.length === size) {
+      state.evaluated += 1;
+      visit(selected);
+      return;
+    }
+    const remaining = size - selected.length;
+    for (let index = start; index <= items.length - remaining; index += 1) {
+      selected.push(items[index]);
+      walk(index + 1);
+      selected.pop();
+      if (state.evaluated >= MAX_STABLE_SEARCH_STATES) {
+        return;
+      }
+    }
+  };
+  walk(0);
+};
+
+export const planCaseIdsByFixtureAffinity = ({
   caseIds,
   shardCount,
   affinities = FULL_RUN_FIXTURE_AFFINITIES,
   caseWeight = fullRunCaseWeightMs,
+  caseCacheImpact = fullRunCaseSeedWeightMs,
+  preferredSlotByAffinity = {},
+  maxStableLoadRatio = 1.1,
 }) => {
   assertPositiveShardCount(shardCount);
+  if (!Number.isFinite(maxStableLoadRatio) || maxStableLoadRatio < 1) {
+    throw new Error("maxStableLoadRatio must be at least 1.");
+  }
   if (caseIds.length === 0) {
-    return Array.from({ length: shardCount }, () => []);
+    return {
+      caseShards: Array.from({ length: shardCount }, () => []),
+      shardLoads: Array.from({ length: shardCount }, () => 0),
+      movedAffinities: [],
+      preservedAffinityCount: 0,
+    };
   }
   if (new Set(caseIds).size !== caseIds.length) {
     throw new Error("caseIds must not include duplicate case ids.");
   }
 
-  const caseOrder = new Map(caseIds.map((caseId, index) => [caseId, index]));
-  const shards = Array.from({ length: shardCount }, () => []);
-  const loads = Array.from({ length: shardCount }, () => 0);
+  const bundles = buildBundles(
+    caseIds,
+    affinities,
+    caseWeight,
+    caseCacheImpact,
+  );
+  const greedy = placeBundlesGreedily({ bundles, shardCount });
+  const declaredPreferredBundles = bundles.flatMap((bundle) => {
+    const preferredSlot = preferredSlotByAffinity[bundle.id];
+    if (preferredSlot == null) {
+      return [];
+    }
+    if (!Number.isInteger(preferredSlot) || preferredSlot < 1) {
+      throw new Error(
+        `Preferred stable slot for ${bundle.id} must be a positive integer.`,
+      );
+    }
+    return [{ bundle, preferredSlot }];
+  });
+  const inRangePreferredBundles = declaredPreferredBundles.filter(
+    ({ preferredSlot }) => preferredSlot <= shardCount,
+  );
 
-  for (const bundle of buildBundles(caseIds, affinities, caseWeight)) {
-    const target = loads.indexOf(Math.min(...loads));
-    shards[target].push(...bundle.caseIds);
-    loads[target] += bundle.weight;
+  const largestBundleWeight = Math.max(
+    ...bundles.map((bundle) => bundle.weight),
+    0,
+  );
+  const allowedMaxLoad = Math.max(
+    largestBundleWeight,
+    maxLoad(greedy.loads) * maxStableLoadRatio,
+  );
+  const buildStableCandidate = (unlockedAffinityIds) => {
+    const bundleShards = Array.from({ length: shardCount }, () => []);
+    const loads = Array.from({ length: shardCount }, () => 0);
+    const lockedBundles = new Set();
+
+    for (const { bundle, preferredSlot } of inRangePreferredBundles) {
+      if (unlockedAffinityIds.has(bundle.id)) {
+        continue;
+      }
+      const target = preferredSlot - 1;
+      bundleShards[target].push(bundle);
+      loads[target] += bundle.weight;
+      lockedBundles.add(bundle);
+    }
+
+    for (const bundle of bundles) {
+      if (lockedBundles.has(bundle)) {
+        continue;
+      }
+      const target = loads.indexOf(Math.min(...loads));
+      bundleShards[target].push(bundle);
+      loads[target] += bundle.weight;
+    }
+
+    if (maxLoad(loads) > allowedMaxLoad) {
+      return undefined;
+    }
+
+    const movedAffinities = declaredPreferredBundles.flatMap(
+      ({ bundle, preferredSlot }) => {
+        const actualSlot =
+          bundleShards.findIndex((items) => items.includes(bundle)) + 1;
+        if (actualSlot === preferredSlot) {
+          return [];
+        }
+        return [
+          {
+            affinityId: bundle.id,
+            fromStableSlot: preferredSlot,
+            toStableSlot: actualSlot,
+            caseIds: bundle.caseIds.slice(),
+            estimatedCacheImpactMs: bundle.cacheImpactMs,
+            reason:
+              preferredSlot > shardCount
+                ? "stable slot is unavailable at this shard count"
+                : "stable slot exceeded the load tolerance",
+          },
+        ];
+      },
+    );
+    const cacheImpactMs = movedAffinities.reduce(
+      (total, movement) => total + movement.estimatedCacheImpactMs,
+      0,
+    );
+
+    return {
+      bundleShards,
+      loads,
+      movedAffinities,
+      unlockedCount: unlockedAffinityIds.size,
+      cacheImpactMs,
+      loadVector: descendingLoadVector(loads),
+      movementKey: movedAffinities
+        .map(({ affinityId }) => affinityId)
+        .sort()
+        .join("\n"),
+      assignmentKey: bundleShards
+        .map((items) => items.map(({ id }) => id).join(","))
+        .join("|"),
+    };
+  };
+
+  const compareStableCandidates = (left, right) =>
+    left.movedAffinities.length - right.movedAffinities.length ||
+    left.cacheImpactMs - right.cacheImpactMs ||
+    compareLoadVectors(left.loadVector, right.loadVector) ||
+    left.unlockedCount - right.unlockedCount ||
+    left.movementKey.localeCompare(right.movementKey) ||
+    left.assignmentKey.localeCompare(right.assignmentKey);
+
+  let selectedCandidate;
+  const selectableAffinityIds = inRangePreferredBundles.map(
+    ({ bundle }) => bundle.id,
+  );
+  const searchState = { evaluated: 0 };
+  for (
+    let unlockCount = 0;
+    unlockCount <= selectableAffinityIds.length;
+    unlockCount += 1
+  ) {
+    visitCombinations({
+      items: selectableAffinityIds,
+      size: unlockCount,
+      state: searchState,
+      visit: (unlockedIds) => {
+        const candidate = buildStableCandidate(new Set(unlockedIds));
+        if (
+          candidate &&
+          (!selectedCandidate ||
+            compareStableCandidates(candidate, selectedCandidate) < 0)
+        ) {
+          selectedCandidate = candidate;
+        }
+      },
+    });
+    if (searchState.evaluated >= MAX_STABLE_SEARCH_STATES) {
+      break;
+    }
+  }
+  const allUnlockedCandidate = buildStableCandidate(
+    new Set(selectableAffinityIds),
+  );
+  if (
+    allUnlockedCandidate &&
+    (!selectedCandidate ||
+      compareStableCandidates(allUnlockedCandidate, selectedCandidate) < 0)
+  ) {
+    selectedCandidate = allUnlockedCandidate;
+  }
+  if (!selectedCandidate) {
+    throw new Error(
+      `Stable-slot planner could not satisfy load tolerance: allowed=${allowedMaxLoad}`,
+    );
   }
 
-  return shards.map((shard) =>
-    shard
-      .slice()
+  const { bundleShards, loads, movedAffinities } = selectedCandidate;
+
+  const caseOrder = new Map(caseIds.map((caseId, index) => [caseId, index]));
+  const caseShards = bundleShards.map((bundlesInShard) =>
+    bundlesInShard
+      .flatMap((bundle) => bundle.caseIds)
       .sort((left, right) => caseOrder.get(left) - caseOrder.get(right)),
   );
+  return {
+    caseShards,
+    shardLoads: loads,
+    movedAffinities,
+    preservedAffinityCount:
+      declaredPreferredBundles.length - movedAffinities.length,
+  };
 };
 
-export const buildFullRunCaseShards = ({
+export const shardCaseIdsByFixtureAffinity = ({
+  caseIds,
+  shardCount,
+  affinities = FULL_RUN_FIXTURE_AFFINITIES,
+  caseWeight = fullRunCaseWeightMs,
+  caseCacheImpact = fullRunCaseSeedWeightMs,
+  preferredSlotByAffinity,
+  maxStableLoadRatio,
+}) =>
+  planCaseIdsByFixtureAffinity({
+    caseIds,
+    shardCount,
+    affinities,
+    caseWeight,
+    caseCacheImpact,
+    preferredSlotByAffinity,
+    maxStableLoadRatio,
+  }).caseShards;
+
+export const buildFullRunCaseShardPlan = ({
   allCaseIds,
   hybridCaseIds,
   shardCount,
   affinities = FULL_RUN_FIXTURE_AFFINITIES,
   caseWeight = fullRunCaseWeightMs,
+  caseCacheImpact = fullRunCaseSeedWeightMs,
+  preferredSlotByAffinity = FULL_RUN_HISTORICAL_SHARD_SLOTS,
+  maxStableLoadRatio = 1.1,
 }) => {
   assertPositiveShardCount(shardCount);
   if (allCaseIds.length === 0) {
@@ -635,44 +900,44 @@ export const buildFullRunCaseShards = ({
   const selectedHybridCaseIds = allCaseIds.filter((caseId) =>
     hybrid.has(caseId),
   );
-  const syncShards = shardCaseIdsByFixtureAffinity({
+  const syncPlan = planCaseIdsByFixtureAffinity({
     caseIds: syncCaseIds,
     shardCount,
     affinities,
     caseWeight,
+    caseCacheImpact,
+    preferredSlotByAffinity,
+    maxStableLoadRatio,
   });
-  const hybridShards = shardCaseIdsByFixtureAffinity({
+  const hybridPlan = planCaseIdsByFixtureAffinity({
     caseIds: selectedHybridCaseIds,
     shardCount,
     affinities,
     caseWeight,
+    caseCacheImpact,
+    preferredSlotByAffinity,
+    maxStableLoadRatio,
   });
 
-  // Pair the largest hybrid shard with the smallest sync shard. Both pools stay
-  // independently balanced, while their combined seed/V1 shard sizes converge.
-  const syncOrder = syncShards
-    .map((caseIds, index) => ({
-      caseIds,
-      index,
-      weight: caseIds.reduce((total, caseId) => total + caseWeight(caseId), 0),
-    }))
-    .sort(
-      (left, right) => left.weight - right.weight || left.index - right.index,
-    );
-  const hybridOrder = hybridShards
-    .map((caseIds, index) => ({
-      caseIds,
-      index,
-      weight: caseIds.reduce((total, caseId) => total + caseWeight(caseId), 0),
-    }))
-    .sort(
-      (left, right) => right.weight - left.weight || left.index - right.index,
-    );
-
   const caseOrder = new Map(allCaseIds.map((caseId, index) => [caseId, index]));
-  return syncOrder.map((syncShard, index) =>
-    [...syncShard.caseIds, ...hybridOrder[index].caseIds].sort(
+  const caseShards = syncPlan.caseShards.map((syncCaseIdsInSlot, index) =>
+    [...syncCaseIdsInSlot, ...hybridPlan.caseShards[index]].sort(
       (left, right) => caseOrder.get(left) - caseOrder.get(right),
     ),
   );
+  return {
+    caseShards,
+    shardLoads: caseShards.map((caseIds) =>
+      caseIds.reduce((total, caseId) => total + caseWeight(caseId), 0),
+    ),
+    movedAffinities: [
+      ...syncPlan.movedAffinities,
+      ...hybridPlan.movedAffinities,
+    ].sort((left, right) => left.affinityId.localeCompare(right.affinityId)),
+    preservedAffinityCount:
+      syncPlan.preservedAffinityCount + hybridPlan.preservedAffinityCount,
+  };
 };
+
+export const buildFullRunCaseShards = (options) =>
+  buildFullRunCaseShardPlan(options).caseShards;

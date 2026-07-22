@@ -23,9 +23,11 @@ There are two different cache decisions. Do not collapse them:
 
 - **Workflow DB dump cache**: GitHub Actions restores/saves
   `perf-lab-seed-cache/e2e_test_teable.dump`. This is a whole Postgres database
-  snapshot used as a transport container. Its key is runner OS, normalized case
-  filter, database schema hash, and perf-lab case/framework source hash. It does
-  not include the target `teable-ee` commit ref.
+  snapshot used as a transport container. Its exact key binds runner OS,
+  database schema, seed-contract generation, stable shard slot, full case-set
+  digest, and perf-lab source hash. Its compatible prefix stops at the stable
+  slot and cannot bypass runner validation. Neither form includes the target
+  `teable-ee` commit ref.
 - **Runner `seedHash`**: after the dump is restored, each runner looks for its
   own hash-derived seed table(s), then runs `seedReady`/`sourceReady`. This is
   the per-case correctness gate. A restored dump may contain stale tables; they
@@ -77,10 +79,11 @@ The GitHub workflow enables seed caching with
 runner still decides whether a specific fixture is reusable by looking for seed
 tables named with that case's `seedHash`.
 
-The seed DB cache key is:
+The seed DB cache uses an exact key plus a compatible restore prefix:
 
 ```text
-perf-seed-db-<runner-os>-<case-filter-key>-<teable-prisma-schema-hash>-<perf-lab-source-hash>
+exact:      perf-seed-db-<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-
 ```
 
 `teable-prisma-schema-hash` is `hashFiles()` over these checked-out `teable-ee`
@@ -102,10 +105,13 @@ perf-lab/perf-lab.e2e-spec.ts
 perf-lab/registry.ts
 ```
 
-The key deliberately excludes `inputs.teable_ee_ref`. Ordinary backend code
-changes in `teable-ee` reuse the same seed DB cache when the Prisma schema and
-perf-lab source hashes are unchanged. Prisma schema/migration changes change the
-key and force a new dump.
+Both forms deliberately exclude `inputs.teable_ee_ref`. The exact key binds the
+complete sorted shard case set and seed-relevant perf-lab source. The compatible
+prefix is scoped to runner OS, schema/migrations, seed contract generation, and
+stable shard slot. It permits safe catalog or source changes to restore an old
+dump only as a candidate; `PERF_LAB_MODE=seed` must then validate every runner's
+seed identity/readiness and rebuild missing or stale fixtures before saving a
+new exact snapshot.
 
 All runners with a seed fixture are cache-aware today (formula-table,
 conditional-lookup, conditional-lookup-record-create, conditional-rollup, conditional-query, lookup-search-index, field-create, field-delete,
@@ -265,28 +271,32 @@ one indivisible bundle. Planning fails if an affinity is duplicated, references
 an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
 shards. The shard count is derived from catalog size (about 40 cases per shard,
 capped at 8), not fixed in the workflow. Calibrated cold-seed cost plus a
-per-case execute overhead weight is used for least-loaded assignment. Sync and
-hybrid bundles are balanced independently, then paired by weight. Seed, V1, V2
-sync, and V2 hybrid use this one global mapping; shard N always consumes dump N.
-Explicit case filters remain a single seed job and a single job per engine.
-Every job has its own Postgres/Redis containers, network, cache key, dump, and
-artifact names. A digest of the shard's ordered case list is part of its cache
-key, so regrouping cannot exact-hit a dump produced for different members.
+per-case execute overhead weight is used to protect the modeled maximum load.
+Accepted affinity bundles retain historical stable slots while load remains
+within tolerance; any forced move and its estimated cache impact are written to
+the plan summary. Sync and hybrid bundles are planned independently into the
+same stable slots. Seed, V1, V2 sync, and V2 hybrid use this one global mapping;
+shard N always consumes dump N. Explicit case filters remain a single seed job
+and a single job per engine. Every job has its own Postgres/Redis containers,
+network, cache key, dump, and artifact names. A digest of the shard's sorted case
+set is part of its exact cache key, so regrouping cannot exact-hit a dump
+produced for different members.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:
 
-1. Exact seed DB cache hit: `steps.seed-db-cache.outputs.cache-hit == 'true'`.
-   The seed job only asserts that `e2e_test_teable.dump` exists and writes a
-   summary. It skips dependency install, service startup, `PERF_LAB_MODE=seed`,
-   and seed validation.
-2. Cache miss or restore-key hit: the seed job installs dependencies, starts
-   Postgres/Redis, and runs `Prepare e2e database`. If a restored dump file is
-   present, it tries `pg_restore`; on restore failure, it rebuilds from
-   migrations and `prisma-db-seed -- --e2e`. It then runs
-   `PERF_LAB_MODE=seed`, where cache-aware runners validate existing
-   hash-derived seed tables or build missing/stale fixtures. A successful seed
-   job saves a new exact-key `pg_dump -Fc`.
+1. Exact seed DB cache hit: the tested cache-mode step maps the cache action's
+   exact-hit signal to `requires_seed_validation == 'false'`. The seed job only
+   asserts that `e2e_test_teable.dump` exists and writes a summary. It skips
+   dependency install, service startup, `PERF_LAB_MODE=seed`, and seed
+   validation.
+2. Cache miss or compatible-prefix hit: the seed job records a cache-status JSON,
+   installs dependencies, starts Postgres/Redis, and runs `Prepare e2e database`.
+   If a restored dump file is present, it tries `pg_restore`; on restore failure,
+   it rebuilds from migrations and `prisma-db-seed -- --e2e`. It then runs
+   `PERF_LAB_MODE=seed`, where every cache-aware runner validates existing
+   hash-derived seed tables or rebuilds missing/stale fixtures. A successful
+   seed job saves a new exact-key `pg_dump -Fc`.
 3. Each seed job uploads the selected dump as a
    `teable-ee-e2e-perf-seed-db-shard-N-of-M-<run>` artifact. Execute shard N
    downloads that artifact, restores it into its own database, sets
