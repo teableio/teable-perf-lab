@@ -389,15 +389,42 @@ const panels = card.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
 assert.equal(panels[0].header.title.content, "**退化 3**");
-assert.equal(panels[1].header.title.content, "**未退化 2**");
+assert.equal(panels[1].header.title.content, "**待确认 1**");
 assert.match(
   panels[0].elements[0].text.content,
   /🔴 \*\*\[lookup\/slightly-slower\].*慢 1\.1x/,
 );
 assert.doesNotMatch(
-  panels[1].elements[0].text.content,
-  /lookup\/slightly-slower/,
+  JSON.stringify(card),
+  /formula\/fast/,
 );
+assert.match(JSON.stringify(card), /已省略 1 个 V2 更快或持平项/);
+
+const manyFastPayloads = Array.from({ length: 1_000 }, (_, index) => [
+  {
+    caseId: `record-read/fast-${index}`,
+    engine: "v1",
+    result: "pass",
+    durationMs: 2_000,
+    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
+  },
+  {
+    caseId: `record-read/fast-${index}`,
+    engine: "v2",
+    result: "pass",
+    durationMs: 1_000,
+    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
+  },
+]).flat();
+const manyFastCard = buildPerfSummaryCard({
+  payloads: manyFastPayloads,
+  timings: {},
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+const manyFastCardJson = JSON.stringify(manyFastCard);
+assert.ok(Buffer.byteLength(manyFastCardJson, "utf8") < 100 * 1024);
+assert.doesNotMatch(manyFastCardJson, /record-read\/fast-/);
+assert.match(manyFastCardJson, /已省略 1000 个 V2 更快或持平项/);
 
 const outageCard = buildPerfSummaryCard({
   payloads: [

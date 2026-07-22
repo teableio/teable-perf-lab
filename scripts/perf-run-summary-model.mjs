@@ -351,14 +351,12 @@ export const buildPerfSummaryCard = ({
     regressionRows.length > 0
       ? regressionRows.map(formatCaseLine).join("\n")
       : "无";
-  const regressionCaseIds = new Set(regressionRows.map((row) => row.caseId));
-  const remainingRows = rows.filter(
-    (row) => !regressionCaseIds.has(row.caseId),
-  );
-  const remainingText =
-    remainingRows.length > 0
-      ? remainingRows.map(formatCaseLine).join("\n")
+  const neutralRows = rows.filter((row) => row.status === "neutral");
+  const neutralText =
+    neutralRows.length > 0
+      ? neutralRows.map(formatCaseLine).join("\n")
       : "无";
+  const omittedOkCount = rows.filter((row) => row.status === "ok").length;
   const statusText = workflowFailed
     ? "执行失败"
     : counts.fail > 0
@@ -479,19 +477,34 @@ export const buildPerfSummaryCard = ({
             },
           ],
         }),
-        collapsiblePanel({
-          title: `未退化 ${remainingRows.length}`,
-          expanded: false,
-          elements: [
-            {
-              tag: "div",
-              text: {
-                tag: "lark_md",
-                content: remainingText,
+        ...(neutralRows.length > 0
+          ? [
+              collapsiblePanel({
+                title: `待确认 ${neutralRows.length}`,
+                expanded: false,
+                elements: [
+                  {
+                    tag: "div",
+                    text: {
+                      tag: "lark_md",
+                      content: neutralText,
+                    },
+                  },
+                ],
+              }),
+            ]
+          : []),
+        ...(omittedOkCount > 0
+          ? [
+              {
+                tag: "div",
+                text: {
+                  tag: "lark_md",
+                  content: `已省略 ${omittedOkCount} 个 V2 更快或持平项，完整结果请查看数据或图表。`,
+                },
               },
-            },
-          ],
-        }),
+            ]
+          : []),
         { tag: "hr" },
         {
           tag: "action",
