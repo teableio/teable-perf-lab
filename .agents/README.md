@@ -134,15 +134,18 @@ pnpm check
 
 This runs the full chain declared in `package.json`, including `format:check`,
 `check:yaml`, `check:ts`, `check:types`, `check:trace`, `check:catalog`,
-`check:run-plan`, `check:full-run-feedback`, artifact and summary model checks,
+`check:run-plan`, `check:stage-plan`, `check:stage-observation`,
+`check:full-run-feedback`, artifact and summary model checks,
 runner/workload model checks, `check:cases`, and `check:readme`.
 Between them they validate formatting, workflow YAML, TypeScript syntax and
 types (incl. the runner↔config binding — pairing a runner with the wrong config
 fails `check:types`), the case catalog (`check:catalog`: every disk `.case.ts`
 is imported in `registry.ts`, every import is in the `cases` array, every import
 is on disk, and each registered case has a same-name markdown), the workflow
-run-plan split (`check:run-plan`), the artifact read model used by report
-adapters (`check:artifact-read-model`), the Feishu summary projection
+run-plan split (`check:run-plan`), five-stage shard simulation and SLO selection
+(`check:stage-plan`), current-run prediction drift capture
+(`check:stage-observation`), the artifact read model used by report adapters
+(`check:artifact-read-model`), the Feishu summary projection
 (`check:run-summary-model`), the artifact diff masking profile
 (`check:artifact-diff-model`), the record-read workload model
 (`check:record-read-model`), the full-run feedback SLO and telemetry contract

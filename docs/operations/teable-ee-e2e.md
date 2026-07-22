@@ -8,7 +8,7 @@ existing `teable-ee` e2e harness:
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. For an explicit case filter, one seed job prepares a reusable Postgres dump.
-   A full `case_filter=all` run instead prepares an adaptive number of
+   A full `case_filter=all` run instead prepares a stage-aware number of
    fixture-affinity seed shards in parallel.
 5. V1 and V2 execute jobs restore the matching shard dump into separate
    Postgres containers and run in parallel through `@teable/backend-ee`.
@@ -58,7 +58,7 @@ Manual inputs:
   computed-flow cases run in a separate V2 hybrid pool. Each V1, V2 sync, and V2
   hybrid pool uses the same global case shards. Passing an explicit
   `computed_update_mode` disables the sync/hybrid pool split, applies the
-  requested mode to every selected V2 case, and still uses the adaptive full-run
+  requested mode to every selected V2 case, and still uses the stage-aware full-run
   shards.
   Because `teableio/teable-ee` is private, configure a read-only deploy key on
   that repository and store the private key in this repository as
@@ -82,18 +82,45 @@ fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
 same affinity must use that identity in their runner seed contract and are
 treated as one indivisible physical-fixture bundle. Planning fails on duplicate
 declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
-that splits a bundle. The shard count is derived from catalog size at roughly
-40 cases per shard, capped at 8; the current full-run selection resolves to the
-8-shard cap.
-Bundles are weighted with calibrated cold-seed cost plus a per-case execute
-overhead. Accepted affinity bundles keep stable shard slots while the modeled
-maximum load remains within tolerance; unpinned bundles fill the least-loaded
-slots. A forced affinity move is reported in the plan summary with its estimated
-cold-seed cache impact. Sync and hybrid bundles are planned independently into
-the same stable slots. Seed, V1, V2 sync, and V2 hybrid all use that global slot
-mapping, so a shared fixture is built into exactly one seed dump and every case
-is selected exactly once per applicable engine/mode pool. Explicit case ids and
-comma-separated case lists remain unsharded.
+that splits a bundle. The planner imports the complete V1/V2 case durations and
+the 100k record-read/search cold-seed durations from trusted run `29917985095`.
+That run's observed stage maxima remain calibration metadata for comparison;
+they are not presented as observations of a new mapping. Unseen cases retain
+explicit default costs until a later trusted run recalibrates them.
+
+Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace costs.
+Shared-fixture seed cost is paid once using the bundle maximum; execute and trace
+costs remain per case. The planner simulates 6 through 12 shards, reports each
+candidate's critical shard and stage maxima, concurrency jobs, and cache movement,
+then selects the lowest concurrency that meets the 45-minute cold and 25-minute
+warm SLOs without regressing the modeled scalar baseline. The current calibrated
+catalog selects seven shards. Historical stable slots and cache reuse are
+secondary tie-breakers after stage load. The historical assignment covers both
+shared affinities and singleton bundles, so an unrelated catalog edit only moves
+the bundles needed to protect stage balance; cache movement includes every
+actual bundle move. Planning uses only the execute stages requested by
+`engine_filter` and `computed_update_mode`: a V1-only run has no V2 cost, while
+an explicitly unsplit V2 hybrid run prices every selected case in the hybrid
+stage.
+
+Seed, V1, V2 sync, and V2 hybrid all use the selected global slot mapping, so a
+shared fixture is built into exactly one seed dump and every case is selected
+exactly once per applicable engine/mode pool. The initial plan summary includes
+predicted stage maxima and identifies its older cost-calibration source. Explicit
+case ids and comma-separated case lists remain unsharded.
+
+After all execute jobs finish, the report job fetches the current workflow's
+completed job timings and downloads both execute trace manifests and seed
+cache-status artifacts. An all-`cache-miss` matrix uses the cold-seed prediction;
+only an all-`exact-hit` matrix uses the warm-seed prediction. Compatible, mixed,
+missing, or incomplete cache evidence is reported as unclassified rather than
+producing a misleading seed delta. Likewise, no trace manifests means missing
+trace evidence, while present manifests with zero wait remain a valid 0 ms
+observation. The report appends the current-run predicted-versus-observed table
+to the GitHub summary and uploads
+`teable-ee-e2e-perf-plan-observation-<run>-<attempt>/observation.json`. The
+planning summary names the older cost-calibration source but does not present
+that different mapping as the current run's observation.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or

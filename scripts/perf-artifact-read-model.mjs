@@ -41,22 +41,61 @@ export const artifactNameFromPayloadPath = (fileName) => {
     : undefined;
 };
 
-const walkArtifactPayloadFiles = async (directory, payloadFiles) => {
+const walkArtifactFiles = async ({ directory, files, include }) => {
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      await walkArtifactPayloadFiles(path, payloadFiles);
+      await walkArtifactFiles({ directory: path, files, include });
       continue;
     }
-    if (
-      entry.isFile() &&
-      entry.name.endsWith(".json") &&
-      entry.name !== "manifest.json"
-    ) {
-      payloadFiles.push(path);
+    if (entry.isFile() && include(entry.name)) {
+      files.push(path);
     }
   }
+};
+
+export const readTraceManifests = async ({ artifactDir }) => {
+  const manifestFiles = [];
+  await walkArtifactFiles({
+    directory: artifactDir,
+    files: manifestFiles,
+    include: (name) => name === "manifest.json",
+  });
+  manifestFiles.sort();
+  return Promise.all(
+    manifestFiles.map(async (manifestPath) => {
+      const fileName = relative(artifactDir, manifestPath);
+      return {
+        manifest: await readJsonFile(manifestPath),
+        manifestPath,
+        fileName,
+        artifactName: artifactNameFromPayloadPath(fileName),
+      };
+    }),
+  );
+};
+
+export const readSeedCacheStatuses = async ({ artifactDir }) => {
+  const statusFiles = [];
+  await walkArtifactFiles({
+    directory: artifactDir,
+    files: statusFiles,
+    include: (name) =>
+      name.startsWith("seed-cache-status-") && name.endsWith(".json"),
+  });
+  statusFiles.sort();
+  return Promise.all(
+    statusFiles.map(async (statusPath) => {
+      const fileName = relative(artifactDir, statusPath);
+      return {
+        status: await readJsonFile(statusPath),
+        statusPath,
+        fileName,
+        artifactName: artifactNameFromPayloadPath(fileName),
+      };
+    }),
+  );
 };
 
 export const readArtifactPayloads = async ({
@@ -68,7 +107,11 @@ export const readArtifactPayloads = async ({
   buildMissingPayload,
 }) => {
   const payloadFiles = [];
-  await walkArtifactPayloadFiles(artifactDir, payloadFiles);
+  await walkArtifactFiles({
+    directory: artifactDir,
+    files: payloadFiles,
+    include: (name) => name.endsWith(".json") && name !== "manifest.json",
+  });
   payloadFiles.sort();
 
   const payloads = [];

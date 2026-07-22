@@ -269,18 +269,36 @@ case contracts and merges them with the accepted legacy affinity families in
 `scripts/full-run-shard-model.mjs`. Every resulting physical-fixture family is
 one indivisible bundle. Planning fails if an affinity is duplicated, references
 an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
-shards. The shard count is derived from catalog size (about 40 cases per shard,
-capped at 8), not fixed in the workflow. Calibrated cold-seed cost plus a
-per-case execute overhead weight is used to protect the modeled maximum load.
-Accepted affinity bundles retain historical stable slots while load remains
-within tolerance; any forced move and its estimated cache impact are written to
-the plan summary. Sync and hybrid bundles are planned independently into the
-same stable slots. Seed, V1, V2 sync, and V2 hybrid use this one global mapping;
-shard N always consumes dump N. Explicit case filters remain a single seed job
-and a single job per engine. Every job has its own Postgres/Redis containers,
-network, cache key, dump, and artifact names. A digest of the shard's sorted case
-set is part of its exact cache key, so regrouping cannot exact-hit a dump
-produced for different members.
+shards. Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace
+costs. Shared-fixture seed cost uses the maximum member cost because the fixture
+is built once; execute and trace costs are summed per case. The versioned
+calibration imports complete V1/V2 artifact durations plus the observed 100k
+record-read/search cold-seed durations from trusted run `29917985095`.
+
+The planner simulates 6–12 shards and selects the lowest concurrency that meets
+the 45-minute cold and 25-minute warm SLOs without exceeding the modeled cold or
+warm path of the old scalar eight-shard assignment. Accepted affinity bundles
+retain historical stable slots only when stage load permits; every forced move
+and its estimated cache impact is written to the plan summary. The summary also
+records each candidate's stage maxima and critical shards, job concurrency, and
+predicted costs. Only stages selected by `engine_filter` and
+`computed_update_mode` participate in packing or concurrency totals. Historical
+slots cover singleton bundles as well as declared shared affinities, so cache
+movement accounts for all changed fixture slots.
+
+After execute completes, the report job observes the current GitHub jobs,
+trace-manifest timing, and every shard's seed cache-status artifact. An all
+`cache-miss` seed matrix is compared with the cold-seed prediction; only an all
+`exact-hit` matrix is compared with the warm-seed prediction. Compatible,
+mixed, missing, or incomplete cache evidence remains explicitly unclassified.
+A missing trace manifest is also a missing observation, never a successful zero
+wait. The report appends the valid prediction delta and uploads a
+machine-readable observation artifact. Seed, V1, V2 sync, and V2 hybrid use one
+global mapping; shard N always consumes dump N. Explicit case filters remain a
+single seed job and a single job per engine. Every job has its own
+Postgres/Redis containers, network, cache key, dump, and artifact names. A
+digest of the shard's sorted case set is part of its exact cache key, so
+regrouping cannot exact-hit a dump produced for different members.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:

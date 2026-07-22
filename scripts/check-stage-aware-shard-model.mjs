@@ -1,0 +1,268 @@
+import assert from "node:assert/strict";
+import {
+  buildAffinityStageBundles,
+  planStageAwareShards,
+  renderStagePlanSummaryMarkdown,
+  simulateStageAwareShardPlans,
+  STAGE_COST_KEYS,
+} from "./stage-aware-shard-model.mjs";
+import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
+
+assert.deepEqual(STAGE_COST_KEYS, [
+  "coldSeedMs",
+  "v1Ms",
+  "v2SyncMs",
+  "v2HybridMs",
+  "traceMs",
+]);
+
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29917985095");
+assert.equal(
+  FULL_RUN_STAGE_CALIBRATION.caseCosts[
+    "record-read/100k-50fields-filter-number-range-middle-half"
+  ].v2Ms,
+  86_533.25,
+);
+assert.equal(
+  Object.keys(FULL_RUN_STAGE_CALIBRATION.caseCosts).length,
+  316,
+  "the trusted run must calibrate the complete default full selection",
+);
+assert.equal(
+  FULL_RUN_STAGE_CALIBRATION.caseCosts[
+    "record-duplicate/single-500-checkbox-500fields"
+  ].v1Ms,
+  144_379.93,
+  "historical execute stragglers must not use the 10s default",
+);
+assert.ok(
+  FULL_RUN_STAGE_CALIBRATION.caseCosts[
+    "record-read/100k-50fields-filter-number-greater-half"
+  ].coldSeedMs > 1_000_000,
+  "100k record-read must not fall back to the old 1s seed estimate",
+);
+assert.ok(
+  FULL_RUN_STAGE_CALIBRATION.caseCosts[
+    "search/search-index-on-100k-20search-fields"
+  ].coldSeedMs > 500_000,
+  "100k search must not fall back to the old 1s seed estimate",
+);
+
+const syntheticCaseCosts = {
+  "shared-a": {
+    coldSeedMs: 120,
+    v1Ms: 10,
+    v2SyncMs: 20,
+    traceMs: 2,
+  },
+  "shared-b": {
+    coldSeedMs: 100,
+    v1Ms: 5,
+    v2SyncMs: 25,
+    traceMs: 3,
+  },
+  "execute-heavy": {
+    coldSeedMs: 1,
+    v1Ms: 120,
+    v2SyncMs: 110,
+    traceMs: 4,
+  },
+  "hybrid-heavy": {
+    coldSeedMs: 1,
+    v1Ms: 10,
+    v2HybridMs: 100,
+    traceMs: 4,
+  },
+};
+const syntheticAffinities = [
+  { id: "shared-fixture", caseIds: ["shared-a", "shared-b"] },
+];
+const syntheticBundles = buildAffinityStageBundles({
+  caseIds: ["shared-a", "shared-b", "execute-heavy", "hybrid-heavy"],
+  hybridCaseIds: ["hybrid-heavy"],
+  affinities: syntheticAffinities,
+  caseCosts: syntheticCaseCosts,
+});
+assert.deepEqual(
+  syntheticBundles.find(({ id }) => id === "shared-fixture").stageCosts,
+  {
+    coldSeedMs: 120,
+    v1Ms: 15,
+    v2SyncMs: 45,
+    v2HybridMs: 0,
+    traceMs: 5,
+  },
+  "one physical seed is built once, while execute and trace costs remain per case",
+);
+
+const syntheticPlan = planStageAwareShards({
+  caseIds: ["shared-a", "shared-b", "execute-heavy", "hybrid-heavy"],
+  hybridCaseIds: ["hybrid-heavy"],
+  shardCount: 2,
+  affinities: syntheticAffinities,
+  caseCosts: syntheticCaseCosts,
+});
+assert.equal(syntheticPlan.preservedBundleCount, 0);
+assert.deepEqual(syntheticPlan.movedBundles, []);
+assert.equal("preservedAffinityCount" in syntheticPlan, false);
+assert.equal("movedAffinities" in syntheticPlan, false);
+const shardOf = (plan, caseId) =>
+  plan.caseShards.findIndex((caseIds) => caseIds.includes(caseId));
+assert.equal(
+  shardOf(syntheticPlan, "shared-a"),
+  shardOf(syntheticPlan, "shared-b"),
+);
+assert.notEqual(
+  shardOf(syntheticPlan, "shared-a"),
+  shardOf(syntheticPlan, "execute-heavy"),
+  "the seed straggler and execute straggler should not stack on one shard",
+);
+assert.equal(syntheticPlan.stageMaxima.coldSeedMs.bundleId, "shared-fixture");
+assert.equal(syntheticPlan.stageMaxima.v1Ms.bundleId, "case:execute-heavy");
+assert.equal(syntheticPlan.stageMaxima.v2HybridMs.durationMs, 100);
+
+const modeIssues = () =>
+  planStageAwareShards({
+    caseIds: ["sync", "hybrid"],
+    hybridCaseIds: ["hybrid"],
+    shardCount: 2,
+    affinities: [{ id: "cross-mode", caseIds: ["sync", "hybrid"] }],
+    caseCosts: {
+      sync: { coldSeedMs: 1, v1Ms: 1, v2SyncMs: 1, traceMs: 1 },
+      hybrid: { coldSeedMs: 1, v1Ms: 1, v2HybridMs: 1, traceMs: 1 },
+    },
+  });
+assert.throws(modeIssues, /crosses V2 sync and hybrid pools/);
+
+const scalableCaseIds = Array.from(
+  { length: 36 },
+  (_, index) => `case-${String(index + 1).padStart(2, "0")}`,
+);
+const scalableCaseCosts = Object.fromEntries(
+  scalableCaseIds.map((caseId, index) => [
+    caseId,
+    {
+      coldSeedMs: index === 0 ? 1_000 : 100,
+      v1Ms: index === 1 ? 900 : 100,
+      v2SyncMs: index === 2 ? 800 : 100,
+      traceMs: 10,
+    },
+  ]),
+);
+const simulationOptions = {
+  caseIds: scalableCaseIds,
+  hybridCaseIds: [],
+  affinities: [],
+  caseCosts: scalableCaseCosts,
+  shardCounts: [6, 7, 8, 9, 10, 11, 12],
+  coldSloMs: 2_400,
+  warmSloMs: 1_300,
+  fixedCosts: {
+    coldSeedSetupMs: 100,
+    warmSeedMs: 50,
+    executeSetupMs: 100,
+    reportMs: 50,
+    traceJobBudgetMs: 60,
+  },
+  observedStages: {
+    sourceRunId: "synthetic-observed",
+    coldSeedMs: 2_600,
+    v1Ms: 1_700,
+    v2SyncMs: 1_600,
+    v2HybridMs: 0,
+    traceMs: 300,
+  },
+};
+const firstSimulation = simulateStageAwareShardPlans(simulationOptions);
+const secondSimulation = simulateStageAwareShardPlans(simulationOptions);
+assert.deepEqual(
+  firstSimulation,
+  secondSimulation,
+  "planning must be deterministic",
+);
+assert.deepEqual(
+  firstSimulation.candidates.map(({ shardCount }) => shardCount),
+  [6, 7, 8, 9, 10, 11, 12],
+);
+assert.equal(
+  firstSimulation.selected.shardCount,
+  firstSimulation.candidates.find(
+    ({ criticalPath }) =>
+      criticalPath.meetsColdSlo && criticalPath.meetsWarmSlo,
+  ).shardCount,
+  "select the lowest concurrency that meets both SLOs",
+);
+for (const candidate of firstSimulation.candidates) {
+  assert.equal(candidate.caseShards.flat().length, scalableCaseIds.length);
+  assert.equal(
+    new Set(candidate.caseShards.flat()).size,
+    scalableCaseIds.length,
+  );
+  assert.ok(candidate.concurrencyCost.seedJobs >= 6);
+  assert.equal(
+    candidate.concurrencyCost.peakJobs,
+    Math.max(
+      candidate.concurrencyCost.seedJobs,
+      candidate.concurrencyCost.executeJobs,
+    ),
+  );
+  assert.ok(candidate.stageMaxima.coldSeedMs.shard.startsWith("shard-"));
+  assert.ok(Number.isFinite(candidate.estimatedCacheImpactMs));
+}
+assert.deepEqual(firstSimulation.summary.predicted, {
+  coldSeedMs:
+    firstSimulation.selected.stageMaxima.coldSeedMs.durationMs +
+    simulationOptions.fixedCosts.coldSeedSetupMs,
+  v1Ms:
+    firstSimulation.selected.stageMaxima.v1Ms.durationMs +
+    simulationOptions.fixedCosts.executeSetupMs,
+  v2SyncMs:
+    firstSimulation.selected.stageMaxima.v2SyncMs.durationMs +
+    simulationOptions.fixedCosts.executeSetupMs,
+  v2HybridMs: 0,
+  traceMs: firstSimulation.selected.stageMaxima.traceMs.durationMs,
+  warmSeedMs: simulationOptions.fixedCosts.warmSeedMs,
+  coldWallMs: firstSimulation.selected.criticalPath.coldWallMs,
+  warmWallMs: firstSimulation.selected.criticalPath.warmWallMs,
+});
+assert.equal(
+  firstSimulation.summary.observed.sourceRunId,
+  "synthetic-observed",
+);
+assert.equal(
+  firstSimulation.summary.calibrationDeltaMs.coldSeedMs,
+  firstSimulation.summary.predicted.coldSeedMs - 2_600,
+);
+assert.match(
+  renderStagePlanSummaryMarkdown(firstSimulation),
+  /Predicted vs observed stage maxima/,
+);
+assert.match(
+  renderStagePlanSummaryMarkdown(firstSimulation),
+  /6 through 12 shards/,
+);
+assert.match(
+  renderStagePlanSummaryMarkdown(firstSimulation),
+  /shard-\d+-of-\d+/,
+);
+assert.match(
+  renderStagePlanSummaryMarkdown(firstSimulation),
+  /Peak \/ total jobs/,
+);
+
+const v1OnlySimulation = simulateStageAwareShardPlans({
+  ...simulationOptions,
+  activeExecuteStages: ["v1Ms"],
+});
+assert.deepEqual(v1OnlySimulation.summary.activeStages, [
+  "coldSeedMs",
+  "v1Ms",
+  "traceMs",
+]);
+assert.equal(v1OnlySimulation.selected.stageMaxima.v2SyncMs.durationMs, 0);
+assert.equal(v1OnlySimulation.selected.stageMaxima.v2HybridMs.durationMs, 0);
+assert.equal(v1OnlySimulation.selected.concurrencyCost.v2SyncJobs, 0);
+assert.equal(v1OnlySimulation.selected.concurrencyCost.v2HybridJobs, 0);
+assert.equal(v1OnlySimulation.summary.predicted.warmSeedMs, 50);
+
+console.log("Stage-aware shard model checks passed.");

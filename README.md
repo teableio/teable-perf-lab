@@ -49,15 +49,29 @@ ready.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
 - `scripts/full-run-shard-model.mjs`: authoritative case-declared plus accepted
-  legacy fixture-affinity bundles, calibrated seed weights, and deterministic
-  adaptive grouping shared by seed and execute plans.
+  legacy fixture-affinity bundles and the scalar eight-shard baseline used to
+  reject a slower replacement plan.
+- `scripts/stage-aware-shard-model.mjs`: deterministic five-stage bundle
+  packing, 6–12 shard simulation, SLO selection, cache-movement accounting, and
+  predicted-versus-observed plan summaries.
+- `scripts/full-run-historical-bundle-slots.mjs`: accepted scalar-plan slots for
+  every shared and singleton bundle, used to bound cache churn after unrelated
+  catalog edits.
+- `scripts/full-run-execute-calibration.mjs` and
+  `scripts/full-run-stage-calibration.mjs`: versioned case artifact durations,
+  100k cold-seed observations, and observed stage maxima from the trusted
+  calibration run.
+- `scripts/stage-plan-observation-model.mjs` and
+  `scripts/observe-stage-plan.mjs`: current-run GitHub job/trace observation,
+  seed cache-mode classification, prediction drift rendering, and the
+  machine-readable calibration artifact.
 - `scripts/full-run-feedback-model.mjs`: pure evaluation of a complete full-run
   plan plus telemetry: active workflow wall time, phase windows, stage
   stragglers, cross-shard seed rebuilds, trace wait budgets, result coverage,
   and cold/warm SLOs.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
-  payload projection, primary metric, trace URL, and trace-waste helpers used by
-  report adapters.
+  payload/trace-manifest/seed-status projection, primary metric, trace URL, and
+  trace-waste helpers used by report adapters.
 - `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
   keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
 - `framework/trace-evidence-policy.ts`: pure trace selection, request-shape,
@@ -117,7 +131,7 @@ teable-ee/community/packages/db-data-prisma/prisma/migrations/**
 Non-schema `teable-ee` code changes do not change the workflow seed DB cache
 key; Prisma schema or migration changes do.
 
-Actual workflow behavior (one job for filtered runs; adaptive matching seed
+Actual workflow behavior (one job for filtered runs; stage-aware matching seed
 shards for `case_filter=all`):
 
 - Exact seed DB cache hit: the seed job only checks that the dump file exists.
