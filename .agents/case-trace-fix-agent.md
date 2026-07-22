@@ -24,10 +24,11 @@ The performance monitor should treat trace warnings with these shapes:
 - `traceFetchSkippedReason` set and `Failed_Trace_Count = 0`: the Trace service
   was unavailable before Jaeger fetch began, so the collector skipped polling
   instead of wasting time on trace ids that could not have been exported.
-- Repeated sampled `GET` refs with a successful same-request-shape raw snapshot
-  may be marked `skipped` when a sibling trace 404s in Jaeger. Write requests
-  are still selected individually. If no representative trace saves for that
-  request shape, the fetch must stay failed so the monitor still alerts.
+- Repeated sampled GET or POST refs with a successful same-request-shape raw
+  snapshot may be marked `skipped` when a sibling trace 404s in Jaeger. POST
+  equivalence includes request-body structure, including array length and
+  heterogeneous item shapes. If no representative trace saves for that request
+  shape, the fetch must stay failed so the monitor still alerts.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
@@ -63,9 +64,10 @@ The performance monitor should treat trace warnings with these shapes:
    - `failedTraceCount`
    - semantic request shapes in `refs[]`
      If `savedTraceCount + failedTraceCount + skippedTraceCount` covers
-     `uniqueTraceCount`, this is an intentional representative-snapshot gap,
-     not a trace-capture failure. `traceRefCount` is the raw captured count and
-     may include duplicate trace IDs.
+     `traceRefCount`, this is an intentional representative-snapshot gap, not a
+     trace-capture failure. `uniqueTraceCount` explains how many distinct trace
+     IDs were eligible for fetch; duplicate captured refs have explicit skipped
+     outcomes.
 6. If `traceFetchBreakerState` is not `closed`, inspect
    `traceFetchBreakerReason`, `traceFetchRecoveryProbeCount`,
    `traceFetchRecoverySucceeded`, `traceFetchWaitMs`, and
@@ -79,7 +81,7 @@ The performance monitor should treat trace warnings with these shapes:
    - High-repeat case only needs representative raw snapshots -> use
      `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
      `skippedTraceCount` explains the unsaved refs.
-   - One selected representative sampled `GET` ref is unstable in Jaeger -> use
+   - One selected representative sampled request ref is unstable in Jaeger -> use
      `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` when the default same-request-shape
      fallback pool needs narrowing, so another equivalent read ref can save the
      representative raw snapshot while the failed selection is skipped with an

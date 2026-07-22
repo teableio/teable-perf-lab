@@ -6,6 +6,10 @@ export type TraceFetchBreakerState =
   | "job-budget"
   | "recovered";
 
+export type TraceFetchArtifactState =
+  | TraceFetchBreakerState
+  | "exporter-outage";
+
 export type TraceFetchDecision =
   | { action: "fetch"; mode: "normal" | "recovery-probe" }
   | { action: "skip"; reason: string };

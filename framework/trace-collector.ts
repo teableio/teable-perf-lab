@@ -8,6 +8,7 @@ import {
 } from "./trace-evidence-policy";
 import {
   createTraceFetchControl,
+  type TraceFetchArtifactState,
   type TraceFetchDecision,
 } from "./trace-fetch-control";
 import type { PerfCase, PerfRunContext } from "./types";
@@ -55,7 +56,7 @@ export interface PerfTraceArtifactSummary {
   traceFetchJobBudgetMs: number;
   traceFetchWaitMs: number;
   traceFetchJobWaitMs: number;
-  traceFetchBreakerState?: string;
+  traceFetchBreakerState?: TraceFetchArtifactState;
   traceFetchBreakerReason?: string;
   traceFetchRecoveryProbeCount: number;
   traceFetchRecoverySucceeded: boolean;
@@ -410,9 +411,9 @@ const getJaegerApiBaseUrl = () => {
   return traceLinkBaseUrl?.replace(/\/+$/, "");
 };
 
-const uniqueTraceRefs = () => {
+const uniqueTraceRefs = (refs: PerfTraceRef[]) => {
   const seen = new Set<string>();
-  return traceRefs.filter((ref) => {
+  return refs.filter((ref) => {
     if (seen.has(ref.traceId)) {
       return false;
     }
@@ -421,8 +422,8 @@ const uniqueTraceRefs = () => {
   });
 };
 
-const uniqueTraceRefsForRun = (perfCase: PerfCase, engine: string) =>
-  uniqueTraceRefs().filter(
+const traceRefsForRun = (perfCase: PerfCase, engine: string) =>
+  traceRefs.filter(
     (ref) => ref.caseId === perfCase.id && ref.engine === engine,
   );
 
@@ -694,7 +695,8 @@ export const writeTraceArtifacts = async ({
       1,
     ),
   });
-  const runRefs = uniqueTraceRefsForRun(perfCase, engine);
+  const capturedRunRefs = traceRefsForRun(perfCase, engine);
+  const runRefs = uniqueTraceRefs(capturedRunRefs);
   const evidencePolicy = enabled
     ? createTraceEvidencePolicy({
         refs: runRefs,
@@ -704,16 +706,13 @@ export const writeTraceArtifacts = async ({
       })
     : undefined;
   const selectedRefs = evidencePolicy?.selectedRefs ?? [];
-  const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
   const savedTraceIds = new Set<string>();
   const failedTraceIds = new Set<string>();
   const fallbackTraceIds = new Set<string>();
   const skippedTraceErrors = new Map<string, string>();
   const summary: PerfTraceArtifactSummary = {
     enabled,
-    traceRefCount: traceRefs.filter(
-      (ref) => ref.caseId === perfCase.id && ref.engine === engine,
-    ).length,
+    traceRefCount: capturedRunRefs.length,
     uniqueTraceCount: runRefs.length,
     selectedTraceCount: selectedRefs.length,
     savedTraceCount: 0,
@@ -734,7 +733,7 @@ export const writeTraceArtifacts = async ({
     backgroundFlushErrorCount,
     backgroundFlushLastError,
     jaegerApiBaseUrl,
-    refs: runRefs,
+    refs: capturedRunRefs,
     savedTraces: [],
   };
 
@@ -812,9 +811,9 @@ export const writeTraceArtifacts = async ({
       summary.savedTraceCount +
       summary.failedTraceCount +
       summary.skippedTraceCount;
-    if (accountedTraceCount !== summary.uniqueTraceCount) {
+    if (accountedTraceCount !== summary.traceRefCount) {
       throw new Error(
-        `Trace manifest count mismatch: saved + failed + skipped = ${accountedTraceCount}, unique refs = ${summary.uniqueTraceCount}`,
+        `Trace manifest count mismatch: saved + failed + skipped = ${accountedTraceCount}, captured refs = ${summary.traceRefCount}`,
       );
     }
     summary.artifactDir = traceRelativeDir;
@@ -866,7 +865,7 @@ export const writeTraceArtifacts = async ({
     summary.traceFetchBreakerState = "exporter-outage";
     summary.traceFetchBreakerReason = summary.flushError;
     summary.traceFetchSkippedReason = `Trace service unavailable; skipped Jaeger fetch: ${summary.flushError}`;
-    for (const ref of runRefs) {
+    for (const ref of capturedRunRefs) {
       addSkippedTrace(ref, summary.traceFetchSkippedReason);
     }
     return writeSummary();
@@ -1102,6 +1101,18 @@ export const writeTraceArtifacts = async ({
         error: skippedTraceErrors.get(ref.traceId),
       }),
     );
+  }
+
+  const seenTraceIds = new Set<string>();
+  for (const ref of capturedRunRefs) {
+    if (seenTraceIds.has(ref.traceId)) {
+      addSkippedTrace(
+        ref,
+        `Duplicate captured trace ref ${ref.traceId}; the first ref owns its fetch outcome`,
+      );
+      continue;
+    }
+    seenTraceIds.add(ref.traceId);
   }
 
   return writeSummary();
