@@ -215,6 +215,20 @@ const payloads = [
     },
   },
   {
+    caseId: "lookup/slightly-slower",
+    engine: "v1",
+    result: "pass",
+    durationMs: 1000,
+    thresholds: [{ metric: "readyMs", actual: 1000, passed: true }],
+  },
+  {
+    caseId: "lookup/slightly-slower",
+    engine: "v2",
+    result: "pass",
+    durationMs: 1100,
+    thresholds: [{ metric: "readyMs", actual: 1100, passed: true }],
+  },
+  {
     caseId: "field/fail",
     engine: "v2",
     result: "fail",
@@ -229,7 +243,7 @@ const payloads = [
   },
 ];
 
-assert.deepEqual(resultCounts(payloads), { pass: 4, skipped: 1, fail: 1 });
+assert.deepEqual(resultCounts(payloads), { pass: 6, skipped: 1, fail: 1 });
 
 const rows = buildCaseRows(payloads);
 assert.deepEqual(
@@ -243,6 +257,11 @@ assert.deepEqual(
       caseId: "lookup/regressed",
       status: "attention",
       comparison: "慢 1.4x",
+    },
+    {
+      caseId: "lookup/slightly-slower",
+      status: "attention",
+      comparison: "慢 1.1x",
     },
     { caseId: "field/fail", status: "attention", comparison: "无 V1 基线" },
     { caseId: "smoke/skip", status: "neutral", comparison: "无 V1 基线" },
@@ -350,9 +369,9 @@ assert.equal(card.msg_type, "interactive");
 assert.equal(card.card.header.template, "red");
 assert.equal(
   card.card.header.title.content,
-  "Teable EE 性能回归 · 用例失败 · 退化 2",
+  "Teable EE 性能回归 · 用例失败 · 退化 3",
 );
-assert.match(card.card.elements[0].text.content, /4 通过 \/ 1 跳过 \/ 1 失败/);
+assert.match(card.card.elements[0].text.content, /6 通过 \/ 1 跳过 \/ 1 失败/);
 assert.match(card.card.elements[1].text.content, /Trace 抓取浪费 40s/);
 assert.match(
   card.card.elements[2].columns[3].elements[0].content,
@@ -369,8 +388,16 @@ assert.equal(
 const panels = card.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
-assert.equal(panels[0].header.title.content, "**退化 2**");
-assert.equal(panels[1].header.title.content, "**未达退化阈值 2**");
+assert.equal(panels[0].header.title.content, "**退化 3**");
+assert.equal(panels[1].header.title.content, "**未退化 2**");
+assert.match(
+  panels[0].elements[0].text.content,
+  /🔴 \*\*\[lookup\/slightly-slower\].*慢 1\.1x/,
+);
+assert.doesNotMatch(
+  panels[1].elements[0].text.content,
+  /lookup\/slightly-slower/,
+);
 
 const outageCard = buildPerfSummaryCard({
   payloads: [
@@ -605,9 +632,7 @@ assert.deepEqual(batchWriteResult, {
       recordId: "rec-existing-batch",
     },
   ],
-  created: [
-    { runKey: "901-3-formula/new-v2", recordId: "rec-memory-3" },
-  ],
+  created: [{ runKey: "901-3-formula/new-v2", recordId: "rec-memory-3" }],
 });
 assert.equal(batchWriteAdapter.snapshot().length, 3);
 assert.equal(
@@ -801,9 +826,7 @@ assert.deepEqual(
         recordId: "rec-batch-existing",
       },
     ],
-    created: [
-      { runKey: "902-1-case-new-v2", recordId: "rec-batch-created-1" },
-    ],
+    created: [{ runKey: "902-1-case-new-v2", recordId: "rec-batch-created-1" }],
   },
 );
 assert.deepEqual(

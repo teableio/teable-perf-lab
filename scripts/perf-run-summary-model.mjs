@@ -4,8 +4,6 @@ import {
   traceWaste,
 } from "./perf-artifact-read-model.mjs";
 
-export const DEFAULT_REGRESSION_RATIO_THRESHOLD = 1.2;
-
 export const parseDate = (value) => {
   const time = Date.parse(value ?? "");
   return Number.isFinite(time) ? time : undefined;
@@ -155,13 +153,7 @@ const compareCaseRows = (a, b) => {
 
 const groupLabel = (caseId) => caseId.split("/")[0] || caseId;
 
-export const buildCaseRows = (
-  payloads,
-  {
-    comparisonBaselines = {},
-    regressionRatioThreshold = DEFAULT_REGRESSION_RATIO_THRESHOLD,
-  } = {},
-) => {
+export const buildCaseRows = (payloads, { comparisonBaselines = {} } = {}) => {
   const grouped = new Map();
   for (const payload of payloads) {
     const entry = grouped.get(payload.caseId) ?? {};
@@ -206,11 +198,10 @@ export const buildCaseRows = (
             : payload.result === "fail",
         );
       const regressionRatio = hasBaseline ? v2Value / baselineValue : undefined;
-      const hasRegression =
-        Number.isFinite(regressionRatio) &&
-        regressionRatio >= regressionRatioThreshold;
+      const hasSlowdown =
+        Number.isFinite(regressionRatio) && regressionRatio > 1;
       const status =
-        thresholdFailed || hasRegression
+        thresholdFailed || hasSlowdown
           ? "attention"
           : hasBaseline
             ? "ok"
@@ -319,7 +310,6 @@ export const buildPerfSummaryCard = ({
   timings,
   context,
   comparisonBaselines,
-  regressionRatioThreshold,
 }) => {
   const counts = resultCounts(payloads);
   const waste = traceWaste(payloads);
@@ -334,10 +324,7 @@ export const buildPerfSummaryCard = ({
     .sort((a, b) => b[1].skippedFetchCount - a[1].skippedFetchCount)
     .map(([engine, value]) => `${engine} ${value.skippedFetchCount}`)
     .join(" · ");
-  const rows = buildCaseRows(payloads, {
-    comparisonBaselines,
-    regressionRatioThreshold,
-  });
+  const rows = buildCaseRows(payloads, { comparisonBaselines });
   const regressionRows = rows.filter((row) => row.status === "attention");
   const regressionCount = regressionRows.length;
   const executeResult = context.executeResult ?? "";
@@ -493,7 +480,7 @@ export const buildPerfSummaryCard = ({
           ],
         }),
         collapsiblePanel({
-          title: `未达退化阈值 ${remainingRows.length}`,
+          title: `未退化 ${remainingRows.length}`,
           expanded: false,
           elements: [
             {
