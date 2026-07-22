@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Reuse compatible seed dumps across safe plan changes; 05 — Balance shards with stage-aware costs; 06 — Defer trace retrieval to a bounded job tail.
 
-**Status:** ready-for-agent
+**Status:** in-progress-full-ci
 
 - [ ] Cold active workflow wall 不超过 45 分钟，Warm active workflow wall 不超过 25 分钟；runner queue 单独报告。
 - [ ] Cold run 明确证明 exact miss，Warm run 明确证明同一计划 exact hit，不把 compatible restore 冒充 warm acceptance。

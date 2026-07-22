@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveSeedIdentityCaseId } from "../framework/seed-contract.ts";
 import {
   FULL_RUN_FIXTURE_AFFINITIES,
@@ -24,6 +27,7 @@ import {
   parseCaseSeedAffinity,
   renderPlanSummaryMarkdown,
   resolveRunPlan,
+  writeGithubOutputs,
 } from "./run-plan.mjs";
 import {
   buildCaseSetDigest,
@@ -254,6 +258,7 @@ const defaultFullRunPlan = resolveRunPlan({
 
 assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
 assert.equal(defaultFullRunPlan.caseFilterKey, "all");
+assert.equal(defaultFullRunPlan.seedCacheNamespace, "");
 const selectedFullRunShardCount = defaultFullRunPlan.planSummary.shardCount;
 assert.equal(selectedFullRunShardCount, 7);
 assert.equal(defaultFullRunPlan.seedPlan.length, selectedFullRunShardCount);
@@ -376,6 +381,44 @@ assert.equal(
   targetedOmittedCaseId,
   "small-scale cases omitted from full runs must remain runnable by exact filter",
 );
+const isolatedCachePlan = resolveRunPlan({
+  engineFilter: "v1,v2",
+  caseFilter: "all",
+  computedUpdateMode: "",
+  seedCacheNamespace: " ticket-07-cold-warm ",
+  allCaseIds,
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
+});
+assert.equal(isolatedCachePlan.seedCacheNamespace, "ticket-07-cold-warm");
+assert.equal(
+  isolatedCachePlan.planSummary.seedCacheNamespace,
+  "ticket-07-cold-warm",
+);
+assert.match(
+  renderPlanSummaryMarkdown(isolatedCachePlan.planSummary),
+  /Seed cache namespace: ticket-07-cold-warm/,
+);
+const outputTempDir = await mkdtemp(join(tmpdir(), "perf-run-plan-output-"));
+try {
+  const defaultOutputPath = join(outputTempDir, "default.output");
+  const isolatedOutputPath = join(outputTempDir, "isolated.output");
+  writeGithubOutputs(defaultFullRunPlan, defaultOutputPath);
+  writeGithubOutputs(isolatedCachePlan, isolatedOutputPath);
+  const defaultOutput = await readFile(defaultOutputPath, "utf8");
+  const isolatedOutput = await readFile(isolatedOutputPath, "utf8");
+  assert.match(defaultOutput, /^seed_cache_namespace=$/m);
+  assert.match(defaultOutput, /^seed_cache_namespace_segment=$/m);
+  assert.match(
+    isolatedOutput,
+    /^seed_cache_namespace=ticket-07-cold-warm$/m,
+  );
+  assert.match(
+    isolatedOutput,
+    /^seed_cache_namespace_segment=ticket-07-cold-warm-$/m,
+  );
+} finally {
+  await rm(outputTempDir, { recursive: true, force: true });
+}
 
 const shardIndexByCaseId = new Map();
 fullRunCaseShards.forEach((caseIds, shardIndex) =>
@@ -630,6 +673,7 @@ assert.deepEqual(
         seedArtifactSuffix: "seed",
       },
     ],
+    seedCacheNamespace: "",
     planSummary: {
       shardCount: 1,
       stableSlotCount: 1,
@@ -943,6 +987,18 @@ assertThrowsMessage(
       caseFilter: "all",
     }),
   "allCaseIds must include the registered cases for a full run.",
+);
+
+assertThrowsMessage(
+  "unsafe seed cache namespace",
+  () =>
+    resolveRunPlan({
+      engineFilter: "v1",
+      caseFilter: "all",
+      seedCacheNamespace: "unsafe/cache",
+      allCaseIds,
+    }),
+  "seed_cache_namespace must contain only letters, digits, dots, underscores, and hyphens.",
 );
 
 console.log("Run plan checks ok");

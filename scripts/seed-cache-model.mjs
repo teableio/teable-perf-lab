@@ -12,6 +12,33 @@ const requireNonEmptyString = (value, label) => {
 const cacheKeySegment = (value, label) =>
   requireNonEmptyString(value, label).replace(/[^a-zA-Z0-9_.-]+/g, "-");
 
+const requireCommitSha = (value, label) => {
+  const normalized = requireNonEmptyString(value, label).toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error(`${label} must be a 40-character commit SHA`);
+  }
+  return normalized;
+};
+
+export const normalizeSeedCacheNamespace = (value = "") => {
+  if (typeof value !== "string") {
+    throw new Error("seed_cache_namespace must be a string.");
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  if (normalized.length > 40) {
+    throw new Error("seed_cache_namespace must be at most 40 characters.");
+  }
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(normalized)) {
+    throw new Error(
+      "seed_cache_namespace must contain only letters, digits, dots, underscores, and hyphens.",
+    );
+  }
+  return normalized;
+};
+
 export const buildCaseSetDigest = (caseIds) => {
   if (!Array.isArray(caseIds) || caseIds.length === 0) {
     throw new Error("caseIds must include at least one case id");
@@ -35,9 +62,12 @@ export const buildSeedCacheIdentity = ({
   stableSlot,
   caseSetDigest,
   sourceHash,
+  cacheNamespace = "",
 }) => {
+  const normalizedCacheNamespace = normalizeSeedCacheNamespace(cacheNamespace);
   const compatibleRestorePrefix = [
     "perf-seed-db",
+    ...(normalizedCacheNamespace ? [normalizedCacheNamespace] : []),
     cacheKeySegment(runnerOs, "runnerOs"),
     cacheKeySegment(schemaHash, "schemaHash"),
     cacheKeySegment(seedContractGeneration, "seedContractGeneration"),
@@ -133,6 +163,9 @@ export const buildSeedCacheStatus = ({
   caseSetDigest,
   stableSlot,
   seedContractGeneration,
+  cacheNamespace = "",
+  perfLabSha,
+  teableEeSha,
 }) => {
   const normalizedPrimaryKey = requireNonEmptyString(primaryKey, "primaryKey");
   const normalizedMatchedKey = matchedKey.trim();
@@ -153,5 +186,8 @@ export const buildSeedCacheStatus = ({
       seedContractGeneration,
       "seedContractGeneration",
     ),
+    cacheNamespace: normalizeSeedCacheNamespace(cacheNamespace),
+    perfLabSha: requireCommitSha(perfLabSha, "perfLabSha"),
+    teableEeSha: requireCommitSha(teableEeSha, "teableEeSha"),
   };
 };
