@@ -1,17 +1,20 @@
-import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 import {
-  buildFullRunCaseShards,
+  buildFullRunCaseShardPlan,
   resolveFixtureAffinities,
   resolveFullRunCaseIds,
   resolveFullRunShardCount,
   validateFixtureAffinities,
   validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
+import {
+  buildCaseSetDigest,
+  SEED_CONTRACT_GENERATION,
+} from "./seed-cache-model.mjs";
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
@@ -164,10 +167,7 @@ export const buildCaseFilterKey = (caseFilter = "") =>
     .slice(0, 160);
 
 export const buildFullRunShardCaseFilterKey = (shardLabel, caseIds) => {
-  const caseSetHash = createHash("sha256")
-    .update(caseIds.join("\n"))
-    .digest("hex")
-    .slice(0, 12);
+  const caseSetHash = buildCaseSetDigest(caseIds);
   return `all-${shardLabel}-${caseSetHash}`;
 };
 
@@ -235,6 +235,7 @@ const resolveExecutePlan = ({
 
 const resolveSeedPlan = ({
   rawCaseFilter,
+  selectedCaseIds,
   caseFilterIsAll,
   fullRunCaseShards,
 }) => {
@@ -244,6 +245,9 @@ const resolveSeedPlan = ({
         name: "seed",
         caseFilter: rawCaseFilter,
         caseFilterKey: buildCaseFilterKey(rawCaseFilter),
+        caseSetDigest: buildCaseSetDigest(selectedCaseIds),
+        stableSlot: "targeted",
+        seedContractGeneration: SEED_CONTRACT_GENERATION,
         artifactSuffix: "seed",
       },
     ];
@@ -255,6 +259,9 @@ const resolveSeedPlan = ({
       name: shardLabel,
       caseFilter: caseIds.join(","),
       caseFilterKey: buildFullRunShardCaseFilterKey(shardLabel, caseIds),
+      caseSetDigest: buildCaseSetDigest(caseIds),
+      stableSlot: `slot-${index + 1}`,
+      seedContractGeneration: SEED_CONTRACT_GENERATION,
       artifactSuffix: shardLabel,
     };
   });
@@ -314,14 +321,20 @@ export const resolveRunPlan = ({
     throw new Error(affinityIssues.join("\n"));
   }
 
-  const fullRunCaseShards = caseFilterIsAll
-    ? buildFullRunCaseShards({
+  const fullRunShardPlan = caseFilterIsAll
+    ? buildFullRunCaseShardPlan({
         allCaseIds: fullRunCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
         shardCount: resolveFullRunShardCount(fullRunCaseIds.length),
         affinities: fixtureAffinities,
       })
-    : [];
+    : {
+        caseShards: [],
+        shardLoads: [],
+        movedAffinities: [],
+        preservedAffinityCount: 0,
+      };
+  const fullRunCaseShards = fullRunShardPlan.caseShards;
   const assignmentIssues = caseFilterIsAll
     ? validateShardAffinityAssignments({
         caseShards: fullRunCaseShards,
@@ -336,6 +349,7 @@ export const resolveRunPlan = ({
     engines,
     seedPlan: resolveSeedPlan({
       rawCaseFilter,
+      selectedCaseIds: caseFilters,
       caseFilterIsAll,
       fullRunCaseShards,
     }),
@@ -347,17 +361,50 @@ export const resolveRunPlan = ({
       fullRunCaseShards,
     }),
     caseFilterKey: buildCaseFilterKey(caseFilter),
+    planSummary: {
+      shardCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
+      stableSlotCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
+      preservedAffinityCount: fullRunShardPlan.preservedAffinityCount,
+      movedAffinities: fullRunShardPlan.movedAffinities,
+      estimatedCacheImpactMs: fullRunShardPlan.movedAffinities.reduce(
+        (total, movement) => total + movement.estimatedCacheImpactMs,
+        0,
+      ),
+    },
   };
 };
 
 export const writeGithubOutputs = (
-  { engines, seedPlan, executePlan, caseFilterKey },
+  { engines, seedPlan, executePlan, caseFilterKey, planSummary },
   outputPath,
 ) => {
   appendFileSync(outputPath, `engines=${JSON.stringify(engines)}\n`);
   appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
+  appendFileSync(outputPath, `plan_summary=${JSON.stringify(planSummary)}\n`);
+};
+
+export const renderPlanSummaryMarkdown = (summary) => {
+  const lines = [
+    "## Full-run plan",
+    "",
+    `- Shards: ${summary.shardCount}`,
+    `- Stable slots: ${summary.stableSlotCount}`,
+    `- Preserved affinities: ${summary.preservedAffinityCount}`,
+    `- Estimated cache impact: ${summary.estimatedCacheImpactMs} ms cold seed`,
+  ];
+  if (summary.movedAffinities.length === 0) {
+    lines.push("- Affinity moves: none");
+  } else {
+    lines.push("- Affinity moves:");
+    for (const movement of summary.movedAffinities) {
+      lines.push(
+        `  - ${movement.affinityId}: slot-${movement.fromStableSlot} -> slot-${movement.toStableSlot}; ${movement.estimatedCacheImpactMs} ms cache impact; cases ${movement.caseIds.join(", ")}`,
+      );
+    }
+  }
+  return `${lines.join("\n")}\n`;
 };
 
 const main = async () => {
@@ -378,6 +425,12 @@ const main = async () => {
 
   if (process.env.GITHUB_OUTPUT) {
     writeGithubOutputs(plan, process.env.GITHUB_OUTPUT);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        renderPlanSummaryMarkdown(plan.planSummary),
+      );
+    }
   } else {
     console.log(JSON.stringify(plan, null, 2));
   }
@@ -386,6 +439,7 @@ const main = async () => {
   console.log(`Resolved case filter cache key: ${plan.caseFilterKey}`);
   console.log(`Resolved seed plan: ${JSON.stringify(plan.seedPlan)}`);
   console.log(`Resolved execute plan: ${JSON.stringify(plan.executePlan)}`);
+  console.log(`Resolved plan summary: ${JSON.stringify(plan.planSummary)}`);
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -94,9 +94,11 @@ Every non-trivial case has two stages:
 CI uses two cache layers:
 
 - **Workflow seed DB cache**: GitHub Actions restores/saves
-  `perf-lab-seed-cache/e2e_test_teable.dump`. Its key is runner OS, normalized
-  case filter, database schema hash, and perf-lab case/framework source hash.
-  It deliberately does not include the target `teable-ee` commit ref.
+  `perf-lab-seed-cache/e2e_test_teable.dump`. Its exact key binds runner OS,
+  database schema, seed-contract generation, stable shard slot, full case-set
+  digest, and perf-lab source hash. A compatible restore prefix stops at the
+  stable slot and always re-enters runner validation. Neither form includes the
+  target `teable-ee` commit ref.
 - **Runner `seedHash`**: each runner decides whether tables inside the restored
   dump match its current case config and seed code. If the hash-derived table
   exists and `seedReady` passes, row import is skipped. If validation fails, the

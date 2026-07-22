@@ -86,12 +86,14 @@ that splits a bundle. The shard count is derived from catalog size at roughly
 40 cases per shard, capped at 8; the current full-run selection resolves to the
 8-shard cap.
 Bundles are weighted with calibrated cold-seed cost plus a per-case execute
-overhead and greedily assigned to the least-loaded shard. Sync and hybrid
-bundles are packed independently, then paired by weight. Seed, V1, V2 sync, and
-V2 hybrid all use that same mapping, so a shared fixture is built into exactly
-one seed dump and every case is selected exactly once per applicable
-engine/mode pool. Explicit case ids and comma-separated case lists remain
-unsharded.
+overhead. Accepted affinity bundles keep stable shard slots while the modeled
+maximum load remains within tolerance; unpinned bundles fill the least-loaded
+slots. A forced affinity move is reported in the plan summary with its estimated
+cold-seed cache impact. Sync and hybrid bundles are planned independently into
+the same stable slots. Seed, V1, V2 sync, and V2 hybrid all use that global slot
+mapping, so a shared fixture is built into exactly one seed dump and every case
+is selected exactly once per applicable engine/mode pool. Explicit case ids and
+comma-separated case lists remain unsharded.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -112,12 +114,19 @@ the session cookie on the shared OpenAPI axios instance.
 
 ## Seed Cache
 
-The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. The seed DB cache key
-is based on runner OS, normalized case filter, Teable Prisma schema/migration
-hash, and perf-lab case/framework source hash. It does not include the target
-`teable-ee` commit SHA. Ordinary backend code changes can therefore reuse the
-same seed dump; Prisma schema/migration changes or seed code changes force a new
-dump.
+The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. It uses an exact key
+and a narrower compatible restore prefix:
+
+```text
+exact:      perf-seed-db-<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-
+```
+
+The exact key binds the complete sorted case set and all seed-relevant perf-lab
+source. The compatible prefix never crosses runner OS, Prisma schema/migrations,
+seed contract generation, or stable shard slot. Neither key includes the target
+`teable-ee` commit SHA, so ordinary backend changes can reuse a dump while
+schema or seed-contract changes cannot.
 
 The schema hash is computed from:
 
@@ -130,21 +139,24 @@ teable-ee/community/packages/db-data-prisma/prisma/migrations/**
 
 On an exact cache hit, the seed job only checks that
 `perf-lab-seed-cache/e2e_test_teable.dump` exists. It skips dependency install,
-service startup, seed mode, and seed validation. On a cache miss or restore-key
-hit, the seed job starts services, restores any available dump with `pg_restore`
-when possible, otherwise rebuilds from migrations and `prisma-db-seed -- --e2e`,
-then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
-hash-derived seed tables or build missing/stale fixtures. A successful seed job
-saves a new exact-key `pg_dump -Fc` snapshot.
+service startup, seed mode, and seed validation. A compatible-prefix hit is only
+a restore candidate, never an exact hit. On a compatible hit or cache miss, the
+seed job starts services, restores any available dump with `pg_restore` when
+possible, otherwise rebuilds from migrations and `prisma-db-seed -- --e2e`,
+then runs `PERF_LAB_MODE=seed`. Every cache-aware runner validates its
+hash-derived seed identity and readiness; missing or stale fixtures are rebuilt
+before a new exact-key `pg_dump -Fc` snapshot is saved.
 
 Each seed shard uploads its selected dump as a same-run artifact, and execute
 shard N downloads seed dump N into isolated V1/V2 databases before running the
 measured cases. Each shard has its own cache key, dump, Postgres container,
-Redis service, network, and artifact names. The cache key includes a digest of
-the shard's ordered case list, so changing affinity or shard assignment cannot
-exact-hit a dump built for a different case set. Runner-level `seedHash` names
-decide whether a table is valid for a specific case; stale tables in the dump
-are ignored unless the hash matches and `seedReady` validation passes.
+Redis service, network, and artifact names. The exact key includes a digest of
+the shard's sorted case set, so changing membership cannot exact-hit a dump built
+for a different set. The stable slot lets a safe plan change restore the prior
+dump as a compatible candidate. Runner-level `seedHash` names decide whether a
+table is valid for a specific case; stale tables are ignored unless the hash
+matches and `seedReady` validation passes. Each seed shard also uploads a cache
+status JSON recording exact, compatible-candidate, or miss mode.
 
 Formula, conditional lookup, CSV import, record delete, record undo, record
 redo, and selection clear cases currently use this cache. CSV import caches the
