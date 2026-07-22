@@ -145,10 +145,11 @@ one indivisible bundle, and `SeedCacheInfo` carries the value into result
 artifacts. Only share an affinity when the seed-relevant config and seed code
 produce the same physical tables; query or threshold similarity is not enough.
 
-Include in the hash: case id and runner kind; the seed-relevant config (row
-count, fields, generator, relationships, batch size, fixture version); case file
-content when it affects seed behavior; runner seed code and shared seed helpers;
-the schema signature needed to safely restore.
+Include in the hash: the resolved seed identity (case id, or shared
+`seedAffinity`) and runner kind; the seed-relevant config (row count, fields,
+generator, relationships, batch size, fixture version); case file content when
+it affects seed behavior; runner seed code and shared seed helpers; the schema
+signature needed to safely restore.
 
 Exclude from the hash: thresholds, sample count, owner, tags, description;
 execute-only code (the measured field/paste/request); trace/reporting code.

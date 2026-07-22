@@ -151,6 +151,16 @@ assert.equal(
   "missing-affinity-declaration",
 );
 
+const partialMissingAffinityFixture = structuredClone(duplicateOnlyFixture);
+delete partialMissingAffinityFixture.seedObservations[1].affinityId;
+const partialMissingAffinityRun = evaluateFullRunFeedback(
+  partialMissingAffinityFixture,
+);
+assert.equal(
+  partialMissingAffinityRun.seed.duplicates[0].staticAffinityIssue,
+  "missing-affinity-declaration",
+);
+
 const affinityDriftFixture = structuredClone(duplicateOnlyFixture);
 affinityDriftFixture.seedObservations[1].affinityId =
   "record-read/other-100k-fixture";
@@ -159,6 +169,25 @@ assert.equal(
   affinityDriftRun.seed.duplicates[0].staticAffinityIssue,
   "seed-hash-maps-to-multiple-affinities",
 );
+
+const mixedCacheHitFixture = structuredClone(duplicateOnlyFixture);
+mixedCacheHitFixture.seedObservations[1].buildMs = 0;
+mixedCacheHitFixture.seedObservations[2].buildMs = 0;
+const mixedCacheHitRun = evaluateFullRunFeedback(mixedCacheHitFixture);
+assert.deepEqual(
+  mixedCacheHitRun.seed.duplicates.find(
+    ({ seedHash }) => seedHash === "755ae561e41223b4",
+  )?.shards,
+  ["shard-3-of-8", "shard-4-of-8", "shard-5-of-8"],
+);
+
+const allCacheHitFixture = structuredClone(duplicateOnlyFixture);
+for (const observation of allCacheHitFixture.seedObservations) {
+  observation.buildMs = 0;
+}
+const allCacheHitRun = evaluateFullRunFeedback(allCacheHitFixture);
+assert.equal(allCacheHitRun.seed.duplicates.length, 2);
+assert.equal(allCacheHitRun.seed.avoidableBuildMs, 0);
 
 const acceptedWarmRun = evaluateFullRunFeedback(
   await loadFixture("run-29751280107"),

@@ -45,11 +45,6 @@ const caseIdFromPath = (casePath) => {
   return match[1];
 };
 
-export const loadRegisteredCaseIds = async () => {
-  const registeredCases = await loadRegisteredCases();
-  return registeredCases.map(({ id }) => id);
-};
-
 export const parseCaseSeedAffinity = (caseSource) => {
   const declarations = [...caseSource.matchAll(/^\s*seedAffinity\s*:/gm)];
   const matches = [

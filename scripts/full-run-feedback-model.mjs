@@ -244,16 +244,16 @@ const resolveDuplicateSeeds = (observationsInput) => {
       observation.buildMs,
       `seedObservations[${caseId}].buildMs`,
     );
-    if (buildMs === 0) {
-      continue;
-    }
 
     const seedGroup = bySeedHash.get(seedHash) ?? {
       byShard: new Map(),
       affinityIds: new Set(),
+      missingAffinity: false,
     };
     if (observation.affinityId != null) {
       seedGroup.affinityIds.add(observation.affinityId);
+    } else {
+      seedGroup.missingAffinity = true;
     }
     const byShard = seedGroup.byShard;
     const shardObservation = byShard.get(shard) ?? {
@@ -284,12 +284,11 @@ const resolveDuplicateSeeds = (observationsInput) => {
     duplicates.push({
       seedHash,
       affinityIds,
-      staticAffinityIssue:
-        affinityIds.length === 0
-          ? "missing-affinity-declaration"
-          : affinityIds.length === 1
-            ? "declared-affinity-spans-shards"
-            : "seed-hash-maps-to-multiple-affinities",
+      staticAffinityIssue: seedGroup.missingAffinity
+        ? "missing-affinity-declaration"
+        : affinityIds.length === 1
+          ? "declared-affinity-spans-shards"
+          : "seed-hash-maps-to-multiple-affinities",
       shards: shardEntries.map(([shard]) => shard),
       caseIds: shardEntries.flatMap(([, value]) => value.caseIds),
       totalBuildMs,
