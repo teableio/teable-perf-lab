@@ -8,6 +8,8 @@ import {
   legacyArtifactJsonName,
   primaryMetricValue,
   readArtifactPayloads,
+  readSeedCacheStatuses,
+  readTraceManifests,
   resolvePrimaryTraceUrl,
   sanitizeCaseId,
   sanitizeSegment,
@@ -39,9 +41,17 @@ try {
   const artifactName = "teable-ee-e2e-perf-v2-123-1";
   const nestedArtifactDir = join(tempDir, artifactName);
   await mkdir(nestedArtifactDir, { recursive: true });
-  await writeFile(join(tempDir, "manifest.json"), "{}");
+  await writeJson(join(tempDir, "manifest.json"), {
+    traceFetchWaitMs: 100,
+  });
   await writeFile(join(tempDir, "ignore.txt"), "not a payload");
-  await writeFile(join(nestedArtifactDir, "manifest.json"), "{}");
+  await writeJson(join(nestedArtifactDir, "manifest.json"), {
+    traceFetchJobWaitMs: 200,
+  });
+  await writeJson(
+    join(nestedArtifactDir, "seed-cache-status-shard-1-of-2.json"),
+    { mode: "exact-hit", stableSlot: "slot-1" },
+  );
 
   const executePayload = {
     caseId: "lookup/dual-link",
@@ -100,6 +110,38 @@ try {
   assert.deepEqual(
     executePayloads.map(({ payload }) => payload.engine),
     ["v2"],
+  );
+
+  const traceManifests = await readTraceManifests({ artifactDir: tempDir });
+  assert.deepEqual(
+    traceManifests.map(({ fileName, artifactName, manifest }) => ({
+      fileName,
+      artifactName,
+      waitMs: manifest.traceFetchJobWaitMs ?? manifest.traceFetchWaitMs,
+    })),
+    [
+      {
+        fileName: "manifest.json",
+        artifactName: undefined,
+        waitMs: 100,
+      },
+      {
+        fileName: `${artifactName}/manifest.json`,
+        artifactName,
+        waitMs: 200,
+      },
+    ],
+  );
+  assert.deepEqual(
+    (await readSeedCacheStatuses({ artifactDir: tempDir })).map(
+      ({ fileName, status }) => ({ fileName, status }),
+    ),
+    [
+      {
+        fileName: `${artifactName}/seed-cache-status-shard-1-of-2.json`,
+        status: { mode: "exact-hit", stableSlot: "slot-1" },
+      },
+    ],
   );
 
   assert.equal(primaryMetricValue(executePayload), 123);

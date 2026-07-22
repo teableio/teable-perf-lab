@@ -14,6 +14,8 @@ import {
   validateFixtureAffinities,
   validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
+import { FULL_RUN_HISTORICAL_BUNDLE_SLOTS } from "./full-run-historical-bundle-slots.mjs";
+import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
 import {
   buildCaseFilterKey,
   buildFullRunShardCaseFilterKey,
@@ -27,12 +29,16 @@ import {
   buildCaseSetDigest,
   SEED_CONTRACT_GENERATION,
 } from "./seed-cache-model.mjs";
+import {
+  buildAffinityStageBundles,
+  simulateStageAwareShardPlans,
+} from "./stage-aware-shard-model.mjs";
 
 const registeredCases = await loadRegisteredCases();
 const allCaseIds = registeredCases.map(({ id }) => id);
 const expectedFullRunCaseIds = resolveFullRunCaseIds({ allCaseIds });
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
-const fullRunShardCount = resolveFullRunShardCount(
+const legacyFullRunShardCount = resolveFullRunShardCount(
   expectedFullRunCaseIds.length,
 );
 const targetSeedAffinityDeclarations = [
@@ -197,21 +203,26 @@ const assertShardedPlan = ({
   otelServiceSuffix,
 }) => {
   const shardCount = expectedCaseShards.length;
-  assert.equal(plans.length, shardCount);
-  plans.forEach((plan, index) => {
+  const expectedPlans = expectedCaseShards.flatMap((caseIds, index) => {
+    if (caseIds.length === 0) {
+      return [];
+    }
     const shardNumber = index + 1;
     const shardLabel = `shard-${shardNumber}-of-${shardCount}`;
-    assert.deepEqual(plan, {
-      name: `${name}-${shardLabel}`,
-      engine,
-      caseFilter: expectedCaseShards[index].join(","),
-      excludeCaseFilter: "",
-      computedUpdateMode,
-      artifactSuffix: `${artifactSuffix}-${shardLabel}`,
-      otelServiceSuffix: `${otelServiceSuffix}-${shardLabel}`,
-      seedArtifactSuffix: shardLabel,
-    });
+    return [
+      {
+        name: `${name}-${shardLabel}`,
+        engine,
+        caseFilter: caseIds.join(","),
+        excludeCaseFilter: "",
+        computedUpdateMode,
+        artifactSuffix: `${artifactSuffix}-${shardLabel}`,
+        otelServiceSuffix: `${otelServiceSuffix}-${shardLabel}`,
+        seedArtifactSuffix: shardLabel,
+      },
+    ];
   });
+  assert.deepEqual(plans, expectedPlans);
 
   const shardedCaseIds = plans.flatMap((plan) => plan.caseFilter.split(","));
   const expectedCaseIds = expectedCaseShards.flat();
@@ -243,17 +254,83 @@ const defaultFullRunPlan = resolveRunPlan({
 
 assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
 assert.equal(defaultFullRunPlan.caseFilterKey, "all");
-assert.equal(defaultFullRunPlan.seedPlan.length, fullRunShardCount);
-assert.equal(defaultFullRunPlan.executePlan.length, fullRunShardCount * 3);
-assert.deepEqual(defaultFullRunPlan.planSummary, {
-  shardCount: 8,
-  stableSlotCount: 8,
-  preservedAffinityCount: 12,
-  movedAffinities: [],
-  estimatedCacheImpactMs: 0,
+const selectedFullRunShardCount = defaultFullRunPlan.planSummary.shardCount;
+assert.equal(selectedFullRunShardCount, 7);
+assert.equal(defaultFullRunPlan.seedPlan.length, selectedFullRunShardCount);
+assert.deepEqual(
+  defaultFullRunPlan.planSummary.stagePlan.candidateShardCounts,
+  [6, 7, 8, 9, 10, 11, 12],
+);
+assert.equal(
+  defaultFullRunPlan.planSummary.stagePlan.selectedShardCount,
+  selectedFullRunShardCount,
+);
+assert.equal(
+  defaultFullRunPlan.planSummary.stagePlan.calibrationSource.sourceRunId,
+  "29917985095",
+);
+assert.equal(defaultFullRunPlan.planSummary.stagePlan.observed, null);
+assert.equal(defaultFullRunPlan.planSummary.stagePlan.calibrationDeltaMs, null);
+assert.deepEqual(defaultFullRunPlan.planSummary.stagePlan.activeStages, [
+  "coldSeedMs",
+  "v1Ms",
+  "v2SyncMs",
+  "v2HybridMs",
+  "traceMs",
+]);
+assert.deepEqual(defaultFullRunPlan.planSummary.stagePlan.executionProfile, {
+  engines: ["v1", "v2"],
+  v2Mode: "split",
 });
+assert.ok(
+  defaultFullRunPlan.planSummary.movedBundles.some(({ bundleId }) =>
+    bundleId.startsWith("case:"),
+  ),
+  "cache movement must include moved singleton bundles",
+);
+assert.equal(
+  defaultFullRunPlan.planSummary.estimatedCacheImpactMs,
+  defaultFullRunPlan.planSummary.movedBundles.reduce(
+    (total, movement) => total + movement.estimatedCacheImpactMs,
+    0,
+  ),
+);
+assert.ok(
+  defaultFullRunPlan.planSummary.stagePlan.predicted.coldWallMs <=
+    defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath.coldWallMs,
+  "selected stage-aware plan must not regress the scalar baseline cold path",
+);
+assert.ok(
+  defaultFullRunPlan.planSummary.stagePlan.predicted.warmWallMs <=
+    defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath.warmWallMs,
+  "selected stage-aware plan must not regress the scalar baseline warm path",
+);
+const firstEligibleCandidate =
+  defaultFullRunPlan.planSummary.stagePlan.candidates.find(
+    ({ criticalPath }) =>
+      criticalPath.meetsColdSlo &&
+      criticalPath.meetsWarmSlo &&
+      criticalPath.coldWallMs <=
+        defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath
+          .coldWallMs &&
+      criticalPath.warmWallMs <=
+        defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath
+          .warmWallMs,
+  );
+assert.equal(firstEligibleCandidate.shardCount, selectedFullRunShardCount);
+assert.equal(
+  defaultFullRunPlan.planSummary.stagePlan.candidates[0].stageMaxima.coldSeedMs
+    .bundleId,
+  "record-read/100k-50fields",
+);
+assert.equal(
+  defaultFullRunPlan.planSummary.stagePlan.candidates[0].stageMaxima.v1Ms
+    .bundleId,
+  "case:record-duplicate/single-record-sequential-1000",
+  "historical execute telemetry must identify a real execute straggler",
+);
 const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
-  const shardLabel = `shard-${index + 1}-of-${fullRunShardCount}`;
+  const shardLabel = `shard-${index + 1}-of-${selectedFullRunShardCount}`;
   assert.equal(plan.name, shardLabel);
   const caseIds = plan.caseFilter.split(",");
   assert.equal(
@@ -266,7 +343,7 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.equal(fullRunShardCount, 8);
+assert.equal(legacyFullRunShardCount, 8);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   expectedFullRunCaseIds.slice().sort(),
@@ -333,8 +410,59 @@ for (const affinityId of [
   );
 }
 
+const resolvedFullRunAffinities = resolveFixtureAffinities({
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
+});
+const currentBundleIds = buildAffinityStageBundles({
+  caseIds: expectedFullRunCaseIds,
+  hybridCaseIds: HYBRID_COMPUTED_CASES,
+  affinities: resolvedFullRunAffinities,
+  caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
+}).map(({ id }) => id);
+assert.equal(currentBundleIds.length, 259);
+assert.deepEqual(
+  currentBundleIds.filter(
+    (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,
+  ),
+  [],
+  "historical slots must cover singleton and shared-affinity bundles",
+);
+const unrelatedRemovedCaseId = "record-update/1k-number-fields-bulk-update";
+const planSevenShards = (caseIds) =>
+  simulateStageAwareShardPlans({
+    caseIds,
+    hybridCaseIds: HYBRID_COMPUTED_CASES,
+    affinities: resolvedFullRunAffinities,
+    caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
+    preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
+    shardCounts: [7],
+  }).selected;
+const stableFullPlan = planSevenShards(expectedFullRunCaseIds);
+const stableAfterUnrelatedRemoval = planSevenShards(
+  expectedFullRunCaseIds.filter((caseId) => caseId !== unrelatedRemovedCaseId),
+);
+const slotsByCaseId = (plan) =>
+  new Map(
+    plan.caseShards.flatMap((caseIds, shardIndex) =>
+      caseIds.map((caseId) => [caseId, shardIndex + 1]),
+    ),
+  );
+const stableFullSlots = slotsByCaseId(stableFullPlan);
+const stableAfterRemovalSlots = slotsByCaseId(stableAfterUnrelatedRemoval);
+const unrelatedMovedCaseIds = expectedFullRunCaseIds.filter(
+  (caseId) =>
+    caseId !== unrelatedRemovedCaseId &&
+    stableFullSlots.get(caseId) !== stableAfterRemovalSlots.get(caseId),
+);
+assert.ok(
+  unrelatedMovedCaseIds.length <= 2,
+  `one cheap catalog removal moved ${unrelatedMovedCaseIds.length} unrelated cases`,
+);
+
 assertShardedPlan({
-  plans: defaultFullRunPlan.executePlan.slice(0, fullRunShardCount),
+  plans: defaultFullRunPlan.executePlan.filter(({ name }) =>
+    name.startsWith("v1-shard-"),
+  ),
   expectedCaseShards: fullRunCaseShards,
   name: "v1",
   engine: "v1",
@@ -343,9 +471,8 @@ assertShardedPlan({
   otelServiceSuffix: "v1",
 });
 assertShardedPlan({
-  plans: defaultFullRunPlan.executePlan.slice(
-    fullRunShardCount,
-    fullRunShardCount * 2,
+  plans: defaultFullRunPlan.executePlan.filter(({ name }) =>
+    name.startsWith("v2-sync-default-shard-"),
   ),
   expectedCaseShards: fullRunCaseShards.map((caseIds) =>
     caseIds.filter((caseId) => !hybridCaseIdSet.has(caseId)),
@@ -357,7 +484,9 @@ assertShardedPlan({
   otelServiceSuffix: "v2-sync",
 });
 assertShardedPlan({
-  plans: defaultFullRunPlan.executePlan.slice(fullRunShardCount * 2),
+  plans: defaultFullRunPlan.executePlan.filter(({ name }) =>
+    name.startsWith("v2-hybrid-computed-shard-"),
+  ),
   expectedCaseShards: fullRunCaseShards.map((caseIds) =>
     caseIds.filter((caseId) => hybridCaseIdSet.has(caseId)),
   ),
@@ -379,9 +508,22 @@ const explicitHybridFullRunPlan = resolveRunPlan({
 assert.deepEqual(explicitHybridFullRunPlan.engines, ["v2"]);
 assert.equal(explicitHybridFullRunPlan.caseFilterKey, "all");
 assert.deepEqual(
-  explicitHybridFullRunPlan.seedPlan,
-  defaultFullRunPlan.seedPlan,
+  explicitHybridFullRunPlan.planSummary.stagePlan.executionProfile,
+  { engines: ["v2"], v2Mode: "hybrid" },
 );
+assert.deepEqual(explicitHybridFullRunPlan.planSummary.stagePlan.activeStages, [
+  "coldSeedMs",
+  "v2HybridMs",
+  "traceMs",
+]);
+for (const candidate of explicitHybridFullRunPlan.planSummary.stagePlan
+  .candidates) {
+  assert.equal(candidate.stageMaxima.v1Ms.durationMs, 0);
+  assert.equal(candidate.stageMaxima.v2SyncMs.durationMs, 0);
+  assert.ok(candidate.stageMaxima.v2HybridMs.durationMs > 0);
+  assert.equal(candidate.concurrencyCost.v1Jobs, 0);
+  assert.equal(candidate.concurrencyCost.v2SyncJobs, 0);
+}
 
 assert.deepEqual(
   validateFullRunScaleReplacements({
@@ -409,13 +551,38 @@ assert.deepEqual(
 );
 assertShardedPlan({
   plans: explicitHybridFullRunPlan.executePlan,
-  expectedCaseShards: fullRunCaseShards,
+  expectedCaseShards: explicitHybridFullRunPlan.seedPlan.map((plan) =>
+    plan.caseFilter.split(","),
+  ),
   name: "v2",
   engine: "v2",
   computedUpdateMode: "hybrid",
   artifactSuffix: "v2",
   otelServiceSuffix: "v2",
 });
+
+const v1OnlyFullRunPlan = resolveRunPlan({
+  engineFilter: "v1",
+  caseFilter: "all",
+  computedUpdateMode: "",
+  allCaseIds,
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
+});
+assert.deepEqual(v1OnlyFullRunPlan.planSummary.stagePlan.executionProfile, {
+  engines: ["v1"],
+  v2Mode: "none",
+});
+assert.deepEqual(v1OnlyFullRunPlan.planSummary.stagePlan.activeStages, [
+  "coldSeedMs",
+  "v1Ms",
+  "traceMs",
+]);
+for (const candidate of v1OnlyFullRunPlan.planSummary.stagePlan.candidates) {
+  assert.equal(candidate.stageMaxima.v2SyncMs.durationMs, 0);
+  assert.equal(candidate.stageMaxima.v2HybridMs.durationMs, 0);
+  assert.equal(candidate.concurrencyCost.v2SyncJobs, 0);
+  assert.equal(candidate.concurrencyCost.v2HybridJobs, 0);
+}
 
 assert.deepEqual(
   resolveRunPlan({
@@ -466,8 +633,8 @@ assert.deepEqual(
     planSummary: {
       shardCount: 1,
       stableSlotCount: 1,
-      preservedAffinityCount: 0,
-      movedAffinities: [],
+      preservedBundleCount: 0,
+      movedBundles: [],
       estimatedCacheImpactMs: 0,
     },
   },
@@ -552,8 +719,13 @@ assert.match(
   renderPlanSummaryMarkdown({
     shardCount: 2,
     stableSlotCount: 2,
-    preservedAffinityCount: 1,
-    movedAffinities: forcedStableMovement.movedAffinities,
+    preservedBundleCount: 1,
+    movedBundles: forcedStableMovement.movedAffinities.map(
+      ({ affinityId, ...movement }) => ({
+        bundleId: affinityId,
+        ...movement,
+      }),
+    ),
     estimatedCacheImpactMs: 75,
   }),
   /heavy-a: slot-1 -> slot-2; 75 ms cache impact/,

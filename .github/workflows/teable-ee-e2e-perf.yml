@@ -619,7 +619,9 @@ jobs:
 
   report:
     name: Report perf results
-    needs: execute
+    needs:
+      - resolve_inputs
+      - execute
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -630,7 +632,7 @@ jobs:
         with:
           path: perf-lab
 
-      - name: Resolve perf artifact attempt
+      - name: Resolve perf and seed artifact attempts
         id: perf_artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -641,37 +643,75 @@ jobs:
           # trace manifests). Fall back to the full artifacts so report re-runs on
           # older runs, or runs where lightweight staging produced nothing, still
           # resolve. The full artifacts also carry the raw Jaeger trace snapshots.
-          selected_attempt=""
+          mapfile -t artifact_names < <(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --paginate \
+              --jq '.artifacts[] | select(.expired == false) | .name'
+          )
+
+          has_artifact_matching() {
+            local regex="$1"
+            local artifact_name
+            for artifact_name in "${artifact_names[@]}"; do
+              if [[ "${artifact_name}" =~ ${regex} ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          execute_pattern=""
           for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
             for prefix in teable-ee-e2e-perf-results-v teable-ee-e2e-perf-v; do
               pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
-              count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-                --paginate \
-                --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
-
-              if [ "${count}" -gt 0 ]; then
-                selected_attempt="${attempt}"
+              regex="^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$"
+              if has_artifact_matching "${regex}"; then
+                execute_pattern="${pattern}"
                 echo "Using ${prefix%-v} artifacts from run attempt ${attempt}."
-                echo "pattern=${pattern}" >> "$GITHUB_OUTPUT"
                 break
               fi
             done
 
-            if [ -n "${selected_attempt}" ]; then
+            if [ -n "${execute_pattern}" ]; then
               break
             fi
           done
 
-          if [ -z "${selected_attempt}" ]; then
+          if [ -z "${execute_pattern}" ]; then
             echo "No perf execute artifacts found for run ${GITHUB_RUN_ID}." >&2
             exit 1
+          fi
+          echo "execute_pattern=${execute_pattern}" >> "$GITHUB_OUTPUT"
+
+          seed_pattern=""
+          prefix="teable-ee-e2e-perf-seed-"
+          for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
+            pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
+            regex="^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$"
+            if has_artifact_matching "${regex}"; then
+              seed_pattern="${pattern}"
+              echo "Using seed cache status artifacts from run attempt ${attempt}."
+              break
+            fi
+          done
+          echo "seed_pattern=${seed_pattern}" >> "$GITHUB_OUTPUT"
+          if [ -z "${seed_pattern}" ]; then
+            echo "::warning::No seed cache status artifacts found; stage observation will mark the seed mode incomplete."
           fi
 
       - name: Download perf artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: ${{ steps.perf_artifacts.outputs.pattern }}
+          pattern: ${{ steps.perf_artifacts.outputs.execute_pattern }}
           path: perf-lab-artifacts
+          merge-multiple: false
+
+      - name: Download seed cache status artifacts
+        if: steps.perf_artifacts.outputs.seed_pattern != ''
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ${{ steps.perf_artifacts.outputs.seed_pattern }}
+          path: perf-lab-seed-artifacts
           merge-multiple: false
 
       - name: Report perf results to Teable
@@ -707,3 +747,22 @@ jobs:
           PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
           PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
         run: node scripts/write-github-perf-summary.mjs
+
+      - name: Publish current-run stage observation
+        if: always()
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_PLAN_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/observation.json
+        run: node scripts/observe-stage-plan.mjs
+
+      - name: Upload current-run stage observation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-plan-observation/observation.json
+          if-no-files-found: ignore

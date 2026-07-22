@@ -11,10 +11,16 @@ import {
   validateFixtureAffinities,
   validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
+import { FULL_RUN_HISTORICAL_BUNDLE_SLOTS } from "./full-run-historical-bundle-slots.mjs";
+import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
 import {
   buildCaseSetDigest,
   SEED_CONTRACT_GENERATION,
 } from "./seed-cache-model.mjs";
+import {
+  renderStagePlanSummaryMarkdown,
+  simulateStageAwareShardPlans,
+} from "./stage-aware-shard-model.mjs";
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
@@ -267,6 +273,27 @@ const resolveSeedPlan = ({
   });
 };
 
+const compactStageCandidate = (candidate) => ({
+  shardCount: candidate.shardCount,
+  stageMaxima: candidate.stageMaxima,
+  criticalPath: candidate.criticalPath,
+  concurrencyCost: candidate.concurrencyCost,
+  estimatedCacheImpactMs: candidate.estimatedCacheImpactMs,
+  bundleCount: candidate.bundleCount,
+  caseCount: candidate.caseCount,
+});
+
+const compactStageSimulation = (simulation, executionProfile) => ({
+  ...simulation.summary,
+  executionProfile,
+  calibrationSource: {
+    sourceRunId: FULL_RUN_STAGE_CALIBRATION.sourceRunId,
+    sourceUrl: FULL_RUN_STAGE_CALIBRATION.sourceUrl,
+  },
+  baselineCriticalPath: simulation.baselineCriticalPath,
+  candidates: simulation.candidates.map(compactStageCandidate),
+});
+
 export const resolveRunPlan = ({
   engineFilter,
   caseFilter,
@@ -279,6 +306,14 @@ export const resolveRunPlan = ({
   const rawCaseFilter = caseFilter ?? "";
   const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
   const requestedComputedUpdateMode = computedUpdateMode.trim();
+  if (
+    requestedComputedUpdateMode &&
+    !["sync", "hybrid"].includes(requestedComputedUpdateMode)
+  ) {
+    throw new Error(
+      "computed_update_mode must be empty, sync, or hybrid.",
+    );
+  }
 
   if (caseFilterIsAll && allCaseIds.length === 0) {
     throw new Error(
@@ -321,7 +356,7 @@ export const resolveRunPlan = ({
     throw new Error(affinityIssues.join("\n"));
   }
 
-  const fullRunShardPlan = caseFilterIsAll
+  const scalarBaselineShardPlan = caseFilterIsAll
     ? buildFullRunCaseShardPlan({
         allCaseIds: fullRunCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
@@ -334,6 +369,44 @@ export const resolveRunPlan = ({
         movedAffinities: [],
         preservedAffinityCount: 0,
       };
+  const v2Mode = !engines.includes("v2")
+    ? "none"
+    : requestedComputedUpdateMode || "split";
+  const stageHybridCaseIds =
+    v2Mode === "split"
+      ? HYBRID_COMPUTED_CASES
+      : v2Mode === "hybrid"
+        ? fullRunCaseIds
+        : [];
+  const activeExecuteStages = [
+    ...(engines.includes("v1") ? ["v1Ms"] : []),
+    ...(v2Mode === "split" || v2Mode === "sync" ? ["v2SyncMs"] : []),
+    ...(v2Mode === "split" || v2Mode === "hybrid" ? ["v2HybridMs"] : []),
+  ];
+  const executionProfile = { engines: engines.slice(), v2Mode };
+  const stageSimulation = caseFilterIsAll
+    ? simulateStageAwareShardPlans({
+        caseIds: fullRunCaseIds,
+        hybridCaseIds: stageHybridCaseIds,
+        affinities: fixtureAffinities,
+        caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
+        preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
+        activeExecuteStages,
+        baselineCaseShards: scalarBaselineShardPlan.caseShards,
+      })
+    : null;
+  const fullRunShardPlan = stageSimulation?.selected ?? scalarBaselineShardPlan;
+  const movedBundles = stageSimulation
+    ? fullRunShardPlan.movedBundles
+    : fullRunShardPlan.movedAffinities.map(
+        ({ affinityId, ...movement }) => ({
+          bundleId: affinityId,
+          ...movement,
+        }),
+      );
+  const preservedBundleCount = stageSimulation
+    ? fullRunShardPlan.preservedBundleCount
+    : fullRunShardPlan.preservedAffinityCount;
   const fullRunCaseShards = fullRunShardPlan.caseShards;
   const assignmentIssues = caseFilterIsAll
     ? validateShardAffinityAssignments({
@@ -364,12 +437,20 @@ export const resolveRunPlan = ({
     planSummary: {
       shardCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
       stableSlotCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
-      preservedAffinityCount: fullRunShardPlan.preservedAffinityCount,
-      movedAffinities: fullRunShardPlan.movedAffinities,
-      estimatedCacheImpactMs: fullRunShardPlan.movedAffinities.reduce(
+      preservedBundleCount,
+      movedBundles,
+      estimatedCacheImpactMs: movedBundles.reduce(
         (total, movement) => total + movement.estimatedCacheImpactMs,
         0,
       ),
+      ...(stageSimulation
+        ? {
+            stagePlan: compactStageSimulation(
+              stageSimulation,
+              executionProfile,
+            ),
+          }
+        : {}),
     },
   };
 };
@@ -391,18 +472,31 @@ export const renderPlanSummaryMarkdown = (summary) => {
     "",
     `- Shards: ${summary.shardCount}`,
     `- Stable slots: ${summary.stableSlotCount}`,
-    `- Preserved affinities: ${summary.preservedAffinityCount}`,
+    `- Preserved bundles: ${summary.preservedBundleCount}`,
     `- Estimated cache impact: ${summary.estimatedCacheImpactMs} ms cold seed`,
   ];
-  if (summary.movedAffinities.length === 0) {
-    lines.push("- Affinity moves: none");
+  if (summary.movedBundles.length === 0) {
+    lines.push("- Bundle moves: none");
   } else {
-    lines.push("- Affinity moves:");
-    for (const movement of summary.movedAffinities) {
+    lines.push("- Bundle moves:");
+    for (const movement of summary.movedBundles) {
       lines.push(
-        `  - ${movement.affinityId}: slot-${movement.fromStableSlot} -> slot-${movement.toStableSlot}; ${movement.estimatedCacheImpactMs} ms cache impact; cases ${movement.caseIds.join(", ")}`,
+        `  - ${movement.bundleId}: slot-${movement.fromStableSlot} -> slot-${movement.toStableSlot}; ${movement.estimatedCacheImpactMs} ms cache impact; cases ${movement.caseIds.join(", ")}`,
       );
     }
+  }
+  if (summary.stagePlan) {
+    const selected = summary.stagePlan.candidates.find(
+      ({ shardCount }) => shardCount === summary.stagePlan.selectedShardCount,
+    );
+    lines.push(
+      "",
+      renderStagePlanSummaryMarkdown({
+        selected,
+        candidates: summary.stagePlan.candidates,
+        summary: summary.stagePlan,
+      }).trimEnd(),
+    );
   }
   return `${lines.join("\n")}\n`;
 };
