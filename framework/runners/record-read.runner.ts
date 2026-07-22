@@ -21,6 +21,7 @@ import {
   collectSampleRecords,
   type SeededSampleRecord,
 } from "../sample-records";
+import { resolveSeedIdentityCaseId } from "../seed-contract";
 import {
   buildSeedCacheInfo,
   buildSeedTableName,
@@ -176,7 +177,7 @@ const buildRecordReadSeedCacheInfo = (perfCase: PerfCase) => {
   // in the hash, so 10k vs 50k and any real fixture change remain isolated.
   const seedIdentityCase = {
     ...perfCase,
-    id: "record-read/shared-fixture",
+    id: resolveSeedIdentityCaseId(perfCase, "record-read/shared-fixture"),
   } as PerfCase;
   return buildSeedCacheInfo({
     perfCase: seedIdentityCase,
@@ -1435,6 +1436,7 @@ const buildRecordReadResult = ({
               enabled: fixture.seedCacheInfo.enabled,
               cacheHit: fixture.seedCacheHit,
               reusable: fixture.reusableSeed,
+              seedAffinity: fixture.seedCacheInfo.seedAffinity,
               seedHash: fixture.seedCacheInfo.seedHash,
               seedHashShort: fixture.seedCacheInfo.seedHashShort,
               seedNamePrefix: fixture.seedCacheInfo.seedNamePrefix,

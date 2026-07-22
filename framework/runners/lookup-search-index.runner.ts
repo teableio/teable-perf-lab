@@ -28,6 +28,7 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
+import { resolveSeedIdentityCaseId } from "../seed-contract";
 import { pollUntilReady, sleep } from "../readiness";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
@@ -930,7 +931,7 @@ const prepareLookupSearchIndexFixture = async (
   const baseId = getBaseId(config);
   const seedPerfCase = {
     ...perfCase,
-    id: SHARED_SEED_CASE_ID,
+    id: resolveSeedIdentityCaseId(perfCase, SHARED_SEED_CASE_ID),
   };
   const seedCacheInfo = await buildSeedCacheInfo({
     perfCase: seedPerfCase,

@@ -3,11 +3,12 @@
 // 1. keep cases that resolve to the same physical seed fixture in one shard;
 // 2. keep the parallel seed and execution pools close in estimated cost.
 //
-// The affinity list below is intentionally explicit. It was verified against
-// the seedHash values emitted by full-run artifacts, so it describes physical
-// fixture reuse rather than merely grouping cases with similar names. When a
-// runner introduces another shared seed identity, add its cases here. The run
-// plan check rejects unknown, duplicated, or sync/hybrid-crossing affinities.
+// The legacy affinity list below is intentionally explicit. It was verified
+// against seedHash values emitted by full-run artifacts, so it describes
+// physical fixture reuse rather than merely grouping similar names. New shared
+// fixture families declare seedAffinity in their case contract instead. The
+// planner merges both sources and rejects unknown, duplicated,
+// sync/hybrid-crossing, or post-plan split affinities.
 export const FULL_RUN_FIXTURE_AFFINITIES = [
   {
     id: "record-read/10k-50fields",
@@ -449,6 +450,46 @@ const affinityByCaseId = (affinities) => {
   return result;
 };
 
+const assertNonEmptyText = (value, label) => {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+};
+
+export const resolveFixtureAffinities = ({
+  affinities = FULL_RUN_FIXTURE_AFFINITIES,
+  seedAffinityDeclarations = [],
+}) => {
+  const byAffinityId = new Map();
+  for (const affinity of affinities) {
+    if (byAffinityId.has(affinity.id)) {
+      throw new Error(`Duplicate fixture affinity id: ${affinity.id}`);
+    }
+    byAffinityId.set(affinity.id, {
+      ...affinity,
+      caseIds: [...affinity.caseIds],
+    });
+  }
+
+  const declaredCaseIds = new Set();
+  for (const { caseId, affinityId } of seedAffinityDeclarations) {
+    assertNonEmptyText(caseId, "Seed affinity declaration caseId");
+    assertNonEmptyText(affinityId, "Seed affinity declaration affinityId");
+    if (declaredCaseIds.has(caseId)) {
+      throw new Error(`Duplicate seed affinity declaration for case ${caseId}`);
+    }
+    declaredCaseIds.add(caseId);
+    const affinity = byAffinityId.get(affinityId) ?? {
+      id: affinityId,
+      caseIds: [],
+    };
+    affinity.caseIds.push(caseId);
+    byAffinityId.set(affinityId, affinity);
+  }
+
+  return [...byAffinityId.values()];
+};
+
 export const validateFixtureAffinities = ({
   allCaseIds,
   hybridCaseIds = [],
@@ -479,6 +520,44 @@ export const validateFixtureAffinities = ({
         `Fixture affinity ${affinity.id} crosses V2 sync and hybrid pools`,
       );
     }
+  }
+
+  return issues;
+};
+
+export const validateShardAffinityAssignments = ({
+  caseShards,
+  affinities = FULL_RUN_FIXTURE_AFFINITIES,
+}) => {
+  const shardByCaseId = new Map();
+  caseShards.forEach((caseIds, shardIndex) =>
+    caseIds.forEach((caseId) => shardByCaseId.set(caseId, shardIndex)),
+  );
+  const issues = [];
+
+  for (const affinity of affinities) {
+    const casesByShard = new Map();
+    for (const caseId of affinity.caseIds) {
+      const shardIndex = shardByCaseId.get(caseId);
+      if (shardIndex == null) {
+        continue;
+      }
+      const caseIds = casesByShard.get(shardIndex) ?? [];
+      caseIds.push(caseId);
+      casesByShard.set(shardIndex, caseIds);
+    }
+    if (casesByShard.size < 2) {
+      continue;
+    }
+    const locations = [...casesByShard]
+      .sort(([left], [right]) => left - right)
+      .map(
+        ([shardIndex, caseIds]) =>
+          `shard-${shardIndex + 1}=[${caseIds.join(", ")}]`,
+      );
+    issues.push(
+      `Fixture affinity ${affinity.id} spans seed shards: ${locations.join(", ")}`,
+    );
   }
 
   return issues;

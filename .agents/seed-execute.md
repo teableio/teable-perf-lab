@@ -138,6 +138,13 @@ when the V1 path has a 1,000-record cap.
 `seedHash` is not the GitHub Actions cache key. It is the runner's identity for
 reusable fixture tables inside a restored database dump.
 
+When multiple cases intentionally reuse one physical fixture, each case must
+declare the same top-level string-literal `seedAffinity`. The runner resolves
+its seed identity from that value, the full-run planner treats those cases as
+one indivisible bundle, and `SeedCacheInfo` carries the value into result
+artifacts. Only share an affinity when the seed-relevant config and seed code
+produce the same physical tables; query or threshold similarity is not enough.
+
 Include in the hash: case id and runner kind; the seed-relevant config (row
 count, fields, generator, relationships, batch size, fixture version); case file
 content when it affects seed behavior; runner seed code and shared seed helpers;
@@ -250,17 +257,20 @@ execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its
 ```
 
 The seed and execute jobs run in parallel for a full `case_filter=all` run.
-`scripts/full-run-shard-model.mjs` treats cases proven to emit the same physical
-`seedHash` as one indivisible fixture-affinity bundle. The shard count is derived
-from catalog size (about 40 cases per shard, capped at 8), not fixed in the
-workflow. Calibrated cold-seed cost plus a per-case execute overhead weight is
-used for least-loaded assignment. Sync and hybrid bundles are balanced
-independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid use this
-one global mapping; shard N always consumes dump N. Explicit case filters remain
-a single seed job and a single job per engine. Every job has its own
-Postgres/Redis containers, network, cache key, dump, and artifact names. A
-digest of the shard's ordered case list is part of its cache key, so regrouping
-cannot exact-hit a dump produced for different members.
+`scripts/run-plan.mjs` reads literal `seedAffinity` declarations from registered
+case contracts and merges them with the accepted legacy affinity families in
+`scripts/full-run-shard-model.mjs`. Every resulting physical-fixture family is
+one indivisible bundle. Planning fails if an affinity is duplicated, references
+an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
+shards. The shard count is derived from catalog size (about 40 cases per shard,
+capped at 8), not fixed in the workflow. Calibrated cold-seed cost plus a
+per-case execute overhead weight is used for least-loaded assignment. Sync and
+hybrid bundles are balanced independently, then paired by weight. Seed, V1, V2
+sync, and V2 hybrid use this one global mapping; shard N always consumes dump N.
+Explicit case filters remain a single seed job and a single job per engine.
+Every job has its own Postgres/Redis containers, network, cache key, dump, and
+artifact names. A digest of the shard's ordered case list is part of its cache
+key, so regrouping cannot exact-hit a dump produced for different members.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:
@@ -303,6 +313,8 @@ and revalidates the table between measured samples, while link-detach delete
 keeps separate fixtures because V1 destructively converts the surviving link
 field.
 
-For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
-`seedBuildMs`, `seedReadyMs`. A cache miss is a valid run, but the report should
-make the paid construction cost obvious.
+For cached seeds, also record `seedAffinity` when declared, `seedHash`,
+`seedCacheHit`, `seedRestoreMs`, `seedBuildMs`, and `seedReadyMs`. A cache miss is
+a valid run, but the report should make the paid construction cost obvious. If
+one `seedHash` is observed in multiple shards, classify the static contract as
+missing, declared-but-split, or mapping the same hash to multiple affinities.

@@ -76,17 +76,22 @@ single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
 dispatches each case to a runner in `framework/runners/`. Each case writes an
 independent JSON artifact and summary tagged with `engine`.
 
-For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order and
-the verified fixture affinities in `scripts/full-run-shard-model.mjs`. Cases
-that emit the same physical runner `seedHash` are treated as one indivisible
-bundle. The shard count is derived from catalog size at roughly 40 cases per
-shard, capped at 8; the current 256-case catalog resolves to 7. Bundles are
-weighted with calibrated cold-seed cost plus a per-case execute overhead and
-greedily assigned to the least-loaded shard. Sync and hybrid bundles are packed
-independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid all use
-that same mapping, so a shared fixture is built into exactly one seed dump and
-every case is selected exactly once per applicable engine/mode pool. Explicit
-case ids and comma-separated case lists remain unsharded.
+For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order,
+top-level string-literal `seedAffinity` declarations, and the accepted legacy
+fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
+same affinity must use that identity in their runner seed contract and are
+treated as one indivisible physical-fixture bundle. Planning fails on duplicate
+declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
+that splits a bundle. The shard count is derived from catalog size at roughly
+40 cases per shard, capped at 8; the current full-run selection resolves to the
+8-shard cap.
+Bundles are weighted with calibrated cold-seed cost plus a per-case execute
+overhead and greedily assigned to the least-loaded shard. Sync and hybrid
+bundles are packed independently, then paired by weight. Seed, V1, V2 sync, and
+V2 hybrid all use that same mapping, so a shared fixture is built into exactly
+one seed dump and every case is selected exactly once per applicable
+engine/mode pool. Explicit case ids and comma-separated case lists remain
+unsharded.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -273,8 +278,9 @@ is an input error rather than a passing run:
   five values above and a shard on every non-report job;
 - result coverage whose expected count matches the plan;
 - non-empty seed-build observations with non-empty `caseId`, `seedHash`, shard,
-  and optional planner `affinityId`, plus build time; record a zero build time
-  for a cache hit without omitting its identity;
+  and optional planner `affinityId` sourced from result `seedAffinity`, plus
+  build time; record a zero build time for a cache hit without omitting its
+  identity;
 - trace totals plus non-empty case/job wait observations; case waits require
   `caseId`, engine, and shard, while job waits require the job name.
 
@@ -288,6 +294,10 @@ shards, and checks these feedback gates:
 - one observed seed identity must not be rebuilt in multiple shards;
 - trace wait attributed to one case: at most 15 seconds;
 - trace wait in one execute job: at most 60 seconds.
+
+For a cross-shard `seedHash`, the diagnostic also classifies the static contract
+as `missing-affinity-declaration`, `declared-affinity-spans-shards`, or
+`seed-hash-maps-to-multiple-affinities`.
 
 Without `--assert`, an unhealthy run is printed for diagnosis and the command
 still succeeds. With `--assert`, a gate or result-coverage failure exits with

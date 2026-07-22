@@ -104,6 +104,9 @@ cases/<group>/<case-name>.md         # description (frontmatter + sections)
 - Never rename an existing `id` unless you intend a new Teable registry row and a
   new history group.
 - Keep data deterministic and row counts fixed so V1/V2 and reruns compare.
+- If multiple cases intentionally reuse one physical seed fixture, give each
+  case the same top-level string-literal `seedAffinity`. The runner must use
+  that identity too; see [seed-execute.md](seed-execute.md).
 
 `.md` rules: start with frontmatter (`owner`, `tags`, `enabled`), then the
 sections `Goal`, `Seed Phase`, `Execute Phase`, `Primary Metric`, `Notes`. Use

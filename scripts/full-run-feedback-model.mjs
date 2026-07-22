@@ -280,9 +280,16 @@ const resolveDuplicateSeeds = (observationsInput) => {
     const buildTimes = shardEntries.map(([, value]) => value.buildMs);
     const totalBuildMs = buildTimes.reduce((total, value) => total + value, 0);
     const requiredBuildMs = Math.max(...buildTimes);
+    const affinityIds = [...seedGroup.affinityIds].sort();
     duplicates.push({
       seedHash,
-      affinityIds: [...seedGroup.affinityIds].sort(),
+      affinityIds,
+      staticAffinityIssue:
+        affinityIds.length === 0
+          ? "missing-affinity-declaration"
+          : affinityIds.length === 1
+            ? "declared-affinity-spans-shards"
+            : "seed-hash-maps-to-multiple-affinities",
       shards: shardEntries.map(([shard]) => shard),
       caseIds: shardEntries.flatMap(([, value]) => value.caseIds),
       totalBuildMs,
@@ -478,7 +485,7 @@ export const renderFullRunFeedback = (evaluationInput) => {
           : "unknown"
       } · cases ${duplicate.caseIds.join(", ")} · avoidable ${formatFeedbackDuration(
         duplicate.avoidableBuildMs,
-      )}`,
+      )} · static affinity ${duplicate.staticAffinityIssue ?? "unclassified"}`,
     );
   }
   lines.push(

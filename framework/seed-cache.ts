@@ -22,6 +22,7 @@ export type SeedCacheIdentity = {
 
 export type SeedCacheInfo = {
   enabled: boolean;
+  seedAffinity?: string;
   seedHash: string;
   seedHashShort: string;
   seedNamePrefix: string;
@@ -132,6 +133,7 @@ export const buildSeedCacheInfo = async ({
 
   return {
     enabled: isSeedCacheEnabled(),
+    ...(perfCase.seedAffinity ? { seedAffinity: perfCase.seedAffinity } : {}),
     seedHash,
     seedHashShort,
     seedNamePrefix,
