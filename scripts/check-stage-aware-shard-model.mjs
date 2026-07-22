@@ -16,12 +16,12 @@ assert.deepEqual(STAGE_COST_KEYS, [
   "traceMs",
 ]);
 
-assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29917985095");
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29951887405");
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-read/100k-50fields-filter-number-range-middle-half"
   ].v2Ms,
-  86_533.25,
+  64_208.23,
 );
 assert.equal(
   Object.keys(FULL_RUN_STAGE_CALIBRATION.caseCosts).length,
@@ -32,7 +32,7 @@ assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-duplicate/single-500-checkbox-500fields"
   ].v1Ms,
-  144_379.93,
+  164_638.84,
   "historical execute stragglers must not use the 10s default",
 );
 assert.ok(
@@ -43,10 +43,20 @@ assert.ok(
 );
 assert.ok(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
-    "search/search-index-on-100k-20search-fields"
+    "search/search-index-off-100k-20search-fields"
   ].coldSeedMs > 500_000,
   "100k search must not fall back to the old 1s seed estimate",
 );
+for (const [caseId, costs] of Object.entries(
+  FULL_RUN_STAGE_CALIBRATION.caseCosts,
+)) {
+  for (const stage of ["coldSeedMs", "v1Ms", "v2Ms", "traceMs"]) {
+    assert.ok(
+      Number.isFinite(costs[stage]) && costs[stage] >= 0,
+      `${caseId}.${stage} must come from the complete trusted run`,
+    );
+  }
+}
 
 const syntheticCaseCosts = {
   "shared-a": {

@@ -290,6 +290,8 @@ const compactStageSimulation = (simulation, executionProfile) => ({
   calibrationSource: {
     sourceRunId: FULL_RUN_STAGE_CALIBRATION.sourceRunId,
     sourceUrl: FULL_RUN_STAGE_CALIBRATION.sourceUrl,
+    pairedWarmRunId: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId,
+    pairedWarmRunUrl: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl,
   },
   baselineCriticalPath: simulation.baselineCriticalPath,
   candidates: simulation.candidates.map(compactStageCandidate),
@@ -314,9 +316,7 @@ export const resolveRunPlan = ({
     requestedComputedUpdateMode &&
     !["sync", "hybrid"].includes(requestedComputedUpdateMode)
   ) {
-    throw new Error(
-      "computed_update_mode must be empty, sync, or hybrid.",
-    );
+    throw new Error("computed_update_mode must be empty, sync, or hybrid.");
   }
 
   if (caseFilterIsAll && allCaseIds.length === 0) {
@@ -396,18 +396,17 @@ export const resolveRunPlan = ({
         caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
         preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
         activeExecuteStages,
+        fixedCosts: FULL_RUN_STAGE_CALIBRATION.fixedCosts,
         baselineCaseShards: scalarBaselineShardPlan.caseShards,
       })
     : null;
   const fullRunShardPlan = stageSimulation?.selected ?? scalarBaselineShardPlan;
   const movedBundles = stageSimulation
     ? fullRunShardPlan.movedBundles
-    : fullRunShardPlan.movedAffinities.map(
-        ({ affinityId, ...movement }) => ({
-          bundleId: affinityId,
-          ...movement,
-        }),
-      );
+    : fullRunShardPlan.movedAffinities.map(({ affinityId, ...movement }) => ({
+        bundleId: affinityId,
+        ...movement,
+      }));
   const preservedBundleCount = stageSimulation
     ? fullRunShardPlan.preservedBundleCount
     : fullRunShardPlan.preservedAffinityCount;
@@ -478,10 +477,7 @@ export const writeGithubOutputs = (
   appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
-  appendFileSync(
-    outputPath,
-    `seed_cache_namespace=${seedCacheNamespace}\n`,
-  );
+  appendFileSync(outputPath, `seed_cache_namespace=${seedCacheNamespace}\n`);
   appendFileSync(
     outputPath,
     `seed_cache_namespace_segment=${

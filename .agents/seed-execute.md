@@ -286,8 +286,9 @@ an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
 shards. Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace
 costs. Shared-fixture seed cost uses the maximum member cost because the fixture
 is built once; execute and trace costs are summed per case. The versioned
-calibration imports complete V1/V2 artifact durations plus the observed 100k
-record-read/search cold-seed durations from trusted run `29917985095`.
+calibration imports complete case-level cold-seed, V1/V2 artifact, and bounded
+trace-attribution durations from cold run `29951887405` and exact-hit warm run
+`29955363070`.
 
 The planner simulates 6–12 shards and selects the lowest concurrency that meets
 the 45-minute cold and 25-minute warm SLOs without exceeding the modeled cold or

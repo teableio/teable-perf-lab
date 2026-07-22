@@ -41,6 +41,11 @@ import {
 const registeredCases = await loadRegisteredCases();
 const allCaseIds = registeredCases.map(({ id }) => id);
 const expectedFullRunCaseIds = resolveFullRunCaseIds({ allCaseIds });
+assert.deepEqual(
+  Object.keys(FULL_RUN_STAGE_CALIBRATION.caseCosts).sort(),
+  expectedFullRunCaseIds.slice().sort(),
+  "the trusted calibration must cover exactly the default full-run case set",
+);
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
 const legacyFullRunShardCount = resolveFullRunShardCount(
   expectedFullRunCaseIds.length,
@@ -260,7 +265,7 @@ assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
 assert.equal(defaultFullRunPlan.caseFilterKey, "all");
 assert.equal(defaultFullRunPlan.seedCacheNamespace, "");
 const selectedFullRunShardCount = defaultFullRunPlan.planSummary.shardCount;
-assert.equal(selectedFullRunShardCount, 7);
+assert.equal(selectedFullRunShardCount, 8);
 assert.equal(defaultFullRunPlan.seedPlan.length, selectedFullRunShardCount);
 assert.deepEqual(
   defaultFullRunPlan.planSummary.stagePlan.candidateShardCounts,
@@ -272,7 +277,11 @@ assert.equal(
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.calibrationSource.sourceRunId,
-  "29917985095",
+  "29951887405",
+);
+assert.equal(
+  defaultFullRunPlan.planSummary.stagePlan.calibrationSource.pairedWarmRunId,
+  "29955363070",
 );
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.observed, null);
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.calibrationDeltaMs, null);
@@ -287,11 +296,10 @@ assert.deepEqual(defaultFullRunPlan.planSummary.stagePlan.executionProfile, {
   engines: ["v1", "v2"],
   v2Mode: "split",
 });
-assert.ok(
-  defaultFullRunPlan.planSummary.movedBundles.some(({ bundleId }) =>
-    bundleId.startsWith("case:"),
-  ),
-  "cache movement must include moved singleton bundles",
+assert.deepEqual(
+  defaultFullRunPlan.planSummary.movedBundles,
+  [],
+  "the accepted calibrated plan must be the stable cache baseline",
 );
 assert.equal(
   defaultFullRunPlan.planSummary.estimatedCacheImpactMs,
@@ -309,6 +317,14 @@ assert.ok(
   defaultFullRunPlan.planSummary.stagePlan.predicted.warmWallMs <=
     defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath.warmWallMs,
   "selected stage-aware plan must not regress the scalar baseline warm path",
+);
+assert.ok(
+  defaultFullRunPlan.planSummary.stagePlan.predicted.coldWallMs <= 45 * 60_000,
+  "the trusted cold calibration must select a plan within the 45 minute SLO",
+);
+assert.ok(
+  defaultFullRunPlan.planSummary.stagePlan.predicted.warmWallMs <= 25 * 60_000,
+  "the trusted warm calibration must select a plan within the 25 minute SLO",
 );
 const firstEligibleCandidate =
   defaultFullRunPlan.planSummary.stagePlan.candidates.find(
@@ -328,11 +344,10 @@ assert.equal(
     .bundleId,
   "record-read/100k-50fields",
 );
-assert.equal(
+assert.ok(
   defaultFullRunPlan.planSummary.stagePlan.candidates[0].stageMaxima.v1Ms
-    .bundleId,
-  "case:record-duplicate/single-record-sequential-1000",
-  "historical execute telemetry must identify a real execute straggler",
+    .durationMs > 100_000,
+  "historical execute telemetry must identify a real execute straggler instead of the 10s default",
 );
 const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   const shardLabel = `shard-${index + 1}-of-${selectedFullRunShardCount}`;
@@ -408,10 +423,7 @@ try {
   const isolatedOutput = await readFile(isolatedOutputPath, "utf8");
   assert.match(defaultOutput, /^seed_cache_namespace=$/m);
   assert.match(defaultOutput, /^seed_cache_namespace_segment=$/m);
-  assert.match(
-    isolatedOutput,
-    /^seed_cache_namespace=ticket-07-cold-warm$/m,
-  );
+  assert.match(isolatedOutput, /^seed_cache_namespace=ticket-07-cold-warm$/m);
   assert.match(
     isolatedOutput,
     /^seed_cache_namespace_segment=ticket-07-cold-warm-$/m,
@@ -471,17 +483,17 @@ assert.deepEqual(
   "historical slots must cover singleton and shared-affinity bundles",
 );
 const unrelatedRemovedCaseId = "record-update/1k-number-fields-bulk-update";
-const planSevenShards = (caseIds) =>
+const planCalibratedShards = (caseIds) =>
   simulateStageAwareShardPlans({
     caseIds,
     hybridCaseIds: HYBRID_COMPUTED_CASES,
     affinities: resolvedFullRunAffinities,
     caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
     preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
-    shardCounts: [7],
+    shardCounts: [selectedFullRunShardCount],
   }).selected;
-const stableFullPlan = planSevenShards(expectedFullRunCaseIds);
-const stableAfterUnrelatedRemoval = planSevenShards(
+const stableFullPlan = planCalibratedShards(expectedFullRunCaseIds);
+const stableAfterUnrelatedRemoval = planCalibratedShards(
   expectedFullRunCaseIds.filter((caseId) => caseId !== unrelatedRemovedCaseId),
 );
 const slotsByCaseId = (plan) =>

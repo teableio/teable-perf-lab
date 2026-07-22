@@ -94,9 +94,10 @@ fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
 same affinity must use that identity in their runner seed contract and are
 treated as one indivisible physical-fixture bundle. Planning fails on duplicate
 declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
-that splits a bundle. The planner imports the complete V1/V2 case durations and
-the 100k record-read/search cold-seed durations from trusted run `29917985095`.
-That run's observed stage maxima remain calibration metadata for comparison;
+that splits a bundle. The planner imports complete case-level cold-seed,
+V1/V2 execute, and trace-attribution durations from trusted cold run
+`29951887405` and exact-hit warm run `29955363070`.
+The cold run's observed stage maxima remain calibration metadata for comparison;
 they are not presented as observations of a new mapping. Unseen cases retain
 explicit default costs until a later trusted run recalibrates them.
 
@@ -106,7 +107,7 @@ costs remain per case. The planner simulates 6 through 12 shards, reports each
 candidate's critical shard and stage maxima, concurrency jobs, and cache movement,
 then selects the lowest concurrency that meets the 45-minute cold and 25-minute
 warm SLOs without regressing the modeled scalar baseline. The current calibrated
-catalog selects seven shards. Historical stable slots and cache reuse are
+catalog selects eight shards. Historical stable slots and cache reuse are
 secondary tie-breakers after stage load. The historical assignment covers both
 shared affinities and singleton bundles, so an unrelated catalog edit only moves
 the bundles needed to protect stage balance; cache movement includes every
@@ -118,7 +119,7 @@ stage.
 Seed, V1, V2 sync, and V2 hybrid all use the selected global slot mapping, so a
 shared fixture is built into exactly one seed dump and every case is selected
 exactly once per applicable engine/mode pool. The initial plan summary includes
-predicted stage maxima and identifies its older cost-calibration source. Explicit
+predicted stage maxima and identifies its trusted cold/warm calibration pair. Explicit
 case ids and comma-separated case lists remain unsharded.
 
 After all execute jobs finish, the report job fetches the current workflow's
@@ -131,7 +132,7 @@ trace evidence, while present manifests with zero wait remain a valid 0 ms
 observation. The report appends the current-run predicted-versus-observed table
 to the GitHub summary and uploads
 `teable-ee-e2e-perf-plan-observation-<run>-<attempt>/observation.json`. The
-planning summary names the older cost-calibration source but does not present
+planning summary names the trusted cost-calibration source pair but does not present
 that different mapping as the current run's observation.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
