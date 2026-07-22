@@ -184,6 +184,7 @@ export const compactTraceManifest = (traceManifest) => {
         sampled: ref?.sampled,
         method: ref?.method,
         url: ref?.url,
+        requestBodyShape: ref?.requestBodyShape,
         status: ref?.status,
         traceLink: ref?.traceLink,
       }))
@@ -199,6 +200,14 @@ export const compactTraceManifest = (traceManifest) => {
     skippedTraceCount: traceManifest.skippedTraceCount,
     missingFetchCount: traceManifest.missingFetchCount,
     wastedFetchMs: traceManifest.wastedFetchMs,
+    traceFetchCaseBudgetMs: traceManifest.traceFetchCaseBudgetMs,
+    traceFetchJobBudgetMs: traceManifest.traceFetchJobBudgetMs,
+    traceFetchWaitMs: traceManifest.traceFetchWaitMs,
+    traceFetchJobWaitMs: traceManifest.traceFetchJobWaitMs,
+    traceFetchBreakerState: traceManifest.traceFetchBreakerState,
+    traceFetchBreakerReason: traceManifest.traceFetchBreakerReason,
+    traceFetchRecoveryProbeCount: traceManifest.traceFetchRecoveryProbeCount,
+    traceFetchRecoverySucceeded: traceManifest.traceFetchRecoverySucceeded,
     maxSnapshotCount: traceManifest.maxSnapshotCount,
     fetchConcurrency: traceManifest.fetchConcurrency,
     backgroundFlushIntervalMs: traceManifest.backgroundFlushIntervalMs,
@@ -294,7 +303,8 @@ export const traceWaste = (payloads) => {
       numberOrUndefined(traces?.fetchConcurrency) ?? 1,
       1,
     );
-    const wasted = wastedSum / concurrency;
+    const wasted =
+      numberOrUndefined(traces?.traceFetchWaitMs) ?? wastedSum / concurrency;
     missingCount += missing;
     wastedMs += wasted;
     const bucket = (byEngine[payload.engine] ??= { missing: 0, wastedMs: 0 });

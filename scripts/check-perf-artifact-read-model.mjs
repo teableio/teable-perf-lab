@@ -66,6 +66,7 @@ try {
           ],
           missingFetchCount: 4,
           wastedFetchMs: 4000,
+          traceFetchWaitMs: 1500,
           fetchConcurrency: 2,
         },
       },
@@ -126,6 +127,14 @@ try {
   const compacted = compactTraceManifest({
     enabled: true,
     traceRefCount: 30,
+    traceFetchCaseBudgetMs: 15_000,
+    traceFetchJobBudgetMs: 60_000,
+    traceFetchWaitMs: 12_000,
+    traceFetchJobWaitMs: 42_000,
+    traceFetchBreakerState: "partial-loss",
+    traceFetchBreakerReason: "partial loss threshold 3 reached",
+    traceFetchRecoveryProbeCount: 1,
+    traceFetchRecoverySucceeded: false,
     refs: Array.from({ length: 25 }, (_, index) => ({
       stepId: `step-${index}`,
       traceId: `trace-${index}`,
@@ -136,14 +145,21 @@ try {
     ],
   });
   assert.equal(compacted.refsSample.length, 20);
+  assert.equal(compacted.traceFetchCaseBudgetMs, 15_000);
+  assert.equal(compacted.traceFetchJobBudgetMs, 60_000);
+  assert.equal(compacted.traceFetchWaitMs, 12_000);
+  assert.equal(compacted.traceFetchJobWaitMs, 42_000);
+  assert.equal(compacted.traceFetchBreakerState, "partial-loss");
+  assert.equal(compacted.traceFetchRecoveryProbeCount, 1);
+  assert.equal(compacted.traceFetchRecoverySucceeded, false);
   assert.deepEqual(compacted.nonSavedTracesSample, [
     { traceId: "trace-2", status: "missing" },
   ]);
 
   assert.deepEqual(traceWaste([executePayload]), {
     missingCount: 4,
-    wastedMs: 2000,
-    byEngine: { v2: { missing: 4, wastedMs: 2000 } },
+    wastedMs: 1500,
+    byEngine: { v2: { missing: 4, wastedMs: 1500 } },
   });
   assert.deepEqual(traceServiceOutage([executePayload]), {
     skippedFetchCount: 0,

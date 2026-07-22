@@ -65,12 +65,16 @@ env:
   # Traces that exist in Jaeger return within ~1s of the 5s settle. A trace
   # still missing after this timeout will not appear later: it was dropped
   # upstream before reaching Jaeger (root cause is engine-side and tracked
-  # separately). Polling longer only burns wall-clock: each missing trace
-  # wastes timeout/concurrency seconds. Keep this tight; the missing-trace
-  # count/waste is surfaced in the per-case summary and Feishu card.
-  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "10000"
+  # separately). Polling longer only burns wall-clock. The collector selects
+  # one representative per semantic request shape, opens a partial-loss
+  # breaker after three misses, and allows one bounded recovery probe.
+  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
   PERF_LAB_TRACE_FETCH_CONCURRENCY: "8"
+  PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
+  PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
+  PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "60000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
