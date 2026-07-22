@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { axios } from "@teable/openapi";
 import {
@@ -12,6 +12,7 @@ import {
   type TraceFetchDecision,
 } from "./trace-fetch-control";
 import type { PerfCase, PerfRunContext } from "./types";
+import { writeFileAtomically } from "./atomic-file.js";
 
 type HeaderBag = Record<string, unknown> & {
   set?: (name: string, value: string) => void;
@@ -128,6 +129,45 @@ let backgroundFlushCount = 0;
 let backgroundFlushErrorCount = 0;
 let backgroundFlushLastError: string | undefined;
 let traceFetchJobWaitMs = 0;
+
+type TraceFetchControl = ReturnType<typeof createTraceFetchControl>;
+
+type DeferredTraceArtifact = {
+  artifactDir?: string;
+  perfCase: PerfCase;
+  engine: string;
+  capturedTraceRefs: PerfTraceRef[];
+  backgroundFlushCount: number;
+  backgroundFlushErrorCount: number;
+  backgroundFlushLastError?: string;
+  pendingSummary: PerfTraceArtifactSummary;
+};
+
+export interface PerfTraceJobTailResult {
+  artifactDir?: string;
+  perfCase: PerfCase;
+  engine: string;
+  summary: PerfTraceArtifactSummary;
+  tailError?: string;
+}
+
+export type PerfTraceArtifactReconciler = (
+  result: PerfTraceJobTailResult,
+) => Promise<PerfTraceArtifactSummary | undefined>;
+
+export interface PerfTraceJobTailLifecycleResult {
+  results: PerfTraceJobTailResult[];
+  elapsedMs: number;
+  budgetMs: number;
+  exceededBudget: boolean;
+  artifactErrors: Array<{
+    caseId: string;
+    engine: string;
+    message: string;
+  }>;
+}
+
+const deferredTraceArtifacts: DeferredTraceArtifact[] = [];
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -658,14 +698,47 @@ export const withPerfTraceStep = <T>(
     fn,
   );
 
+type TraceArtifactTerminalSkip = {
+  state: Extract<TraceFetchArtifactState, "pending-job-tail" | "tail-error">;
+  reason: string;
+};
+
+type WriteTraceArtifactOptions = {
+  capturedTraceRefs?: PerfTraceRef[];
+  sharedTraceFetchControl?: TraceFetchControl;
+  skipFlushAndSettle?: boolean;
+  jobTailStartedAt?: number;
+  jobFetchDeadlineAt?: number;
+  sharedFlushDurationMs?: number;
+  sharedFlushError?: string;
+  capturedBackgroundFlushCount?: number;
+  capturedBackgroundFlushErrorCount?: number;
+  capturedBackgroundFlushLastError?: string;
+  terminalSkip?: TraceArtifactTerminalSkip;
+};
+
+const createConfiguredTraceFetchControl = () =>
+  createTraceFetchControl({
+    partialLossThreshold: getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD",
+      3,
+    ),
+    recoveryProbeLimit: getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT",
+      1,
+    ),
+  });
+
 export const writeTraceArtifacts = async ({
   artifactDir,
   perfCase,
   engine,
+  options,
 }: {
   artifactDir?: string;
   perfCase: PerfCase;
   engine: string;
+  options?: WriteTraceArtifactOptions;
 }): Promise<PerfTraceArtifactSummary> => {
   const enabled = isTraceCollectionEnabled();
   const jaegerApiBaseUrl = getJaegerApiBaseUrl();
@@ -685,17 +758,10 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_JOB_BUDGET_MS",
     60_000,
   );
-  const traceFetchControl = createTraceFetchControl({
-    partialLossThreshold: getPositiveIntegerEnv(
-      "PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD",
-      3,
-    ),
-    recoveryProbeLimit: getPositiveIntegerEnv(
-      "PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT",
-      1,
-    ),
-  });
-  const capturedRunRefs = traceRefsForRun(perfCase, engine);
+  const traceFetchControl =
+    options?.sharedTraceFetchControl ?? createConfiguredTraceFetchControl();
+  const capturedRunRefs =
+    options?.capturedTraceRefs ?? traceRefsForRun(perfCase, engine);
   const runRefs = uniqueTraceRefs(capturedRunRefs);
   const evidencePolicy = enabled
     ? createTraceEvidencePolicy({
@@ -729,9 +795,14 @@ export const writeTraceArtifacts = async ({
     maxSnapshotCount,
     fetchConcurrency,
     backgroundFlushIntervalMs: getBackgroundFlushIntervalMs(),
-    backgroundFlushCount,
-    backgroundFlushErrorCount,
-    backgroundFlushLastError,
+    backgroundFlushCount:
+      options?.capturedBackgroundFlushCount ?? backgroundFlushCount,
+    backgroundFlushErrorCount:
+      options?.capturedBackgroundFlushErrorCount ?? backgroundFlushErrorCount,
+    backgroundFlushLastError:
+      options?.capturedBackgroundFlushLastError ?? backgroundFlushLastError,
+    flushDurationMs: options?.sharedFlushDurationMs,
+    flushError: options?.sharedFlushError,
     jaegerApiBaseUrl,
     refs: capturedRunRefs,
     savedTraces: [],
@@ -752,10 +823,49 @@ export const writeTraceArtifacts = async ({
   );
   const traceDir = join(artifactDir, traceRelativeDir);
   await mkdir(traceDir, { recursive: true });
+  if (options?.terminalSkip) {
+    if (options.jobTailStartedAt != null) {
+      summary.traceFetchJobWaitMs = Math.max(
+        0,
+        Date.now() - options.jobTailStartedAt,
+      );
+    }
+    summary.skippedTraceCount = capturedRunRefs.length;
+    summary.traceFetchBreakerState = options.terminalSkip.state;
+    summary.traceFetchBreakerReason = options.terminalSkip.reason;
+    summary.traceFetchSkippedReason = options.terminalSkip.reason;
+    summary.savedTraces = capturedRunRefs.map((ref) => ({
+      traceId: ref.traceId,
+      stepId: ref.stepId,
+      path: "",
+      status: "skipped" as const,
+      error: options.terminalSkip?.reason,
+      sampled: ref.sampled,
+    }));
+    summary.artifactDir = traceRelativeDir;
+    summary.manifestPath = join(traceRelativeDir, "manifest.json");
+    await writeFileAtomically(
+      join(artifactDir, summary.manifestPath),
+      JSON.stringify(summary, null, 2),
+    );
+    return summary;
+  }
   const traceFetchStartedAt = selectedRefs.length > 0 ? Date.now() : undefined;
-  const remainingJobBudgetMs = Math.max(
-    traceFetchJobBudgetMs - traceFetchJobWaitMs,
+  const jobWaitBeforeCase =
+    options?.jobTailStartedAt == null
+      ? traceFetchJobWaitMs
+      : Math.max(0, Date.now() - options.jobTailStartedAt);
+  const remainingConfiguredJobBudgetMs = Math.max(
+    traceFetchJobBudgetMs - jobWaitBeforeCase,
     0,
+  );
+  const remainingFetchDeadlineMs =
+    options?.jobFetchDeadlineAt == null
+      ? remainingConfiguredJobBudgetMs
+      : Math.max(0, options.jobFetchDeadlineAt - Date.now());
+  const remainingJobBudgetMs = Math.min(
+    remainingConfiguredJobBudgetMs,
+    remainingFetchDeadlineMs,
   );
   const allowedFetchWaitMs = Math.min(
     traceFetchCaseBudgetMs,
@@ -770,18 +880,33 @@ export const writeTraceArtifacts = async ({
       ? "job-budget"
       : "case-budget";
   let traceFetchFinalized = false;
+  let caseBudgetReason: string | undefined;
 
   const stopForDeadline = () => {
     const budgetMs =
       deadlineBudgetState === "job-budget"
         ? traceFetchJobBudgetMs
         : traceFetchCaseBudgetMs;
-    traceFetchControl.stop(
-      deadlineBudgetState,
-      `Trace fetch ${
-        deadlineBudgetState === "job-budget" ? "job" : "case"
-      } budget ${budgetMs}ms exhausted`,
-    );
+    const reservedFinalizeMs =
+      options?.jobTailStartedAt != null && options.jobFetchDeadlineAt != null
+        ? Math.max(
+            0,
+            options.jobTailStartedAt +
+              traceFetchJobBudgetMs -
+              options.jobFetchDeadlineAt,
+          )
+        : 0;
+    const reason =
+      deadlineBudgetState === "job-budget" && reservedFinalizeMs > 0
+        ? `Trace fetch job budget ${budgetMs}ms reserves ${reservedFinalizeMs}ms for artifact finalization; retrieval deadline reached`
+        : `Trace fetch ${
+            deadlineBudgetState === "job-budget" ? "job" : "case"
+          } budget ${budgetMs}ms exhausted`;
+    if (deadlineBudgetState === "job-budget") {
+      traceFetchControl.stop(deadlineBudgetState, reason);
+    } else {
+      caseBudgetReason = reason;
+    }
   };
 
   if (selectedRefs.length > 0 && allowedFetchWaitMs <= 0) {
@@ -794,15 +919,19 @@ export const writeTraceArtifacts = async ({
         traceFetchStartedAt == null
           ? 0
           : Math.min(Date.now() - traceFetchStartedAt, allowedFetchWaitMs);
-      traceFetchJobWaitMs = Math.min(
-        traceFetchJobBudgetMs,
-        traceFetchJobWaitMs + traceFetchWaitMs,
-      );
+      traceFetchJobWaitMs =
+        options?.jobTailStartedAt == null
+          ? Math.min(
+              traceFetchJobBudgetMs,
+              traceFetchJobWaitMs + traceFetchWaitMs,
+            )
+          : Math.max(0, Date.now() - options.jobTailStartedAt);
       const control = traceFetchControl.snapshot();
       summary.traceFetchWaitMs = traceFetchWaitMs;
       summary.traceFetchJobWaitMs = traceFetchJobWaitMs;
-      summary.traceFetchBreakerState ??= control.state;
-      summary.traceFetchBreakerReason ??= control.reason;
+      summary.traceFetchBreakerState ??=
+        caseBudgetReason == null ? control.state : "case-budget";
+      summary.traceFetchBreakerReason ??= caseBudgetReason ?? control.reason;
       summary.traceFetchRecoveryProbeCount = control.recoveryProbeCount;
       summary.traceFetchRecoverySucceeded = control.recoverySucceeded;
       traceFetchFinalized = true;
@@ -818,7 +947,7 @@ export const writeTraceArtifacts = async ({
     }
     summary.artifactDir = traceRelativeDir;
     summary.manifestPath = join(traceRelativeDir, "manifest.json");
-    await writeFile(
+    await writeFileAtomically(
       join(artifactDir, summary.manifestPath),
       JSON.stringify(summary, null, 2),
     );
@@ -837,7 +966,11 @@ export const writeTraceArtifacts = async ({
     });
   };
 
-  if (selectedRefs.length > 0 && flushBeforeTraceFetch) {
+  if (
+    !options?.skipFlushAndSettle &&
+    selectedRefs.length > 0 &&
+    flushBeforeTraceFetch
+  ) {
     const flushStartedAt = Date.now();
     try {
       const remainingMs = fetchDeadlineAt - Date.now();
@@ -875,7 +1008,7 @@ export const writeTraceArtifacts = async ({
     "PERF_LAB_TRACE_FETCH_SETTLE_MS",
     5_000,
   );
-  if (selectedRefs.length > 0) {
+  if (!options?.skipFlushAndSettle && selectedRefs.length > 0) {
     const remainingMs = fetchDeadlineAt - Date.now();
     if (remainingMs <= 0) {
       stopForDeadline();
@@ -890,6 +1023,9 @@ export const writeTraceArtifacts = async ({
   const fetchTraceRef = async (ref: PerfTraceRef) => {
     if (Date.now() >= fetchDeadlineAt) {
       stopForDeadline();
+    }
+    if (caseBudgetReason) {
+      return { ref, skippedReason: caseBudgetReason };
     }
     const decision: TraceFetchDecision = traceFetchControl.next();
     if (decision.action === "skip") {
@@ -936,7 +1072,7 @@ export const writeTraceArtifacts = async ({
     const path = join(traceDir, fileName);
     const relativePath = join(traceRelativeDir, fileName);
 
-    await writeFile(path, JSON.stringify(result.data, null, 2));
+    await writeFileAtomically(path, JSON.stringify(result.data, null, 2));
     savedTraceIds.add(ref.traceId);
     summary.savedTraceCount += 1;
     summary.savedTraces.push({
@@ -1116,4 +1252,375 @@ export const writeTraceArtifacts = async ({
   }
 
   return writeSummary();
+};
+
+export const resetPerfTraceJobTail = () => {
+  deferredTraceArtifacts.length = 0;
+  resetPerfTraceJobBudget();
+};
+
+export const deferTraceArtifacts = async ({
+  artifactDir,
+  perfCase,
+  engine,
+}: {
+  artifactDir?: string;
+  perfCase: PerfCase;
+  engine: string;
+}): Promise<PerfTraceArtifactSummary> => {
+  const capturedTraceRefs = traceRefsForRun(perfCase, engine).slice();
+  const snapshot = {
+    artifactDir,
+    perfCase,
+    engine,
+    capturedTraceRefs,
+    backgroundFlushCount,
+    backgroundFlushErrorCount,
+    backgroundFlushLastError,
+  };
+  const pendingReason =
+    "Trace retrieval is pending the bounded execute job tail";
+  const pendingSummary = await writeTraceArtifacts({
+    artifactDir,
+    perfCase,
+    engine,
+    options: {
+      capturedTraceRefs,
+      capturedBackgroundFlushCount: snapshot.backgroundFlushCount,
+      capturedBackgroundFlushErrorCount: snapshot.backgroundFlushErrorCount,
+      capturedBackgroundFlushLastError: snapshot.backgroundFlushLastError,
+      terminalSkip: {
+        state: "pending-job-tail",
+        reason: pendingReason,
+      },
+    },
+  });
+
+  if (artifactDir && pendingSummary.enabled) {
+    deferredTraceArtifacts.push({ ...snapshot, pendingSummary });
+  }
+  return pendingSummary;
+};
+
+export const deferPerfTraceDetails = async ({
+  context,
+  perfCase,
+  details,
+}: {
+  context: PerfRunContext;
+  perfCase: PerfCase;
+  details?: Record<string, unknown>;
+}) => {
+  const existingObservability = details?.observability;
+  const observability =
+    existingObservability &&
+    typeof existingObservability === "object" &&
+    !Array.isArray(existingObservability)
+      ? existingObservability
+      : {};
+  let traces: PerfTraceArtifactSummary;
+  try {
+    traces = await deferTraceArtifacts({
+      artifactDir: context.artifactDir,
+      perfCase,
+      engine: context.engine,
+    });
+  } catch (error) {
+    const reason = `Trace deferral failed before job tail: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    console.warn(
+      `[perf-lab] trace deferral failed caseId=${perfCase.id} engine=${context.engine}; preserving perf result: ${reason}`,
+    );
+    const fallback = await writeTraceArtifacts({
+      perfCase,
+      engine: context.engine,
+    });
+    traces = {
+      ...fallback,
+      savedTraceCount: 0,
+      failedTraceCount: 0,
+      skippedTraceCount: fallback.traceRefCount,
+      traceFetchBreakerState: "tail-error",
+      traceFetchBreakerReason: reason,
+      traceFetchSkippedReason: reason,
+      savedTraces: fallback.refs.map((ref) => ({
+        traceId: ref.traceId,
+        stepId: ref.stepId,
+        path: "",
+        status: "skipped",
+        error: reason,
+        sampled: ref.sampled,
+      })),
+    };
+  }
+  return {
+    ...details,
+    observability: {
+      ...observability,
+      traces,
+    },
+  };
+};
+
+const tailFailureSummary = async (
+  item: DeferredTraceArtifact,
+  reason: string,
+  jobTailStartedAt: number,
+) => {
+  try {
+    return await writeTraceArtifacts({
+      artifactDir: item.artifactDir,
+      perfCase: item.perfCase,
+      engine: item.engine,
+      options: {
+        capturedTraceRefs: item.capturedTraceRefs,
+        capturedBackgroundFlushCount: item.backgroundFlushCount,
+        capturedBackgroundFlushErrorCount: item.backgroundFlushErrorCount,
+        capturedBackgroundFlushLastError: item.backgroundFlushLastError,
+        jobTailStartedAt,
+        terminalSkip: { state: "tail-error", reason },
+      },
+    });
+  } catch {
+    return {
+      ...item.pendingSummary,
+      traceFetchJobWaitMs: Math.max(0, Date.now() - jobTailStartedAt),
+      traceFetchBreakerState: "tail-error" as const,
+      traceFetchBreakerReason: reason,
+      traceFetchSkippedReason: reason,
+      savedTraces: item.pendingSummary.savedTraces.map((trace) => ({
+        ...trace,
+        error: reason,
+      })),
+    };
+  }
+};
+
+export const finalizePerfTraceJobTail = async ({
+  jobTailStartedAt = Date.now(),
+}: {
+  jobTailStartedAt?: number;
+} = {}): Promise<PerfTraceJobTailResult[]> => {
+  const items = deferredTraceArtifacts.splice(0, deferredTraceArtifacts.length);
+  if (items.length === 0) {
+    return [];
+  }
+
+  resetPerfTraceJobBudget();
+  const traceFetchJobBudgetMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_JOB_BUDGET_MS",
+    60_000,
+  );
+  const jobDeadlineAt = jobTailStartedAt + traceFetchJobBudgetMs;
+  const defaultFinalizeReserveMs = Math.min(
+    5_000,
+    Math.max(1, Math.floor(traceFetchJobBudgetMs / 10)),
+  );
+  const configuredFinalizeReserveMs = getNonNegativeIntegerEnv(
+    "PERF_LAB_TRACE_FINALIZE_RESERVE_MS",
+    defaultFinalizeReserveMs,
+  );
+  const finalizeReserveMs = Math.min(
+    configuredFinalizeReserveMs,
+    traceFetchJobBudgetMs,
+  );
+  const jobFetchDeadlineAt = jobDeadlineAt - finalizeReserveMs;
+  const sharedTraceFetchControl = createConfiguredTraceFetchControl();
+  const hasCapturedRefs = items.some(
+    ({ capturedTraceRefs }) => capturedTraceRefs.length > 0,
+  );
+  let sharedFlushDurationMs: number | undefined;
+  let sharedFlushError: string | undefined;
+
+  if (hasCapturedRefs && flushBeforeTraceFetch) {
+    const flushStartedAt = Date.now();
+    try {
+      await waitUntilDeadline(
+        flushTraceProvider(),
+        jobFetchDeadlineAt,
+        "Trace flush exceeded the job tail budget",
+      );
+    } catch (error) {
+      sharedFlushError = error instanceof Error ? error.message : String(error);
+    } finally {
+      sharedFlushDurationMs = Date.now() - flushStartedAt;
+    }
+  }
+
+  if (
+    hasCapturedRefs &&
+    !isTraceServiceUnavailableError(sharedFlushError) &&
+    Date.now() < jobFetchDeadlineAt
+  ) {
+    const settleMs = getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_FETCH_SETTLE_MS",
+      5_000,
+    );
+    await delay(Math.min(settleMs, jobFetchDeadlineAt - Date.now()));
+  }
+
+  const results: PerfTraceJobTailResult[] = [];
+  for (const item of items) {
+    try {
+      const summary = await writeTraceArtifacts({
+        artifactDir: item.artifactDir,
+        perfCase: item.perfCase,
+        engine: item.engine,
+        options: {
+          capturedTraceRefs: item.capturedTraceRefs,
+          sharedTraceFetchControl,
+          skipFlushAndSettle: true,
+          jobTailStartedAt,
+          jobFetchDeadlineAt,
+          sharedFlushDurationMs,
+          sharedFlushError,
+          capturedBackgroundFlushCount: item.backgroundFlushCount,
+          capturedBackgroundFlushErrorCount: item.backgroundFlushErrorCount,
+          capturedBackgroundFlushLastError: item.backgroundFlushLastError,
+        },
+      });
+      results.push({
+        artifactDir: item.artifactDir,
+        perfCase: item.perfCase,
+        engine: item.engine,
+        summary,
+      });
+    } catch (error) {
+      const tailError = error instanceof Error ? error.message : String(error);
+      const reason = `Trace job tail failed: ${tailError}`;
+      results.push({
+        artifactDir: item.artifactDir,
+        perfCase: item.perfCase,
+        engine: item.engine,
+        summary: await tailFailureSummary(item, reason, jobTailStartedAt),
+        tailError,
+      });
+    }
+  }
+  return results;
+};
+
+const withTraceJobTailElapsed = (
+  result: PerfTraceJobTailResult,
+  jobTailStartedAt: number,
+): PerfTraceJobTailResult => ({
+  ...result,
+  summary: {
+    ...result.summary,
+    traceFetchJobWaitMs: Math.max(
+      result.summary.traceFetchJobWaitMs,
+      Date.now() - jobTailStartedAt,
+    ),
+  },
+});
+
+export const finalizePerfTraceJobTailLifecycle = async ({
+  reconcileArtifact,
+}: {
+  reconcileArtifact: PerfTraceArtifactReconciler;
+}): Promise<PerfTraceJobTailLifecycleResult> => {
+  const jobTailStartedAt = Date.now();
+  const budgetMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_JOB_BUDGET_MS",
+    60_000,
+  );
+  const results = await finalizePerfTraceJobTail({ jobTailStartedAt });
+  const artifactErrors: PerfTraceJobTailLifecycleResult["artifactErrors"] = [];
+  const successfullyReconciledIndexes: number[] = [];
+
+  await Promise.all(
+    results.map(async (result, index) => {
+      const candidate = withTraceJobTailElapsed(result, jobTailStartedAt);
+      results[index] = candidate;
+      try {
+        const committedSummary = await reconcileArtifact(candidate);
+        results[index] = {
+          ...candidate,
+          summary: committedSummary ?? candidate.summary,
+        };
+        successfullyReconciledIndexes.push(index);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const reason = `Trace artifact reconciliation failed after job tail: ${message}`;
+        artifactErrors.push({
+          caseId: candidate.perfCase.id,
+          engine: candidate.engine,
+          message,
+        });
+        results[index] = {
+          ...candidate,
+          tailError: candidate.tailError ?? message,
+          summary: {
+            ...candidate.summary,
+            traceFetchBreakerState: "tail-error",
+            traceFetchBreakerReason: reason,
+            traceFetchSkippedReason:
+              candidate.summary.traceFetchSkippedReason ?? reason,
+          },
+        };
+      }
+    }),
+  );
+
+  // Persist the full lifecycle time, including artifact reconciliation, in one
+  // successfully committed case. If that final write itself crosses the SLO,
+  // write once more so the overrun remains visible in the uploaded evidence.
+  const evidenceIndex = successfullyReconciledIndexes.sort((a, b) => b - a)[0];
+  if (evidenceIndex != null) {
+    const reconcileEvidence = async () => {
+      const candidate = withTraceJobTailElapsed(
+        results[evidenceIndex],
+        jobTailStartedAt,
+      );
+      results[evidenceIndex] = candidate;
+      try {
+        const committedSummary = await reconcileArtifact(candidate);
+        results[evidenceIndex] = {
+          ...candidate,
+          summary: committedSummary ?? candidate.summary,
+        };
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const reason = `Trace artifact reconciliation failed after job tail: ${message}`;
+        artifactErrors.push({
+          caseId: candidate.perfCase.id,
+          engine: candidate.engine,
+          message,
+        });
+        results[evidenceIndex] = {
+          ...candidate,
+          tailError: candidate.tailError ?? message,
+          summary: {
+            ...candidate.summary,
+            traceFetchBreakerState: "tail-error",
+            traceFetchBreakerReason: reason,
+            traceFetchSkippedReason:
+              candidate.summary.traceFetchSkippedReason ?? reason,
+          },
+        };
+        return false;
+      }
+    };
+
+    const firstEvidenceElapsedMs = Date.now() - jobTailStartedAt;
+    const evidenceCommitted = await reconcileEvidence();
+    if (
+      evidenceCommitted &&
+      firstEvidenceElapsedMs <= budgetMs &&
+      Date.now() - jobTailStartedAt > budgetMs
+    ) {
+      await reconcileEvidence();
+    }
+  }
+
+  const elapsedMs = Date.now() - jobTailStartedAt;
+  return {
+    results,
+    elapsedMs,
+    budgetMs,
+    exceededBudget: elapsedMs > budgetMs,
+    artifactErrors,
+  };
 };

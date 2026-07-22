@@ -9,6 +9,14 @@ process.env.TZ = "UTC";
 process.env.E2E_WORKER_DB = "0";
 
 const timeout = process.env.CI ? 60000 : 10000;
+const configuredTraceJobBudgetMs = Number(
+  process.env.PERF_LAB_TRACE_JOB_BUDGET_MS,
+);
+const traceJobBudgetMs =
+  Number.isInteger(configuredTraceJobBudgetMs) && configuredTraceJobBudgetMs > 0
+    ? configuredTraceJobBudgetMs
+    : 60_000;
+const hookTimeout = Math.max(timeout, traceJobBudgetMs + 30_000);
 const perfLabSpec =
   "../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts";
 
@@ -41,7 +49,7 @@ export default defineConfig({
       "./vitest-e2e-init-app.setup.ts",
     ],
     testTimeout: timeout,
-    hookTimeout: timeout,
+    hookTimeout,
     passWithNoTests: false,
     pool: "forks",
     fileParallelism: false,

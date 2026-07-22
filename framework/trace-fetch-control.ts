@@ -8,7 +8,9 @@ export type TraceFetchBreakerState =
 
 export type TraceFetchArtifactState =
   | TraceFetchBreakerState
-  | "exporter-outage";
+  | "exporter-outage"
+  | "pending-job-tail"
+  | "tail-error";
 
 export type TraceFetchDecision =
   | { action: "fetch"; mode: "normal" | "recovery-probe" }

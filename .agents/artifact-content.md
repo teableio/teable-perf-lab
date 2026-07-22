@@ -40,6 +40,9 @@ so `formula/10k-calc` + `v2` → `formula-10k-calc-v2`.
 
 The primary file. One per case+engine. Trace counts are duplicated inline here
 (see `details.observability.traces`), so most checks never need `manifest.json`.
+The case first writes a `pending-job-tail` trace block; the engine job tail
+rewrites only that block after bounded collection, leaving metrics, business
+details, routing evidence, result, and measured duration unchanged.
 
 ```json
 {
@@ -100,8 +103,10 @@ Field notes:
 
 ## `traces/<case-id>-<engine>/manifest.json` — trace summary
 
-Identical to `details.observability.traces` in the payload. Read it standalone
-only if you are not already holding the payload.
+Identical to `details.observability.traces` in the payload after normal job-tail
+finalization. Read it standalone only if you are not already holding the
+payload. An interrupted run can leave both at `pending-job-tail`; a tail failure
+uses `tail-error` wherever the artifact directory remains writable.
 
 ```json
 {
@@ -188,11 +193,17 @@ the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.
 
 `traceFetchWaitMs` is the case-attributed wait capped by
-`traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is cumulative for the execute job
-and capped by `traceFetchJobBudgetMs`. A non-`closed`
+`traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is the actual cumulative elapsed
+tail time observed when that manifest is finalized. It is compared with
+`traceFetchJobBudgetMs` but deliberately not clamped, so post-deadline artifact
+work cannot hide an SLO overrun. A non-`closed`
 `traceFetchBreakerState` plus `traceFetchBreakerReason` preserves why retrieval
 stopped. `partial-loss` can recover through a bounded probe;
-`traceFetchRecoverySucceeded` records that transition.
+`traceFetchRecoverySucceeded` records that transition. `pending-job-tail` means
+the measured result exists but trace finalization did not complete;
+`tail-error` means finalization or its artifact rewrite failed without deleting
+that result. Artifact replacement uses same-directory temporary files and atomic
+rename, so interruption keeps the previous valid JSON instead of truncating it.
 
 ## `traces/<case-id>-<engine>/<step-id>-<trace-id>.json` — raw Jaeger snapshot
 

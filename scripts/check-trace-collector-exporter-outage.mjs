@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const source = await readFile("framework/trace-collector.ts", "utf8");
+const atomicFileSource = await readFile("framework/atomic-file.js", "utf8");
 const evidencePolicySource = await readFile(
   "framework/trace-evidence-policy.ts",
   "utf8",
@@ -13,6 +14,19 @@ const evidencePolicySource = await readFile(
 const fetchControlSource = await readFile(
   "framework/trace-fetch-control.ts",
   "utf8",
+);
+const runPerfCaseSource = await readFile("framework/run-perf-case.ts", "utf8");
+const runPerfSeedSource = await readFile("framework/run-perf-seed.ts", "utf8");
+const perfSpecSource = await readFile("perf-lab.e2e-spec.ts", "utf8");
+assert.match(runPerfCaseSource, /deferPerfTraceDetails/);
+assert.doesNotMatch(runPerfCaseSource, /writeTraceArtifacts/);
+assert.match(runPerfSeedSource, /deferPerfTraceDetails/);
+assert.doesNotMatch(runPerfSeedSource, /writeTraceArtifacts/);
+assert.match(perfSpecSource, /finalizePerfTraceJobTailLifecycle/);
+assert.ok(
+  perfSpecSource.indexOf("finalizePerfTraceJobTailLifecycle({") <
+    perfSpecSource.indexOf("await app?.close()"),
+  "trace job tail must finish before the engine app closes",
 );
 const output = ts.transpileModule(source, {
   compilerOptions: {
@@ -46,6 +60,7 @@ assert.equal(errors.length, 0);
 
 const tempDir = await mkdtemp(join(tmpdir(), "perf-lab-trace-collector-"));
 const collectorFile = join(tempDir, "trace-collector.mjs");
+const atomicFile = join(tempDir, "atomic-file.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
 const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const fetchControlFile = join(tempDir, "trace-fetch-control.mjs");
@@ -68,6 +83,7 @@ try {
     collectorFile,
     output.outputText
       .replace('from "@teable/openapi"', 'from "./teable-openapi.mjs"')
+      .replace('from "./atomic-file.js"', 'from "./atomic-file.mjs"')
       .replace(
         'from "./trace-evidence-policy"',
         'from "./trace-evidence-policy.mjs"',
@@ -77,6 +93,7 @@ try {
         'from "./trace-fetch-control.mjs"',
       ),
   );
+  await writeFile(atomicFile, atomicFileSource);
   await writeFile(
     evidencePolicyFile,
     evidencePolicyOutput.outputText.replace(
@@ -94,10 +111,15 @@ try {
   );
 
   const {
+    deferPerfTraceDetails,
+    deferTraceArtifacts,
+    finalizePerfTraceJobTail,
+    finalizePerfTraceJobTailLifecycle,
     installPerfTraceCollector,
     recordPerfTraceRefFromHeaders,
     resetPerfTraceJobBudget,
     resetPerfTraceRefs,
+    resetPerfTraceJobTail,
     setPerfTraceFlush,
     writeTraceArtifacts,
   } = await import(pathToFileURL(collectorFile));
@@ -114,6 +136,8 @@ try {
       process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY,
     PERF_LAB_TRACE_CASE_BUDGET_MS: process.env.PERF_LAB_TRACE_CASE_BUDGET_MS,
     PERF_LAB_TRACE_JOB_BUDGET_MS: process.env.PERF_LAB_TRACE_JOB_BUDGET_MS,
+    PERF_LAB_TRACE_FINALIZE_RESERVE_MS:
+      process.env.PERF_LAB_TRACE_FINALIZE_RESERVE_MS,
     PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD:
       process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD,
     PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT:
@@ -122,6 +146,16 @@ try {
   };
   const previousFetch = globalThis.fetch;
   let fetchCount = 0;
+  const reconcileTailArtifact = async (result) => {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    if (result.artifactDir && result.summary.manifestPath) {
+      await writeFile(
+        join(result.artifactDir, result.summary.manifestPath),
+        JSON.stringify(result.summary, null, 2),
+      );
+    }
+    return result.summary;
+  };
 
   try {
     process.env.PERF_LAB_TRACE_ENABLED = "true";
@@ -544,6 +578,339 @@ try {
     assert.equal(secondJobBudgetSummary.traceFetchJobWaitMs, 10);
     assert.equal(secondJobBudgetSummary.failedTraceCount, 0);
     assert.equal(secondJobBudgetSummary.skippedTraceCount, 1);
+
+    resetPerfTraceJobTail();
+    resetPerfTraceJobBudget();
+    fetchCount = 0;
+    let batchFlushCount = 0;
+    process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS = "1";
+    process.env.PERF_LAB_TRACE_FETCH_TIMEOUT_MS = "10";
+    process.env.PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS = "1";
+    process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY = "1";
+    process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "20";
+    process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "60";
+    process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "3";
+    process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT = "1";
+    setPerfTraceFlush(async () => {
+      batchFlushCount += 1;
+    });
+    globalThis.fetch = async (url) => {
+      fetchCount += 1;
+      const traceId = String(url).split("/").at(-1);
+      return new Response(JSON.stringify({ data: [{ traceID: traceId }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const healthyTailCases = [
+      {
+        perfCase: { id: "trace/job-tail-healthy-a" },
+        traceId: "61111111111111111111111111111111",
+      },
+      {
+        perfCase: { id: "trace/job-tail-healthy-b" },
+        traceId: "62222222222222222222222222222222",
+      },
+    ];
+    for (const { perfCase: tailCase, traceId } of healthyTailCases) {
+      resetPerfTraceRefs();
+      recordDistinctTraceRefs({
+        targetCase: tailCase,
+        prefix: `${tailCase.id}-shape`,
+        traceIds: [traceId],
+      });
+      const pending = await deferTraceArtifacts({
+        artifactDir,
+        perfCase: tailCase,
+        engine: "v2",
+      });
+      assert.equal(pending.traceFetchBreakerState, "pending-job-tail");
+      assert.equal(pending.skippedTraceCount, 1);
+    }
+    assert.equal(batchFlushCount, 0);
+    assert.equal(fetchCount, 0);
+
+    const healthyTailStartedAt = Date.now();
+    const healthyTailLifecycle = await finalizePerfTraceJobTailLifecycle({
+      reconcileArtifact: reconcileTailArtifact,
+    });
+    const healthyTail = healthyTailLifecycle.results;
+    const healthyTailElapsedMs = Date.now() - healthyTailStartedAt;
+    assert.equal(batchFlushCount, 1);
+    assert.equal(fetchCount, 2);
+    assert.equal(healthyTail.length, 2);
+    assert.deepEqual(
+      healthyTail.map(({ perfCase: tailCase, summary: tailSummary }) => ({
+        caseId: tailCase.id,
+        saved: tailSummary.savedTraceCount,
+        failed: tailSummary.failedTraceCount,
+        skipped: tailSummary.skippedTraceCount,
+      })),
+      [
+        {
+          caseId: "trace/job-tail-healthy-a",
+          saved: 1,
+          failed: 0,
+          skipped: 0,
+        },
+        {
+          caseId: "trace/job-tail-healthy-b",
+          saved: 1,
+          failed: 0,
+          skipped: 0,
+        },
+      ],
+    );
+    assert.ok(
+      Math.max(
+        ...healthyTail.map(({ summary: tailSummary }) =>
+          Number(tailSummary.traceFetchJobWaitMs),
+        ),
+      ) <= 60,
+    );
+    assert.ok(healthyTailElapsedMs <= 60);
+    for (const [index, result] of healthyTail.entries()) {
+      const expectedCase = healthyTailCases[index].perfCase;
+      assert.equal(result.perfCase.id, expectedCase.id);
+      assert.equal(result.engine, "v2");
+      assert.ok(
+        result.summary.refs.every(
+          (ref) => ref.caseId === expectedCase.id && ref.engine === "v2",
+        ),
+      );
+      assert.match(
+        result.summary.manifestPath,
+        new RegExp(
+          `traces/${expectedCase.id.replaceAll("/", "-")}-v2/manifest\\.json$`,
+        ),
+      );
+      assert.ok(
+        result.summary.savedTraces.every(
+          (trace) =>
+            trace.stepId.startsWith(`${expectedCase.id}-shape`) &&
+            trace.path.includes(expectedCase.id.replaceAll("/", "-")),
+        ),
+      );
+      assert.deepEqual(
+        JSON.parse(
+          await readFile(
+            join(artifactDir, result.summary.manifestPath),
+            "utf8",
+          ),
+        ),
+        JSON.parse(JSON.stringify(result.summary)),
+      );
+    }
+
+    resetPerfTraceJobTail();
+    resetPerfTraceJobBudget();
+    fetchCount = 0;
+    batchFlushCount = 0;
+    process.env.PERF_LAB_TRACE_FETCH_TIMEOUT_MS = "3";
+    process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "20";
+    process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "60";
+    process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "2";
+    process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT = "1";
+    globalThis.fetch = async () => {
+      fetchCount += 1;
+      return new Response(JSON.stringify({ data: [] }), { status: 404 });
+    };
+    const partialTailCases = [
+      {
+        perfCase: { id: "trace/job-tail-partial-a" },
+        traceIds: [
+          "71111111111111111111111111111111",
+          "72222222222222222222222222222222",
+          "73333333333333333333333333333333",
+          "74444444444444444444444444444444",
+        ],
+      },
+      {
+        perfCase: { id: "trace/job-tail-partial-b" },
+        traceIds: [
+          "75555555555555555555555555555555",
+          "76666666666666666666666666666666",
+        ],
+      },
+    ];
+    for (const { perfCase: tailCase, traceIds } of partialTailCases) {
+      resetPerfTraceRefs();
+      recordDistinctTraceRefs({
+        targetCase: tailCase,
+        prefix: `${tailCase.id}-shape`,
+        traceIds,
+      });
+      await deferTraceArtifacts({
+        artifactDir,
+        perfCase: tailCase,
+        engine: "v2",
+      });
+    }
+
+    const partialTailStartedAt = Date.now();
+    const partialTailLifecycle = await finalizePerfTraceJobTailLifecycle({
+      reconcileArtifact: reconcileTailArtifact,
+    });
+    const partialTail = partialTailLifecycle.results;
+    const partialTailElapsedMs = Date.now() - partialTailStartedAt;
+    assert.equal(batchFlushCount, 1);
+    assert.equal(partialTail.length, 2);
+    assert.ok(
+      partialTail.reduce(
+        (total, { summary: tailSummary }) =>
+          total + tailSummary.missingFetchCount,
+        0,
+      ) <= 3,
+    );
+    assert.equal(partialTail[0].summary.traceFetchBreakerState, "partial-loss");
+    assert.equal(partialTail[1].summary.savedTraceCount, 0);
+    assert.equal(partialTail[1].summary.failedTraceCount, 0);
+    assert.equal(partialTail[1].summary.skippedTraceCount, 2);
+    assert.match(
+      partialTail[1].summary.traceFetchBreakerReason,
+      /partial loss threshold 2 reached/,
+    );
+    assert.ok(partialTail[1].summary.traceFetchJobWaitMs <= 60);
+    assert.ok(partialTailElapsedMs <= 60);
+
+    resetPerfTraceJobTail();
+    resetPerfTraceRefs();
+    const tailFailureCase = { id: "trace/job-tail-write-failure" };
+    const tailFailureArtifactDir = join(tempDir, "tail-failure-artifacts");
+    recordDistinctTraceRefs({
+      targetCase: tailFailureCase,
+      prefix: "job-tail-write-failure-shape",
+      traceIds: ["81111111111111111111111111111111"],
+    });
+    const interruptedSummary = await deferTraceArtifacts({
+      artifactDir: tailFailureArtifactDir,
+      perfCase: tailFailureCase,
+      engine: "v2",
+    });
+    const interruptedManifest = JSON.parse(
+      await readFile(
+        join(tailFailureArtifactDir, interruptedSummary.manifestPath),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      interruptedManifest.traceFetchBreakerState,
+      "pending-job-tail",
+    );
+    assert.equal(interruptedManifest.skippedTraceCount, 1);
+
+    await rm(tailFailureArtifactDir, { recursive: true, force: true });
+    await writeFile(tailFailureArtifactDir, "blocks trace directory writes");
+    const failedTail = await finalizePerfTraceJobTail();
+    assert.equal(failedTail.length, 1);
+    assert.match(failedTail[0].tailError, /ENOTDIR|not a directory/i);
+    assert.equal(failedTail[0].summary.traceFetchBreakerState, "tail-error");
+    assert.equal(failedTail[0].summary.skippedTraceCount, 1);
+
+    resetPerfTraceJobTail();
+    resetPerfTraceRefs();
+    const deferralFailureCase = { id: "trace/job-tail-deferral-failure" };
+    const deferralFailureArtifactDir = join(
+      tempDir,
+      "deferral-failure-artifacts",
+    );
+    await writeFile(
+      deferralFailureArtifactDir,
+      "blocks provisional trace manifest writes",
+    );
+    recordDistinctTraceRefs({
+      targetCase: deferralFailureCase,
+      prefix: "job-tail-deferral-failure-shape",
+      traceIds: ["82222222222222222222222222222222"],
+    });
+    const preservedDetails = await deferPerfTraceDetails({
+      context: {
+        ...context,
+        artifactDir: deferralFailureArtifactDir,
+      },
+      perfCase: deferralFailureCase,
+      details: { business: { preserved: true } },
+    });
+    assert.deepEqual(preservedDetails.business, { preserved: true });
+    assert.equal(
+      preservedDetails.observability.traces.traceFetchBreakerState,
+      "tail-error",
+    );
+    assert.equal(preservedDetails.observability.traces.skippedTraceCount, 1);
+    assert.match(
+      preservedDetails.observability.traces.traceFetchBreakerReason,
+      /Trace deferral failed before job tail.*ENOTDIR|Trace deferral failed before job tail.*not a directory/i,
+    );
+
+    resetPerfTraceJobTail();
+    resetPerfTraceRefs();
+    setPerfTraceFlush(undefined);
+    fetchCount = 0;
+    process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS = "1";
+    process.env.PERF_LAB_TRACE_FETCH_TIMEOUT_MS = "1000";
+    process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY = "1";
+    process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "1000";
+    process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "100";
+    process.env.PERF_LAB_TRACE_FINALIZE_RESERVE_MS = "80";
+    globalThis.fetch = neverResolvingFetch;
+    const pendingFetchCases = Array.from({ length: 30 }, (_, index) => ({
+      perfCase: { id: `trace/job-tail-pending-${index + 1}` },
+      traceId:
+        `${String(index + 1).padStart(2, "0")}3333333333333333333333333333333`.slice(
+          0,
+          32,
+        ),
+    }));
+    for (const { perfCase: pendingCase, traceId } of pendingFetchCases) {
+      resetPerfTraceRefs();
+      recordDistinctTraceRefs({
+        targetCase: pendingCase,
+        prefix: `${pendingCase.id}-shape`,
+        traceIds: [traceId],
+      });
+      await deferTraceArtifacts({
+        artifactDir,
+        perfCase: pendingCase,
+        engine: "v2",
+      });
+    }
+    const pendingFetchTailStartedAt = Date.now();
+    const pendingFetchTailLifecycle =
+      await finalizePerfTraceJobTailLifecycle({
+        reconcileArtifact: reconcileTailArtifact,
+      });
+    const pendingFetchTail = pendingFetchTailLifecycle.results;
+    const pendingFetchTailElapsedMs = Date.now() - pendingFetchTailStartedAt;
+    assert.ok(
+      pendingFetchTailElapsedMs <= 100,
+      `pending fetch tail took ${pendingFetchTailElapsedMs}ms`,
+    );
+    assert.equal(pendingFetchTail.length, pendingFetchCases.length);
+    assert.ok(
+      pendingFetchTail.every(({ summary: tailSummary }) =>
+        tailSummary.savedTraces.every((trace) =>
+          ["saved", "missing", "error", "skipped"].includes(trace.status),
+        ),
+      ),
+    );
+    assert.ok(
+      pendingFetchTail.every(
+        ({ summary: tailSummary }) =>
+          tailSummary.savedTraceCount +
+            tailSummary.failedTraceCount +
+            tailSummary.skippedTraceCount ===
+          tailSummary.traceRefCount,
+      ),
+    );
+    assert.match(
+      pendingFetchTail.at(-1).summary.traceFetchBreakerReason,
+      /job budget 100ms/,
+    );
+    assert.ok(
+      pendingFetchTail.at(-1).summary.traceFetchJobWaitMs >=
+        pendingFetchTailElapsedMs - 5,
+    );
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries(previousEnv)) {

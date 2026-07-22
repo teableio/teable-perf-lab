@@ -258,12 +258,16 @@ It must not delete reusable seed tables on a cacheable case.
 CI splits seed construction from measured execution:
 
 ```text
-seed shard N -> restore shard cache or migrate + e2e seed -> initApp once -> seed shard N fixtures -> pg_dump N
-execute v1 shard N -> restore seed dump N -> initApp once -> run shard N serially
-execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its mode subset serially
+seed shard N -> restore shard cache or migrate + e2e seed -> initApp once -> seed shard N fixtures -> bounded trace tail -> pg_dump N
+execute v1 shard N -> restore seed dump N -> initApp once -> run shard N serially -> bounded trace tail
+execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its mode subset serially -> bounded trace tail
 ```
 
 The seed and execute jobs run in parallel for a full `case_filter=all` run.
+Every case writes its measured payload before trace retrieval. One job-tail
+flush/settle/fetch pass then finalizes all per-case manifests and rewrites only
+their trace blocks, so Jaeger waiting is outside case duration and is bounded by
+the shared job budget.
 `scripts/run-plan.mjs` reads literal `seedAffinity` declarations from registered
 case contracts and merges them with the accepted legacy affinity families in
 `scripts/full-run-shard-model.mjs`. Every resulting physical-fixture family is
