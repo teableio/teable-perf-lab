@@ -338,6 +338,7 @@ try {
       traceIds: [
         "88888888888888888888888888888888",
         "99999999999999999999999999999999",
+        "99999999999999999999999999999999",
       ],
     });
     const hardOutageSummary = await writeTraceArtifacts({
@@ -347,7 +348,9 @@ try {
     });
     assert.equal(fetchCount, 1);
     assert.equal(hardOutageSummary.failedTraceCount, 1);
-    assert.equal(hardOutageSummary.skippedTraceCount, 1);
+    assert.equal(hardOutageSummary.traceRefCount, 3);
+    assert.equal(hardOutageSummary.uniqueTraceCount, 2);
+    assert.equal(hardOutageSummary.skippedTraceCount, 2);
     assert.equal(hardOutageSummary.traceFetchBreakerState, "hard-outage");
     assert.match(
       hardOutageSummary.traceFetchBreakerReason,
@@ -357,7 +360,7 @@ try {
       hardOutageSummary.savedTraceCount +
         hardOutageSummary.failedTraceCount +
         hardOutageSummary.skippedTraceCount,
-      hardOutageSummary.uniqueTraceCount,
+      hardOutageSummary.traceRefCount,
     );
 
     resetPerfTraceRefs();

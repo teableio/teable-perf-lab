@@ -158,8 +158,8 @@ try {
 
   assert.deepEqual(traceWaste([executePayload]), {
     missingCount: 4,
-    wastedMs: 1500,
-    byEngine: { v2: { missing: 4, wastedMs: 1500 } },
+    wastedMs: 2000,
+    byEngine: { v2: { missing: 4, wastedMs: 2000 } },
   });
   assert.deepEqual(traceServiceOutage([executePayload]), {
     skippedFetchCount: 0,

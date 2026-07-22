@@ -46,6 +46,24 @@ try {
   const { createTraceEvidencePolicy, normalizeTraceRequestBodyShape } =
     await import(pathToFileURL(evidencePolicyFile));
 
+  assert.notEqual(
+    normalizeTraceRequestBodyShape({
+      records: [
+        { fields: { Name: "A" } },
+        { fields: { Name: "B" } },
+        { fields: { Name: "C" } },
+      ],
+    }),
+    normalizeTraceRequestBodyShape({
+      records: [
+        { fields: { Name: "A" } },
+        { fields: { Name: "B", Count: 2 } },
+        { fields: { Name: "C" } },
+      ],
+    }),
+    "heterogeneous array element structures must not share a write representative",
+  );
+
   assert.equal(
     normalizeTraceStepShape("formSubmitP95Ms:150"),
     "formSubmitP95Ms:#",
@@ -287,7 +305,7 @@ try {
   );
   assert.equal(
     semanticPolicy.requestShape(semanticRefs[2]),
-    'writeBatch:# POST /api/table/:tbl/record {"records":[{"fields":{"Count":"number","Name":"string"}}]}',
+    'writeBatch:# POST /api/table/:tbl/record {"records":{"$arrayLength":1,"$itemShapes":[{"fields":{"Count":"number","Name":"string"}}]}}',
   );
   assert.notEqual(
     semanticPolicy.requestShape(semanticRefs[2]),

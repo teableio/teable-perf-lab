@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { TraceFetchArtifactState } from "./trace-fetch-control";
 import type { MetricThreshold, PerfCase, PerfRunResult } from "./types";
 
 export interface PerfArtifactPayload {
@@ -93,7 +94,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               traceFetchJobBudgetMs?: number;
               traceFetchWaitMs?: number;
               traceFetchJobWaitMs?: number;
-              traceFetchBreakerState?: string;
+              traceFetchBreakerState?: TraceFetchArtifactState;
               traceFetchBreakerReason?: string;
               traceFetchRecoveryProbeCount?: number;
               traceFetchRecoverySucceeded?: boolean;

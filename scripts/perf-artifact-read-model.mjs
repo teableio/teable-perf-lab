@@ -303,8 +303,7 @@ export const traceWaste = (payloads) => {
       numberOrUndefined(traces?.fetchConcurrency) ?? 1,
       1,
     );
-    const wasted =
-      numberOrUndefined(traces?.traceFetchWaitMs) ?? wastedSum / concurrency;
+    const wasted = wastedSum / concurrency;
     missingCount += missing;
     wastedMs += wasted;
     const bucket = (byEngine[payload.engine] ??= { missing: 0, wastedMs: 0 });

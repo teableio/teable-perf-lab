@@ -21,22 +21,50 @@ const requestBodyShapeValue = (
     return typeof value;
   }
   if (Array.isArray(value)) {
-    return value.length > 0
-      ? [requestBodyShapeValue(value[0], seen, depth + 1)]
-      : [];
+    if (seen.has(value)) {
+      return "circular";
+    }
+    seen.add(value);
+    try {
+      const itemShapes = new Map<string, unknown>();
+      for (const child of value) {
+        const childShape = requestBodyShapeValue(child, seen, depth + 1);
+        itemShapes.set(JSON.stringify(childShape), childShape);
+      }
+      return {
+        $arrayLength: value.length,
+        $itemShapes: [...itemShapes.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([, shape]) => shape),
+      };
+    } finally {
+      seen.delete(value);
+    }
   }
   if (typeof value === "object") {
     if (seen.has(value)) {
       return "circular";
     }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return {
+        $type:
+          (value as { constructor?: { name?: string } }).constructor?.name ??
+          "object",
+      };
+    }
     seen.add(value);
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => [
-        key,
-        requestBodyShapeValue(child, seen, depth + 1),
-      ]);
-    return Object.fromEntries(entries);
+    try {
+      const entries = Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [
+          key,
+          requestBodyShapeValue(child, seen, depth + 1),
+        ]);
+      return Object.fromEntries(entries);
+    } finally {
+      seen.delete(value);
+    }
   }
   return typeof value;
 };

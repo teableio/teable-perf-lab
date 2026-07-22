@@ -242,7 +242,7 @@ sampled fallback refs before recording a failed fetch. Refs with an unsampled
 those traces are not expected to be stored. Sampled refs above the snapshot cap,
 outside a case's include pattern, replaced by a saved fallback trace, or covered
 by an already saved same-shape trace are also recorded as skipped so the manifest
-explains any intentional `uniqueTraceCount > savedTraceCount` gap.
+explains any intentional `traceRefCount > savedTraceCount` gap.
 
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
 (15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (60 seconds). After
