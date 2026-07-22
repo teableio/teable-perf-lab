@@ -161,10 +161,197 @@ export const FULL_RUN_FIXTURE_AFFINITIES = [
   },
 ];
 
+// Full regression keeps the scale-up sibling for low-signal workloads while
+// preserving the smaller case in the registry for targeted/manual runs. This
+// first batch was calibrated from full run 29912515531: the omitted case had a
+// slower-engine primary metric below 500 ms and the replacement exercises the
+// same workload shape at a larger scale.
+export const FULL_RUN_SCALE_REPLACEMENTS = {
+  "duplicate-table/10k-20f": "duplicate-table/50k-20f",
+  "field-delete/10k-delete-active-field":
+    "field-delete/50k-delete-active-field",
+  "field-delete/10k-delete-amount-field":
+    "field-delete/50k-delete-amount-field",
+  "field-delete/10k-delete-description-field":
+    "field-delete/50k-delete-description-field",
+  "field-delete/10k-delete-owner-text-field":
+    "field-delete/50k-delete-owner-text-field",
+  "field-delete/10k-delete-score-field": "field-delete/50k-delete-score-field",
+  "field-delete/10k-delete-start-date-field":
+    "field-delete/50k-delete-start-date-field",
+  "field-delete/10k-delete-status-field":
+    "field-delete/50k-delete-status-field",
+  "field-delete/10k-delete-tags-field": "field-delete/50k-delete-tags-field",
+  "form-submit/sequential-50-checkbox-10fields":
+    "form-submit/sequential-500-checkbox-10fields",
+  "form-submit/sequential-50-date-10fields":
+    "form-submit/sequential-500-date-10fields",
+  "form-submit/sequential-50-long-text-10fields":
+    "form-submit/sequential-500-long-text-10fields",
+  "form-submit/sequential-50-multiple-select-10fields":
+    "form-submit/sequential-500-multiple-select-10fields",
+  "form-submit/sequential-50-number-10fields":
+    "form-submit/sequential-500-number-10fields",
+  "form-submit/sequential-50-primary-only":
+    "form-submit/sequential-500-primary-only",
+  "form-submit/sequential-50-rating-10fields":
+    "form-submit/sequential-500-rating-10fields",
+  "form-submit/sequential-50-single-line-text-10fields":
+    "form-submit/sequential-500-single-line-text-10fields",
+  "form-submit/sequential-50-single-line-text-20fields":
+    "form-submit/sequential-500-single-line-text-20fields",
+  "form-submit/sequential-50-single-select-10fields":
+    "form-submit/sequential-500-single-select-10fields",
+  "lookup/customer-create-order-only-4k-depth5":
+    "lookup/customer-create-order-only-20k-depth5",
+  "lookup/customer-update-user-control-field-create-order-4k-depth5":
+    "lookup/customer-update-user-control-field-create-order-20k-depth5",
+  "record-create/1k-checkbox-fields-bulk-create":
+    "record-create/5k-checkbox-fields-bulk-create",
+  "record-create/1k-date-fields-bulk-create":
+    "record-create/5k-date-fields-bulk-create",
+  "record-create/1k-long-text-fields-bulk-create":
+    "record-create/5k-long-text-fields-bulk-create",
+  "record-create/1k-multiple-select-fields-bulk-create":
+    "record-create/5k-multiple-select-fields-bulk-create",
+  "record-create/1k-number-fields-bulk-create":
+    "record-create/5k-number-fields-bulk-create",
+  "record-create/1k-primary-text-only-bulk-create":
+    "record-create/5k-primary-text-only-bulk-create",
+  "record-create/1k-rating-field-bulk-create":
+    "record-create/5k-rating-field-bulk-create",
+  "record-create/1k-single-select-fields-bulk-create":
+    "record-create/5k-single-select-fields-bulk-create",
+  "record-create/1k-wide-table-title-only-bulk-create":
+    "record-create/5k-wide-table-title-only-bulk-create",
+  "record-delete/delete-1k": "record-delete/delete-5k",
+  "record-delete/delete-stream-1k": "record-delete/delete-stream-10k",
+  "record-delete/link-trash-1k": "record-delete/link-trash-5k",
+  "record-duplicate/single-50-checkbox-10fields":
+    "record-duplicate/single-500-checkbox-10fields",
+  "record-duplicate/single-50-date-10fields":
+    "record-duplicate/single-500-date-10fields",
+  "record-duplicate/single-50-long-text-10fields":
+    "record-duplicate/single-500-long-text-10fields",
+  "record-duplicate/single-50-mixed-20fields":
+    "record-duplicate/single-500-mixed-20fields",
+  "record-duplicate/single-50-multiple-select-10fields":
+    "record-duplicate/single-500-multiple-select-10fields",
+  "record-duplicate/single-50-number-10fields":
+    "record-duplicate/single-500-number-10fields",
+  "record-duplicate/single-50-primary-only":
+    "record-duplicate/single-500-primary-only",
+  "record-duplicate/single-50-rating-10fields":
+    "record-duplicate/single-500-rating-10fields",
+  "record-duplicate/single-50-single-line-text-10fields":
+    "record-duplicate/single-500-single-line-text-10fields",
+  "record-duplicate/single-50-single-select-10fields":
+    "record-duplicate/single-500-single-select-10fields",
+  "record-paste/1k-primary-only": "record-paste/10k-primary-only",
+  "record-read/10k-50fields-filter-number-greater-half":
+    "record-read/100k-50fields-filter-number-greater-half",
+  "record-read/10k-50fields-filter-number-range-middle-half":
+    "record-read/100k-50fields-filter-number-range-middle-half",
+  "record-read/10k-50fields-filter-number-sort-descending":
+    "record-read/100k-50fields-filter-number-sort-descending",
+  "record-read/10k-50fields-filter-sort-groupby-selective":
+    "record-read/50k-50fields-filter-sort-groupby-selective",
+  "record-read/10k-50fields-filter-text-not-empty":
+    "record-read/50k-50fields-filter-text-not-empty",
+  "record-read/10k-50fields-group-number-low-cardinality":
+    "record-read/50k-50fields-group-number-low-cardinality",
+  "record-read/10k-50fields-search-title-visible-rows":
+    "record-read/50k-50fields-search-title-visible-rows",
+  "record-read/10k-50fields-sort-text-ascending":
+    "record-read/50k-50fields-sort-text-ascending",
+  "record-read/10k-50fields-sort-three-fields":
+    "record-read/50k-50fields-sort-three-fields",
+  "record-read/50k-50fields-filter-number-greater-half":
+    "record-read/100k-50fields-filter-number-greater-half",
+  "record-read/50k-50fields-filter-number-range-middle-half":
+    "record-read/100k-50fields-filter-number-range-middle-half",
+  "record-read/50k-50fields-filter-number-sort-descending":
+    "record-read/100k-50fields-filter-number-sort-descending",
+  "record-redo/delete-1k": "record-redo/delete-10k",
+  "record-update/1k-checkbox-fields-bulk-update":
+    "record-update/5k-checkbox-fields-bulk-update",
+  "record-update/1k-long-text-fields-bulk-update":
+    "record-update/5k-long-text-fields-bulk-update",
+  "record-update/1k-multiple-select-fields-bulk-update":
+    "record-update/5k-multiple-select-fields-bulk-update",
+  "record-update/1k-primary-text-only-bulk-update":
+    "record-update/5k-primary-text-only-bulk-update",
+  "record-update/1k-single-select-fields-bulk-update":
+    "record-update/5k-single-select-fields-bulk-update",
+  "record-update/1k-wide-table-title-only-bulk-update":
+    "record-update/5k-wide-table-title-only-bulk-update",
+  "search/search-index-off-10k-20search-fields":
+    "search/search-index-off-100k-20search-fields",
+  "search/search-index-off-50k-20search-fields":
+    "search/search-index-off-100k-20search-fields",
+  "search/search-index-on-10k-20search-fields":
+    "search/search-index-on-100k-20search-fields",
+  "search/search-index-on-50k-20search-fields":
+    "search/search-index-on-100k-20search-fields",
+  "table-create/1x-1f-1k-primary-only": "table-create/1x-1f-5k-primary-only",
+  "table-delete/10k-20f": "table-delete/50k-20f",
+  "table-restore/10k-20f": "table-restore/50k-20f",
+  "table-restore/10k-20f-link-1k": "table-restore/50k-20f-link-1k",
+};
+
+export const validateFullRunScaleReplacements = ({
+  allCaseIds,
+  replacements = FULL_RUN_SCALE_REPLACEMENTS,
+}) => {
+  const registeredCaseIds = new Set(allCaseIds);
+  const omittedCaseIds = new Set(Object.keys(replacements));
+  const issues = [];
+
+  for (const [omittedCaseId, replacementCaseId] of Object.entries(
+    replacements,
+  )) {
+    if (!registeredCaseIds.has(omittedCaseId)) {
+      issues.push(
+        `Full-run scale policy references unknown case ${omittedCaseId}`,
+      );
+    }
+    if (!registeredCaseIds.has(replacementCaseId)) {
+      issues.push(
+        `Full-run scale policy replacement is unknown: ${omittedCaseId} -> ${replacementCaseId}`,
+      );
+    }
+    if (omittedCaseId === replacementCaseId) {
+      issues.push(
+        `Full-run scale policy replaces ${omittedCaseId} with itself`,
+      );
+    }
+    if (omittedCaseIds.has(replacementCaseId)) {
+      issues.push(
+        `Full-run scale policy replacement is also omitted: ${omittedCaseId} -> ${replacementCaseId}`,
+      );
+    }
+  }
+
+  return issues;
+};
+
+export const resolveFullRunCaseIds = ({
+  allCaseIds,
+  replacements = FULL_RUN_SCALE_REPLACEMENTS,
+}) => {
+  const issues = validateFullRunScaleReplacements({ allCaseIds, replacements });
+  if (issues.length > 0) {
+    throw new Error(issues.join("\n"));
+  }
+
+  const omittedCaseIds = new Set(Object.keys(replacements));
+  return allCaseIds.filter((caseId) => !omittedCaseIds.has(caseId));
+};
+
 // Keep full-run wall time close to the fixed report stage without creating an
-// unbounded matrix. At the current catalog size this resolves to seven shards;
-// it grows automatically as cases are added, up to the point where the 2026-07
-// calibration showed no material gain from more parallel jobs.
+// unbounded matrix. It grows automatically as cases are added, up to the point
+// where the 2026-07 calibration showed no material gain from more parallel
+// jobs.
 export const FULL_RUN_TARGET_CASES_PER_SHARD = 40;
 export const FULL_RUN_MAX_SHARD_COUNT = 8;
 

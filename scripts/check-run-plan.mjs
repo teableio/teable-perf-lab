@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import {
   FULL_RUN_FIXTURE_AFFINITIES,
   FULL_RUN_MAX_SHARD_COUNT,
+  FULL_RUN_SCALE_REPLACEMENTS,
   FULL_RUN_TARGET_CASES_PER_SHARD,
+  resolveFullRunCaseIds,
   resolveFullRunShardCount,
   shardCaseIdsByFixtureAffinity,
+  validateFullRunScaleReplacements,
   validateFixtureAffinities,
 } from "./full-run-shard-model.mjs";
 import {
@@ -16,8 +19,11 @@ import {
 } from "./run-plan.mjs";
 
 const allCaseIds = await loadRegisteredCaseIds();
+const expectedFullRunCaseIds = resolveFullRunCaseIds({ allCaseIds });
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
-const fullRunShardCount = resolveFullRunShardCount(allCaseIds.length);
+const fullRunShardCount = resolveFullRunShardCount(
+  expectedFullRunCaseIds.length,
+);
 
 const assertShardedPlan = ({
   plans,
@@ -90,7 +96,35 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
 assert.equal(fullRunShardCount, 8);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
-  allCaseIds.slice().sort(),
+  expectedFullRunCaseIds.slice().sort(),
+);
+assert.equal(Object.keys(FULL_RUN_SCALE_REPLACEMENTS).length, 71);
+assert.equal(expectedFullRunCaseIds.length, allCaseIds.length - 71);
+for (const [omittedCaseId, replacementCaseId] of Object.entries(
+  FULL_RUN_SCALE_REPLACEMENTS,
+)) {
+  assert.equal(
+    fullRunCaseShards.flat().includes(omittedCaseId),
+    false,
+    `${omittedCaseId} must be omitted from full runs`,
+  );
+  assert.equal(
+    fullRunCaseShards.flat().includes(replacementCaseId),
+    true,
+    `${replacementCaseId} must replace ${omittedCaseId} in full runs`,
+  );
+}
+const [targetedOmittedCaseId] = Object.keys(FULL_RUN_SCALE_REPLACEMENTS);
+const targetedOmittedCasePlan = resolveRunPlan({
+  engineFilter: "v1",
+  caseFilter: targetedOmittedCaseId,
+  computedUpdateMode: "",
+  allCaseIds,
+});
+assert.equal(
+  targetedOmittedCasePlan.executePlan[0].caseFilter,
+  targetedOmittedCaseId,
+  "small-scale cases omitted from full runs must remain runnable by exact filter",
 );
 
 const shardIndexByCaseId = new Map();
@@ -98,9 +132,16 @@ fullRunCaseShards.forEach((caseIds, shardIndex) =>
   caseIds.forEach((caseId) => shardIndexByCaseId.set(caseId, shardIndex)),
 );
 for (const affinity of FULL_RUN_FIXTURE_AFFINITIES) {
+  const activeAffinityCaseIds = affinity.caseIds.filter((caseId) =>
+    shardIndexByCaseId.has(caseId),
+  );
+  if (activeAffinityCaseIds.length < 2) {
+    continue;
+  }
   assert.equal(
-    new Set(affinity.caseIds.map((caseId) => shardIndexByCaseId.get(caseId)))
-      .size,
+    new Set(
+      activeAffinityCaseIds.map((caseId) => shardIndexByCaseId.get(caseId)),
+    ).size,
     1,
     `${affinity.id} must stay in one seed shard`,
   );
@@ -153,6 +194,31 @@ assert.equal(explicitHybridFullRunPlan.caseFilterKey, "all");
 assert.deepEqual(
   explicitHybridFullRunPlan.seedPlan,
   defaultFullRunPlan.seedPlan,
+);
+
+assert.deepEqual(
+  validateFullRunScaleReplacements({
+    allCaseIds: ["small", "large"],
+    replacements: { small: "large" },
+  }),
+  [],
+);
+assert.deepEqual(
+  validateFullRunScaleReplacements({
+    allCaseIds: ["small", "large"],
+    replacements: {
+      missing: "large",
+      small: "missing-replacement",
+      large: "large",
+    },
+  }),
+  [
+    "Full-run scale policy references unknown case missing",
+    "Full-run scale policy replacement is also omitted: missing -> large",
+    "Full-run scale policy replacement is unknown: small -> missing-replacement",
+    "Full-run scale policy replaces large with itself",
+    "Full-run scale policy replacement is also omitted: large -> large",
+  ],
 );
 assertShardedPlan({
   plans: explicitHybridFullRunPlan.executePlan,

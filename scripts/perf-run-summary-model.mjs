@@ -259,6 +259,103 @@ export const resultCounts = (payloads) => {
 
 const chartUrlForCase = (caseId, chartUrl) => `${chartUrl}#${caseId}`;
 
+export const DEFAULT_GITHUB_SUMMARY_MAX_BYTES = 256 * 1024;
+
+const comparisonSource = (row) =>
+  row.baselineLabel === "V1"
+    ? `V1 ${row.v1}`
+    : `${row.baselineLabel ?? "V1"} ${row.baseline}`;
+
+const comparisonLine = (row, chartUrl, prefix = "") =>
+  `${prefix}[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)}) ${comparisonSource(row)} → V2 ${row.v2} **${row.comparison}**`;
+
+const markdownBytes = (value) => Buffer.byteLength(value, "utf8");
+
+export const buildPerfSummaryMarkdown = ({
+  payloads,
+  comparisonBaselines,
+  context = {},
+  maxBytes = DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
+}) => {
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error(
+      `maxBytes must be a positive integer, received ${maxBytes}`,
+    );
+  }
+
+  const counts = resultCounts(payloads);
+  const rows = buildCaseRows(payloads, { comparisonBaselines });
+  const attentionRows = rows.filter((row) => row.status === "attention");
+  const neutralRows = rows.filter((row) => row.status === "neutral");
+  const omittedOkCount =
+    rows.length - attentionRows.length - neutralRows.length;
+  const detailRows = [
+    ...attentionRows.map((row) => ({ row, prefix: "🔴 " })),
+    ...neutralRows.map((row) => ({ row, prefix: "⚪ " })),
+  ];
+  const runId = context.runId ?? payloads[0]?.runId ?? "";
+  const heading = [
+    "## Teable EE performance summary",
+    "",
+    `- Target: \`${context.teableRef || "unknown"}\`${context.sha ? ` @ \`${context.sha}\`` : ""}`,
+    `- Run: ${runId || "unknown"} · Job: ${context.executeResult || "unknown"}`,
+    `- Results: ${counts.pass} passed · ${counts.skipped} skipped · ${counts.fail} failed`,
+    `- Comparisons: ${rows.length} total · ${attentionRows.length} regressions · ${neutralRows.length} pending`,
+    "",
+    "### Regressions and pending comparisons",
+    "",
+  ];
+  const footerLinks = [
+    context.runUrl ? `[CI run](${context.runUrl})` : "",
+    context.teableResultsUrl
+      ? `[Performance Track](${context.teableResultsUrl})`
+      : "",
+    context.chartUrl ? `[Charts](${context.chartUrl})` : "",
+  ].filter(Boolean);
+  const footer = [
+    "",
+    omittedOkCount > 0
+      ? `Omitted ${omittedOkCount} V2 faster or equal comparisons.`
+      : "No V2 faster or equal comparisons were omitted.",
+    ...(footerLinks.length > 0 ? ["", footerLinks.join(" · ")] : []),
+    "",
+  ];
+  const render = (details, truncatedCount) =>
+    [
+      ...heading,
+      ...(details.length > 0 ? details : ["None."]),
+      ...(truncatedCount > 0
+        ? [
+            "",
+            `Truncated ${truncatedCount} detail rows to stay within ${maxBytes} bytes.`,
+          ]
+        : []),
+      ...footer,
+    ].join("\n");
+
+  const detailLines = [];
+  for (let index = 0; index < detailRows.length; index += 1) {
+    const { row, prefix } = detailRows[index];
+    const candidate = [
+      ...detailLines,
+      `- ${comparisonLine(row, context.chartUrl ?? "", prefix)}`,
+    ];
+    const truncatedCount = detailRows.length - candidate.length;
+    if (markdownBytes(render(candidate, truncatedCount)) > maxBytes) {
+      break;
+    }
+    detailLines.push(candidate.at(-1));
+  }
+
+  const markdown = render(detailLines, detailRows.length - detailLines.length);
+  if (markdownBytes(markdown) > maxBytes) {
+    throw new Error(
+      `GitHub perf summary fixed content exceeds ${maxBytes} bytes; increase the configured budget`,
+    );
+  }
+  return markdown;
+};
+
 const timingColumn = (label, value, suffix = "", weight = 1) => ({
   tag: "column",
   width: "weighted",
@@ -340,22 +437,15 @@ export const buildPerfSummaryCard = ({
         : "green";
   const dot = (status) =>
     status === "attention" ? "🔴" : status === "neutral" ? "⚪" : "🟢";
-  const formatCaseLine = (row) => {
-    const source =
-      row.baselineLabel === "V1"
-        ? `V1 ${row.v1}`
-        : `${row.baselineLabel ?? "V1"} ${row.baseline}`;
-    return `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)})**  ${source} → V2 ${row.v2}  **${row.comparison}**`;
-  };
+  const formatCaseLine = (row) =>
+    `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)})**  ${comparisonSource(row)} → V2 ${row.v2}  **${row.comparison}**`;
   const regressionText =
     regressionRows.length > 0
       ? regressionRows.map(formatCaseLine).join("\n")
       : "无";
   const neutralRows = rows.filter((row) => row.status === "neutral");
   const neutralText =
-    neutralRows.length > 0
-      ? neutralRows.map(formatCaseLine).join("\n")
-      : "无";
+    neutralRows.length > 0 ? neutralRows.map(formatCaseLine).join("\n") : "无";
   const omittedOkCount = rows.filter((row) => row.status === "ok").length;
   const statusText = workflowFailed
     ? "执行失败"
