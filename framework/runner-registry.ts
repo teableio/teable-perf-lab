@@ -60,6 +60,10 @@ import {
   runRecordDeleteStreamCase,
   seedRecordDeleteStreamCase,
 } from "./runners/record-delete-stream.runner";
+import {
+  runRecordRestoreCase,
+  seedRecordRestoreCase,
+} from "./runners/record-restore.runner";
 import { runRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { seedRecordDeleteLinkCase } from "./runners/record-delete-link.runner";
 import { runRecordDuplicateSingleCase } from "./runners/record-duplicate-single.runner";
@@ -467,6 +471,14 @@ const runnerInventory = {
     },
     execute: runRecordDeleteStreamCase,
     seed: seedRecordDeleteStreamCase,
+  },
+  "record-restore": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runRecordRestoreCase,
+    seed: seedRecordRestoreCase,
   },
   "record-undo": {
     implementation: {

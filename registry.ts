@@ -379,6 +379,9 @@ import recordDeleteStream10kCase from "./cases/record-delete/delete-stream-10k.c
 import recordDeleteStream30kCase from "./cases/record-delete/delete-stream-30k.case";
 import recordDeleteLinkTrash1kCase from "./cases/record-delete/link-trash-1k.case";
 import recordDeleteLinkTrash5kCase from "./cases/record-delete/link-trash-5k.case";
+import recordRestore1kCase from "./cases/record-restore/restore-1k.case";
+import recordRestore10kCase from "./cases/record-restore/restore-10k.case";
+import recordRestore50kCase from "./cases/record-restore/restore-50k.case";
 import recordRedoDelete1kCase from "./cases/record-redo/delete-1k.case";
 import recordRedoDelete10kCase from "./cases/record-redo/delete-10k.case";
 import recordUndoDelete1kCase from "./cases/record-undo/delete-1k.case";
@@ -618,6 +621,9 @@ const cases = [
   formSubmitSequential500Rating100FieldsCase,
   selectionClearFlat1k20FieldsCellClearStreamCase,
   selectionClearFlat10k20FieldsCellClearStreamCase,
+  recordRestore1kCase,
+  recordRestore10kCase,
+  recordRestore50kCase,
   recordDelete1kCase,
   recordDelete5kCase,
   recordDeleteStream1kCase,
@@ -900,6 +906,10 @@ const caseAliases = new Map([
   ["delete-stream/10k", "record-delete/delete-stream-10k"],
   ["record-delete/link", "record-delete/link-trash-1k"],
   ["delete/link-trash", "record-delete/link-trash-1k"],
+  ["record-restore", "record-restore/restore-1k"],
+  ["restore-records/1k", "record-restore/restore-1k"],
+  ["restore-records/10k", "record-restore/restore-10k"],
+  ["restore-records/50k", "record-restore/restore-50k"],
   ["record-read", "record-read/10k-50fields-10x1k-pages"],
   ["get-records", "record-read/10k-50fields-10x1k-pages"],
   ["get-records/10k", "record-read/10k-50fields-10x1k-pages"],
