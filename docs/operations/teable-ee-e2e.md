@@ -249,7 +249,8 @@ Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
 `PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
 partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
 probe, then records the remaining refs as skipped instead of polling each one.
-An unavailable exporter or Jaeger opens a hard-outage breaker immediately.
+An unavailable exporter records `exporter-outage`; an unavailable Jaeger query
+path opens `hard-outage` immediately.
 `traceFetchWaitMs`, `traceFetchJobWaitMs`, breaker state/reason, recovery-probe
 counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
 manifest and case summary. These bounds reduce evidence-collection overhead;
