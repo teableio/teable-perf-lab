@@ -253,6 +253,49 @@ To verify observability after a run:
 The Jaeger UI link is durable while the shared service and retention window keep
 the trace. The JSON artifact is also uploaded as durable run evidence.
 
+## Full-run feedback evaluation
+
+Use the feedback evaluator after assembling one self-contained plan and
+telemetry JSON from the workflow jobs and lightweight result artifacts:
+
+```bash
+node scripts/evaluate-full-run-feedback.mjs <telemetry.json> --assert
+```
+
+The document must include all of the following. Missing or malformed evidence
+is an input error rather than a passing run:
+
+- a non-empty `runId`, `cacheMode`, and workflow queued/start/completion times;
+- `plan.requiredStages` containing exactly `seed`, `v1`, `v2-sync`,
+  `v2-hybrid`, and `report`, plus `plan.expectedResults`;
+- `phases.seed`, `phases.execute`, and `phases.report` start/completion times;
+- at least one job for every required stage, with the stage restricted to the
+  five values above and a shard on every non-report job;
+- result coverage whose expected count matches the plan;
+- non-empty seed-build observations with non-empty `caseId`, `seedHash`, shard,
+  and optional planner `affinityId`, plus build time; record a zero build time
+  for a cache hit without omitting its identity;
+- trace totals plus non-empty case/job wait observations; case waits require
+  `caseId`, engine, and shard, while job waits require the job name.
+
+The evaluator reports active workflow wall separately from runner queue time,
+reports phase wall windows separately from job-local step timing, selects the
+critical job in each stage, groups identical seed hashes rebuilt in multiple
+shards, and checks these feedback gates:
+
+- cold active wall: at most 45 minutes;
+- warm active wall: at most 25 minutes;
+- one observed seed identity must not be rebuilt in multiple shards;
+- trace wait attributed to one case: at most 15 seconds;
+- trace wait in one execute job: at most 60 seconds.
+
+Without `--assert`, an unhealthy run is printed for diagnosis and the command
+still succeeds. With `--assert`, a gate or result-coverage failure exits with
+status 1. An incomplete or malformed plan/telemetry document exits with status
+2 in either mode. Historical cold, warm, and slow-run examples live under
+`scripts/fixtures/full-run-feedback/` and are exercised by
+`pnpm check:full-run-feedback`.
+
 ## Manual examples
 
 Run smoke in both V1 and V2:
