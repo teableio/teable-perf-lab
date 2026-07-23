@@ -14,7 +14,10 @@ import {
 } from "./seed-cache-model.mjs";
 
 assert.equal(normalizeSeedCacheNamespace(), "");
-assert.equal(normalizeSeedCacheNamespace(" ticket-07-cold-warm "), "ticket-07-cold-warm");
+assert.equal(
+  normalizeSeedCacheNamespace(" ticket-07-cold-warm "),
+  "ticket-07-cold-warm",
+);
 assert.throws(
   () => normalizeSeedCacheNamespace("unsafe/cache"),
   /seed_cache_namespace must contain only/,
@@ -324,6 +327,19 @@ assert.equal(
   workflow.jobs.resolve_inputs.outputs.seed_cache_namespace_segment,
   "${{ steps.engines.outputs.seed_cache_namespace_segment }}",
 );
+assert.equal(
+  workflow.jobs.resolve_inputs.outputs.teable_ee_sha,
+  "${{ steps.teable-ee-revision.outputs.sha }}",
+);
+const resolveTeableCheckout = workflow.jobs.resolve_inputs.steps.find(
+  (step) => step.name === "Checkout teable-ee revision",
+);
+assert.equal(resolveTeableCheckout.with.ref, "${{ inputs.teable_ee_ref }}");
+const resolveTeableRevision = workflow.jobs.resolve_inputs.steps.find(
+  (step) => step.id === "teable-ee-revision",
+);
+assert.equal(resolveTeableRevision["working-directory"], "teable-ee-revision");
+assert.match(resolveTeableRevision.run, /git rev-parse HEAD/);
 const seedSteps = workflow.jobs.seed.steps;
 const revisionStep = workflow.jobs.resolve_inputs.steps.find(
   (step) => step.name === "Verify pinned perf-lab revision",
@@ -334,21 +350,27 @@ assert.equal(
   "${{ inputs.expected_perf_lab_sha }}",
 );
 assert.match(revisionStep.run, /GITHUB_SHA/);
-const teableEeRevisionStep = seedSteps.find(
-  (step) => step.id === "teable-ee-revision",
+const seedTeableCheckout = seedSteps.find(
+  (step) => step.name === "Checkout teable-ee",
 );
-assert.equal(teableEeRevisionStep["working-directory"], "teable-ee");
-assert.match(teableEeRevisionStep.run, /git rev-parse HEAD/);
+assert.equal(
+  seedTeableCheckout.with.ref,
+  "${{ needs.resolve_inputs.outputs.teable_ee_sha }}",
+);
+const executeTeableCheckout = workflow.jobs.execute.steps.find(
+  (step) => step.name === "Checkout teable-ee",
+);
+assert.equal(
+  executeTeableCheckout.with.ref,
+  "${{ needs.resolve_inputs.outputs.teable_ee_sha }}",
+);
 const restoreStep = seedSteps.find((step) => step.id === "seed-db-cache");
 assert.match(restoreStep.with.key, /seed_cache_namespace_segment/);
 assert.match(restoreStep.with.key, /matrix\.plan\.caseSetDigest/);
 assert.match(restoreStep.with.key, /matrix\.plan\.stableSlot/);
 assert.match(restoreStep.with.key, /matrix\.plan\.seedContractGeneration/);
 assert.doesNotMatch(restoreStep.with["restore-keys"], /caseFilterKey/);
-assert.match(
-  restoreStep.with["restore-keys"],
-  /seed_cache_namespace_segment/,
-);
+assert.match(restoreStep.with["restore-keys"], /seed_cache_namespace_segment/);
 assert.doesNotMatch(restoreStep.with.key, /inputs\.seed_cache_namespace/);
 assert.match(restoreStep.with["restore-keys"], /matrix\.plan\.stableSlot/);
 assert.match(
@@ -379,8 +401,22 @@ assert.equal(
 assert.equal(statusStep.env.PERF_LAB_SHA, "${{ github.sha }}");
 assert.equal(
   statusStep.env.TEABLE_EE_SHA,
-  "${{ steps.teable-ee-revision.outputs.sha }}",
+  "${{ needs.resolve_inputs.outputs.teable_ee_sha }}",
 );
+
+for (const reporterName of [
+  "Report perf results to Teable",
+  "Send Feishu perf summary",
+  "Publish combined summary",
+]) {
+  const reporter = workflow.jobs.report.steps.find(
+    (step) => step.name === reporterName,
+  );
+  assert.equal(
+    reporter.env.PERF_LAB_TEABLE_EE_REF,
+    "${{ needs.resolve_inputs.outputs.teable_ee_sha }}",
+  );
+}
 
 const buildStep = seedSteps.find((step) => step.name === "Build perf seed DB");
 assert.equal(

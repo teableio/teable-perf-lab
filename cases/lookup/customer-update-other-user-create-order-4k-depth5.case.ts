@@ -4,6 +4,7 @@ export default definePerfCase({
   id: "lookup/customer-update-other-user-create-order-4k-depth5",
   title: "Update one User, then create an Order in another dependency subgraph",
   runner: "customer-upsert-computed-flow",
+  seedAffinity: "customer-upsert/4k-depth5",
   timeoutMs: 420_000,
   watchdogMs: 300_000,
   config: {

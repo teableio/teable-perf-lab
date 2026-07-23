@@ -19,7 +19,10 @@ const JOB_STAGE_PATTERNS = [
   },
 ];
 
-export const resolveTraceJobIdentity = (artifactPath, executionProfile = {}) => {
+export const resolveTraceJobIdentity = (
+  artifactPath,
+  executionProfile = {},
+) => {
   const shard = /shard-\d+-of-\d+/.exec(artifactPath)?.[0];
   if (!shard) {
     return undefined;
@@ -33,8 +36,7 @@ export const resolveTraceJobIdentity = (artifactPath, executionProfile = {}) => 
   }
   if (/teable-ee-e2e-perf-(?:results-)?v2-shard-/.test(artifactPath)) {
     return {
-      stage:
-        executionProfile.v2Mode === "hybrid" ? "v2HybridMs" : "v2SyncMs",
+      stage: executionProfile.v2Mode === "hybrid" ? "v2HybridMs" : "v2SyncMs",
       shard,
     };
   }
@@ -75,10 +77,7 @@ const resolveJobStage = (name, executionProfile) => {
   const unsplitV2 = /^Run perf cases \(v2-(shard-\d+-of-\d+)\)$/.exec(name);
   if (unsplitV2) {
     return {
-      stage:
-        executionProfile?.v2Mode === "hybrid"
-          ? "v2HybridMs"
-          : "v2SyncMs",
+      stage: executionProfile?.v2Mode === "hybrid" ? "v2HybridMs" : "v2SyncMs",
       shard: unsplitV2[1],
     };
   }
@@ -103,11 +102,36 @@ const resolveJobDurationMs = (job) => {
   return completedAtMs - startedAtMs;
 };
 
+export const selectLatestLogicalJobs = (jobs) => {
+  if (!Array.isArray(jobs)) {
+    throw new Error("jobs must be an array.");
+  }
+  const byName = new Map();
+  for (const jobInput of jobs) {
+    const job = assertRecord(jobInput, "jobs[]");
+    const name = assertNonEmptyString(job.name, "jobs[].name");
+    const entries = byName.get(name) ?? [];
+    entries.push(job);
+    byName.set(name, entries);
+  }
+  return [...byName]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([, entries]) =>
+        entries.sort((left, right) => {
+          const attempt =
+            Number(right.run_attempt ?? 0) - Number(left.run_attempt ?? 0);
+          return attempt || Number(right.id ?? 0) - Number(left.id ?? 0);
+        })[0],
+    );
+};
+
 const resolveObservedJobs = (jobs, traceWaitByJob, executionProfile) => {
   if (!Array.isArray(jobs)) {
     throw new Error("jobs must be an array.");
   }
   const observed = {};
+  const completedJobNames = new Set();
   for (const jobInput of jobs) {
     const job = assertRecord(jobInput, "jobs[]");
     const name = assertNonEmptyString(job.name, "jobs[].name");
@@ -119,6 +143,7 @@ const resolveObservedJobs = (jobs, traceWaitByJob, executionProfile) => {
     if (rawDurationMs == null) {
       continue;
     }
+    completedJobNames.add(name);
     const traceWaitMs =
       traceWaitByJob.get(`${classified.stage}:${classified.shard}`) ?? 0;
     const durationMs = Math.max(0, rawDurationMs - traceWaitMs);
@@ -133,7 +158,7 @@ const resolveObservedJobs = (jobs, traceWaitByJob, executionProfile) => {
       };
     }
   }
-  return observed;
+  return { stageMaxima: observed, completedJobNames };
 };
 
 const resolveTraceObservation = (traceObservation) => {
@@ -186,7 +211,10 @@ export const summarizeSeedCacheStatuses = (statuses) => {
   const modeCounts = {};
   for (const statusInput of statuses) {
     const status = assertRecord(statusInput, "seed cache statuses[]");
-    const mode = assertNonEmptyString(status.mode, "seed cache statuses[].mode");
+    const mode = assertNonEmptyString(
+      status.mode,
+      "seed cache statuses[].mode",
+    );
     modeCounts[mode] = (modeCounts[mode] ?? 0) + 1;
   }
   const modes = Object.keys(modeCounts);
@@ -227,9 +255,9 @@ const resolveSeedCacheObservation = (
     throw new Error(`Unsupported seed cache observation mode: ${mode}.`);
   }
   const statusCount = assertNonNegativeFinite(
-      observation.statusCount ?? 0,
-      "seedCacheObservation.statusCount",
-    );
+    observation.statusCount ?? 0,
+    "seedCacheObservation.statusCount",
+  );
   const complete = statusCount === expectedStatusCount;
   return {
     mode: complete ? mode : "incomplete",
@@ -254,6 +282,7 @@ export const observeStagePlan = ({
   traceObservation,
   seedCacheObservation,
   sourceRunId,
+  expectedJobNames = [],
 }) => {
   const stagePlan = planSummary?.stagePlan;
   if (!stagePlan) {
@@ -276,6 +305,16 @@ export const observeStagePlan = ({
     );
   }
   const resolvedTrace = resolveTraceObservation(traceObservation);
+  if (!Array.isArray(expectedJobNames)) {
+    throw new Error("expectedJobNames must be an array.");
+  }
+  const uniqueExpectedJobNames = [
+    ...new Set(
+      expectedJobNames.map((name, index) =>
+        assertNonEmptyString(name, `expectedJobNames[${index}]`),
+      ),
+    ),
+  ];
   const observedJobs = resolveObservedJobs(
     jobs,
     resolvedTrace.waitByJob,
@@ -313,10 +352,10 @@ export const observeStagePlan = ({
     comparedStages.flatMap((stage) => {
       const value =
         stage === "coldSeedMs" || stage === "warmSeedMs"
-          ? observedJobs.seedJobMs
+          ? observedJobs.stageMaxima.seedJobMs
           : stage === "traceMs"
             ? resolvedTrace.summary
-            : observedJobs[stage];
+            : observedJobs.stageMaxima[stage];
       return value == null ? [] : [[stage, value]];
     }),
   );
@@ -326,6 +365,9 @@ export const observeStagePlan = ({
   if (!resolvedSeedCache.predictionStage) {
     missingStages.unshift("seedCacheMode");
   }
+  const missingJobs = uniqueExpectedJobNames.filter(
+    (name) => !observedJobs.completedJobNames.has(name),
+  );
   const driftMs = Object.fromEntries(
     comparedStages.map((stage) => [
       stage,
@@ -346,8 +388,9 @@ export const observeStagePlan = ({
     },
     seedPredictionStage: resolvedSeedCache.predictionStage ?? null,
     comparedStages,
-    complete: missingStages.length === 0,
+    complete: missingStages.length === 0 && missingJobs.length === 0,
     missingStages,
+    missingJobs,
     predicted,
     observed,
     driftMs,
@@ -388,6 +431,12 @@ export const renderStagePlanObservationMarkdown = (observationInput) => {
     lines.push(
       "",
       `Missing observed stages: ${observation.missingStages.join(", ")}.`,
+    );
+  }
+  if (observation.missingJobs?.length > 0) {
+    lines.push(
+      "",
+      `Missing planned jobs: ${observation.missingJobs.join(", ")}.`,
     );
   }
   lines.push(

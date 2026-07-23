@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "lookup/foreign-select-flip-1of40-fanout500-20k",
   title: "Flip one foreign select and await its 500-order computed fanout",
   runner: "computed-chain-mutation",
+  seedAffinity: "computed-chain/20k-depth5",
   timeoutMs: 900_000,
   watchdogMs: 600_000,
   config: {

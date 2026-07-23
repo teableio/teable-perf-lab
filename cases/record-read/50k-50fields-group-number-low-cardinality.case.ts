@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-read/50k-50fields-group-number-low-cardinality",
   title: "Group a 50k 50-field record read by a seven-value number field",
   runner: "record-read",
+  seedAffinity: "record-read/50k-50fields",
   timeoutMs: 1_800_000,
   config: {
     ...baseCase.config,

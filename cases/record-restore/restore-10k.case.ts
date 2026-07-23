@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-restore/restore-10k",
   title: "Restore 10k records from table trash",
   runner: "record-restore",
+  seedAffinity: "record-replay/10k",
   timeoutMs: 1_200_000,
   watchdogMs: 300_000,
   config: {

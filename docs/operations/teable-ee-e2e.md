@@ -94,9 +94,10 @@ fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
 same affinity must use that identity in their runner seed contract and are
 treated as one indivisible physical-fixture bundle. Planning fails on duplicate
 declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
-that splits a bundle. The planner imports complete case-level cold-seed,
-V1/V2 execute, and trace-attribution durations from trusted cold run
-`29951887405` and exact-hit warm run `29955363070`.
+that splits a bundle. The planner imports a complete case-level cold-seed,
+V1/V2 execute, and trace-attribution envelope through trusted cold run
+`29957965247`, retaining larger observations from cold run `29951887405` and
+exact-hit warm run `29955363070`.
 The cold run's observed stage maxima remain calibration metadata for comparison;
 they are not presented as observations of a new mapping. Unseen cases retain
 explicit default costs until a later trusted run recalibrates them.
@@ -124,16 +125,24 @@ case ids and comma-separated case lists remain unsharded.
 
 After all execute jobs finish, the report job fetches the current workflow's
 completed job timings and downloads both execute trace manifests and seed
-cache-status artifacts. An all-`cache-miss` matrix uses the cold-seed prediction;
-only an all-`exact-hit` matrix uses the warm-seed prediction. Compatible, mixed,
-missing, or incomplete cache evidence is reported as unclassified rather than
-producing a misleading seed delta. Likewise, no trace manifests means missing
-trace evidence, while present manifests with zero wait remain a valid 0 ms
-observation. The report appends the current-run predicted-versus-observed table
-to the GitHub summary and uploads
-`teable-ee-e2e-perf-plan-observation-<run>-<attempt>/observation.json`. The
-planning summary names the trusted cost-calibration source pair but does not present
-that different mapping as the current run's observation.
+artifacts. For a cold or compatible run it recursively extracts every runner
+`seedHash` and fails the workflow if one physical identity crosses shards or if
+cases sharing that identity do not resolve to exactly one static affinity. An
+exact-hit warm run has no rebuilt runner payloads, so this artifact check is
+limited to cache-status evidence after validating every shard's stable slot,
+case-set digest, seed-contract generation, namespace, and exact matched key
+against the current plan. An
+all-`cache-miss` matrix uses the cold-seed prediction; only an all-`exact-hit`
+matrix uses the warm-seed prediction. Compatible, mixed, missing, or incomplete
+cache evidence is reported as unclassified rather than producing a misleading
+seed delta. Likewise, no trace manifests means missing trace evidence, while
+present manifests with zero wait remain a valid 0 ms observation. The report
+appends the current-run predicted-versus-observed table and physical
+seed-affinity result to the GitHub summary. It uploads `observation.json` and
+`seed-affinity.json` under
+`teable-ee-e2e-perf-plan-observation-<run>-<attempt>/`. The planning summary
+names the trusted cost-calibration source pair but does not present that
+different mapping as the current run's observation.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -258,11 +267,33 @@ raw Jaeger snapshots:
   inspect these raw snapshots; the results artifact is enough for metrics,
   summaries, and manifest counts.
 
-The report job resolves the lightweight `teable-ee-e2e-perf-results-v*`
-artifacts by default and falls back to the full `teable-ee-e2e-perf-v*`
-artifacts when no results artifact exists for the run (for example, when
-re-running report on an older run). It downloads the resolved artifacts, merges
-their JSON payloads, and upserts the result rows to Teable.
+The report job resolves artifacts independently per logical execute and seed
+shard. It chooses that shard's newest run attempt, preferring the lightweight
+`teable-ee-e2e-perf-results-v*` artifact over the full
+`teable-ee-e2e-perf-v*` artifact when both exist in the same attempt. This
+preserves successful attempt-1 siblings when `Re-run failed jobs` only creates
+attempt-2 artifacts for failed matrix children. For an exact-hit seed shard on
+the newer attempt, the affinity gate also downloads older seed artifacts and
+accepts physical-fixture provenance only from the newest non-warm artifact
+whose logical shard, plan identity, namespace, perf-lab SHA, and teable-ee SHA
+all match. Missing or mismatched provenance fails closed instead of presenting
+a mixed attempt as cold or warm evidence. The workflow resolves
+`teable_ee_ref` once in `resolve_inputs`; all later seed and execute attempts
+checkout that pinned SHA.
+
+For `case_filter=all`, the report job also fails closed unless resolve, seed,
+and execute jobs succeeded and every planned case/engine has exactly one
+payload. Each payload must be pass or an expected skip, contain no failed
+routing assertion, and reconcile every trace ref through
+saved/failed/skipped within the 15-second case and 60-second job budgets.
+Expected engine skips and measured paths with no routing contract are declared
+explicitly on the case; undeclared skips or missing routing evidence fail.
+
+Performance Track, Feishu, and the GitHub combined summary run as independent
+report steps so one failure does not hide the others. A full run passes only
+when all three succeed. Feishu's webhook acknowledgement enforces the 100KB
+card limit; the GitHub and Performance Track builders enforce their configured
+1MB and per-write limits before their steps can succeed.
 
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see
@@ -378,7 +409,8 @@ shards, and checks these feedback gates:
 
 - cold active wall: at most 45 minutes;
 - warm active wall: at most 25 minutes;
-- one observed seed identity must not be rebuilt in multiple shards;
+- cases sharing one observed seed identity must resolve to exactly one static
+  affinity, and that identity must not be rebuilt in multiple shards;
 - trace wait attributed to one case: at most 15 seconds;
 - trace wait in one execute job: at most 60 seconds.
 
@@ -392,6 +424,42 @@ status 1. An incomplete or malformed plan/telemetry document exits with status
 2 in either mode. Historical cold, warm, and slow-run examples live under
 `scripts/fixtures/full-run-feedback/` and are exercised by
 `pnpm check:full-run-feedback`.
+
+After accepting a complete cold run, refresh the versioned maximum envelope and
+then regenerate stable slots from the resulting plan:
+
+```bash
+node scripts/refresh-full-run-calibration.mjs \
+  --seed-dir <downloaded-seed-artifacts> \
+  --results-dir <downloaded-result-artifacts> \
+  --stage-observation <downloaded-plan-observation/observation.json> \
+  --source-run-id <run-id> \
+  --write
+node scripts/accept-full-run-warm-calibration.mjs \
+  --seed-dir <downloaded-warm-seed-artifacts> \
+  --results-dir <downloaded-warm-result-artifacts> \
+  --stage-observation <downloaded-warm-plan-observation/observation.json> \
+  --source-run-id <warm-run-id> \
+  --write
+node scripts/refresh-full-run-historical-slots.mjs \
+  --source-run-id <run-id> \
+  --write
+pnpm check:run-plan
+```
+
+The cold calibration command regenerates both the case-cost envelope and the
+stage source/observed maxima after all input validation succeeds, and clears
+any previous warm pairing. It requires an all-cache-miss status for every
+shard, complete non-failing seed/V1/V2 payloads from one run attempt, matching
+perf-lab and teable-ee SHAs, a complete cold stage observation, and a passing
+physical seed-affinity gate. Mixed/exact-hit input, cross-run artifacts,
+missing affinity identities, and cross-shard duplicate fixtures are rejected.
+The warm command accepts only an all-exact-hit matrix from one attempt whose
+plan, namespace, revisions, result coverage, and complete warm observation
+match the current cold calibration. Each cold case stage keeps the larger old
+or new value so a faster noisy rerun cannot silently remove protection for a
+known straggler. Stable-slot refresh also refuses a run id other than the newly
+validated cold calibration source.
 
 ## Manual examples
 

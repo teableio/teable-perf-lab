@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildExpectedOrderState,
+  resolveComputedChainCleanupAction,
   resolveFormulaDependencyPlan,
   resolveCascadeImpact,
 } from "./computed-chain-mutation-model.ts";
@@ -14,6 +15,43 @@ const fixture = {
   purchaseGroupSize: 10,
   targetUserRow: 20,
 };
+
+test("shared formula mutations restore instead of rebuilding between isolated siblings", () => {
+  for (const mutation of [
+    "formula-expression",
+    "formula-dependency-add",
+    "formula-dependency-replace",
+    "formula-dependency-remove",
+  ]) {
+    assert.equal(
+      resolveComputedChainCleanupAction({
+        mutation,
+        reusableSeed: true,
+        executeDbIsolated: true,
+        sharedSeedIdentity: true,
+      }),
+      "restore-formula",
+    );
+  }
+  assert.equal(
+    resolveComputedChainCleanupAction({
+      mutation: "foreign-select",
+      reusableSeed: true,
+      executeDbIsolated: true,
+      sharedSeedIdentity: true,
+    }),
+    "restore-foreign",
+  );
+  assert.equal(
+    resolveComputedChainCleanupAction({
+      mutation: "formula-expression",
+      reusableSeed: true,
+      executeDbIsolated: true,
+      sharedSeedIdentity: false,
+    }),
+    "none",
+  );
+});
 
 test("one user mutation fans out to exactly 100 orders and 10 purchases", () => {
   assert.deepEqual(resolveCascadeImpact(fixture), {

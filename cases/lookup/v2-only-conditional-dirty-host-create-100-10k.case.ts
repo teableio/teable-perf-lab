@@ -4,6 +4,7 @@ export default definePerfCase({
   id: "lookup/v2-only-conditional-dirty-host-create-100-10k",
   title: "V2-only: create 100 dirty conditional-lookup hosts beside 10k rows",
   runner: "conditional-lookup-record-create",
+  expectedSkipEngines: ["v1"],
   timeoutMs: 300_000,
   watchdogMs: 60_000,
   config: {

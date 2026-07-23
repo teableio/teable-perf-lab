@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-delete/link-trash-5k",
   title: "Delete 5k records that are referenced by populated link cells",
   runner: "record-delete-link",
+  routingEvidence: "not-applicable",
   timeoutMs: 1_800_000,
   config: {
     ...baseline.config,

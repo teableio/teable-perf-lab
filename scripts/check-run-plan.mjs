@@ -24,6 +24,7 @@ import {
   buildFullRunShardCaseFilterKey,
   HYBRID_COMPUTED_CASES,
   loadRegisteredCases,
+  parseCaseAcceptanceContract,
   parseCaseSeedAffinity,
   renderPlanSummaryMarkdown,
   resolveRunPlan,
@@ -40,6 +41,15 @@ import {
 
 const registeredCases = await loadRegisteredCases();
 const allCaseIds = registeredCases.map(({ id }) => id);
+const observedSeedAffinityFixture = JSON.parse(
+  await readFile(
+    new URL(
+      "./fixtures/full-run-feedback/run-29957965247-seed-affinities.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
 const expectedFullRunCaseIds = resolveFullRunCaseIds({ allCaseIds });
 assert.deepEqual(
   Object.keys(FULL_RUN_STAGE_CALIBRATION.caseCosts).sort(),
@@ -47,6 +57,15 @@ assert.deepEqual(
   "the trusted calibration must cover exactly the default full-run case set",
 );
 const hybridCaseIdSet = new Set(HYBRID_COMPUTED_CASES);
+for (const caseId of observedSeedAffinityFixture.affinities
+  .filter(({ affinityId }) => affinityId.startsWith("computed-chain/"))
+  .flatMap(({ caseIds }) => caseIds)) {
+  assert.equal(
+    hybridCaseIdSet.has(caseId),
+    true,
+    `${caseId} uses the computed-chain runner and must execute in the hybrid V2 pool`,
+  );
+}
 const legacyFullRunShardCount = resolveFullRunShardCount(
   expectedFullRunCaseIds.length,
 );
@@ -78,6 +97,17 @@ const registeredSeedAffinityDeclarations = registeredCases
     caseId: id,
     affinityId: seedAffinity,
   }));
+for (const observedAffinity of observedSeedAffinityFixture.affinities) {
+  const actualCaseIds = registeredSeedAffinityDeclarations
+    .filter(({ affinityId }) => affinityId === observedAffinity.affinityId)
+    .map(({ caseId }) => caseId)
+    .sort();
+  assert.deepEqual(
+    actualCaseIds,
+    observedAffinity.caseIds.slice().sort(),
+    `${observedAffinity.affinityId} must declare every case observed with seed ${observedAffinity.seedHash}`,
+  );
+}
 assert.deepEqual(
   registeredSeedAffinityDeclarations
     .filter(({ caseId }) =>
@@ -124,6 +154,24 @@ assert.throws(
 assert.throws(
   () => parseCaseSeedAffinity('seedAffinity: "   ",'),
   /seedAffinity must be a non-empty string literal/,
+);
+assert.deepEqual(
+  parseCaseAcceptanceContract(`
+    routingEvidence: "not-applicable",
+    expectedSkipEngines: ["v1"],
+  `),
+  {
+    routingEvidence: "not-applicable",
+    expectedSkipEngines: ["v1"],
+  },
+);
+assert.throws(
+  () => parseCaseAcceptanceContract('routingEvidence: "optional",'),
+  /routingEvidence must be declared at most once/,
+);
+assert.throws(
+  () => parseCaseAcceptanceContract("expectedSkipEngines: [],"),
+  /expectedSkipEngines must not be empty/,
 );
 assert.throws(
   () => parseCaseSeedAffinity("seedAffinity: sharedSeedAffinity,"),
@@ -262,6 +310,7 @@ const defaultFullRunPlan = resolveRunPlan({
 });
 
 assert.deepEqual(defaultFullRunPlan.engines, ["v1", "v2"]);
+assert.equal(defaultFullRunPlan.caseFilterIsAll, true);
 assert.equal(defaultFullRunPlan.caseFilterKey, "all");
 assert.equal(defaultFullRunPlan.seedCacheNamespace, "");
 const selectedFullRunShardCount = defaultFullRunPlan.planSummary.shardCount;
@@ -277,11 +326,11 @@ assert.equal(
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.calibrationSource.sourceRunId,
-  "29951887405",
+  "29957965247",
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.calibrationSource.pairedWarmRunId,
-  "29955363070",
+  null,
 );
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.observed, null);
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.calibrationDeltaMs, null);
@@ -396,6 +445,15 @@ assert.equal(
   targetedOmittedCaseId,
   "small-scale cases omitted from full runs must remain runnable by exact filter",
 );
+assert.equal(targetedOmittedCasePlan.caseFilterIsAll, false);
+const normalizedFullRunPlan = resolveRunPlan({
+  engineFilter: "v1,v2",
+  caseFilter: " ALL ",
+  computedUpdateMode: "",
+  allCaseIds,
+  seedAffinityDeclarations: registeredSeedAffinityDeclarations,
+});
+assert.equal(normalizedFullRunPlan.caseFilterIsAll, true);
 const isolatedCachePlan = resolveRunPlan({
   engineFilter: "v1,v2",
   caseFilter: "all",
@@ -422,6 +480,7 @@ try {
   const defaultOutput = await readFile(defaultOutputPath, "utf8");
   const isolatedOutput = await readFile(isolatedOutputPath, "utf8");
   assert.match(defaultOutput, /^seed_cache_namespace=$/m);
+  assert.match(defaultOutput, /^case_filter_is_all=true$/m);
   assert.match(defaultOutput, /^seed_cache_namespace_segment=$/m);
   assert.match(isolatedOutput, /^seed_cache_namespace=ticket-07-cold-warm$/m);
   assert.match(
@@ -454,8 +513,9 @@ for (const affinity of FULL_RUN_FIXTURE_AFFINITIES) {
 for (const affinityId of [
   "record-read/100k-50fields",
   "lookup-search-index/100k-20fields",
+  ...observedSeedAffinityFixture.affinities.map(({ affinityId }) => affinityId),
 ]) {
-  const caseIds = targetSeedAffinityDeclarations
+  const caseIds = registeredSeedAffinityDeclarations
     .filter((declaration) => declaration.affinityId === affinityId)
     .map((declaration) => declaration.caseId);
   assert.equal(
@@ -474,7 +534,7 @@ const currentBundleIds = buildAffinityStageBundles({
   affinities: resolvedFullRunAffinities,
   caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
 }).map(({ id }) => id);
-assert.equal(currentBundleIds.length, 259);
+assert.equal(currentBundleIds.length, 205);
 assert.deepEqual(
   currentBundleIds.filter(
     (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,
@@ -648,6 +708,7 @@ assert.deepEqual(
   }),
   {
     engines: ["v2", "v1"],
+    caseFilterIsAll: false,
     caseFilterKey: "formula-10k-calc__smoke-auth-user",
     seedPlan: [
       {

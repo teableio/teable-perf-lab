@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "field-duplicate/v2-only-10k-duplicate-one-one-link-field",
   title: "V2-only: duplicate one populated one-one Link field across 10k rows",
   runner: "field-duplicate",
+  expectedSkipEngines: ["v1"],
   timeoutMs: 1_800_000,
   watchdogMs: 600_000,
   config: {

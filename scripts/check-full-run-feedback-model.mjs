@@ -4,7 +4,16 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateFullRunFeedback } from "./full-run-feedback-model.mjs";
+import {
+  evaluateFullRunFeedback,
+  resolveDuplicateSeeds,
+} from "./full-run-feedback-model.mjs";
+import {
+  evaluateSeedAffinityGate,
+  evaluateSeedPlanStatusEvidence,
+  resolveSeedPayloadProvenance,
+} from "./verify-full-run-seed-affinity.mjs";
+import { evaluateFullRunResultAcceptance } from "./verify-full-run-result-acceptance.mjs";
 
 const loadFixture = async (name) =>
   JSON.parse(
@@ -13,6 +22,289 @@ const loadFixture = async (name) =>
       "utf8",
     ),
   );
+
+const acceptanceExecutePlan = [
+  {
+    name: "v1-shard-1-of-1",
+    engine: "v1",
+    caseFilter: "case/a,case/b",
+  },
+  {
+    name: "v2-sync-default-shard-1-of-1",
+    engine: "v2",
+    caseFilter: "case/a,case/b",
+  },
+];
+const traceEvidence = {
+  enabled: true,
+  traceRefCount: 1,
+  uniqueTraceCount: 1,
+  selectedTraceCount: 1,
+  savedTraceCount: 1,
+  failedTraceCount: 0,
+  skippedTraceCount: 0,
+  missingFetchCount: 0,
+  wastedFetchMs: 0,
+  traceFetchCaseBudgetMs: 15_000,
+  traceFetchJobBudgetMs: 60_000,
+  traceFetchWaitMs: 100,
+  traceFetchJobWaitMs: 200,
+  traceFetchBreakerState: "closed",
+  traceFetchRecoveryProbeCount: 0,
+  traceFetchRecoverySucceeded: false,
+  refs: [{ traceId: "trace-a", stepId: "operation" }],
+  savedTraces: [
+    { traceId: "trace-a", stepId: "operation", status: "saved" },
+  ],
+};
+const acceptedPayloadEntries = acceptanceExecutePlan.flatMap((plan) =>
+  plan.caseFilter.split(",").map((caseId) => ({
+    fileName: `${caseId.replace("/", "-")}-${plan.engine}.json`,
+    payload: {
+      caseId,
+      engine: plan.engine,
+      result: "pass",
+      details: {
+        routing: {
+          routeMatched: true,
+          engineMatched: true,
+          featureMatched: true,
+        },
+        observability: { traces: structuredClone(traceEvidence) },
+      },
+    },
+  })),
+);
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: acceptedPayloadEntries,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).passed,
+  true,
+);
+const acceptedMissingTracePayloads = structuredClone(acceptedPayloadEntries);
+const missingTrace =
+  acceptedMissingTracePayloads[0].payload.details.observability.traces;
+missingTrace.savedTraceCount = 0;
+missingTrace.failedTraceCount = 1;
+missingTrace.missingFetchCount = 1;
+missingTrace.wastedFetchMs = 100;
+missingTrace.savedTraces[0].status = "error";
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: acceptedMissingTracePayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).passed,
+  true,
+  "bounded Jaeger misses remain accepted when failed trace evidence reconciles",
+);
+const acceptedHardOutagePayloads = structuredClone(acceptedPayloadEntries);
+const hardOutageTrace =
+  acceptedHardOutagePayloads[0].payload.details.observability.traces;
+hardOutageTrace.savedTraceCount = 0;
+hardOutageTrace.failedTraceCount = 1;
+hardOutageTrace.missingFetchCount = 1;
+hardOutageTrace.wastedFetchMs = 0;
+hardOutageTrace.traceFetchBreakerState = "hard-outage";
+hardOutageTrace.traceFetchBreakerReason = "Jaeger connection refused";
+hardOutageTrace.savedTraces[0].status = "error";
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: acceptedHardOutagePayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).passed,
+  true,
+  "an immediate hard outage may account a miss without wasting polling time",
+);
+const hiddenMissingPayloads = structuredClone(acceptedHardOutagePayloads);
+hiddenMissingPayloads[0].payload.details.observability.traces.missingFetchCount = 0;
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: hiddenMissingPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["trace-evidence-incomplete"],
+);
+const duplicateTraceRefPayloads = structuredClone(acceptedPayloadEntries);
+const duplicateTrace =
+  duplicateTraceRefPayloads[0].payload.details.observability.traces;
+duplicateTrace.traceRefCount = 2;
+duplicateTrace.selectedTraceCount = 1;
+duplicateTrace.skippedTraceCount = 1;
+duplicateTrace.refs.push({ traceId: "trace-a", stepId: "operation" });
+duplicateTrace.savedTraces.push({
+  traceId: "trace-a",
+  stepId: "operation",
+  status: "skipped",
+});
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: duplicateTraceRefPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).passed,
+  true,
+  "duplicate captured refs reconcile against traceRefCount while uniqueTraceCount stays deduplicated",
+);
+const mismatchedTraceIdentityPayloads = structuredClone(
+  acceptedPayloadEntries,
+);
+mismatchedTraceIdentityPayloads[0].payload.details.observability.traces.savedTraces[0].traceId =
+  "unrelated-trace";
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: mismatchedTraceIdentityPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["trace-evidence-incomplete"],
+);
+
+const expectedSkipPayloads = structuredClone(acceptedPayloadEntries);
+expectedSkipPayloads[0].payload.result = "skipped";
+expectedSkipPayloads[0].payload.details = {
+  skipped: true,
+  skippedReason: "V1 path is not supported.",
+  requestedEngine: "v1",
+  observability: { traces: structuredClone(traceEvidence) },
+};
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: expectedSkipPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+    caseContracts: [{ id: "case/a", expectedSkipEngines: ["v1"] }],
+  }).passed,
+  true,
+);
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: expectedSkipPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["result-unexpected-skip"],
+);
+
+const missingRoutingPayloads = structuredClone(acceptedPayloadEntries);
+delete missingRoutingPayloads[0].payload.details.routing;
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: missingRoutingPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["routing-evidence-missing"],
+);
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: missingRoutingPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+    caseContracts: [{ id: "case/a", routingEvidence: "not-applicable" }],
+  }).passed,
+  true,
+);
+
+const duplicateAcceptancePayloads = [
+  ...acceptedPayloadEntries,
+  acceptedPayloadEntries[0],
+];
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: duplicateAcceptancePayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["result-identity-duplicate"],
+);
+
+const invalidAcceptancePayloads = structuredClone(acceptedPayloadEntries);
+invalidAcceptancePayloads[0].payload.details.routing.engineMatched = false;
+invalidAcceptancePayloads[1].payload.details.observability.traces.savedTraces =
+  [];
+invalidAcceptancePayloads[2].payload.result = "fail";
+const invalidAcceptance = evaluateFullRunResultAcceptance({
+  executePlan: acceptanceExecutePlan,
+  payloadEntries: invalidAcceptancePayloads,
+  jobConclusions: {
+    resolveInputs: "success",
+    seed: "failure",
+    execute: "success",
+  },
+});
+assert.equal(invalidAcceptance.passed, false);
+assert.deepEqual(
+  invalidAcceptance.failures.map(({ code }) => code),
+  [
+    "job-conclusion",
+    "result-failed",
+    "routing-mismatch",
+    "trace-evidence-incomplete",
+  ],
+);
+
+const missingAcceptancePayloads = acceptedPayloadEntries.slice(1);
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: missingAcceptancePayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+  }).failures.map(({ code }) => code),
+  ["result-identity-missing"],
+);
 
 assert.throws(
   () =>
@@ -168,6 +460,394 @@ const affinityDriftRun = evaluateFullRunFeedback(affinityDriftFixture);
 assert.equal(
   affinityDriftRun.seed.duplicates[0].staticAffinityIssue,
   "seed-hash-maps-to-multiple-affinities",
+);
+
+const sameShardMissingAffinityFixture = structuredClone(duplicateOnlyFixture);
+for (const observation of sameShardMissingAffinityFixture.seedObservations) {
+  observation.shard = "shard-1-of-8";
+  delete observation.affinityId;
+}
+const sameShardMissingAffinityRun = evaluateFullRunFeedback(
+  sameShardMissingAffinityFixture,
+);
+assert.equal(sameShardMissingAffinityRun.seed.duplicates.length, 0);
+assert.equal(sameShardMissingAffinityRun.seed.affinityIssues.length, 2);
+assert.deepEqual(
+  sameShardMissingAffinityRun.seed.affinityIssues.map(({ shards }) => shards),
+  [["shard-1-of-8"], ["shard-1-of-8"]],
+);
+assert.deepEqual(
+  sameShardMissingAffinityRun.failures.map(({ code }) => code),
+  ["seed-affinity"],
+);
+
+const affinityHashSetDrift = resolveDuplicateSeeds([
+  {
+    caseId: "case/a",
+    shard: "shard-1-of-1",
+    seedHash: "seed-a",
+    affinityId: "fixture/shared",
+    buildMs: 10,
+  },
+  {
+    caseId: "case/b",
+    shard: "shard-1-of-1",
+    seedHash: "seed-b",
+    affinityId: "fixture/shared",
+    buildMs: 10,
+  },
+]);
+assert.deepEqual(affinityHashSetDrift.affinityIssues, [
+  {
+    affinityIds: ["fixture/shared"],
+    caseIds: ["case/a", "case/b"],
+    seedHashes: ["seed-a", "seed-b"],
+    shards: ["shard-1-of-1"],
+    observations: [
+      {
+        caseId: "case/a",
+        seedHashes: ["seed-a"],
+        shards: ["shard-1-of-1"],
+      },
+      {
+        caseId: "case/b",
+        seedHashes: ["seed-b"],
+        shards: ["shard-1-of-1"],
+      },
+    ],
+    issue: "affinity-maps-to-inconsistent-seed-hash-sets",
+  },
+]);
+const sharedMultiHashFixture = resolveDuplicateSeeds([
+  ...["case/a", "case/b"].flatMap((caseId) =>
+    ["seed-a", "seed-b"].map((seedHash) => ({
+      caseId,
+      shard: "shard-1-of-1",
+      seedHash,
+      affinityId: "fixture/shared",
+      buildMs: 10,
+    })),
+  ),
+]);
+assert.deepEqual(sharedMultiHashFixture.affinityIssues, []);
+
+const completeCoverage = {
+  expectedCaseCount: 2,
+  observedCaseCount: 2,
+  missingCaseIds: [],
+  unexpectedCaseIds: [],
+  duplicateCaseIds: [],
+  complete: true,
+};
+const sharedAffinity = [
+  { id: "fixture/shared", caseIds: ["case/a", "case/b"] },
+];
+const sharedObservations = [
+  {
+    caseId: "case/a",
+    shard: "shard-1-of-1",
+    seedHash: "seed-a",
+    affinityId: "fixture/shared",
+    buildMs: 10,
+  },
+  {
+    caseId: "case/b",
+    shard: "shard-1-of-1",
+    seedHash: "seed-a",
+    affinityId: "fixture/shared",
+    buildMs: 10,
+  },
+];
+assert.equal(
+  evaluateSeedAffinityGate({
+    cache: {
+      mode: "cold",
+      statusCount: 1,
+      modeCounts: { "cache-miss": 1 },
+    },
+    coverage: completeCoverage,
+    observations: sharedObservations,
+    affinities: sharedAffinity,
+  }).passed,
+  true,
+);
+const mixedExactGate = evaluateSeedAffinityGate({
+  cache: {
+    mode: "mixed",
+    statusCount: 2,
+    modeCounts: { "exact-hit": 1, "cache-miss": 1 },
+  },
+  coverage: {
+    ...completeCoverage,
+    observedCaseCount: 1,
+    missingCaseIds: ["case/b"],
+    complete: false,
+  },
+  observations: sharedObservations.slice(0, 1),
+  affinities: sharedAffinity,
+});
+assert.equal(mixedExactGate.passed, false);
+assert.deepEqual(
+  mixedExactGate.evidenceIssues.map(({ issue }) => issue),
+  ["mixed-exact-hit-evidence-incomplete", "seed-payload-coverage-incomplete"],
+);
+assert.equal(
+  mixedExactGate.affinityIssues.some(
+    ({ issue }) => issue === "affinity-members-missing-seed-identity",
+  ),
+  true,
+);
+const missingIdentityIssue = mixedExactGate.affinityIssues.find(
+  ({ issue }) => issue === "affinity-members-missing-seed-identity",
+);
+assert.equal(missingIdentityIssue.seedHash, "missing");
+assert.deepEqual(missingIdentityIssue.shards, ["shard-1-of-1"]);
+assert.equal(
+  evaluateSeedAffinityGate({
+    cache: {
+      mode: "mixed",
+      statusCount: 2,
+      modeCounts: { "exact-hit": 1, "cache-miss": 1 },
+    },
+    coverage: completeCoverage,
+    observations: sharedObservations,
+    affinities: sharedAffinity,
+    resolvedMixedProvenance: true,
+  }).passed,
+  true,
+  "mixed partial reruns may pass only after exact-hit payload provenance is resolved",
+);
+const exactHitWarmGate = evaluateSeedAffinityGate({
+  cache: {
+    mode: "warm",
+    statusCount: 2,
+    modeCounts: { "exact-hit": 2 },
+  },
+  coverage: {
+    expectedCaseCount: 2,
+    observedCaseCount: 0,
+    missingCaseIds: ["case/a", "case/b"],
+    unexpectedCaseIds: [],
+    duplicateCaseIds: [],
+    complete: false,
+  },
+  observations: [],
+  affinities: sharedAffinity,
+});
+assert.equal(exactHitWarmGate.passed, true);
+assert.match(exactHitWarmGate.skippedReason, /exact-hit/);
+const seedPlanIdentity = {
+  name: "shard-1-of-1",
+  stableSlot: "slot-1",
+  caseSetDigest: "digest-a",
+  seedContractGeneration: "seed-contract-v1",
+};
+const exactStatusEntry = {
+  artifactName: "teable-ee-e2e-perf-seed-shard-1-of-1-123-1",
+  status: {
+    mode: "exact-hit",
+    stableSlot: "slot-1",
+    caseSetDigest: "digest-a",
+    seedContractGeneration: "seed-contract-v1",
+    cacheNamespace: "acceptance",
+    perfLabSha: "perf-sha-a",
+    teableEeSha: "teable-sha-a",
+    primaryKey: "exact-key",
+    matchedKey: "exact-key",
+  },
+};
+assert.deepEqual(
+  evaluateSeedPlanStatusEvidence({
+    seedPlan: [seedPlanIdentity],
+    statusEntries: [exactStatusEntry],
+    expectedCacheNamespace: "acceptance",
+  }),
+  [],
+);
+const inconsistentSourceStatuses = evaluateSeedPlanStatusEvidence({
+  seedPlan: [
+    seedPlanIdentity,
+    {
+      ...seedPlanIdentity,
+      name: "shard-2-of-2",
+      stableSlot: "slot-2",
+    },
+  ],
+  statusEntries: [
+    {
+      ...exactStatusEntry,
+      artifactName: "teable-ee-e2e-perf-seed-shard-1-of-2-123-1",
+    },
+    {
+      ...exactStatusEntry,
+      artifactName: "teable-ee-e2e-perf-seed-shard-2-of-2-123-2",
+      status: {
+        ...exactStatusEntry.status,
+        stableSlot: "slot-2",
+        perfLabSha: "perf-sha-b",
+        teableEeSha: "teable-sha-b",
+      },
+    },
+  ],
+  expectedCacheNamespace: "acceptance",
+  expectedPerfLabSha: "perf-sha-a",
+});
+assert.deepEqual(
+  inconsistentSourceStatuses
+    .filter(({ issue }) => issue === "seed-plan-status-source-mismatch")
+    .map(({ field }) => field),
+  ["perfLabSha", "teableEeSha", "perfLabSha"],
+  "cross-attempt seed evidence must not mix perf-lab or teable-ee revisions",
+);
+const mismatchedWarmStatus = evaluateSeedPlanStatusEvidence({
+  seedPlan: [seedPlanIdentity],
+  statusEntries: [
+    {
+      ...exactStatusEntry,
+      status: {
+        ...exactStatusEntry.status,
+        caseSetDigest: "stale-digest",
+        matchedKey: "compatible-key",
+      },
+    },
+  ],
+  expectedCacheNamespace: "acceptance",
+});
+assert.deepEqual(
+  mismatchedWarmStatus[0].mismatches.map(({ field }) => field),
+  ["caseSetDigest", "exactCacheKey"],
+);
+
+const partialRerunSeedPlan = [
+  {
+    name: "shard-1-of-2",
+    stableSlot: "slot-1",
+    caseSetDigest: "digest-a",
+    seedContractGeneration: "seed-contract-v1",
+    caseFilter: "case/a",
+  },
+  {
+    name: "shard-2-of-2",
+    stableSlot: "slot-2",
+    caseSetDigest: "digest-b",
+    seedContractGeneration: "seed-contract-v1",
+    caseFilter: "case/b",
+  },
+];
+const seedStatus = ({
+  shard,
+  attempt,
+  stableSlot,
+  caseSetDigest,
+  mode,
+  teableEeSha = "teable-sha-a",
+}) => ({
+  artifactName: `teable-ee-e2e-perf-seed-${shard}-123-${attempt}`,
+  status: {
+    mode,
+    stableSlot,
+    caseSetDigest,
+    seedContractGeneration: "seed-contract-v1",
+    cacheNamespace: "acceptance",
+    perfLabSha: "perf-sha-a",
+    teableEeSha,
+    requiresRunnerValidation: mode !== "exact-hit",
+  },
+});
+const seedPayload = ({ caseId, shard, attempt }) => ({
+  artifactName: `teable-ee-e2e-perf-seed-${shard}-123-${attempt}`,
+  fileName: `teable-ee-e2e-perf-seed-${shard}-123-${attempt}/${caseId.replace("/", "-")}-seed.json`,
+  payload: { caseId, engine: "seed", result: "pass" },
+});
+const resolvedPartialRerun = resolveSeedPayloadProvenance({
+  seedPlan: partialRerunSeedPlan,
+  latestStatusEntries: [
+    seedStatus({
+      shard: "shard-1-of-2",
+      attempt: 2,
+      stableSlot: "slot-1",
+      caseSetDigest: "digest-a",
+      mode: "exact-hit",
+    }),
+    seedStatus({
+      shard: "shard-2-of-2",
+      attempt: 1,
+      stableSlot: "slot-2",
+      caseSetDigest: "digest-b",
+      mode: "cache-miss",
+    }),
+  ],
+  latestPayloadEntries: [
+    seedPayload({
+      caseId: "case/b",
+      shard: "shard-2-of-2",
+      attempt: 1,
+    }),
+  ],
+  provenanceStatusEntries: [
+    seedStatus({
+      shard: "shard-1-of-2",
+      attempt: 1,
+      stableSlot: "slot-1",
+      caseSetDigest: "digest-a",
+      mode: "cache-miss",
+    }),
+  ],
+  provenancePayloadEntries: [
+    seedPayload({
+      caseId: "case/a",
+      shard: "shard-1-of-2",
+      attempt: 1,
+    }),
+  ],
+});
+assert.equal(resolvedPartialRerun.complete, true);
+assert.deepEqual(
+  resolvedPartialRerun.payloadEntries.map(({ payload }) => payload.caseId),
+  ["case/a", "case/b"],
+);
+assert.deepEqual(resolvedPartialRerun.provenance, [
+  {
+    shard: "shard-1-of-2",
+    statusArtifact: "teable-ee-e2e-perf-seed-shard-1-of-2-123-2",
+    payloadArtifact: "teable-ee-e2e-perf-seed-shard-1-of-2-123-1",
+  },
+]);
+
+const mismatchedPartialRerun = resolveSeedPayloadProvenance({
+  seedPlan: partialRerunSeedPlan.slice(0, 1),
+  latestStatusEntries: [
+    seedStatus({
+      shard: "shard-1-of-2",
+      attempt: 2,
+      stableSlot: "slot-1",
+      caseSetDigest: "digest-a",
+      mode: "exact-hit",
+    }),
+  ],
+  latestPayloadEntries: [],
+  provenanceStatusEntries: [
+    seedStatus({
+      shard: "shard-1-of-2",
+      attempt: 1,
+      stableSlot: "slot-1",
+      caseSetDigest: "digest-a",
+      mode: "cache-miss",
+      teableEeSha: "teable-sha-stale",
+    }),
+  ],
+  provenancePayloadEntries: [
+    seedPayload({
+      caseId: "case/a",
+      shard: "shard-1-of-2",
+      attempt: 1,
+    }),
+  ],
+});
+assert.equal(mismatchedPartialRerun.complete, false);
+assert.equal(
+  mismatchedPartialRerun.issues[0].issue,
+  "seed-shard-payload-provenance-missing",
 );
 
 const mixedCacheHitFixture = structuredClone(duplicateOnlyFixture);

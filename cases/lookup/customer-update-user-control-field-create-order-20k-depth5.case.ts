@@ -6,6 +6,7 @@ export default definePerfCase({
   title:
     "Update one non-computed User field, then create one linked Order on a 20k graph",
   runner: "customer-upsert-computed-flow",
+  seedAffinity: "customer-upsert/20k-depth5",
   timeoutMs: 900_000,
   watchdogMs: 600_000,
   config: {

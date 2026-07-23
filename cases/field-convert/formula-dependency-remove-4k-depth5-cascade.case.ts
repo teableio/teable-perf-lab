@@ -4,6 +4,7 @@ export default definePerfCase({
   id: "field-convert/formula-dependency-remove-4k-depth5-cascade",
   title: "Remove one formula dependency across a 4k depth-5 cascade",
   runner: "computed-chain-mutation",
+  seedAffinity: "computed-chain/4k-depth5",
   timeoutMs: 600_000,
   watchdogMs: 360_000,
   config: {

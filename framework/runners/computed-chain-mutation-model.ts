@@ -30,6 +30,12 @@ export type FormulaDependencyPlan = {
 
 export type ComputedChainPhase = "seed" | "updated";
 
+export type ComputedChainCleanupAction =
+  | "none"
+  | "delete"
+  | "restore-foreign"
+  | "restore-formula";
+
 export type CascadeImpact = {
   targetUserRow: number;
   firstAffectedOrderRow: number;
@@ -45,6 +51,28 @@ const assertPositiveInteger = (name: string, value: number) => {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer, got ${value}`);
   }
+};
+
+export const resolveComputedChainCleanupAction = ({
+  mutation,
+  reusableSeed,
+  executeDbIsolated,
+  sharedSeedIdentity,
+}: {
+  mutation: ComputedChainMutation;
+  reusableSeed: boolean;
+  executeDbIsolated: boolean;
+  sharedSeedIdentity: boolean;
+}): ComputedChainCleanupAction => {
+  if (!reusableSeed) {
+    return executeDbIsolated ? "none" : "delete";
+  }
+  if (executeDbIsolated && !sharedSeedIdentity) {
+    return "none";
+  }
+  return mutation.startsWith("formula-")
+    ? "restore-formula"
+    : "restore-foreign";
 };
 
 export const assertComputedChainFixtureShape = (

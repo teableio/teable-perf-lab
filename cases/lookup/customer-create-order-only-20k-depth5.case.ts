@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "lookup/customer-create-order-only-20k-depth5",
   title: "Create one linked Order on a 20k depth-5 graph",
   runner: "customer-upsert-computed-flow",
+  seedAffinity: "customer-upsert/20k-depth5",
   timeoutMs: 900_000,
   watchdogMs: 600_000,
   config: {
