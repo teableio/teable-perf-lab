@@ -1255,6 +1255,11 @@ export interface RecordUpdateCaseConfig {
   // reuse one fixture without conflating their measured requests.
   seedIdentity?: string;
   updateFieldNames?: string[];
+  // The e2e app and its normal OpenAPI client share one Node event loop. Large
+  // V2 after-response projections can otherwise delay that in-process client
+  // and inflate request latency. Opt in to a worker-owned HTTP client when the
+  // case needs an external-client latency boundary.
+  isolatedHttpClient?: boolean;
   generator: {
     type: "mixed-record-update";
     seedPrefix: string;
