@@ -5,6 +5,7 @@ export default definePerfCase({
   title:
     "Update one User and one linked Order, then await depth-5 computed flow",
   runner: "customer-upsert-computed-flow",
+  seedAffinity: "customer-upsert/4k-depth5",
   timeoutMs: 420_000,
   watchdogMs: 300_000,
   config: {

@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-read/50k-50fields-search-title-visible-rows",
   title: "Search visible rows in a 50k 50-field record read by title",
   runner: "record-read",
+  seedAffinity: "record-read/50k-50fields",
   timeoutMs: 1_800_000,
   config: {
     ...baseCase.config,

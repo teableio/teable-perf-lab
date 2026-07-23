@@ -6,6 +6,7 @@ export default definePerfCase({
   title:
     "Single-record text update through a 500-order, depth-5 computed fanout",
   runner: "computed-chain-mutation",
+  seedAffinity: "computed-chain/20k-depth5",
   timeoutMs: 900_000,
   watchdogMs: 600_000,
   config: {

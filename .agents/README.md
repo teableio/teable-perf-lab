@@ -104,6 +104,9 @@ cases/<group>/<case-name>.md         # description (frontmatter + sections)
 - Never rename an existing `id` unless you intend a new Teable registry row and a
   new history group.
 - Keep data deterministic and row counts fixed so V1/V2 and reruns compare.
+- If multiple cases intentionally reuse one physical seed fixture, give each
+  case the same top-level string-literal `seedAffinity`. The runner must use
+  that identity too; see [seed-execute.md](seed-execute.md).
 
 `.md` rules: start with frontmatter (`owner`, `tags`, `enabled`), then the
 sections `Goal`, `Seed Phase`, `Execute Phase`, `Primary Metric`, `Notes`. Use
@@ -129,22 +132,26 @@ After registering, run `pnpm sync:readme` to regenerate the root README
 pnpm check
 ```
 
-This runs the full chain: `format:check`, `check:yaml`, `check:ts`,
-`check:types`, `check:trace`, `check:catalog`, `check:run-plan`,
-`check:artifact-read-model`, `check:run-summary-model`,
-`check:artifact-diff-model`, `check:record-read-model`, `check:cases`,
-`check:readme`.
+This runs the full chain declared in `package.json`, including `format:check`,
+`check:yaml`, `check:ts`, `check:types`, `check:trace`, `check:catalog`,
+`check:run-plan`, `check:stage-plan`, `check:stage-observation`,
+`check:full-run-feedback`, trace artifact rewrite, artifact and summary model checks,
+runner/workload model checks, `check:cases`, and `check:readme`.
 Between them they validate formatting, workflow YAML, TypeScript syntax and
 types (incl. the runner↔config binding — pairing a runner with the wrong config
 fails `check:types`), the case catalog (`check:catalog`: every disk `.case.ts`
 is imported in `registry.ts`, every import is in the `cases` array, every import
 is on disk, and each registered case has a same-name markdown), the workflow
-run-plan split (`check:run-plan`), the artifact read model used by report
-adapters (`check:artifact-read-model`), the Feishu summary projection
+run-plan split (`check:run-plan`), five-stage shard simulation and SLO selection
+(`check:stage-plan`), current-run prediction drift capture
+(`check:stage-observation`), the artifact read model used by report adapters
+(`check:artifact-read-model`), the Feishu summary projection
 (`check:run-summary-model`), the artifact diff masking profile
 (`check:artifact-diff-model`), the record-read workload model
-(`check:record-read-model`), the metadata Teable sync needs (`check:cases`),
-and that the root README "Available Cases" list matches the registry. It does
+(`check:record-read-model`), the full-run feedback SLO and telemetry contract
+(`check:full-run-feedback`), the post-case trace-only artifact rewrite
+(`check:artifacts`), the metadata Teable sync needs (`check:cases`), and
+that the root README "Available Cases" list matches the registry. It does
 **not** execute anything against a real Teable — that is step 8.
 
 ### 8. Local Verify

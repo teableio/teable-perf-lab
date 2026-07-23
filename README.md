@@ -45,14 +45,56 @@ ready.
 - `framework/types.ts`: the `PerfCaseConfigByRunner` map that binds each runner kind
   to its case config interface, plus `PerfRunnerKind`, the `PerfCase` discriminated
   union derived from that map, and result types.
-- `framework/seed-cache.ts`: runner-level seed hash helpers.
+- `framework/seed-cache.ts`: runner-level seed hash and affinity metadata helpers.
+- `framework/trace-collector.ts`: request trace-ref capture plus deferred,
+  job-tail flush/settle/fetch with shared budgets and per-case manifests.
+- `framework/artifacts.ts`: case payload/summary writes and the trace-only rewrite
+  used after bounded job-tail collection finishes.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `scripts/full-run-shard-model.mjs`: fixture-affinity bundles, calibrated seed
-  weights, and deterministic adaptive grouping shared by seed and execute plans.
+- `scripts/full-run-shard-model.mjs`: authoritative case-declared plus accepted
+  legacy fixture-affinity bundles and the scalar eight-shard baseline used to
+  reject a slower replacement plan.
+- `scripts/stage-aware-shard-model.mjs`: deterministic five-stage bundle
+  packing, 6–12 shard simulation, SLO selection, cache-movement accounting, and
+  predicted-versus-observed plan summaries.
+- `scripts/full-run-historical-bundle-slots.mjs`: accepted stage-aware
+  eight-shard slots for every shared and singleton bundle, used to bound cache
+  churn after unrelated catalog edits.
+- `scripts/full-run-execute-calibration.mjs` and
+  `scripts/full-run-stage-calibration.mjs`: versioned case-level cold-seed,
+  execute, and trace-attribution durations plus observed stage maxima from the
+  trusted calibration run.
+- `scripts/refresh-full-run-calibration.mjs`,
+  `scripts/accept-full-run-warm-calibration.mjs`, and
+  `scripts/refresh-full-run-historical-slots.mjs`: guarded regeneration of the
+  complete cost envelope, cold/warm stage provenance, and stable bundle slots.
+  Cold refresh rejects incomplete/failed/mixed artifacts, cross-run SHAs, and
+  physical fixtures duplicated across shards, and clears any stale warm pair.
+  Warm acceptance restores that pair only when exact-hit status, plan,
+  namespace, revisions, result coverage, and stage evidence match the cold
+  source.
+- `scripts/stage-plan-observation-model.mjs` and
+  `scripts/observe-stage-plan.mjs`: current-run GitHub job/trace observation,
+  seed cache-mode classification, prediction drift rendering, and the
+  machine-readable calibration artifact.
+- `scripts/verify-full-run-seed-affinity.mjs`: report-stage evidence gate that
+  requires every non-warm seed payload, reads runner `seedHash` values, and
+  fails when one physical fixture is rebuilt across shards, an affinity member
+  lacks identity evidence, planner and artifact declarations drift, or cache
+  status identities do not match the current shard plan.
+- `scripts/full-run-feedback-model.mjs`: pure evaluation of a complete full-run
+  plan plus telemetry: active workflow wall time, phase windows, stage
+  stragglers, cross-shard seed rebuilds, trace wait budgets, result coverage,
+  and cold/warm SLOs.
+- `scripts/verify-full-run-result-acceptance.mjs`: fail-closed full-run artifact
+  gate requiring successful resolve/seed/execute jobs, exactly one payload per
+  planned case/engine, only case-declared engine skips, required recorded
+  routing assertions unless the case declares them not applicable, and complete
+  bounded trace reconciliation.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
-  payload projection, primary metric, trace URL, and trace-waste helpers used by
-  report adapters.
+  payload/trace-manifest/seed-status projection, primary metric, trace URL, and
+  trace-waste helpers used by report adapters.
 - `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
   keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
 - `framework/trace-evidence-policy.ts`: pure trace selection, request-shape,
@@ -89,9 +131,12 @@ Every non-trivial case has two stages:
 CI uses two cache layers:
 
 - **Workflow seed DB cache**: GitHub Actions restores/saves
-  `perf-lab-seed-cache/e2e_test_teable.dump`. Its key is runner OS, normalized
-  case filter, database schema hash, and perf-lab case/framework source hash.
-  It deliberately does not include the target `teable-ee` commit ref.
+  `perf-lab-seed-cache/e2e_test_teable.dump`. Its exact key binds runner OS,
+  an optional isolated acceptance namespace, database schema, seed-contract
+  generation, stable shard slot, full case-set digest, and perf-lab source hash.
+  A compatible restore prefix stops at the stable slot and always re-enters
+  runner validation. The default empty namespace preserves the existing key;
+  neither form includes the target `teable-ee` commit ref.
 - **Runner `seedHash`**: each runner decides whether tables inside the restored
   dump match its current case config and seed code. If the hash-derived table
   exists and `seedReady` passes, row import is skipped. If validation fails, the
@@ -110,7 +155,7 @@ teable-ee/community/packages/db-data-prisma/prisma/migrations/**
 Non-schema `teable-ee` code changes do not change the workflow seed DB cache
 key; Prisma schema or migration changes do.
 
-Actual workflow behavior (one job for filtered runs; adaptive matching seed
+Actual workflow behavior (one job for filtered runs; stage-aware matching seed
 shards for `case_filter=all`):
 
 - Exact seed DB cache hit: the seed job only checks that the dump file exists.
@@ -124,6 +169,12 @@ shards for `case_filter=all`):
   fixture stay in one shard. Cache-aware runners run `seedReady`/`sourceReady`
   again before execute. Destructive cases may mutate their isolated execute
   database, restoring shared fixtures between sibling cases when required.
+- Each case writes its measured result before trace retrieval. After all cases
+  in one engine job finish, one bounded tail flushes and settles the exporter,
+  fetches selected Jaeger traces, then rewrites only the trace block in each
+  payload and summary with atomic file replacement. The tail reserves time for
+  artifact finalization and reports real elapsed time, so Jaeger latency does not
+  inflate case duration and a tail overrun cannot be hidden by telemetry clamping.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload

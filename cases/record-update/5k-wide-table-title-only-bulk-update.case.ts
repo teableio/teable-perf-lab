@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-update/5k-wide-table-title-only-bulk-update",
   title: "Bulk update only Title across 5k rows in a 20-field table",
   runner: "record-update",
+  seedAffinity: "record-update/mixed-5k-20fields",
   timeoutMs: 600_000,
   config: {
     ...mixedRecordUpdate1kBase,

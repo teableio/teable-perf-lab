@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "formula/50k-calc",
   title: "50k rows formula calculation",
   runner: "formula-table",
+  routingEvidence: "not-applicable",
   timeoutMs: 900_000,
   watchdogMs: 300_000,
   config: {

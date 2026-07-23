@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-create/5k-number-fields-bulk-create",
   title: "Bulk create 5k rows across three number fields",
   runner: "record-create",
+  seedAffinity: "record-create/mixed-5k-20fields",
   timeoutMs: 600_000,
   config: {
     ...mixedRecordCreate1kBase,

@@ -205,6 +205,11 @@ const main = async () => {
 
   const webhookUrl = env("FEISHU_PERF_WEBHOOK_URL");
   if (!webhookUrl) {
+    if (env("PERF_LAB_REQUIRE_DELIVERY") === "true") {
+      throw new Error(
+        "FEISHU_PERF_WEBHOOK_URL is required for full-run acceptance.",
+      );
+    }
     console.warn(
       "FEISHU_PERF_WEBHOOK_URL is not set; skipping Feishu summary.",
     );

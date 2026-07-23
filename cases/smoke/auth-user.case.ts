@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "smoke/auth-user",
   title: "Authenticated user profile endpoint",
   runner: "http-endpoint",
+  routingEvidence: "not-applicable",
   timeoutMs: 60_000,
   config: {
     method: "GET",

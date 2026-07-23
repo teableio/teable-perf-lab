@@ -24,10 +24,11 @@ The performance monitor should treat trace warnings with these shapes:
 - `traceFetchSkippedReason` set and `Failed_Trace_Count = 0`: the Trace service
   was unavailable before Jaeger fetch began, so the collector skipped polling
   instead of wasting time on trace ids that could not have been exported.
-- Repeated sampled `GET` refs with a successful same-request-shape raw snapshot
-  may be marked `skipped` when a sibling trace 404s in Jaeger. Write requests
-  are still selected individually. If no representative trace saves for that
-  request shape, the fetch must stay failed so the monitor still alerts.
+- Repeated sampled GET or POST refs with a successful same-request-shape raw
+  snapshot may be marked `skipped` when a sibling trace 404s in Jaeger. POST
+  equivalence includes request-body structure, including array length and
+  heterogeneous item shapes. If no representative trace saves for that request
+  shape, the fetch must stay failed so the monitor still alerts.
 - `Trace_URL` empty: the run has no primary trace link.
 
 ## Files To Inspect First
@@ -61,20 +62,28 @@ The performance monitor should treat trace warnings with these shapes:
    - `savedTraceCount`
    - `skippedTraceCount`
    - `failedTraceCount`
-   - selected refs from `selectTraceRefsToSave`
+   - semantic request shapes in `refs[]`
      If `savedTraceCount + failedTraceCount + skippedTraceCount` covers
      `traceRefCount`, this is an intentional representative-snapshot gap, not a
-     trace-capture failure.
-6. Decide root cause:
+     trace-capture failure. `uniqueTraceCount` explains how many distinct trace
+     IDs were eligible for fetch; duplicate captured refs have explicit skipped
+     outcomes.
+6. If `traceFetchBreakerState` is not `closed`, inspect
+   `traceFetchBreakerReason`, `traceFetchRecoveryProbeCount`,
+   `traceFetchRecoverySucceeded`, `traceFetchWaitMs`, and
+   `traceFetchJobWaitMs`. A `partial-loss`, `hard-outage`, `case-budget`, or
+   `job-budget` state is explicit missing-evidence telemetry, not a performance
+   pass signal.
+7. Decide root cause:
    - Jaeger late availability or short timeout -> tune trace fetch timing.
    - Too many captured refs but snapshot cap too low -> adjust
      `PERF_LAB_TRACE_MAX_SNAPSHOTS` or selection priority.
    - High-repeat case only needs representative raw snapshots -> use
      `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN`, keep all refs, and ensure
      `skippedTraceCount` explains the unsaved refs.
-   - One selected representative sampled `GET` ref is unstable in Jaeger -> use
+   - One selected representative sampled request ref is unstable in Jaeger -> use
      `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` when the default same-request-shape
-     fallback pool needs narrowing, so another equivalent read ref can save the
+     fallback pool needs narrowing, so another equivalent request ref can save the
      representative raw snapshot while the failed selection is skipped with an
      explicit replacement reason.
    - Unsampled refs -> verify sampling expectation, not case failure.
@@ -93,6 +102,9 @@ The performance monitor should treat trace warnings with these shapes:
 - If using fallback representative refs, keep the fallback scope
   same-request-shape and bounded so real Jaeger outages still show as failed
   trace fetches.
+- Keep the 15-second case and 60-second job trace budgets. Do not extend them to
+  compensate for upstream trace loss; preserve refs and breaker evidence and
+  address the exporter/engine separately.
 - Producer contract for `stepId`: a trailing number or `sample-N` means "an
   interchangeable repeat of the same operation" (iteration/batch/sample). Steps
   that do structurally different work MUST be told apart by a name, not a bare

@@ -8,7 +8,7 @@ existing `teable-ee` e2e harness:
 3. The workflow injects the perf-lab test package into
    `teable-ee/community/apps/nestjs-backend/test/perf-lab/`.
 4. For an explicit case filter, one seed job prepares a reusable Postgres dump.
-   A full `case_filter=all` run instead prepares an adaptive number of
+   A full `case_filter=all` run instead prepares a stage-aware number of
    fixture-affinity seed shards in parallel.
 5. V1 and V2 execute jobs restore the matching shard dump into separate
    Postgres containers and run in parallel through `@teable/backend-ee`.
@@ -58,11 +58,21 @@ Manual inputs:
   computed-flow cases run in a separate V2 hybrid pool. Each V1, V2 sync, and V2
   hybrid pool uses the same global case shards. Passing an explicit
   `computed_update_mode` disables the sync/hybrid pool split, applies the
-  requested mode to every selected V2 case, and still uses the adaptive full-run
+  requested mode to every selected V2 case, and still uses the stage-aware full-run
   shards.
-  Because `teableio/teable-ee` is private, configure a read-only deploy key on
-  that repository and store the private key in this repository as
-  `TEABLE_EE_CHECKOUT_SSH_KEY`.
+- `seed_cache_namespace`: optional isolated namespace used only for controlled
+  cold/warm cache acceptance. It accepts at most 40 letters, digits, dots,
+  underscores, or hyphens and must start with a letter or digit. Leave it empty
+  for the existing shared cache. A new value isolates both the exact key and the
+  compatible restore prefix, so its first run is a real miss; reuse the same
+  value on the same commit and case set for a true exact-hit warm run.
+- `expected_perf_lab_sha`: optional exact 40-character commit guard for a
+  cold/warm acceptance pair. Resolve the workflow branch before dispatch and
+  pass the same SHA to both runs; planning fails if the branch moved.
+
+Because `teableio/teable-ee` is private, configure a read-only deploy key on
+that repository and store the private key in this repository as
+`TEABLE_EE_CHECKOUT_SSH_KEY`.
 
 ## Case model
 
@@ -74,19 +84,65 @@ measured formula, lookup, delete, undo, redo, or clear operation.
 Each execute job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=execute` and a
 single `PERF_LAB_ENGINE_LIST` value. It starts one Nest app for that engine and
 dispatches each case to a runner in `framework/runners/`. Each case writes an
-independent JSON artifact and summary tagged with `engine`.
+independent JSON artifact and summary tagged with `engine` before trace
+retrieval. One bounded job tail then finalizes all per-case trace manifests and
+rewrites only the trace block in those payloads/summaries.
 
-For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order and
-the verified fixture affinities in `scripts/full-run-shard-model.mjs`. Cases
-that emit the same physical runner `seedHash` are treated as one indivisible
-bundle. The shard count is derived from catalog size at roughly 40 cases per
-shard, capped at 8; the current 256-case catalog resolves to 7. Bundles are
-weighted with calibrated cold-seed cost plus a per-case execute overhead and
-greedily assigned to the least-loaded shard. Sync and hybrid bundles are packed
-independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid all use
-that same mapping, so a shared fixture is built into exactly one seed dump and
-every case is selected exactly once per applicable engine/mode pool. Explicit
+For `case_filter=all`, `scripts/run-plan.mjs` reads the registered case order,
+top-level string-literal `seedAffinity` declarations, and the accepted legacy
+fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
+same affinity must use that identity in their runner seed contract and are
+treated as one indivisible physical-fixture bundle. Planning fails on duplicate
+declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
+that splits a bundle. The planner imports a complete case-level cold-seed,
+V1/V2 execute, and trace-attribution envelope through trusted cold run
+`29957965247`, retaining larger observations from cold run `29951887405` and
+exact-hit warm run `29955363070`.
+The cold run's observed stage maxima remain calibration metadata for comparison;
+they are not presented as observations of a new mapping. Unseen cases retain
+explicit default costs until a later trusted run recalibrates them.
+
+Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace costs.
+Shared-fixture seed cost is paid once using the bundle maximum; execute and trace
+costs remain per case. The planner simulates 6 through 12 shards, reports each
+candidate's critical shard and stage maxima, concurrency jobs, and cache movement,
+then selects the lowest concurrency that meets the 45-minute cold and 25-minute
+warm SLOs without regressing the modeled scalar baseline. The current calibrated
+catalog selects eight shards. Historical stable slots and cache reuse are
+secondary tie-breakers after stage load. The historical assignment covers both
+shared affinities and singleton bundles, so an unrelated catalog edit only moves
+the bundles needed to protect stage balance; cache movement includes every
+actual bundle move. Planning uses only the execute stages requested by
+`engine_filter` and `computed_update_mode`: a V1-only run has no V2 cost, while
+an explicitly unsplit V2 hybrid run prices every selected case in the hybrid
+stage.
+
+Seed, V1, V2 sync, and V2 hybrid all use the selected global slot mapping, so a
+shared fixture is built into exactly one seed dump and every case is selected
+exactly once per applicable engine/mode pool. The initial plan summary includes
+predicted stage maxima and identifies its trusted cold/warm calibration pair. Explicit
 case ids and comma-separated case lists remain unsharded.
+
+After all execute jobs finish, the report job fetches the current workflow's
+completed job timings and downloads both execute trace manifests and seed
+artifacts. For a cold or compatible run it recursively extracts every runner
+`seedHash` and fails the workflow if one physical identity crosses shards or if
+cases sharing that identity do not resolve to exactly one static affinity. An
+exact-hit warm run has no rebuilt runner payloads, so this artifact check is
+limited to cache-status evidence after validating every shard's stable slot,
+case-set digest, seed-contract generation, namespace, and exact matched key
+against the current plan. An
+all-`cache-miss` matrix uses the cold-seed prediction; only an all-`exact-hit`
+matrix uses the warm-seed prediction. Compatible, mixed, missing, or incomplete
+cache evidence is reported as unclassified rather than producing a misleading
+seed delta. Likewise, no trace manifests means missing trace evidence, while
+present manifests with zero wait remain a valid 0 ms observation. The report
+appends the current-run predicted-versus-observed table and physical
+seed-affinity result to the GitHub summary. It uploads `observation.json` and
+`seed-affinity.json` under
+`teable-ee-e2e-perf-plan-observation-<run>-<attempt>/`. The planning summary
+names the trusted cost-calibration source pair but does not present that
+different mapping as the current run's observation.
 
 The runner catalog is in [.agents/runners.md](../../.agents/runners.md). The list
 of registered cases is in the `README.md` "Available Cases" section. To add or
@@ -107,12 +163,24 @@ the session cookie on the shared OpenAPI axios instance.
 
 ## Seed Cache
 
-The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. The seed DB cache key
-is based on runner OS, normalized case filter, Teable Prisma schema/migration
-hash, and perf-lab case/framework source hash. It does not include the target
-`teable-ee` commit SHA. Ordinary backend code changes can therefore reuse the
-same seed dump; Prisma schema/migration changes or seed code changes force a new
-dump.
+The workflow exports `PERF_LAB_SEED_CACHE_ENABLED=true`. It uses an exact key
+and a narrower compatible restore prefix:
+
+```text
+exact:      perf-seed-db-[<namespace>-]<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-[<namespace>-]<runner-os>-<schema-hash>-<seed-contract-generation>-<stable-slot>-
+```
+
+The exact key binds the complete sorted case set and all seed-relevant perf-lab
+source. The compatible prefix never crosses runner OS, Prisma schema/migrations,
+seed contract generation, or stable shard slot. Neither key includes the target
+`teable-ee` commit SHA, so ordinary backend changes can reuse a dump while
+schema or seed-contract changes cannot.
+The optional namespace is validated before it reaches the cache action. Empty
+keeps the historical key shape; a non-empty namespace scopes both keys and is
+recorded in every `seed-cache-status-*.json` artifact.
+Those status files also record the resolved perf-lab and teable-ee commit SHAs,
+so cache mode evidence is tied to one namespace, case-set digest, and code pair.
 
 The schema hash is computed from:
 
@@ -125,21 +193,24 @@ teable-ee/community/packages/db-data-prisma/prisma/migrations/**
 
 On an exact cache hit, the seed job only checks that
 `perf-lab-seed-cache/e2e_test_teable.dump` exists. It skips dependency install,
-service startup, seed mode, and seed validation. On a cache miss or restore-key
-hit, the seed job starts services, restores any available dump with `pg_restore`
-when possible, otherwise rebuilds from migrations and `prisma-db-seed -- --e2e`,
-then runs `PERF_LAB_MODE=seed`. Cache-aware runners validate existing
-hash-derived seed tables or build missing/stale fixtures. A successful seed job
-saves a new exact-key `pg_dump -Fc` snapshot.
+service startup, seed mode, and seed validation. A compatible-prefix hit is only
+a restore candidate, never an exact hit. On a compatible hit or cache miss, the
+seed job starts services, restores any available dump with `pg_restore` when
+possible, otherwise rebuilds from migrations and `prisma-db-seed -- --e2e`,
+then runs `PERF_LAB_MODE=seed`. Every cache-aware runner validates its
+hash-derived seed identity and readiness; missing or stale fixtures are rebuilt
+before a new exact-key `pg_dump -Fc` snapshot is saved.
 
 Each seed shard uploads its selected dump as a same-run artifact, and execute
 shard N downloads seed dump N into isolated V1/V2 databases before running the
 measured cases. Each shard has its own cache key, dump, Postgres container,
-Redis service, network, and artifact names. The cache key includes a digest of
-the shard's ordered case list, so changing affinity or shard assignment cannot
-exact-hit a dump built for a different case set. Runner-level `seedHash` names
-decide whether a table is valid for a specific case; stale tables in the dump
-are ignored unless the hash matches and `seedReady` validation passes.
+Redis service, network, and artifact names. The exact key includes a digest of
+the shard's sorted case set, so changing membership cannot exact-hit a dump built
+for a different set. The stable slot lets a safe plan change restore the prior
+dump as a compatible candidate. Runner-level `seedHash` names decide whether a
+table is valid for a specific case; stale tables are ignored unless the hash
+matches and `seedReady` validation passes. Each seed shard also uploads a cache
+status JSON recording exact, compatible-candidate, or miss mode.
 
 Formula, conditional lookup, CSV import, record delete, record undo, record
 redo, and selection clear cases currently use this cache. CSV import caches the
@@ -196,11 +267,33 @@ raw Jaeger snapshots:
   inspect these raw snapshots; the results artifact is enough for metrics,
   summaries, and manifest counts.
 
-The report job resolves the lightweight `teable-ee-e2e-perf-results-v*`
-artifacts by default and falls back to the full `teable-ee-e2e-perf-v*`
-artifacts when no results artifact exists for the run (for example, when
-re-running report on an older run). It downloads the resolved artifacts, merges
-their JSON payloads, and upserts the result rows to Teable.
+The report job resolves artifacts independently per logical execute and seed
+shard. It chooses that shard's newest run attempt, preferring the lightweight
+`teable-ee-e2e-perf-results-v*` artifact over the full
+`teable-ee-e2e-perf-v*` artifact when both exist in the same attempt. This
+preserves successful attempt-1 siblings when `Re-run failed jobs` only creates
+attempt-2 artifacts for failed matrix children. For an exact-hit seed shard on
+the newer attempt, the affinity gate also downloads older seed artifacts and
+accepts physical-fixture provenance only from the newest non-warm artifact
+whose logical shard, plan identity, namespace, perf-lab SHA, and teable-ee SHA
+all match. Missing or mismatched provenance fails closed instead of presenting
+a mixed attempt as cold or warm evidence. The workflow resolves
+`teable_ee_ref` once in `resolve_inputs`; all later seed and execute attempts
+checkout that pinned SHA.
+
+For `case_filter=all`, the report job also fails closed unless resolve, seed,
+and execute jobs succeeded and every planned case/engine has exactly one
+payload. Each payload must be pass or an expected skip, contain no failed
+routing assertion, and reconcile every trace ref through
+saved/failed/skipped within the 15-second case and 60-second job budgets.
+Expected engine skips and measured paths with no routing contract are declared
+explicitly on the case; undeclared skips or missing routing evidence fail.
+
+Performance Track, Feishu, and the GitHub combined summary run as independent
+report steps so one failure does not hide the others. A full run passes only
+when all three succeed. Feishu's webhook acknowledgement enforces the 100KB
+card limit; the GitHub and Performance Track builders enforce their configured
+1MB and per-write limits before their steps can succeed.
 
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see
@@ -216,27 +309,57 @@ the endpoint URLs here.
 `perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
 `initApp()` creates the Nest test app. The perf framework captures `traceparent`
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
-requests that use the perf SSE helper. It then polls Jaeger at
-`/api/traces/<traceId>` and writes the raw JSON snapshots to the artifact
-directory. During each case, the runner can call the Teable OpenTelemetry SDK's
-force flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps
-large cases from holding all spans in the batch processor until the end. Before
-polling, the runner also asks the SDK to flush pending spans one final time, then
-waits `PERF_LAB_TRACE_FETCH_SETTLE_MS` so the OTEL exporter and Jaeger query path
-have a short settle window. The workflow saves up to
+requests that use the perf SSE helper. A case snapshots those refs and writes
+its measured payload plus a `pending-job-tail` manifest immediately; it does not
+wait for Jaeger. After every case in the engine job completes,
+`perf-lab.e2e-spec.ts` performs one final exporter flush and one
+`PERF_LAB_TRACE_FETCH_SETTLE_MS` settle, then polls Jaeger at
+`/api/traces/<traceId>`. It writes raw JSON snapshots and replaces the pending
+trace block in each case payload, summary, and manifest. During a large case,
+the runner may still call the Teable OpenTelemetry SDK's force flush periodically
+with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans from accumulating in
+the batch processor. The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Cases that generate many
-same-shape request traces may set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` in their
-case runtime env to save representative raw snapshots instead of requiring every
-request trace to survive Jaeger ingestion. If a selected representative trace is
-sampled but cannot be fetched from Jaeger, cases may set
+with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
+automatically select one representative per semantic request shape (normalized
+step, method, URL shape, and request-body structure); all captured refs remain in
+the manifest. Cases may still set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow
+which shapes are eligible. If a selected representative trace is sampled but
+cannot be fetched from Jaeger, cases may set
 `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
 sampled fallback refs before recording a failed fetch. Refs with an unsampled
 `traceparent` are kept in the manifest but skipped for Jaeger fetch because
 those traces are not expected to be stored. Sampled refs above the snapshot cap,
 outside a case's include pattern, replaced by a saved fallback trace, or covered
 by an already saved same-shape trace are also recorded as skipped so the manifest
-explains any intentional `traceRefCount > savedTraceCount` gap. Stream artifacts
+explains any intentional `traceRefCount > savedTraceCount` gap.
+
+Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
+(15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (60 seconds). After
+`PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
+partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
+probe, then records the remaining refs as skipped instead of polling each one.
+An unavailable exporter records `exporter-outage`; an unavailable Jaeger query
+path opens `hard-outage` immediately.
+`traceFetchWaitMs`, `traceFetchJobWaitMs`, breaker state/reason, recovery-probe
+counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
+manifest and case summary. These bounds reduce evidence-collection overhead;
+the job bound includes the shared final flush and settle. A case budget only
+stops that case; the job budget and partial-loss breaker are shared by the whole
+tail, so remaining refs receive an explicit skipped reason.
+`PERF_LAB_TRACE_FINALIZE_RESERVE_MS` reserves the final 5 seconds of the job
+budget for atomic raw/manifest/payload writes; network retrieval closes before
+that reserve. The job-tail lifecycle includes both trace retrieval and the
+payload/summary/manifest reconciliation. `traceFetchJobWaitMs` records its real
+elapsed time rather than clamping an overrun to the configured budget, so an SLO
+miss remains visible.
+If the process stops before finalization, the provisional `pending-job-tail`
+state explains the incomplete evidence. Payloads, summaries, raw snapshots, and
+manifests use same-directory temporary files plus atomic rename. A reconciliation
+failure retries every writable result/summary/manifest as one `tail-error` set;
+an unrecoverable filesystem failure leaves the prior valid file rather than a
+truncated performance result. These bounds do not hide missing-trace warnings
+or disable sampling. Stream artifacts
 should also include the response routing headers, such as `x-teable-v2`, so V1
 legacy streams and V2 streams can be distinguished even when they share the same
 HTTP endpoint.
@@ -252,6 +375,91 @@ To verify observability after a run:
 
 The Jaeger UI link is durable while the shared service and retention window keep
 the trace. The JSON artifact is also uploaded as durable run evidence.
+
+## Full-run feedback evaluation
+
+Use the feedback evaluator after assembling one self-contained plan and
+telemetry JSON from the workflow jobs and lightweight result artifacts:
+
+```bash
+node scripts/evaluate-full-run-feedback.mjs <telemetry.json> --assert
+```
+
+The document must include all of the following. Missing or malformed evidence
+is an input error rather than a passing run:
+
+- a non-empty `runId`, `cacheMode`, and workflow queued/start/completion times;
+- `plan.requiredStages` containing exactly `seed`, `v1`, `v2-sync`,
+  `v2-hybrid`, and `report`, plus `plan.expectedResults`;
+- `phases.seed`, `phases.execute`, and `phases.report` start/completion times;
+- at least one job for every required stage, with the stage restricted to the
+  five values above and a shard on every non-report job;
+- result coverage whose expected count matches the plan;
+- non-empty seed-build observations with non-empty `caseId`, `seedHash`, shard,
+  and optional planner `affinityId` sourced from result `seedAffinity`, plus
+  build time; record a zero build time for a cache hit without omitting its
+  identity;
+- trace totals plus non-empty case/job wait observations; case waits require
+  `caseId`, engine, and shard, while job waits require the job name.
+
+The evaluator reports active workflow wall separately from runner queue time,
+reports phase wall windows separately from job-local step timing, selects the
+critical job in each stage, groups identical seed hashes rebuilt in multiple
+shards, and checks these feedback gates:
+
+- cold active wall: at most 45 minutes;
+- warm active wall: at most 25 minutes;
+- cases sharing one observed seed identity must resolve to exactly one static
+  affinity, and that identity must not be rebuilt in multiple shards;
+- trace wait attributed to one case: at most 15 seconds;
+- trace wait in one execute job: at most 60 seconds.
+
+For a cross-shard `seedHash`, the diagnostic also classifies the static contract
+as `missing-affinity-declaration`, `declared-affinity-spans-shards`, or
+`seed-hash-maps-to-multiple-affinities`.
+
+Without `--assert`, an unhealthy run is printed for diagnosis and the command
+still succeeds. With `--assert`, a gate or result-coverage failure exits with
+status 1. An incomplete or malformed plan/telemetry document exits with status
+2 in either mode. Historical cold, warm, and slow-run examples live under
+`scripts/fixtures/full-run-feedback/` and are exercised by
+`pnpm check:full-run-feedback`.
+
+After accepting a complete cold run, refresh the versioned maximum envelope and
+then regenerate stable slots from the resulting plan:
+
+```bash
+node scripts/refresh-full-run-calibration.mjs \
+  --seed-dir <downloaded-seed-artifacts> \
+  --results-dir <downloaded-result-artifacts> \
+  --stage-observation <downloaded-plan-observation/observation.json> \
+  --source-run-id <run-id> \
+  --write
+node scripts/accept-full-run-warm-calibration.mjs \
+  --seed-dir <downloaded-warm-seed-artifacts> \
+  --results-dir <downloaded-warm-result-artifacts> \
+  --stage-observation <downloaded-warm-plan-observation/observation.json> \
+  --source-run-id <warm-run-id> \
+  --write
+node scripts/refresh-full-run-historical-slots.mjs \
+  --source-run-id <run-id> \
+  --write
+pnpm check:run-plan
+```
+
+The cold calibration command regenerates both the case-cost envelope and the
+stage source/observed maxima after all input validation succeeds, and clears
+any previous warm pairing. It requires an all-cache-miss status for every
+shard, complete non-failing seed/V1/V2 payloads from one run attempt, matching
+perf-lab and teable-ee SHAs, a complete cold stage observation, and a passing
+physical seed-affinity gate. Mixed/exact-hit input, cross-run artifacts,
+missing affinity identities, and cross-shard duplicate fixtures are rejected.
+The warm command accepts only an all-exact-hit matrix from one attempt whose
+plan, namespace, revisions, result coverage, and complete warm observation
+match the current cold calibration. Each cold case stage keeps the larger old
+or new value so a faster noisy rerun cannot silently remove protection for a
+known straggler. Stable-slot refresh also refuses a run id other than the newly
+validated cold calibration source.
 
 ## Manual examples
 
@@ -286,3 +494,29 @@ gh workflow run teable-ee-e2e-perf.yml \
   -f case_filter=all \
   -f engine_filter=v1,v2
 ```
+
+Run a controlled cold/warm full acceptance pair from one commit. Wait for the
+first run to finish before dispatching the second command unchanged:
+
+```bash
+PERF_LAB_REF=codex/feishu-summary-compact
+SEED_CACHE_NAMESPACE=accept-20260723-01
+PERF_LAB_SHA="$(gh api "repos/teableio/teable-perf-lab/commits/${PERF_LAB_REF}" --jq .sha)"
+TEABLE_EE_SHA="$(gh api repos/teableio/teable-ee/commits/develop --jq .sha)"
+
+gh workflow run teable-ee-e2e-perf.yml \
+  --repo teableio/teable-perf-lab \
+  --ref "$PERF_LAB_REF" \
+  -f teable_ee_ref="$TEABLE_EE_SHA" \
+  -f expected_perf_lab_sha="$PERF_LAB_SHA" \
+  -f case_filter=all \
+  -f engine_filter=v1,v2 \
+  -f seed_cache_namespace="$SEED_CACHE_NAMESPACE"
+```
+
+Do not push the workflow branch between the two dispatches. The SHA guard makes
+a moved branch fail instead of silently testing another perf-lab commit. The
+cold run must report only `cache-miss`; the second run must report only
+`exact-hit`. Every status artifact must contain the same `perfLabSha`,
+`teableEeSha`, `cacheNamespace`, and slot-specific `caseSetDigest`. A
+`compatible-candidate` result is not warm acceptance.

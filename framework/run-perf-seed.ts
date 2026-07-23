@@ -3,27 +3,8 @@ import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
 import { roundMetric } from "./metrics";
 import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { seedRegisteredRunner } from "./runner-registry";
-import { resetPerfTraceRefs, writeTraceArtifacts } from "./trace-collector";
-import type { PerfCase, PerfRunContext, PerfRunResult } from "./types";
-
-const withTraceDetails = async (
-  context: PerfRunContext,
-  perfCase: PerfCase,
-  details: PerfRunResult["details"],
-) => {
-  const traceArtifacts = await writeTraceArtifacts({
-    artifactDir: context.artifactDir,
-    perfCase,
-    engine: context.engine,
-  });
-
-  return {
-    ...details,
-    observability: {
-      traces: traceArtifacts,
-    },
-  };
-};
+import { deferPerfTraceDetails, resetPerfTraceRefs } from "./trace-collector";
+import type { PerfCase, PerfRunContext } from "./types";
 
 export const seedPerfCase = async (
   perfCase: PerfCase,
@@ -56,7 +37,11 @@ export const seedPerfCase = async (
       metrics: result.metrics,
       thresholds: [],
       phases: result.phases,
-      details: await withTraceDetails(context, perfCase, result.details),
+      details: await deferPerfTraceDetails({
+        context,
+        perfCase,
+        details: result.details,
+      }),
     };
 
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
@@ -73,7 +58,7 @@ export const seedPerfCase = async (
       durationMs: roundMetric(performance.now() - started),
       metrics: {},
       thresholds: [],
-      details: await withTraceDetails(context, perfCase, undefined),
+      details: await deferPerfTraceDetails({ context, perfCase }),
       error: normalizePerfError(error),
     };
 

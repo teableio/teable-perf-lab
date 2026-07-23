@@ -6,7 +6,85 @@ export interface TraceEvidenceRef {
   sampled: boolean;
   method?: string;
   url?: string;
+  requestBodyShape?: string;
 }
+
+const requestBodyShapeValue = (
+  value: unknown,
+  seen: WeakSet<object>,
+  depth: number,
+): unknown => {
+  if (value == null) {
+    return value === null ? "null" : "undefined";
+  }
+  if (depth >= 6) {
+    return typeof value;
+  }
+  if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      return "circular";
+    }
+    seen.add(value);
+    try {
+      const itemShapes = new Map<string, unknown>();
+      for (const child of value) {
+        const childShape = requestBodyShapeValue(child, seen, depth + 1);
+        itemShapes.set(JSON.stringify(childShape), childShape);
+      }
+      return {
+        $arrayLength: value.length,
+        $itemShapes: [...itemShapes.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([, shape]) => shape),
+      };
+    } finally {
+      seen.delete(value);
+    }
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) {
+      return "circular";
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return {
+        $type:
+          (value as { constructor?: { name?: string } }).constructor?.name ??
+          "object",
+      };
+    }
+    seen.add(value);
+    try {
+      const entries = Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [
+          key,
+          requestBodyShapeValue(child, seen, depth + 1),
+        ]);
+      return Object.fromEntries(entries);
+    } finally {
+      seen.delete(value);
+    }
+  }
+  return typeof value;
+};
+
+export const normalizeTraceRequestBodyShape = (body: unknown) => {
+  if (body == null || body === "") {
+    return "";
+  }
+
+  let value = body;
+  if (typeof body === "string") {
+    try {
+      value = JSON.parse(body);
+    } catch {
+      return "string";
+    }
+  }
+
+  return JSON.stringify(requestBodyShapeValue(value, new WeakSet(), 0));
+};
 
 const parseStepPatterns = (value: unknown) => {
   if (typeof value !== "string" || value.trim() === "") {
@@ -96,16 +174,10 @@ const requestShape = (ref: TraceEvidenceRef) =>
     normalizeTraceStepShape(ref.stepId),
     ref.method?.toUpperCase() ?? "",
     normalizeUrlShape(ref.url),
-  ].join(" ");
-
-const fetchSelectionKey = (ref: TraceEvidenceRef) =>
-  ref.method?.toUpperCase() === "GET"
-    ? [
-        ref.stepId,
-        ref.method?.toUpperCase() ?? "",
-        normalizeUrlShape(ref.url),
-      ].join(" ")
-    : ref.traceId;
+    ref.requestBodyShape,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
 export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
   refs,
@@ -135,7 +207,7 @@ export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
       return;
     }
 
-    const fetchKey = fetchSelectionKey(ref);
+    const fetchKey = requestShape(ref);
     if (selectedFetchKeys.has(fetchKey)) {
       return;
     }

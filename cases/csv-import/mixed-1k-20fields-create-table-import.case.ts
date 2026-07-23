@@ -25,6 +25,7 @@ export default definePerfCase({
   id: "csv-import/mixed-1k-20fields-create-table-import",
   title: "Create a new table from a 1k-row mixed CSV import",
   runner: "csv-import",
+  routingEvidence: "not-applicable",
   timeoutMs: 180_000,
   config: {
     baseId: "seed-base",

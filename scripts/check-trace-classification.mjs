@@ -43,8 +43,25 @@ try {
   const { hasSavedTraceStepShape, normalizeTraceStepShape } = await import(
     pathToFileURL(classificationFile)
   );
-  const { createTraceEvidencePolicy } = await import(
-    pathToFileURL(evidencePolicyFile)
+  const { createTraceEvidencePolicy, normalizeTraceRequestBodyShape } =
+    await import(pathToFileURL(evidencePolicyFile));
+
+  assert.notEqual(
+    normalizeTraceRequestBodyShape({
+      records: [
+        { fields: { Name: "A" } },
+        { fields: { Name: "B" } },
+        { fields: { Name: "C" } },
+      ],
+    }),
+    normalizeTraceRequestBodyShape({
+      records: [
+        { fields: { Name: "A" } },
+        { fields: { Name: "B", Count: 2 } },
+        { fields: { Name: "C" } },
+      ],
+    }),
+    "heterogeneous array element structures must not share a write representative",
   );
 
   assert.equal(
@@ -230,6 +247,69 @@ try {
       savedTraceIds: new Set(),
     }),
     "Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=2",
+  );
+
+  const semanticRefs = [
+    {
+      traceId: "get-page-1",
+      stepId: "scanPage:1",
+      sampled: true,
+      method: "GET",
+      url: "http://teable.test/api/table/tblSemantic001/record?page=1",
+    },
+    {
+      traceId: "get-page-2",
+      stepId: "scanPage:2",
+      sampled: true,
+      method: "GET",
+      url: "http://teable.test/api/table/tblSemantic002/record?page=2",
+    },
+    {
+      traceId: "post-records-1",
+      stepId: "writeBatch:1",
+      sampled: true,
+      method: "POST",
+      url: "http://teable.test/api/table/tblSemantic001/record",
+      requestBodyShape: normalizeTraceRequestBodyShape({
+        records: [{ fields: { Name: "A", Count: 1 } }],
+      }),
+    },
+    {
+      traceId: "post-records-2",
+      stepId: "writeBatch:2",
+      sampled: true,
+      method: "POST",
+      url: "http://teable.test/api/table/tblSemantic002/record",
+      requestBodyShape: normalizeTraceRequestBodyShape({
+        records: [{ fields: { Name: "B", Count: 2 } }],
+      }),
+    },
+    {
+      traceId: "post-delete-ids",
+      stepId: "writeBatch:3",
+      sampled: true,
+      method: "POST",
+      url: "http://teable.test/api/table/tblSemantic003/record",
+      requestBodyShape: normalizeTraceRequestBodyShape({
+        recordIds: ["recSemantic001"],
+      }),
+    },
+  ];
+  const semanticPolicy = createTraceEvidencePolicy({
+    refs: semanticRefs,
+    maxSnapshots: 10,
+  });
+  assert.deepEqual(
+    semanticPolicy.selectedRefs.map((ref) => ref.traceId),
+    ["get-page-1", "post-records-1", "post-delete-ids"],
+  );
+  assert.equal(
+    semanticPolicy.requestShape(semanticRefs[2]),
+    'writeBatch:# POST /api/table/:tbl/record {"records":{"$arrayLength":1,"$itemShapes":[{"fields":{"Count":"number","Name":"string"}}]}}',
+  );
+  assert.notEqual(
+    semanticPolicy.requestShape(semanticRefs[2]),
+    semanticPolicy.requestShape(semanticRefs[4]),
   );
 
   console.log("Trace classification and evidence policy checks ok");

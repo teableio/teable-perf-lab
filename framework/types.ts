@@ -59,6 +59,16 @@ interface PerfCaseBase {
   id: string;
   title: string;
   timeoutMs: number;
+  // Full-run acceptance requires recorded routing evidence by default. Use
+  // not-applicable only for runners whose measured path has no engine-routing
+  // contract to assert.
+  routingEvidence?: "not-applicable";
+  // Engine-specific skips are acceptance-safe only when declared on the case.
+  expectedSkipEngines?: Array<"v1" | "v2">;
+  // Stable physical-fixture identity shared by the runtime seed contract and
+  // the full-run planner. Cases that declare the same value are an
+  // indivisible seed bundle.
+  seedAffinity?: string;
   // Opt-in idle watchdog (see framework/watchdog.ts). When set, the case fails
   // fast with a clear diagnostic if the server makes no HTTP/SSE progress for
   // this many ms, instead of hanging until `timeoutMs`. Set it comfortably above

@@ -5,6 +5,8 @@ export default definePerfCase({
   id: "search/search-index-off-100k-20search-fields",
   title: "100k lookup global search without table search index",
   runner: "lookup-search-index",
+  routingEvidence: "not-applicable",
+  seedAffinity: "lookup-search-index/100k-20fields",
   timeoutMs: 1_800_000,
   runtimeEnv: baseline.runtimeEnv,
   config: {

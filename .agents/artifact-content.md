@@ -40,6 +40,9 @@ so `formula/10k-calc` + `v2` → `formula-10k-calc-v2`.
 
 The primary file. One per case+engine. Trace counts are duplicated inline here
 (see `details.observability.traces`), so most checks never need `manifest.json`.
+The case first writes a `pending-job-tail` trace block; the engine job tail
+rewrites only that block after bounded collection, leaving metrics, business
+details, routing evidence, result, and measured duration unchanged.
 
 ```json
 {
@@ -100,8 +103,10 @@ Field notes:
 
 ## `traces/<case-id>-<engine>/manifest.json` — trace summary
 
-Identical to `details.observability.traces` in the payload. Read it standalone
-only if you are not already holding the payload.
+Identical to `details.observability.traces` in the payload after normal job-tail
+finalization. Read it standalone only if you are not already holding the
+payload. An interrupted run can leave both at `pending-job-tail`; a tail failure
+uses `tail-error` wherever the artifact directory remains writable.
 
 ```json
 {
@@ -112,6 +117,16 @@ only if you are not already holding the payload.
   "savedTraceCount": 20,
   "failedTraceCount": 1,
   "skippedTraceCount": 16,
+  "missingFetchCount": 1,
+  "wastedFetchMs": 3000,
+  "traceFetchCaseBudgetMs": 15000,
+  "traceFetchJobBudgetMs": 60000,
+  "traceFetchWaitMs": 8120,
+  "traceFetchJobWaitMs": 42100,
+  "traceFetchBreakerState": "partial-loss",
+  "traceFetchBreakerReason": "Trace fetch breaker open: partial loss threshold 3 reached",
+  "traceFetchRecoveryProbeCount": 1,
+  "traceFetchRecoverySucceeded": false,
   "maxSnapshotCount": 100,
   "fetchConcurrency": 8,
   "backgroundFlushIntervalMs": 1000,
@@ -131,6 +146,7 @@ only if you are not already holding the payload.
       "traceLink": "http://host:16686/trace/0af7651916cd43dd8448eb211c80319c?uiEmbed=v0",
       "method": "POST",
       "url": "http://127.0.0.1:3000/api/table/tblXXX/field",
+      "requestBodyShape": "{\"name\":\"string\",\"type\":\"string\"}",
       "status": 201,
       "capturedAt": "2026-06-14T03:21:30.000Z"
     }
@@ -159,18 +175,35 @@ only if you are not already holding the payload.
 }
 ```
 
-Count relationships (a healthy run): `savedTraceCount + failedTraceCount +
-skippedTraceCount` accounts for every fetched/skipped ref. `skipped` covers
+Count relationships: `savedTraceCount + failedTraceCount + skippedTraceCount`
+accounts for every captured ref in `refs[]` and therefore equals
+`traceRefCount`. `uniqueTraceCount` reports distinct trace IDs; duplicate refs
+receive explicit skipped outcomes because the first ref owns the shared fetch
+result. `skipped` also covers
 unsampled refs, sampled refs above `maxSnapshotCount`, sampled refs outside a
-case include pattern, repeated sampled `GET` refs covered by a saved
-representative for the same request shape (`stepId` shape + method + URL path
-shape), and whole-case fetch skips when the Trace service was unavailable before
-Jaeger fetch began. Each skipped entry carries an `error` string explaining why
-it was not fetched. `refs[]` lists every captured request; `savedTraces[]` lists
-the fetch outcome per selected trace plus skipped refs.
+case include pattern, repeated sampled GET or POST refs covered by a saved
+representative for the same semantic request shape (normalized step + method +
+URL path/query-key shape + request-body structure), and whole-case fetch skips
+when the Trace service was unavailable or a trace budget/breaker opened. Each
+skipped entry carries an `error` string explaining why it was not fetched.
+`refs[]` lists every captured trace ref; `savedTraces[]` lists one outcome per
+captured ref.
 `traceFetchSkippedReason` is set only when the collector skipped Jaeger fetch for
 the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.
+
+`traceFetchWaitMs` is the case-attributed wait capped by
+`traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is the actual cumulative elapsed
+tail time observed when that manifest is finalized. It is compared with
+`traceFetchJobBudgetMs` but deliberately not clamped, so post-deadline artifact
+work cannot hide an SLO overrun. A non-`closed`
+`traceFetchBreakerState` plus `traceFetchBreakerReason` preserves why retrieval
+stopped. `partial-loss` can recover through a bounded probe;
+`traceFetchRecoverySucceeded` records that transition. `pending-job-tail` means
+the measured result exists but trace finalization did not complete;
+`tail-error` means finalization or its artifact rewrite failed without deleting
+that result. Artifact replacement uses same-directory temporary files and atomic
+rename, so interruption keeps the previous valid JSON instead of truncating it.
 
 ## `traces/<case-id>-<engine>/<step-id>-<trace-id>.json` — raw Jaeger snapshot
 

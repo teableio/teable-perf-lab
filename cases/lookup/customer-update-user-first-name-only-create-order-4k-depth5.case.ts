@@ -4,6 +4,7 @@ export default definePerfCase({
   id: "lookup/customer-update-user-first-name-only-create-order-4k-depth5",
   title: "Update one dependent User field, then create one linked Order",
   runner: "customer-upsert-computed-flow",
+  seedAffinity: "customer-upsert/4k-depth5",
   timeoutMs: 420_000,
   watchdogMs: 300_000,
   config: {
