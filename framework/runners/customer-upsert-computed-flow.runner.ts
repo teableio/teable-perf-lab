@@ -495,39 +495,27 @@ const createOrderComputedFields = async (
   },
 ) => {
   for (const attribute of USER_ATTRIBUTE_NAMES) {
-    await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createLookup:${lookupName(attribute)}`,
-      () =>
-        createField(fixtureInput.ordersTableId, {
-          name: lookupName(attribute),
-          type: FieldType.SingleLineText,
-          isLookup: true,
-          lookupOptions: {
-            foreignTableId: fixtureInput.usersTableId,
-            linkFieldId: fixtureInput.userLinkFieldId,
-            lookupFieldId: fixtureInput.userFields.attributes[attribute],
-          },
-        }),
-    );
+    await createField(fixtureInput.ordersTableId, {
+      name: lookupName(attribute),
+      type: FieldType.SingleLineText,
+      isLookup: true,
+      lookupOptions: {
+        foreignTableId: fixtureInput.usersTableId,
+        linkFieldId: fixtureInput.userLinkFieldId,
+        lookupFieldId: fixtureInput.userFields.attributes[attribute],
+      },
+    });
   }
   const fields = (await getFields(fixtureInput.ordersTableId)) as NamedField[];
   const fieldIdByName = new Map(fields.map((field) => [field.name, field.id]));
   for (const formula of formulaDefinitions()) {
-    const created = await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createFormula:${formula.name}`,
-      () =>
-        createField(fixtureInput.ordersTableId, {
-          name: formula.name,
-          type: FieldType.Formula,
-          options: {
-            expression: compileExpression(formula.expression, fieldIdByName),
-          },
-        }),
-    );
+    const created = await createField(fixtureInput.ordersTableId, {
+      name: formula.name,
+      type: FieldType.Formula,
+      options: {
+        expression: compileExpression(formula.expression, fieldIdByName),
+      },
+    });
     fieldIdByName.set(formula.name, created.id);
   }
 };
@@ -542,40 +530,28 @@ const createPurchaseComputedFields = async (
     orderCardFieldId: string;
   },
 ) => {
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `seedBuild:createRollup:${PURCHASE_CARDS}`,
-    () =>
-      createField(input.purchaseTableId, {
-        name: PURCHASE_CARDS,
-        type: FieldType.Rollup,
-        options: { expression: "array_join({values})" },
-        lookupOptions: {
-          foreignTableId: input.ordersTableId,
-          linkFieldId: input.reverseOrdersLinkId,
-          lookupFieldId: input.orderCardFieldId,
-        },
-      }),
-  );
+  await createField(input.purchaseTableId, {
+    name: PURCHASE_CARDS,
+    type: FieldType.Rollup,
+    options: { expression: "array_join({values})" },
+    lookupOptions: {
+      foreignTableId: input.ordersTableId,
+      linkFieldId: input.reverseOrdersLinkId,
+      lookupFieldId: input.orderCardFieldId,
+    },
+  });
   const fields = (await getFields(input.purchaseTableId)) as NamedField[];
   const fieldIdByName = new Map(fields.map((field) => [field.name, field.id]));
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `seedBuild:createFormula:${PURCHASE_LABEL}`,
-    () =>
-      createField(input.purchaseTableId, {
-        name: PURCHASE_LABEL,
-        type: FieldType.Formula,
-        options: {
-          expression: compileExpression(
-            `"PURCHASE " & {${PURCHASE_TITLE}} & "::" & {${PURCHASE_CARDS}}`,
-            fieldIdByName,
-          ),
-        },
-      }),
-  );
+  await createField(input.purchaseTableId, {
+    name: PURCHASE_LABEL,
+    type: FieldType.Formula,
+    options: {
+      expression: compileExpression(
+        `"PURCHASE " & {${PURCHASE_TITLE}} & "::" & {${PURCHASE_CARDS}}`,
+        fieldIdByName,
+      ),
+    },
+  });
 };
 
 const deleteFixtureTables = async (baseId: string, fixture: Fixture) => {
@@ -1578,73 +1554,66 @@ const waitForTargetOrder = async (
   let firstRead: TargetReadEvidence["firstRead"] | undefined;
   let responseHeaders: Record<string, string> = {};
   let routing: EngineRouting | undefined;
-  await withPerfTraceStep(context, perfCase, "targetGetRecordsReady", () =>
-    pollUntilReady(
-      {
-        timeoutMs: config.verify.maxPostOrderResponseMs,
-        pollIntervalMs: config.verify.pollIntervalMs ?? 100,
-        description: "customer target order getRecords readiness",
-      },
-      async () => {
-        attempts += 1;
-        const response = await apiGetRecords(fixture.ordersTableId, {
-          fieldKeyType: FieldKeyType.Id,
-          projection: orderProjection(fixture),
-          filter: {
-            conjunction: "and",
-            filterSet: [
-              {
-                fieldId: fixture.orderFields.values.Title,
-                operator: "is",
-                value: orderTitle(row),
-              },
-            ],
-          },
-          take: 2,
-        });
-        if (response.status !== 200 || response.data.records.length !== 1) {
-          throw new Error(
-            `Target getRecords mismatch: status=${response.status}, records=${response.data.records.length}`,
-          );
-        }
-        const record = response.data.records[0];
-        if (record.id !== targetRecordId) {
-          throw new Error(
-            `Target getRecords returned ${record.id}, expected ${targetRecordId}`,
-          );
-        }
-        responseHeaders = pickRoutingResponseHeaders(
-          response.headers as Record<string, unknown>,
+  await pollUntilReady(
+    {
+      timeoutMs: config.verify.maxPostOrderResponseMs,
+      pollIntervalMs: config.verify.pollIntervalMs ?? 100,
+      description: "customer target order getRecords readiness",
+    },
+    async () => {
+      attempts += 1;
+      const response = await apiGetRecords(fixture.ordersTableId, {
+        fieldKeyType: FieldKeyType.Id,
+        projection: orderProjection(fixture),
+        filter: {
+          conjunction: "and",
+          filterSet: [
+            {
+              fieldId: fixture.orderFields.values.Title,
+              operator: "is",
+              value: orderTitle(row),
+            },
+          ],
+        },
+        take: 2,
+      });
+      if (response.status !== 200 || response.data.records.length !== 1) {
+        throw new Error(
+          `Target getRecords mismatch: status=${response.status}, records=${response.data.records.length}`,
         );
-        routing = assertEngineRouting(context, responseHeaders, {
-          operation: "getRecords(target order)",
-          feature: "getRecords",
-        });
-        const classification = classifyRead(
-          fixture,
-          config,
-          row,
-          record.fields,
+      }
+      const record = response.data.records[0];
+      if (record.id !== targetRecordId) {
+        throw new Error(
+          `Target getRecords returned ${record.id}, expected ${targetRecordId}`,
         );
-        firstRead ??= {
-          ...classification,
-          elapsedMs: Math.max(0, performance.now() - orderResponseAt),
-        };
-        onProgress?.({
-          recordId: targetRecordId,
-          attempts,
-          firstRead,
-          responseHeaders,
-          routing,
-        });
-        if (classification.state !== "correct") {
-          throw new Error(
-            `Target order is ${classification.state}: matching=${classification.matchingCells}/${classification.totalCells}`,
-          );
-        }
-        assertOrderFields(fixture, config, row, record.fields, "final");
-      },
-    ),
+      }
+      responseHeaders = pickRoutingResponseHeaders(
+        response.headers as Record<string, unknown>,
+      );
+      routing = assertEngineRouting(context, responseHeaders, {
+        operation: "getRecords(target order)",
+        feature: "getRecords",
+      });
+      const classification = classifyRead(fixture, config, row, record.fields);
+      firstRead ??= {
+        ...classification,
+        elapsedMs: Math.max(0, performance.now() - orderResponseAt),
+      };
+      onProgress?.({
+        recordId: targetRecordId,
+        attempts,
+        firstRead,
+        responseHeaders,
+        routing,
+      });
+      if (classification.state !== "correct") {
+        throw new Error(
+          `Target order is ${classification.state}: matching=${classification.matchingCells}/${classification.totalCells}`,
+        );
+      }
+      assertOrderFields(fixture, config, row, record.fields, "final");
+    },
   );
   if (!firstRead || !routing) {
     throw new Error("Target order readiness completed without read evidence");
@@ -1738,82 +1707,60 @@ const runMeasuredOperation = async (
   });
 
   try {
-    primaryMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
+    primaryStartedAt = performance.now();
+    primaryMeasurement = await measureAsync(
       config.threshold.metric,
-      () => {
-        primaryStartedAt = performance.now();
-        return measureAsync(config.threshold.metric, async () => {
-          if (hasUserWriteScenario(config.scenario)) {
-            userWriteMeasurement = await runUserWrite(
-              perfCase,
-              context,
-              fixture,
-              config,
-            );
-          }
-          orderWriteMeasurement = await runOrderWrite(
+      async () => {
+        if (hasUserWriteScenario(config.scenario)) {
+          userWriteMeasurement = await runUserWrite(
             perfCase,
             context,
             fixture,
             config,
           );
-          orderResponseAt = performance.now();
-          const propagationMeasurement = await measureAsync(
-            "postOrderResponseReady",
-            () =>
-              waitForTargetOrder(
-                perfCase,
-                context,
-                fixture,
-                config,
-                (orderWriteMeasurement as Measurement<WriteEvidence>).result
-                  .recordId,
-                orderResponseAt as number,
-                (evidence) => {
-                  targetRead = evidence;
-                },
-              ),
-          );
-          postOrderResponseReadyMs = propagationMeasurement.durationMs;
-          targetRead = propagationMeasurement.result;
-        });
+        }
+        orderWriteMeasurement = await runOrderWrite(
+          perfCase,
+          context,
+          fixture,
+          config,
+        );
+        orderResponseAt = performance.now();
+        const propagationMeasurement = await measureAsync(
+          "postOrderResponseReady",
+          () =>
+            waitForTargetOrder(
+              perfCase,
+              context,
+              fixture,
+              config,
+              (orderWriteMeasurement as Measurement<WriteEvidence>).result
+                .recordId,
+              orderResponseAt as number,
+              (evidence) => {
+                targetRead = evidence;
+              },
+            ),
+        );
+        postOrderResponseReadyMs = propagationMeasurement.durationMs;
+        targetRead = propagationMeasurement.result;
       },
     );
 
-    usersVerification = await withPerfTraceStep(
-      context,
-      perfCase,
-      "verifyUsersFullScan",
-      () =>
-        measureAsync("verifyUsersFullScan", () =>
-          waitForScan(config, "customer-upsert final users", () =>
-            assertUsersFullScan(fixture, config, "final"),
-          ),
-        ),
+    usersVerification = await measureAsync("verifyUsersFullScan", () =>
+      waitForScan(config, "customer-upsert final users", () =>
+        assertUsersFullScan(fixture, config, "final"),
+      ),
     );
-    ordersVerification = await withPerfTraceStep(
-      context,
-      perfCase,
-      "verifyOrdersFullScan",
-      () =>
-        measureAsync("verifyOrdersFullScan", () =>
-          waitForScan(config, "customer-upsert final orders", () =>
-            assertOrdersFullScan(fixture, config, "final"),
-          ),
-        ),
+    ordersVerification = await measureAsync("verifyOrdersFullScan", () =>
+      waitForScan(config, "customer-upsert final orders", () =>
+        assertOrdersFullScan(fixture, config, "final"),
+      ),
     );
-    purchasesVerification = await withPerfTraceStep(
-      context,
-      perfCase,
-      "verifyPurchasesFullScan",
-      () =>
-        measureAsync("verifyPurchasesFullScan", () =>
-          waitForScan(config, "customer-upsert final purchases", () =>
-            assertPurchasesFullScan(fixture, config, "final"),
-          ),
-        ),
+    purchasesVerification = await measureAsync("verifyPurchasesFullScan", () =>
+      waitForScan(config, "customer-upsert final purchases", () =>
+        assertPurchasesFullScan(fixture, config, "final"),
+      ),
     );
   } catch (error) {
     const failedAt = performance.now();

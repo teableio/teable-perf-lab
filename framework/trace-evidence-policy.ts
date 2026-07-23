@@ -7,6 +7,7 @@ export interface TraceEvidenceRef {
   method?: string;
   url?: string;
   requestBodyShape?: string;
+  failed?: boolean;
 }
 
 const requestBodyShapeValue = (
@@ -197,40 +198,35 @@ export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
   );
   const selectedRefs: T[] = [];
   const selectedTraceIds = new Set<string>();
-  const selectedFetchKeys = new Set<string>();
 
-  const selectRef = (ref: T) => {
-    if (
-      selectedRefs.length >= maxSnapshots ||
-      selectedTraceIds.has(ref.traceId)
-    ) {
+  const selectRef = (ref: T, ignoreNormalLimit = false) => {
+    if (selectedTraceIds.has(ref.traceId)) {
       return;
     }
-
-    const fetchKey = requestShape(ref);
-    if (selectedFetchKeys.has(fetchKey)) {
+    const selectedNormalCount = selectedRefs.filter(
+      (candidate) => !candidate.failed,
+    ).length;
+    if (!ignoreNormalLimit && selectedNormalCount >= maxSnapshots) {
       return;
     }
 
     selectedRefs.push(ref);
     selectedTraceIds.add(ref.traceId);
-    selectedFetchKeys.add(fetchKey);
   };
 
   for (const ref of candidates) {
-    if (isPriorityRef(ref)) {
+    if (ref.failed) {
+      selectRef(ref, true);
+    }
+  }
+  for (const ref of candidates) {
+    if (!ref.failed && isPriorityRef(ref)) {
       selectRef(ref);
     }
   }
   for (const ref of candidates) {
-    selectRef(ref);
-  }
-
-  const selectedRepresentativeByShape = new Map<string, T>();
-  for (const ref of selectedRefs) {
-    const shape = requestShape(ref);
-    if (!selectedRepresentativeByShape.has(shape)) {
-      selectedRepresentativeByShape.set(shape, ref);
+    if (!ref.failed) {
+      selectRef(ref);
     }
   }
 
@@ -241,18 +237,6 @@ export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
       matchesStepPattern(fallbackPatterns, ref),
   );
 
-  const savedRepresentative = (
-    ref: TraceEvidenceRef,
-    savedTraceIds: ReadonlySet<string>,
-  ) => {
-    const shape = requestShape(ref);
-    return refs.find(
-      (candidate) =>
-        savedTraceIds.has(candidate.traceId) &&
-        requestShape(candidate) === shape,
-    );
-  };
-
   return {
     selectedRefs,
     requestShape,
@@ -260,7 +244,7 @@ export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
       ref: TraceEvidenceRef,
       savedTraceIds: ReadonlySet<string>,
     ) {
-      return savedRepresentative(ref, savedTraceIds) != null;
+      return savedTraceIds.has(ref.traceId);
     },
     fallbackCandidates(failedRef: TraceEvidenceRef) {
       const failedShape = requestShape(failedRef);
@@ -287,15 +271,6 @@ export const createTraceEvidencePolicy = <T extends TraceEvidenceRef>({
       }
       if (!matchesStepPattern(includePatterns, ref)) {
         return `Sampled trace was not fetched because stepId did not match PERF_LAB_TRACE_INCLUDE_STEP_PATTERN=${includePattern}`;
-      }
-
-      const savedRef = savedRepresentative(ref, savedTraceIds);
-      const selectedRef = selectedRepresentativeByShape.get(requestShape(ref));
-      const representative = savedRef ?? selectedRef;
-      if (representative && representative.traceId !== ref.traceId) {
-        return `Sampled trace was not fetched because ${representative.traceId} from ${representative.stepId} was ${
-          savedRef ? "saved" : "selected"
-        } as the representative for request shape ${requestShape(ref)}`;
       }
 
       return `Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=${maxSnapshots}`;

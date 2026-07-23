@@ -338,11 +338,16 @@ const duplicateOnce = async (
   context: PerfRunContext,
   fixture: DuplicateViewFixture,
   stepId: string,
+  checkpoint?: { index: number; total: number },
 ) => {
+  const duplicateRequest = () =>
+    duplicateView(fixture.tableId, fixture.sourceView.id);
   const measurement = await measureAsync(stepId, () =>
-    withPerfTraceStep(context, perfCase, stepId, () =>
-      duplicateView(fixture.tableId, fixture.sourceView.id),
-    ),
+    checkpoint
+      ? withPerfTraceStep(context, perfCase, stepId, duplicateRequest, {
+          checkpoint,
+        })
+      : duplicateRequest(),
   );
   if (measurement.result.status !== 201) {
     throw new Error(
@@ -377,6 +382,10 @@ const runPrimary = async (
       context,
       fixture,
       `sample-${iteration}`,
+      {
+        index: iteration - 1,
+        total: samples,
+      },
     );
     createdViewIds.push(current.duplicate.id);
     details.push({

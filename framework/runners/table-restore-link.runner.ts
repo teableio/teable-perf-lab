@@ -14,6 +14,7 @@ import {
   assertTableNotListed,
   buildTableLifecycleSampleResult,
   formatTableLifecycleSample,
+  getTableLifecycleSampleCount,
   restoreTableTrash,
   type TableLifecycleVerifySample,
   type TableTrashLookup,
@@ -52,12 +53,7 @@ const restoreArchivedSample = async ({
   trashLookup: TableTrashLookup;
 }) => {
   const sampleLabel = formatTableLifecycleSample(sample.iteration);
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `cleanupRestoreTable-${sampleLabel}`,
-    () => restoreTableTrash(trashLookup.trashId),
-  );
+  await restoreTableTrash(trashLookup.trashId);
   await waitForRowsRestored(sample.fixture, config);
 };
 
@@ -104,27 +100,24 @@ export const runTableRestoreLinkCase = async (
     }),
     runSample: async ({ perfCase, context, config, baseId, sample, state }) => {
       const sampleLabel = formatTableLifecycleSample(sample.iteration);
-      const setupMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      const setupMeasurement = await measureAsync(
         `deleteSetup-${sampleLabel}`,
-        () =>
-          measureAsync(`deleteSetup-${sampleLabel}`, async () => {
-            const archive = await archiveTable(baseId, sample.fixture.tableId);
-            const listing = await assertTableNotListed(
-              baseId,
-              sample.fixture.tableId,
-            );
-            const trashLookup = await waitForTableTrashId(
-              baseId,
-              sample.fixture.tableId,
-            );
-            return {
-              archiveStatus: archive.status,
-              ...listing,
-              trashLookup,
-            };
-          }),
+        async () => {
+          const archive = await archiveTable(baseId, sample.fixture.tableId);
+          const listing = await assertTableNotListed(
+            baseId,
+            sample.fixture.tableId,
+          );
+          const trashLookup = await waitForTableTrashId(
+            baseId,
+            sample.fixture.tableId,
+          );
+          return {
+            archiveStatus: archive.status,
+            ...listing,
+            trashLookup,
+          };
+        },
       );
       const { trashLookup } = setupMeasurement.result as {
         trashLookup: TableTrashLookup;
@@ -143,6 +136,12 @@ export const runTableRestoreLinkCase = async (
           measureAsync(`restoreTable-${sampleLabel}`, () =>
             restoreTableTrash(trashLookup.trashId),
           ),
+        {
+          checkpoint: {
+            index: sample.iteration - 1,
+            total: getTableLifecycleSampleCount(config),
+          },
+        },
       );
       state.requestSamples.push(
         buildTableLifecycleSampleResult(
@@ -155,28 +154,25 @@ export const runTableRestoreLinkCase = async (
         ),
       );
 
-      const verifyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      const verifyMeasurement = await measureAsync(
         `restoreTableVerify-${sampleLabel}`,
-        () =>
-          measureAsync(`restoreTableVerify-${sampleLabel}`, async () => {
-            const fullScan = await waitForRowsRestored(sample.fixture, config, {
-              timeoutMs: 60_000,
-              pollIntervalMs: 1_000,
-            });
-            const textSamples = await assertSampleTextValues(
-              sample.fixture,
-              config,
-            );
-            // The data-scaling evidence: every sampled link cell still resolves
-            // to its permuted foreign row after the restore.
-            const linkSamples = await assertLinkCellSamples(
-              sample.fixture,
-              config,
-            );
-            return { fullScan, textSamples, linkSamples };
-          }),
+        async () => {
+          const fullScan = await waitForRowsRestored(sample.fixture, config, {
+            timeoutMs: 60_000,
+            pollIntervalMs: 1_000,
+          });
+          const textSamples = await assertSampleTextValues(
+            sample.fixture,
+            config,
+          );
+          // The data-scaling evidence: every sampled link cell still resolves
+          // to its permuted foreign row after the restore.
+          const linkSamples = await assertLinkCellSamples(
+            sample.fixture,
+            config,
+          );
+          return { fullScan, textSamples, linkSamples };
+        },
       );
       state.verifySamples.push({
         iteration: sample.iteration,

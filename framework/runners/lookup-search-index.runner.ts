@@ -411,17 +411,11 @@ const seedRecords = async (
     const measurement = await measureAsync(
       `${tracePrefix}:${batchIndex + 1}`,
       () =>
-        withPerfTraceStep(
-          context,
-          perfCase,
-          `${tracePrefix}:${batchIndex + 1}`,
-          () =>
-            createRecords(tableId, {
-              fieldKeyType: FieldKeyType.Name,
-              typecast: false,
-              records: batch,
-            }),
-        ),
+        createRecords(tableId, {
+          fieldKeyType: FieldKeyType.Name,
+          typecast: false,
+          records: batch,
+        }),
     );
     expect(measurement.result.records).toHaveLength(batch.length);
     batchDurations.push(measurement.durationMs);
@@ -1038,6 +1032,12 @@ const runKeywordSamples = async (
       perfCase,
       `${tableLabel}:${keyword.name}:sample-${iteration}`,
       () => runSearchSample(tableId, viewId, keyword, context.signal),
+      {
+        checkpoint: {
+          index: iteration - 1,
+          total: samples,
+        },
+      },
     );
     const durationMs = roundMetric(performance.now() - startedAt);
     if (traceSampleSettleMs > 0) {

@@ -98,7 +98,12 @@ env:
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
   TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
-  OTEL_EXPORT_RATIO: "1"
+  # Keep background requests at 0.1% full-trace export. The perf-lab request
+  # marker assigns checkpoint requests trace IDs selected by this same ratio,
+  # so every measured first/middle/last request still exports in full. Teable's
+  # existing error promotion continues to retain every failed request.
+  PERF_LAB_TRACE_EXPORT_RATIO: "0.001"
+  OTEL_EXPORT_RATIO: "0.001"
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
   TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}

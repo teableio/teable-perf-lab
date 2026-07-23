@@ -494,18 +494,14 @@ const prepareFieldConvertFixture = async (
   let createdTableId = "";
 
   try {
-    const createTableMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTable" : "createTable",
+    const createTableMeasurement = await measureAsync(
+      seedCacheInfo.enabled ? "seedBuild" : "createTable",
       () =>
-        measureAsync(seedCacheInfo.enabled ? "seedBuild" : "createTable", () =>
-          createTable(baseId, {
-            name: actualTableName,
-            fields: config.fields,
-            records: [],
-          }),
-        ),
+        createTable(baseId, {
+          name: actualTableName,
+          fields: config.fields,
+          records: [],
+        }),
     );
     createdTableId = createTableMeasurement.result.id;
     const tableFields = (await getFields(createdTableId)) as NamedField[];
@@ -544,17 +540,11 @@ const prepareFieldConvertFixture = async (
         const batchMeasurement = await measureAsync(
           `seedBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(createdTableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  typecast: true,
-                  records: batch.map((item) => item.record),
-                }),
-            ),
+            createRecords(createdTableId, {
+              fieldKeyType: FieldKeyType.Name,
+              typecast: true,
+              records: batch.map((item) => item.record),
+            }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);

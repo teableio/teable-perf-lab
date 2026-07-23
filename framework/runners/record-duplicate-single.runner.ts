@@ -109,6 +109,12 @@ const duplicateSingleRecords = async (
         measureAsync(`duplicateSingle:${iteration}`, () =>
           duplicateRecord(fixture.tableId, source.recordId),
         ),
+      {
+        checkpoint: {
+          index,
+          total: sourceRecords.length,
+        },
+      },
     );
     const headers = pickRoutingResponseHeaders(
       measurement.result.headers as Record<string, unknown>,

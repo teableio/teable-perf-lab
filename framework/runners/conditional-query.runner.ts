@@ -284,12 +284,10 @@ const prepareFixture = async (
   ) => {
     for (const batch of chunk(rows, c.batchSize)) {
       const m = await measureAsync("seedBatch", () =>
-        withPerfTraceStep(context, perfCase, "seedBatch", () =>
-          createRecords(tableId, {
-            fieldKeyType: FieldKeyType.Name,
-            records: batch,
-          }),
-        ),
+        createRecords(tableId, {
+          fieldKeyType: FieldKeyType.Name,
+          records: batch,
+        }),
       );
       maxBatch = Math.max(maxBatch, m.durationMs);
     }
@@ -375,8 +373,8 @@ const createConditionalField = (
   fixture: Fixture,
   c: ConditionalQueryCaseConfig,
   stepName: "createConditionalField" | "setupConditionalField",
-) =>
-  withPerfTraceStep(context, perfCase, stepName, () =>
+) => {
+  const createMeasurement = () =>
     measureAsync(stepName, async () => {
       const response = await apiCreateField(
         fixture.hostTableId,
@@ -396,8 +394,11 @@ const createConditionalField = (
           },
         ),
       };
-    }),
-  );
+    });
+  return stepName === "createConditionalField"
+    ? withPerfTraceStep(context, perfCase, stepName, createMeasurement)
+    : createMeasurement();
+};
 
 const scanConditionalResults = (
   fixture: Fixture,

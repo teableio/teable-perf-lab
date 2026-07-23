@@ -464,40 +464,28 @@ const createOrderComputedFields = async (
     },
   ];
   for (const lookup of lookups) {
-    await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createLookup:${lookup.name}`,
-      () =>
-        createField(ordersTableId, {
-          name: lookup.name,
-          type: lookup.type,
-          isLookup: true,
-          lookupOptions: {
-            foreignTableId: usersTableId,
-            linkFieldId: userLinkFieldId,
-            lookupFieldId: lookup.lookupFieldId,
-          },
-        }),
-    );
+    await createField(ordersTableId, {
+      name: lookup.name,
+      type: lookup.type,
+      isLookup: true,
+      lookupOptions: {
+        foreignTableId: usersTableId,
+        linkFieldId: userLinkFieldId,
+        lookupFieldId: lookup.lookupFieldId,
+      },
+    });
   }
 
   const fields = (await getFields(ordersTableId)) as NamedField[];
   const fieldIdByName = new Map(fields.map((field) => [field.name, field.id]));
   for (const formula of formulaDefinitions("V1")) {
-    const created = await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createFormula:${formula.name}`,
-      () =>
-        createField(ordersTableId, {
-          name: formula.name,
-          type: FieldType.Formula,
-          options: {
-            expression: compileExpression(formula.expression, fieldIdByName),
-          },
-        }),
-    );
+    const created = await createField(ordersTableId, {
+      name: formula.name,
+      type: FieldType.Formula,
+      options: {
+        expression: compileExpression(formula.expression, fieldIdByName),
+      },
+    });
     fieldIdByName.set(formula.name, created.id);
   }
 };
@@ -510,40 +498,28 @@ const createPurchaseComputedFields = async (
   reverseOrdersLinkId: string,
   orderCardFieldId: string,
 ) => {
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `seedBuild:createRollup:${PURCHASE_CARDS}`,
-    () =>
-      createField(purchaseTableId, {
-        name: PURCHASE_CARDS,
-        type: FieldType.Rollup,
-        options: { expression: "array_join({values})" },
-        lookupOptions: {
-          foreignTableId: ordersTableId,
-          linkFieldId: reverseOrdersLinkId,
-          lookupFieldId: orderCardFieldId,
-        },
-      }),
-  );
+  await createField(purchaseTableId, {
+    name: PURCHASE_CARDS,
+    type: FieldType.Rollup,
+    options: { expression: "array_join({values})" },
+    lookupOptions: {
+      foreignTableId: ordersTableId,
+      linkFieldId: reverseOrdersLinkId,
+      lookupFieldId: orderCardFieldId,
+    },
+  });
   const fields = (await getFields(purchaseTableId)) as NamedField[];
   const fieldIdByName = new Map(fields.map((field) => [field.name, field.id]));
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `seedBuild:createFormula:${PURCHASE_LABEL}`,
-    () =>
-      createField(purchaseTableId, {
-        name: PURCHASE_LABEL,
-        type: FieldType.Formula,
-        options: {
-          expression: compileExpression(
-            `"PURCHASE " & {${PURCHASE_TITLE}} & "::" & {${PURCHASE_CARDS}}`,
-            fieldIdByName,
-          ),
-        },
-      }),
-  );
+  await createField(purchaseTableId, {
+    name: PURCHASE_LABEL,
+    type: FieldType.Formula,
+    options: {
+      expression: compileExpression(
+        `"PURCHASE " & {${PURCHASE_TITLE}} & "::" & {${PURCHASE_CARDS}}`,
+        fieldIdByName,
+      ),
+    },
+  });
 };
 
 const deleteFixtureTables = async (baseId: string, fixture: Fixture) => {
@@ -1437,88 +1413,74 @@ const runMeasuredOperation = async (
   };
   let purchaseScan: ScanResult = { ...ordersScan };
 
-  const primaryMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
+  const primaryMeasurement = await measureAsync(
     config.threshold.metric,
-    () =>
-      measureAsync(config.threshold.metric, async () => {
-        const requestMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          "mutationRequest",
-          () =>
-            measureAsync<MutationRequestResult>("mutationRequest", async () =>
-              isFormulaMutation(config.mutation)
-                ? updateFormulaExpression(fixture, config.mutation)
-                : updateForeignCell(fixture, config, "updated"),
-            ),
-        );
-        mutationRequestMs = requestMeasurement.durationMs;
-        responseHeaders = requestMeasurement.result.responseHeaders;
-        if (requestMeasurement.result.kind === "foreign") {
-          updatedRecords = requestMeasurement.result.updatedRecords;
-        } else {
-          convertedField = requestMeasurement.result.convertedField;
-          dependenciesAfter = requestMeasurement.result.dependenciesAfter;
-        }
-        routing = assertEngineRouting(context, responseHeaders, {
-          operation: isFormulaMutation(config.mutation)
-            ? "convertField"
-            : config.recordWriteMode === "single"
-              ? "updateRecord"
-              : "updateRecords",
-          feature: isFormulaMutation(config.mutation)
-            ? "convertField"
-            : config.recordWriteMode === "single"
-              ? "updateRecord"
-              : "updateRecords",
-        });
+    async () => {
+      const requestMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        "mutationRequest",
+        () =>
+          measureAsync<MutationRequestResult>("mutationRequest", async () =>
+            isFormulaMutation(config.mutation)
+              ? updateFormulaExpression(fixture, config.mutation)
+              : updateForeignCell(fixture, config, "updated"),
+          ),
+      );
+      mutationRequestMs = requestMeasurement.durationMs;
+      responseHeaders = requestMeasurement.result.responseHeaders;
+      if (requestMeasurement.result.kind === "foreign") {
+        updatedRecords = requestMeasurement.result.updatedRecords;
+      } else {
+        convertedField = requestMeasurement.result.convertedField;
+        dependenciesAfter = requestMeasurement.result.dependenciesAfter;
+      }
+      routing = assertEngineRouting(context, responseHeaders, {
+        operation: isFormulaMutation(config.mutation)
+          ? "convertField"
+          : config.recordWriteMode === "single"
+            ? "updateRecord"
+            : "updateRecords",
+        feature: isFormulaMutation(config.mutation)
+          ? "convertField"
+          : config.recordWriteMode === "single"
+            ? "updateRecord"
+            : "updateRecords",
+      });
 
-        const propagationMeasurement = await measureAsync<PropagationResult>(
-          "postResponsePropagation",
-          async () => {
-            if (isFormulaMutation(config.mutation)) {
-              const full = await waitForFullCascade(fixture, config, "updated");
-              return { kind: "full-cascade", ...full };
-            }
-            const first = await waitForFirstAffectedOrder(fixture, config);
-            return { kind: "first-order", ...first };
-          },
-        );
-        postResponsePropagationMs = propagationMeasurement.durationMs;
-        if (propagationMeasurement.result.kind === "full-cascade") {
-          ordersScan = propagationMeasurement.result.ordersScan;
-          purchaseScan = propagationMeasurement.result.purchaseScan;
-        } else {
-          firstOrderRecordId = propagationMeasurement.result.recordId;
-        }
-      }),
+      const propagationMeasurement = await measureAsync<PropagationResult>(
+        "postResponsePropagation",
+        async () => {
+          if (isFormulaMutation(config.mutation)) {
+            const full = await waitForFullCascade(fixture, config, "updated");
+            return { kind: "full-cascade", ...full };
+          }
+          const first = await waitForFirstAffectedOrder(fixture, config);
+          return { kind: "first-order", ...first };
+        },
+      );
+      postResponsePropagationMs = propagationMeasurement.durationMs;
+      if (propagationMeasurement.result.kind === "full-cascade") {
+        ordersScan = propagationMeasurement.result.ordersScan;
+        purchaseScan = propagationMeasurement.result.purchaseScan;
+      } else {
+        firstOrderRecordId = propagationMeasurement.result.recordId;
+      }
+    },
   );
 
   let fullOrdersVerificationMs = 0;
   let purchaseVerificationMs = 0;
   if (!isFormulaMutation(config.mutation)) {
-    const fullOrdersMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
+    const fullOrdersMeasurement = await measureAsync(
       "allAffectedOrdersReady",
-      () =>
-        measureAsync("allAffectedOrdersReady", () =>
-          waitForOrdersFullScan(fixture, config, "updated"),
-        ),
+      () => waitForOrdersFullScan(fixture, config, "updated"),
     );
     fullOrdersVerificationMs = fullOrdersMeasurement.durationMs;
     ordersScan = fullOrdersMeasurement.result;
 
-    const purchaseMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      "purchaseCascadeReady",
-      () =>
-        measureAsync("purchaseCascadeReady", () =>
-          waitForPurchasesFullScan(fixture, config, "updated"),
-        ),
+    const purchaseMeasurement = await measureAsync("purchaseCascadeReady", () =>
+      waitForPurchasesFullScan(fixture, config, "updated"),
     );
     purchaseVerificationMs = purchaseMeasurement.durationMs;
     purchaseScan = purchaseMeasurement.result;

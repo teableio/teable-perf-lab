@@ -592,27 +592,23 @@ const prepareFieldUpdateFixture = async (
   let createdTableId = "";
 
   try {
-    const createTableMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTable" : "createTable",
+    const createTableMeasurement = await measureAsync(
+      seedCacheInfo.enabled ? "seedBuild" : "createTable",
       () =>
-        measureAsync(seedCacheInfo.enabled ? "seedBuild" : "createTable", () =>
-          createTable(baseId, {
-            name: actualTableName,
-            fields: [
-              { name: "Title", type: FieldType.SingleLineText },
-              {
-                name: config.select.fieldName,
-                type: FieldType.SingleSelect,
-                options: {
-                  choices: config.select.optionNames.map((name) => ({ name })),
-                },
+        createTable(baseId, {
+          name: actualTableName,
+          fields: [
+            { name: "Title", type: FieldType.SingleLineText },
+            {
+              name: config.select.fieldName,
+              type: FieldType.SingleSelect,
+              options: {
+                choices: config.select.optionNames.map((name) => ({ name })),
               },
-            ],
-            records: [],
-          }),
-        ),
+            },
+          ],
+          records: [],
+        }),
     );
     createdTableId = createTableMeasurement.result.id;
     const baseFields = (await getFields(createdTableId)) as NamedField[];
@@ -643,17 +639,11 @@ const prepareFieldUpdateFixture = async (
         const batchMeasurement = await measureAsync(
           `seedBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(createdTableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  typecast: true,
-                  records: batch.map((item) => item.record),
-                }),
-            ),
+            createRecords(createdTableId, {
+              fieldKeyType: FieldKeyType.Name,
+              typecast: true,
+              records: batch.map((item) => item.record),
+            }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -687,22 +677,13 @@ const prepareFieldUpdateFixture = async (
       "computedFieldsReady",
       async () => {
         for (const computed of config.computedFields) {
-          const created = await withPerfTraceStep(
-            context,
-            perfCase,
-            `seedComputedField:${computed.name}`,
-            () =>
-              createField(createdTableId, {
-                type: FieldType.Formula,
-                name: computed.name,
-                options: {
-                  expression: compileExpression(
-                    computed.expression,
-                    knownFields,
-                  ),
-                },
-              }),
-          );
+          const created = await createField(createdTableId, {
+            type: FieldType.Formula,
+            name: computed.name,
+            options: {
+              expression: compileExpression(computed.expression, knownFields),
+            },
+          });
           const createdField = {
             id: created.id,
             name: computed.name,

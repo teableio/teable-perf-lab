@@ -31,6 +31,7 @@ const EXTERNAL_MODULES = [
   "@teable/openapi",
   "@teable/v2-contract-http-implementation/handlers",
   "@teable/v2-core",
+  "axios",
   "bcrypt",
   "nestjs-cls",
   "pg",
