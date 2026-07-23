@@ -1,5 +1,16 @@
 import { shouldRestoreSharedMutableSeed } from "./record-mutation-lifecycle";
 
+export const resolveRecordTrashCleanupPolling = ({
+  timeoutMs,
+  pollIntervalMs,
+}: {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}) => ({
+  timeoutMs: timeoutMs ?? 15_000,
+  pollIntervalMs: pollIntervalMs ?? 250,
+});
+
 export const cleanupDeletedRecordSeed = async ({
   reusableSeed,
   executeDbIsolated,
