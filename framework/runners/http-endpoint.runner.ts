@@ -25,9 +25,7 @@ export const runHttpEndpointCase = async (
   const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
   const thresholdMs = getPrimaryThresholdMs(config.threshold.maxMs);
 
-  await withPerfTraceStep(context, perfCase, "warmup", () =>
-    axios.get<IUserMeVo>(config.path),
-  );
+  await axios.get<IUserMeVo>(config.path);
 
   const results = [];
   for (let iteration = 1; iteration <= samples; iteration++) {
@@ -37,6 +35,12 @@ export const runHttpEndpointCase = async (
       perfCase,
       `sample-${iteration}`,
       () => axios.get<IUserMeVo>(config.path),
+      {
+        checkpoint: {
+          index: iteration - 1,
+          total: samples,
+        },
+      },
     );
     const durationMs = roundMetric(performance.now() - startedAt);
 

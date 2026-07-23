@@ -14,6 +14,7 @@ import {
   assertTableNotListed,
   buildTableLifecycleSampleResult,
   formatTableLifecycleSample,
+  getTableLifecycleSampleCount,
   restoreTableTrash,
   type TableTrashLookup,
   waitForTableTrashId,
@@ -60,12 +61,7 @@ const cleanupSample = async ({
   cleanupSamples: DeleteLinkCleanupSample[];
 }): Promise<DeleteLinkCleanupSample> => {
   const sampleLabel = formatTableLifecycleSample(sample.iteration);
-  const restore = await withPerfTraceStep(
-    context,
-    perfCase,
-    `cleanupRestoreForeign-${sampleLabel}`,
-    () => restoreTableTrash(trashLookup.trashId),
-  );
+  const restore = await restoreTableTrash(trashLookup.trashId);
   const linkState = await getLinkFieldState(sample.fixture);
   let fixtureIntact = false;
   if (
@@ -126,36 +122,39 @@ export const runTableDeleteLinkCase = async (
           measureAsync(`deleteTableDetachLink-${sampleLabel}`, () =>
             archiveTable(baseId, sample.fixture.link.foreignTableId),
           ),
+        {
+          checkpoint: {
+            index: sample.iteration - 1,
+            total: getTableLifecycleSampleCount(config),
+          },
+        },
       );
 
-      const verifyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      const verifyMeasurement = await measureAsync(
         `deleteTableVerify-${sampleLabel}`,
-        () =>
-          measureAsync(`deleteTableVerify-${sampleLabel}`, async () => {
-            const listing = await assertTableNotListed(
-              baseId,
-              sample.fixture.link.foreignTableId,
+        async () => {
+          const listing = await assertTableNotListed(
+            baseId,
+            sample.fixture.link.foreignTableId,
+          );
+          const trashLookup = await waitForTableTrashId(
+            baseId,
+            sample.fixture.link.foreignTableId,
+          );
+          // The main table must survive untouched row-wise on both engines;
+          // only the link field's type is engine-dependent.
+          const mainScan = await waitForRowsRestored(sample.fixture, config, {
+            timeoutMs: 60_000,
+            pollIntervalMs: 1_000,
+          });
+          const linkFieldState = await getLinkFieldState(sample.fixture);
+          if (!linkFieldState.exists) {
+            throw new Error(
+              `Surviving link field ${sample.fixture.link.fieldName} disappeared from main table ${sample.fixture.tableId}`,
             );
-            const trashLookup = await waitForTableTrashId(
-              baseId,
-              sample.fixture.link.foreignTableId,
-            );
-            // The main table must survive untouched row-wise on both engines;
-            // only the link field's type is engine-dependent.
-            const mainScan = await waitForRowsRestored(sample.fixture, config, {
-              timeoutMs: 60_000,
-              pollIntervalMs: 1_000,
-            });
-            const linkFieldState = await getLinkFieldState(sample.fixture);
-            if (!linkFieldState.exists) {
-              throw new Error(
-                `Surviving link field ${sample.fixture.link.fieldName} disappeared from main table ${sample.fixture.tableId}`,
-              );
-            }
-            return { ...listing, trashLookup, mainScan, linkFieldState };
-          }),
+          }
+          return { ...listing, trashLookup, mainScan, linkFieldState };
+        },
       );
       const { trashLookup } = verifyMeasurement.result as {
         trashLookup: TableTrashLookup;

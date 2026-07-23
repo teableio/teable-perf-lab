@@ -803,16 +803,10 @@ const seedSourceTable = async (
         const batchMeasurement = await measureAsync(
           `seedSourceBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedSourceBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(sourceTableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  records: batch.map(({ fields }) => ({ fields })),
-                }),
-            ),
+            createRecords(sourceTableId, {
+              fieldKeyType: FieldKeyType.Name,
+              records: batch.map(({ fields }) => ({ fields })),
+            }),
         );
         sourceBatchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -841,16 +835,10 @@ const seedHostTable = async (
         const batchMeasurement = await measureAsync(
           `seedHostBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedHostBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(hostTableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  records: batch.map(({ fields }) => ({ fields })),
-                }),
-            ),
+            createRecords(hostTableId, {
+              fieldKeyType: FieldKeyType.Name,
+              records: batch.map(({ fields }) => ({ fields })),
+            }),
         );
         hostBatchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -883,41 +871,35 @@ const createConditionalLookupSeedFixture = async (
   const createdTableIds: string[] = [];
 
   try {
-    const createTablesMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTables" : "createTables",
-      () =>
-        measureAsync(
-          seedCacheInfo.enabled ? "seedBuild" : "createTables",
-          async () => {
-            const sourceTable = await createTable(baseId, {
-              name: sourceTableName,
-              fields: [
-                { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-                {
-                  name: SOURCE_VALUE_FIELD_NAME,
-                  type: FieldType.SingleLineText,
-                },
-              ],
-              records: [],
-            });
-            createdTableIds.push(sourceTable.id);
-            const hostTable = await createTable(baseId, {
-              name: hostTableName,
-              fields: [
-                { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
-                {
-                  name: HOST_LOOKUP_KEY_FIELD_NAME,
-                  type: FieldType.SingleLineText,
-                },
-              ],
-              records: [],
-            });
-            createdTableIds.push(hostTable.id);
-            return { sourceTable, hostTable };
-          },
-        ),
+    const createTablesMeasurement = await measureAsync(
+      seedCacheInfo.enabled ? "seedBuild" : "createTables",
+      async () => {
+        const sourceTable = await createTable(baseId, {
+          name: sourceTableName,
+          fields: [
+            { name: SOURCE_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+            {
+              name: SOURCE_VALUE_FIELD_NAME,
+              type: FieldType.SingleLineText,
+            },
+          ],
+          records: [],
+        });
+        createdTableIds.push(sourceTable.id);
+        const hostTable = await createTable(baseId, {
+          name: hostTableName,
+          fields: [
+            { name: HOST_KEY_FIELD_NAME, type: FieldType.SingleLineText },
+            {
+              name: HOST_LOOKUP_KEY_FIELD_NAME,
+              type: FieldType.SingleLineText,
+            },
+          ],
+          records: [],
+        });
+        createdTableIds.push(hostTable.id);
+        return { sourceTable, hostTable };
+      },
     );
     const sourceTableId = createTablesMeasurement.result.sourceTable.id;
     const hostTableId = createTablesMeasurement.result.hostTable.id;

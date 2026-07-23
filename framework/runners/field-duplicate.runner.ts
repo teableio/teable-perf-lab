@@ -155,20 +155,14 @@ const createSeedFixture = async (
         durationMs: 0,
         result: existingLookupField,
       }
-    : await withPerfTraceStep(
-        context,
-        perfCase,
-        "seedBuild:createLookupField",
-        () =>
-          measureAsync("seedBuild:createLookupField", () =>
-            createConditionalLookupField(
-              seedFixture.hostTableId,
-              seedFixture.sourceTableId,
-              seedFixture.sourceFields,
-              seedFixture.hostFields,
-              config,
-            ),
-          ),
+    : await measureAsync("seedBuild:createLookupField", () =>
+        createConditionalLookupField(
+          seedFixture.hostTableId,
+          seedFixture.sourceTableId,
+          seedFixture.sourceFields,
+          seedFixture.hostFields,
+          config,
+        ),
       );
   const sourceLookupScanReadyMeasurement = await measureAsync(
     existingLookupField

@@ -218,17 +218,17 @@ try {
   );
   assert.equal(
     policy.hasSavedRepresentative(refs[2], new Set(["ordinary"])),
-    true,
+    false,
   );
   assert.deepEqual(
     policy.fallbackCandidates(refs[0]).map((ref) => ref.traceId),
     ["ordinary-get-duplicate", "ordinary-near", "ordinary-far"],
   );
-  assert.match(
+  assert.equal(
     policy.explainUnfetched(refs[2], {
       savedTraceIds: new Set(["ordinary"]),
     }),
-    /ordinary from listRecords:1 was saved as the representative/,
+    "Sampled trace was not fetched because PERF_LAB_TRACE_MAX_SNAPSHOTS=2",
   );
   assert.equal(
     policy.explainUnfetched(byId("not-sampled"), {
@@ -301,7 +301,13 @@ try {
   });
   assert.deepEqual(
     semanticPolicy.selectedRefs.map((ref) => ref.traceId),
-    ["get-page-1", "post-records-1", "post-delete-ids"],
+    [
+      "get-page-1",
+      "get-page-2",
+      "post-records-1",
+      "post-records-2",
+      "post-delete-ids",
+    ],
   );
   assert.equal(
     semanticPolicy.requestShape(semanticRefs[2]),
@@ -310,6 +316,34 @@ try {
   assert.notEqual(
     semanticPolicy.requestShape(semanticRefs[2]),
     semanticPolicy.requestShape(semanticRefs[4]),
+  );
+
+  const failurePolicy = createTraceEvidencePolicy({
+    refs: [
+      {
+        traceId: "normal",
+        stepId: "sample-1",
+        sampled: true,
+      },
+      {
+        traceId: "failed-1",
+        stepId: "sample-2",
+        sampled: true,
+        failed: true,
+      },
+      {
+        traceId: "failed-2",
+        stepId: "sample-3",
+        sampled: true,
+        failed: true,
+      },
+    ],
+    maxSnapshots: 1,
+  });
+  assert.deepEqual(
+    failurePolicy.selectedRefs.map((ref) => ref.traceId),
+    ["failed-1", "failed-2", "normal"],
+    "failed requests bypass the normal per-case snapshot cap",
   );
 
   console.log("Trace classification and evidence policy checks ok");

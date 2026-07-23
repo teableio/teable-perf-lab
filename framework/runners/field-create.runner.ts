@@ -859,18 +859,14 @@ const buildFieldCreateFixture = async (
   let createdTableId = "";
 
   try {
-    const createTableMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTable" : "createTable",
+    const createTableMeasurement = await measureAsync(
+      seedCacheInfo.enabled ? "seedBuild" : "createTable",
       () =>
-        measureAsync(seedCacheInfo.enabled ? "seedBuild" : "createTable", () =>
-          createTable(baseId, {
-            name: actualTableName,
-            fields: config.baseFields,
-            records: [],
-          }),
-        ),
+        createTable(baseId, {
+          name: actualTableName,
+          fields: config.baseFields,
+          records: [],
+        }),
     );
     createdTableId = createTableMeasurement.result.id;
     const fixture = {
@@ -936,6 +932,12 @@ const runFieldCreatePrimary = async (
           perfCase,
           `${config.threshold.metric}:${fieldIndex + 1}`,
           createField,
+          {
+            checkpoint: {
+              index: fieldIndex,
+              total: fieldsToCreate.length,
+            },
+          },
         );
         return;
       }
@@ -955,6 +957,9 @@ const runFieldCreatePrimary = async (
           for (const [fieldIndex, field] of fieldsToCreate.entries()) {
             await createOneField(field, fieldIndex);
           }
+        },
+        {
+          requestCount: fieldsToCreate.length,
         },
       );
     }

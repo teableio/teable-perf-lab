@@ -100,6 +100,9 @@ ready.
 - `framework/trace-evidence-policy.ts`: pure trace selection, request-shape,
   fallback, and unfetched-evidence policy; the collector owns capture, fetch,
   and filesystem I/O.
+- `framework/trace-export-policy.ts`: source-side first/median/last checkpoint
+  selection plus deterministic trace-id admission for the execute export ratio.
+  Seed mode disables exporters before the Teable app starts.
 - `scripts/performance-track-record-model.mjs`: Performance Track field
   contract, result-record construction, upsert, and baseline selection shared
   by Teable and in-memory adapters.

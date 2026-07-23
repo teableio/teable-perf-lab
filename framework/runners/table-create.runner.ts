@@ -454,6 +454,12 @@ const runTableCreatePrimary = async (
             measureAsync(`createTable-${padIndex(index)}`, () =>
               createOneTable(baseId, tableName, config),
             ),
+          {
+            checkpoint: {
+              index: index - 1,
+              total: config.tableCount,
+            },
+          },
         );
         const responseHeaders = pickTableLifecycleHeaders(
           requestMeasurement.result.headers as Record<string, unknown>,
@@ -474,18 +480,15 @@ const runTableCreatePrimary = async (
     },
   );
 
-  fixture.verifyMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
+  fixture.verifyMeasurement = await measureAsync(
     "createTablesVerify",
-    () =>
-      measureAsync("createTablesVerify", async () => {
-        const verifications: TableVerification[] = [];
-        for (const created of fixture.createdTables) {
-          verifications.push(await verifyCreatedTable(created, config));
-        }
-        return verifications;
-      }),
+    async () => {
+      const verifications: TableVerification[] = [];
+      for (const created of fixture.createdTables) {
+        verifications.push(await verifyCreatedTable(created, config));
+      }
+      return verifications;
+    },
   );
 
   const engines = new Set(

@@ -13,6 +13,7 @@ const ENV_KEYS = [
   "MAX_PASTE_CELLS",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
   "OTEL_EXPORT_RATIO",
   "OTEL_SERVICE_NAME",
   "PERF_LAB_COMPUTED_UPDATE_MODE",
@@ -20,6 +21,7 @@ const ENV_KEYS = [
   "PERF_LAB_ENGINE_LIST",
   "PERF_LAB_MODE",
   "PERF_LAB_OTEL_SERVICE_PREFIX",
+  "PERF_LAB_TRACE_EXPORT_RATIO",
   "PERF_LAB_TRACE_ENABLED",
   "TABLE_LIMIT_SELECT_CHOICES_MAX",
   "V2_COMPUTED_UPDATE_MODE",
@@ -84,6 +86,38 @@ test("trace-disabled local runs suppress development OTLP defaults", () =>
     assert.equal(process.env.OTEL_EXPORTER_OTLP_ENDPOINT, "");
     assert.equal(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, "");
     assert.equal(process.env.OTEL_EXPORT_RATIO, "0");
+  }));
+
+test("seed jobs permanently disable inherited observability exporters", () =>
+  withCleanEnv(() => {
+    process.env.PERF_LAB_MODE = "seed";
+    process.env.PERF_LAB_TRACE_ENABLED = "true";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector/v1/traces";
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = "http://collector/v1/logs";
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT =
+      "http://collector/v1/metrics";
+    process.env.OTEL_EXPORT_RATIO = "1";
+
+    applyPerfObservabilityRuntimeEnv();
+
+    assert.equal(process.env.PERF_LAB_TRACE_ENABLED, "false");
+    assert.equal(process.env.OTEL_EXPORTER_OTLP_ENDPOINT, "");
+    assert.equal(process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, "");
+    assert.equal(process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT, "");
+    assert.equal(process.env.OTEL_EXPORT_RATIO, "0");
+  }));
+
+test("execute jobs enforce the measured-request export ratio", () =>
+  withCleanEnv(() => {
+    process.env.PERF_LAB_MODE = "execute";
+    process.env.PERF_LAB_TRACE_ENABLED = "true";
+    process.env.PERF_LAB_TRACE_EXPORT_RATIO = "0.001";
+    process.env.OTEL_EXPORT_RATIO = "1";
+
+    applyPerfObservabilityRuntimeEnv();
+
+    assert.equal(process.env.PERF_LAB_TRACE_ENABLED, "true");
+    assert.equal(process.env.OTEL_EXPORT_RATIO, "0.001");
   }));
 
 test("trace runtime environment preserves explicit exporter settings", () =>

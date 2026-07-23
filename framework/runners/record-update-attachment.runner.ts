@@ -754,14 +754,8 @@ const runAttachmentMeasuredOperation = async (
   // pools are hot before the sampled requests. The update is idempotent
   // (the same tokens are written every time), so warmup and all samples
   // leave the same final state the verification then checks.
-  const warmupMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
-    "warmup",
-    () =>
-      measureAsync("warmupUpdate", () =>
-        bulkInsertAttachments(fixture, insertItems),
-      ),
+  const warmupMeasurement = await measureAsync("warmupUpdate", () =>
+    bulkInsertAttachments(fixture, insertItems),
   );
 
   const samples = getPositiveIntegerEnv("PERF_LAB_SAMPLES") ?? config.samples;
@@ -776,6 +770,12 @@ const runAttachmentMeasuredOperation = async (
         measureAsync(`sample-${iteration}`, () =>
           bulkInsertAttachments(fixture, insertItems),
         ),
+      {
+        checkpoint: {
+          index: iteration - 1,
+          total: samples,
+        },
+      },
     );
     durations.push(sampleMeasurement.durationMs);
     lastUpdate = sampleMeasurement.result;

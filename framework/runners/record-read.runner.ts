@@ -272,16 +272,10 @@ const seedSourceRecords = async (
         const batchMeasurement = await measureAsync(
           `seedSourceBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedSourceBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(tableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  records: batch.map((record) => ({ fields: record.fields })),
-                }),
-            ),
+            createRecords(tableId, {
+              fieldKeyType: FieldKeyType.Name,
+              records: batch.map((record) => ({ fields: record.fields })),
+            }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -315,16 +309,10 @@ const seedHostRecords = async (
         const batchMeasurement = await measureAsync(
           `seedHostBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedHostBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(tableId, {
-                  fieldKeyType: FieldKeyType.Name,
-                  records: batch.map((record) => ({ fields: record.fields })),
-                }),
-            ),
+            createRecords(tableId, {
+              fieldKeyType: FieldKeyType.Name,
+              records: batch.map((record) => ({ fields: record.fields })),
+            }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);
@@ -358,27 +346,16 @@ const createFormulaFields = async (
 ) =>
   measureAsync("createFormulaFields", async () => {
     for (let index = 1; index <= config.formulaFieldCount; index += 1) {
-      await withPerfTraceStep(
-        context,
-        perfCase,
-        // Identify by field name, not positional index: each formula has a
-        // distinct expression, so these steps are NOT interchangeable repeats.
-        // A bare trailing `:${index}` would normalize to the same shape and let
-        // one saved trace falsely "cover" another field's Jaeger 404. Matches
-        // the name-based convention in formula-table.runner.ts.
-        `seedBuild:createFormulaField:${formulaName(index)}`,
-        () =>
-          createField(tableId, {
-            name: formulaName(index),
-            type: FieldType.Formula,
-            options: {
-              expression: compileExpression(
-                getFormulaExpression(index),
-                fieldIdByName,
-              ),
-            },
-          }),
-      );
+      await createField(tableId, {
+        name: formulaName(index),
+        type: FieldType.Formula,
+        options: {
+          expression: compileExpression(
+            getFormulaExpression(index),
+            fieldIdByName,
+          ),
+        },
+      });
     }
   });
 
@@ -393,39 +370,30 @@ const createLookupFields = async (
 ) =>
   measureAsync("createLookupFields", async () => {
     for (let index = 1; index <= config.lookupFieldCount; index += 1) {
-      await withPerfTraceStep(
-        context,
-        perfCase,
-        // Identify by field name, not positional index (see createFormulaField):
-        // each lookup targets a different source field, so these are distinct
-        // operations that must not collapse to one normalized shape.
-        `seedBuild:createLookupField:${lookupName(index)}`,
-        () =>
-          createField(tableId, {
-            name: lookupName(index),
-            type: FieldType.SingleLineText,
-            isLookup: true,
-            isConditionalLookup: true,
-            lookupOptions: {
-              foreignTableId: sourceTableId,
-              lookupFieldId: sourceFields[sourceValueName(index)],
-              filter: {
-                conjunction: "and",
-                filterSet: [
-                  {
-                    fieldId: sourceFields[SOURCE_KEY_FIELD_NAME],
-                    operator: "is",
-                    value: {
-                      type: "field",
-                      fieldId: fieldIdByName.get(HOST_LOOKUP_KEY_FIELD_NAME),
-                    },
-                  },
-                ],
+      await createField(tableId, {
+        name: lookupName(index),
+        type: FieldType.SingleLineText,
+        isLookup: true,
+        isConditionalLookup: true,
+        lookupOptions: {
+          foreignTableId: sourceTableId,
+          lookupFieldId: sourceFields[sourceValueName(index)],
+          filter: {
+            conjunction: "and",
+            filterSet: [
+              {
+                fieldId: sourceFields[SOURCE_KEY_FIELD_NAME],
+                operator: "is",
+                value: {
+                  type: "field",
+                  fieldId: fieldIdByName.get(HOST_LOOKUP_KEY_FIELD_NAME),
+                },
               },
-              limit: 1,
-            },
-          }),
-      );
+            ],
+          },
+          limit: 1,
+        },
+      });
     }
   });
 
@@ -744,26 +712,23 @@ const createFixture = async (
 ): Promise<RecordReadFixture> => {
   const createdTableIds: string[] = [];
   try {
-    const createTablesMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTables" : "createTables",
-      () =>
-        measureAsync("createTables", async () => {
-          const sourceTable = await createTable(baseId, {
-            name: sourceTableName,
-            fields: toCreateFields(buildSourceFieldModels(config)),
-            records: [],
-          });
-          createdTableIds.push(sourceTable.id);
-          const hostTable = await createTable(baseId, {
-            name: tableName,
-            fields: toCreateFields(buildHostBaseFieldModels(config)),
-            records: [],
-          });
-          createdTableIds.push(hostTable.id);
-          return { sourceTable, hostTable };
-        }),
+    const createTablesMeasurement = await measureAsync(
+      "createTables",
+      async () => {
+        const sourceTable = await createTable(baseId, {
+          name: sourceTableName,
+          fields: toCreateFields(buildSourceFieldModels(config)),
+          records: [],
+        });
+        createdTableIds.push(sourceTable.id);
+        const hostTable = await createTable(baseId, {
+          name: tableName,
+          fields: toCreateFields(buildHostBaseFieldModels(config)),
+          records: [],
+        });
+        createdTableIds.push(hostTable.id);
+        return { sourceTable, hostTable };
+      },
     );
     const sourceTableId = (
       createTablesMeasurement.result as {
@@ -1550,6 +1515,12 @@ const recordReadSpec: ReadLifecycleSpec<
           measureAsync("getRecordsBaselinePagedScan", () =>
             readPagedScan(fixture, context, config),
           ),
+        {
+          requestCount: getRecordReadPageCount(
+            config.rowCount,
+            config.pageSize,
+          ),
+        },
       );
       baselineVerifyMeasurement = await measureAsync(
         "verifyBaselineReadPages",
@@ -1579,6 +1550,12 @@ const recordReadSpec: ReadLifecycleSpec<
             config.queryVariant?.expectedRowCount,
           ),
         ),
+      {
+        requestCount: getRecordReadPageCount(
+          config.queryVariant?.expectedRowCount ?? config.rowCount,
+          config.pageSize,
+        ),
+      },
     );
     const verifyMeasurement = await measureAsync("verifyReadPages", () =>
       Promise.resolve(

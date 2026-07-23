@@ -196,12 +196,7 @@ const deleteFieldForRestoreSetup = async (
   config: FieldRestoreCaseConfig,
 ): Promise<RestoreFieldSetupResult> => {
   const field = findConfiguredField(fixture, config);
-  const deleteResponse = await withPerfTraceStep(
-    context,
-    perfCase,
-    "deleteFieldSetup",
-    () => apiDeleteFields(fixture.tableId, [field.id]),
-  );
+  const deleteResponse = await apiDeleteFields(fixture.tableId, [field.id]);
   expect(deleteResponse.status).toBe(200);
 
   await assertFieldDeleted(fixture.tableId, field.id);

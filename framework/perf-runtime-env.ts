@@ -1,5 +1,7 @@
 import type { PerfCase, RecordPasteCaseConfig } from "./types";
 
+const DEFAULT_PERF_TRACE_EXPORT_RATIO = "0.001";
+
 const getRuntimeEnvValue = (value: string | number | boolean) =>
   typeof value === "string" ? value : String(value);
 
@@ -61,7 +63,19 @@ export const applyCaseRuntimeEnv = (perfCases: PerfCase[]) => {
 };
 
 export const applyPerfObservabilityRuntimeEnv = () => {
+  if (process.env.PERF_LAB_MODE === "seed") {
+    process.env.PERF_LAB_TRACE_ENABLED = "false";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "";
+    process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = "";
+    process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = "";
+    process.env.OTEL_EXPORT_RATIO = "0";
+    return;
+  }
+
   if (process.env.PERF_LAB_TRACE_ENABLED !== "false") {
+    process.env.OTEL_EXPORT_RATIO =
+      process.env.PERF_LAB_TRACE_EXPORT_RATIO ??
+      DEFAULT_PERF_TRACE_EXPORT_RATIO;
     return;
   }
 

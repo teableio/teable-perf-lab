@@ -15,6 +15,10 @@ const fetchControlSource = await readFile(
   "framework/trace-fetch-control.ts",
   "utf8",
 );
+const exportPolicySource = await readFile(
+  "framework/trace-export-policy.ts",
+  "utf8",
+);
 const runPerfCaseSource = await readFile("framework/run-perf-case.ts", "utf8");
 const runPerfSeedSource = await readFile("framework/run-perf-seed.ts", "utf8");
 const perfSpecSource = await readFile("perf-lab.e2e-spec.ts", "utf8");
@@ -52,8 +56,21 @@ const fetchControlOutput = ts.transpileModule(fetchControlSource, {
   fileName: "framework/trace-fetch-control.ts",
   reportDiagnostics: true,
 });
+const exportPolicyOutput = ts.transpileModule(exportPolicySource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "framework/trace-export-policy.ts",
+  reportDiagnostics: true,
+});
 
-const errors = [output, evidencePolicyOutput, fetchControlOutput]
+const errors = [
+  output,
+  evidencePolicyOutput,
+  fetchControlOutput,
+  exportPolicyOutput,
+]
   .flatMap((result) => result.diagnostics ?? [])
   .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
 assert.equal(errors.length, 0);
@@ -64,6 +81,7 @@ const atomicFile = join(tempDir, "atomic-file.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
 const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const fetchControlFile = join(tempDir, "trace-fetch-control.mjs");
+const exportPolicyFile = join(tempDir, "trace-export-policy.mjs");
 const artifactDir = join(tempDir, "artifacts");
 const traceDir = join(artifactDir, "traces", "smoke-auth-user-v2");
 const manifestPath = join(traceDir, "manifest.json");
@@ -82,7 +100,12 @@ try {
   await writeFile(
     collectorFile,
     output.outputText
+      .replace(
+        'from "@opentelemetry/api"',
+        'from "./opentelemetry-api.mjs"',
+      )
       .replace('from "@teable/openapi"', 'from "./teable-openapi.mjs"')
+      .replace('from "axios"', 'from "./axios.mjs"')
       .replace('from "./atomic-file.js"', 'from "./atomic-file.mjs"')
       .replace(
         'from "./trace-evidence-policy"',
@@ -91,6 +114,10 @@ try {
       .replace(
         'from "./trace-fetch-control"',
         'from "./trace-fetch-control.mjs"',
+      )
+      .replace(
+        'from "./trace-export-policy"',
+        'from "./trace-export-policy.mjs"',
       ),
   );
   await writeFile(atomicFile, atomicFileSource);
@@ -102,11 +129,24 @@ try {
     ),
   );
   await writeFile(fetchControlFile, fetchControlOutput.outputText);
+  await writeFile(exportPolicyFile, exportPolicyOutput.outputText);
+  await writeFile(
+    join(tempDir, "opentelemetry-api.mjs"),
+    [
+      "export const context = { active: () => ({}), with: (_context, callback) => callback() };",
+      "export const trace = { setSpanContext: (activeContext, spanContext) => ({ ...activeContext, spanContext }), getSpanContext: (activeContext) => activeContext.spanContext };",
+      "export const TraceFlags = { SAMPLED: 1 };",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(tempDir, "axios.mjs"),
+    "export const getAdapter = () => async () => ({ status: 200 });\n",
+  );
   await writeFile(
     join(tempDir, "teable-openapi.mjs"),
     [
       "const interceptor = { use: () => 0, eject: () => undefined };",
-      "export const axios = { interceptors: { request: interceptor, response: interceptor } };",
+      "export const axios = { defaults: {}, interceptors: { request: interceptor, response: interceptor } };",
     ].join("\n"),
   );
 
@@ -121,6 +161,8 @@ try {
     resetPerfTraceRefs,
     resetPerfTraceJobTail,
     setPerfTraceFlush,
+    buildPerfTraceHeaders,
+    withPerfTraceStep,
     writeTraceArtifacts,
   } = await import(pathToFileURL(collectorFile));
 
@@ -143,6 +185,7 @@ try {
     PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT:
       process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT,
     PERF_LAB_JAEGER_API_BASE_URL: process.env.PERF_LAB_JAEGER_API_BASE_URL,
+    OTEL_EXPORT_RATIO: process.env.OTEL_EXPORT_RATIO,
   };
   const previousFetch = globalThis.fetch;
   let fetchCount = 0;
@@ -158,7 +201,20 @@ try {
   };
 
   try {
+    process.env.PERF_LAB_TRACE_ENABLED = "false";
+    process.env.OTEL_EXPORT_RATIO = "0";
+    assert.equal(
+      withPerfTraceStep(
+        { runId: "seed-run", engine: "seed" },
+        { id: "seed/case" },
+        "seedBuild",
+        () => "seed-without-trace",
+      ),
+      "seed-without-trace",
+    );
+
     process.env.PERF_LAB_TRACE_ENABLED = "true";
+    process.env.OTEL_EXPORT_RATIO = "0.001";
     process.env.PERF_LAB_TRACE_MAX_SNAPSHOTS = "10";
     process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS = "1";
     process.env.PERF_LAB_JAEGER_API_BASE_URL = "http://jaeger.example";
@@ -169,6 +225,32 @@ try {
 
     const context = { runId: "run-1", engine: "v2" };
     const perfCase = { id: "smoke/auth-user" };
+
+    const selectedHeaders = withPerfTraceStep(
+      context,
+      perfCase,
+      "isolatedRequest",
+      () => buildPerfTraceHeaders(context, perfCase, "isolatedRequest"),
+      { checkpoint: { index: 0, total: 5 } },
+    );
+    assert.equal(selectedHeaders["x-teable-perf-trace-checkpoint"], "1");
+    assert.match(selectedHeaders.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+
+    const ignoredRef = withPerfTraceStep(
+      context,
+      perfCase,
+      "isolatedRequest",
+      () =>
+        recordPerfTraceRefFromHeaders({
+          context,
+          perfCase,
+          stepId: "isolatedRequest",
+          headers: selectedHeaders,
+          status: 200,
+        }),
+      { checkpoint: { index: 1, total: 5 } },
+    );
+    assert.equal(ignoredRef, undefined);
 
     const recordDistinctTraceRefs = ({
       targetCase = perfCase,
@@ -325,18 +407,20 @@ try {
     });
 
     assert.equal(representativeSummary.traceRefCount, 7);
-    assert.equal(representativeSummary.selectedTraceCount, 4);
-    assert.equal(representativeSummary.savedTraceCount, 4);
-    assert.equal(representativeSummary.failedTraceCount, 0);
-    assert.equal(representativeSummary.skippedTraceCount, 3);
-    assert.equal(representativeSummary.missingFetchCount, 1);
+    assert.equal(representativeSummary.selectedTraceCount, 7);
+    assert.equal(representativeSummary.savedTraceCount, 5);
+    assert.equal(representativeSummary.failedTraceCount, 2);
+    assert.equal(representativeSummary.skippedTraceCount, 0);
+    assert.equal(representativeSummary.missingFetchCount, 2);
     assert.deepEqual(
       new Set(fetchedTraceIds),
       new Set([
         "11111111111111111111111111111111",
         "22222222222222222222222222222222",
+        "33333333333333333333333333333333",
         "44444444444444444444444444444444",
         "55555555555555555555555555555555",
+        "66666666666666666666666666666666",
         "77777777777777777777777777777777",
       ]),
     );
@@ -344,13 +428,13 @@ try {
       representativeSummary.savedTraces.find(
         (trace) => trace.traceId === "33333333333333333333333333333333",
       )?.status,
-      "skipped",
+      "error",
     );
     assert.match(
       representativeSummary.savedTraces.find(
         (trace) => trace.traceId === "33333333333333333333333333333333",
       )?.error,
-      /representative for request shape verifyRepeatedStep GET \/api\/table\/:tbl\/record/,
+      /Jaeger API returned 404/,
     );
 
     resetPerfTraceRefs();

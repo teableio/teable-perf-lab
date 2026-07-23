@@ -576,38 +576,26 @@ const createOrdersComputedFields = async (
   },
 ) => {
   for (const attr of ATTRS) {
-    await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createLookup:${custLookupName(attr)}`,
-      () =>
-        createField(ordersTableId, {
-          name: custLookupName(attr),
-          type: FieldType.SingleLineText,
-          isLookup: true,
-          lookupOptions: {
-            foreignTableId: usersTableId,
-            linkFieldId: links.customerLinkFieldId,
-            lookupFieldId: foreignFieldIds.users[attr],
-          },
-        }),
-    );
-    await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createLookup:${guestLookupName(attr)}`,
-      () =>
-        createField(ordersTableId, {
-          name: guestLookupName(attr),
-          type: FieldType.SingleLineText,
-          isLookup: true,
-          lookupOptions: {
-            foreignTableId: guestTableId,
-            linkFieldId: links.guestLinkFieldId,
-            lookupFieldId: foreignFieldIds.guest[attr],
-          },
-        }),
-    );
+    await createField(ordersTableId, {
+      name: custLookupName(attr),
+      type: FieldType.SingleLineText,
+      isLookup: true,
+      lookupOptions: {
+        foreignTableId: usersTableId,
+        linkFieldId: links.customerLinkFieldId,
+        lookupFieldId: foreignFieldIds.users[attr],
+      },
+    });
+    await createField(ordersTableId, {
+      name: guestLookupName(attr),
+      type: FieldType.SingleLineText,
+      isLookup: true,
+      lookupOptions: {
+        foreignTableId: guestTableId,
+        linkFieldId: links.guestLinkFieldId,
+        lookupFieldId: foreignFieldIds.guest[attr],
+      },
+    });
   }
 
   // Create formulas in dependency-level order so each level's {name} refs resolve
@@ -616,22 +604,13 @@ const createOrdersComputedFields = async (
   const fieldIdByName = new Map(ordersFields.map((f) => [f.name, f.id]));
   const orderedFormulas = [...FORMULAS].sort((a, b) => a.level - b.level);
   for (const formula of orderedFormulas) {
-    const created = await withPerfTraceStep(
-      context,
-      perfCase,
-      `seedBuild:createFormula:${formula.name}`,
-      () =>
-        createField(ordersTableId, {
-          name: formula.name,
-          type: FieldType.Formula,
-          options: {
-            expression: compileFormulaExpression(
-              formula.expression,
-              fieldIdByName,
-            ),
-          },
-        }),
-    );
+    const created = await createField(ordersTableId, {
+      name: formula.name,
+      type: FieldType.Formula,
+      options: {
+        expression: compileFormulaExpression(formula.expression, fieldIdByName),
+      },
+    });
     fieldIdByName.set(formula.name, created.id);
   }
 };
@@ -649,18 +628,16 @@ const createPurchaseComputedFields = async (
   },
 ) => {
   const rollup = (name: string, expression: string, lookupFieldId: string) =>
-    withPerfTraceStep(context, perfCase, `seedBuild:createRollup:${name}`, () =>
-      createField(purchaseTableId, {
-        name,
-        type: FieldType.Rollup,
-        options: { expression },
-        lookupOptions: {
-          foreignTableId: ordersTableId,
-          linkFieldId: ordersLinkFieldOnPurchaseId,
-          lookupFieldId,
-        },
-      }),
-    );
+    createField(purchaseTableId, {
+      name,
+      type: FieldType.Rollup,
+      options: { expression },
+      lookupOptions: {
+        foreignTableId: ordersTableId,
+        linkFieldId: ordersLinkFieldOnPurchaseId,
+        lookupFieldId,
+      },
+    });
   await rollup(
     P_ORDER_COUNT,
     "countall({values})",
@@ -671,22 +648,16 @@ const createPurchaseComputedFields = async (
 
   const purchaseFields = (await getFields(purchaseTableId)) as NamedField[];
   const fieldIdByName = new Map(purchaseFields.map((f) => [f.name, f.id]));
-  await withPerfTraceStep(
-    context,
-    perfCase,
-    `seedBuild:createFormula:${P_LABEL}`,
-    () =>
-      createField(purchaseTableId, {
-        name: P_LABEL,
-        type: FieldType.Formula,
-        options: {
-          expression: compileFormulaExpression(
-            `"PURCHASE " & {${PURCHASE_TITLE_FIELD}} & " count=" & {${P_ORDER_COUNT}}`,
-            fieldIdByName,
-          ),
-        },
-      }),
-  );
+  await createField(purchaseTableId, {
+    name: P_LABEL,
+    type: FieldType.Formula,
+    options: {
+      expression: compileFormulaExpression(
+        `"PURCHASE " & {${PURCHASE_TITLE_FIELD}} & " count=" & {${P_ORDER_COUNT}}`,
+        fieldIdByName,
+      ),
+    },
+  });
 };
 
 const buildOrderLinkUpdates = (
@@ -1803,68 +1774,59 @@ const runLcpMeasuredOperation = async (
   let ordersScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
   let purchaseScan = { scannedRecords: 0, pageSize: 0, pageCount: 0 };
 
-  const totalMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
+  const totalMeasurement = await measureAsync(
     config.threshold.metric,
-    () =>
-      measureAsync(config.threshold.metric, async () => {
-        const writeMeasurement = await withPerfTraceStep(
-          context,
-          perfCase,
-          "linkWrite",
+    async () => {
+      const writeMeasurement = await withPerfTraceStep(
+        context,
+        perfCase,
+        "linkWrite",
+        () =>
+          measureAsync("linkWrite", () =>
+            writeOrderLinks(
+              fixture,
+              config,
+              "updated",
+              userIdByTitle,
+              guestIdByTitle,
+            ),
+          ),
+      );
+      linkWriteMs = writeMeasurement.durationMs;
+      responseHeaders = writeMeasurement.result.responseHeaders;
+      requestedRecords = writeMeasurement.result.requestedRecords;
+      updatedRecords = writeMeasurement.result.updatedRecords;
+
+      if (readinessPlan.primaryReadPath === "full-scan") {
+        const propagationMeasurement = await measureAsync(
+          "lookupPropagation",
+          () => waitForReadyFullScan(fixture, config, "updated", context),
+        );
+        lookupPropagationMs = propagationMeasurement.durationMs;
+        ordersScan = propagationMeasurement.result.ordersScan;
+        purchaseScan = propagationMeasurement.result.purchaseScan;
+        readinessCheckedRecords = ordersScan.scannedRecords;
+      } else {
+        const propagationMeasurement = await measureAsync(
+          "lookupPropagation",
           () =>
-            measureAsync("linkWrite", () =>
-              writeOrderLinks(
-                fixture,
-                config,
-                "updated",
-                userIdByTitle,
-                guestIdByTitle,
-              ),
+            waitForMutatedOrderReads(
+              fixture,
+              config,
+              readinessPlan.primaryReadPath,
+              context,
             ),
         );
-        linkWriteMs = writeMeasurement.durationMs;
-        responseHeaders = writeMeasurement.result.responseHeaders;
-        requestedRecords = writeMeasurement.result.requestedRecords;
-        updatedRecords = writeMeasurement.result.updatedRecords;
-
-        if (readinessPlan.primaryReadPath === "full-scan") {
-          const propagationMeasurement = await measureAsync(
-            "lookupPropagation",
-            () => waitForReadyFullScan(fixture, config, "updated", context),
-          );
-          lookupPropagationMs = propagationMeasurement.durationMs;
-          ordersScan = propagationMeasurement.result.ordersScan;
-          purchaseScan = propagationMeasurement.result.purchaseScan;
-          readinessCheckedRecords = ordersScan.scannedRecords;
-        } else {
-          const propagationMeasurement = await measureAsync(
-            "lookupPropagation",
-            () =>
-              waitForMutatedOrderReads(
-                fixture,
-                config,
-                readinessPlan.primaryReadPath,
-                context,
-              ),
-          );
-          lookupPropagationMs = propagationMeasurement.durationMs;
-          readinessCheckedRecords =
-            propagationMeasurement.result.checkedRecords;
-        }
-      }),
+        lookupPropagationMs = propagationMeasurement.durationMs;
+        readinessCheckedRecords = propagationMeasurement.result.checkedRecords;
+      }
+    },
   );
 
   if (readinessPlan.verifyFullCascadeAfterPrimary) {
-    const cascadeVerificationMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
+    const cascadeVerificationMeasurement = await measureAsync(
       "cascadeVerification",
-      () =>
-        measureAsync("cascadeVerification", () =>
-          waitForReadyFullScan(fixture, config, "updated", context),
-        ),
+      () => waitForReadyFullScan(fixture, config, "updated", context),
     );
     cascadeVerificationMs = cascadeVerificationMeasurement.durationMs;
     ordersScan = cascadeVerificationMeasurement.result.ordersScan;

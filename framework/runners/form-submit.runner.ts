@@ -392,6 +392,12 @@ const submitRecordsSequentially = async (
           fields: buildSubmitPayload(fixture.fields, iteration, config).fields,
           typecast: true,
         }),
+      {
+        checkpoint: {
+          index: iteration - 1,
+          total: config.rowCount,
+        },
+      },
     );
     const durationMs = roundMetric(performance.now() - startedAt);
     expect(response.status).toBe(201);

@@ -380,29 +380,23 @@ const prepareFieldConvertLinkFixture = async (
   let foreignTableId = "";
   let hostTableId = "";
   try {
-    const createTableMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      seedCacheInfo.enabled ? "seedBuild:createTables" : "createTables",
-      () =>
-        measureAsync(
-          seedCacheInfo.enabled ? "seedBuild" : "createTables",
-          async () => {
-            const foreign = await seedForeignTable(baseId, foreignTableName, {
-              rowCount: config.foreignTable.rowCount,
-              batchSize: config.foreignTable.batchSize,
-              keyPrefix: config.foreignTable.keyPrefix,
-            });
-            foreignTableId = foreign.tableId;
-            const host = await createTable(baseId, {
-              name: hostTableName,
-              fields: buildHostFields(config, foreign.tableId),
-              records: [],
-            });
-            hostTableId = host.id;
-            return { foreign, host };
-          },
-        ),
+    const createTableMeasurement = await measureAsync(
+      seedCacheInfo.enabled ? "seedBuild" : "createTables",
+      async () => {
+        const foreign = await seedForeignTable(baseId, foreignTableName, {
+          rowCount: config.foreignTable.rowCount,
+          batchSize: config.foreignTable.batchSize,
+          keyPrefix: config.foreignTable.keyPrefix,
+        });
+        foreignTableId = foreign.tableId;
+        const host = await createTable(baseId, {
+          name: hostTableName,
+          fields: buildHostFields(config, foreign.tableId),
+          records: [],
+        });
+        hostTableId = host.id;
+        return { foreign, host };
+      },
     );
     const { foreign, host } = createTableMeasurement.result;
 
@@ -429,17 +423,11 @@ const prepareFieldConvertLinkFixture = async (
         const batchMeasurement = await measureAsync(
           `seedBatch:${batchIndex + 1}`,
           () =>
-            withPerfTraceStep(
-              context,
-              perfCase,
-              `seedBatch:${batchIndex + 1}`,
-              () =>
-                createRecords(host.id, {
-                  fieldKeyType: FieldKeyType.Name,
-                  typecast: true,
-                  records: batch,
-                }),
-            ),
+            createRecords(host.id, {
+              fieldKeyType: FieldKeyType.Name,
+              typecast: true,
+              records: batch,
+            }),
         );
         batchDurations.push(batchMeasurement.durationMs);
         expect(batchMeasurement.result.records).toHaveLength(batch.length);

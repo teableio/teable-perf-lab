@@ -1,11 +1,26 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  context as otelContext,
+  trace as otelTrace,
+  TraceFlags,
+  type SpanContext,
+} from "@opentelemetry/api";
 import { axios } from "@teable/openapi";
+import { getAdapter } from "axios";
 import {
   createTraceEvidencePolicy,
   normalizeTraceRequestBodyShape,
 } from "./trace-evidence-policy";
+import {
+  buildExportableTraceId,
+  buildNonExportableTraceId,
+  parsePerfTraceExportRatio,
+  shouldExportTraceStepRequest,
+  type TraceStepCheckpoint,
+} from "./trace-export-policy";
 import {
   createTraceFetchControl,
   type TraceFetchArtifactState,
@@ -26,6 +41,18 @@ export interface PerfTraceStep {
   stepId: string;
 }
 
+export interface PerfTraceStepOptions {
+  checkpoint?: TraceStepCheckpoint;
+  requestCount?: number;
+}
+
+interface PerfTraceStepState extends PerfTraceStep {
+  options?: PerfTraceStepOptions;
+  requestIndex: number;
+  wrapperExportable: boolean;
+  wrapperSpanContext: SpanContext;
+}
+
 export interface PerfTraceRef extends PerfTraceStep {
   traceId: string;
   spanId: string;
@@ -36,6 +63,7 @@ export interface PerfTraceRef extends PerfTraceStep {
   url?: string;
   requestBodyShape?: string;
   status?: number;
+  failed?: boolean;
   capturedAt: string;
 }
 
@@ -114,9 +142,23 @@ const PERF_HEADER_RUN_ID = "x-teable-perf-run-id";
 const PERF_HEADER_CASE_ID = "x-teable-perf-case-id";
 const PERF_HEADER_ENGINE = "x-teable-perf-engine";
 const PERF_HEADER_STEP_ID = "x-teable-perf-step-id";
+const PERF_HEADER_TRACE_CHECKPOINT = "x-teable-perf-trace-checkpoint";
 
-const traceStepStorage = new AsyncLocalStorage<PerfTraceStep>();
+const traceStepStorage = new AsyncLocalStorage<PerfTraceStepState>();
 const traceRefs: PerfTraceRef[] = [];
+const perfTraceRequestMetadata = Symbol("perfTraceRequestMetadata");
+
+interface PerfTraceRequestMetadata {
+  step: PerfTraceStep;
+  requestIndex: number;
+  exportable: boolean;
+  spanContext: SpanContext;
+}
+
+type PerfTraceAxiosConfig = {
+  adapter?: unknown;
+  [perfTraceRequestMetadata]?: PerfTraceRequestMetadata;
+};
 
 let installed = false;
 let requestInterceptorId: number | undefined;
@@ -318,16 +360,93 @@ const setHeaderValue = (headers: unknown, name: string, value: string) => {
   headerBag[name] = value;
 };
 
+const randomNonZeroHex = (byteLength: number) => {
+  let value = "";
+  while (!value || /^0+$/.test(value)) {
+    value = randomBytes(byteLength).toString("hex");
+  }
+  return value;
+};
+
+const createPerfSpanContext = (exportable: boolean): SpanContext => {
+  const exportRatio = parsePerfTraceExportRatio(process.env.OTEL_EXPORT_RATIO);
+  const prefix = randomNonZeroHex(14);
+  const traceId = exportable
+    ? buildExportableTraceId(prefix, exportRatio)
+    : buildNonExportableTraceId(prefix, exportRatio);
+
+  return {
+    traceId,
+    spanId: randomNonZeroHex(8),
+    traceFlags: TraceFlags.SAMPLED,
+    isRemote: true,
+  };
+};
+
+const wrapAxiosAdapterWithTraceContext = (
+  config: PerfTraceAxiosConfig,
+  spanContext: SpanContext,
+) => {
+  const adapter = getAdapter(config.adapter ?? axios.defaults.adapter);
+  const requestContext = otelTrace.setSpanContext(
+    otelContext.active(),
+    spanContext,
+  );
+  config.adapter = (adapterConfig: unknown) =>
+    otelContext.with(requestContext, () => adapter(adapterConfig));
+};
+
+const prepareTraceRequest = (
+  config: PerfTraceAxiosConfig,
+  step: PerfTraceStepState,
+) => {
+  const requestIndex = step.requestIndex;
+  step.requestIndex += 1;
+  const exportable = shouldExportTraceStepRequest({
+    requestIndex,
+    requestCount: step.options?.requestCount,
+    checkpoint: step.options?.checkpoint,
+  });
+  const spanContext = createPerfSpanContext(exportable);
+  config[perfTraceRequestMetadata] = {
+    step,
+    requestIndex,
+    exportable,
+    spanContext,
+  };
+  wrapAxiosAdapterWithTraceContext(config, spanContext);
+  return config[perfTraceRequestMetadata];
+};
+
 export const buildPerfTraceHeaders = (
   context: PerfRunContext,
   perfCase: PerfCase,
   stepId: string,
-) => ({
-  [PERF_HEADER_RUN_ID]: context.runId,
-  [PERF_HEADER_CASE_ID]: perfCase.id,
-  [PERF_HEADER_ENGINE]: context.engine,
-  [PERF_HEADER_STEP_ID]: stepId,
-});
+) => {
+  const activeStep = traceStepStorage.getStore();
+  const activeSpanContext =
+    activeStep?.runId === context.runId &&
+    activeStep.caseId === perfCase.id &&
+    activeStep.engine === context.engine &&
+    activeStep.stepId === stepId
+      ? activeStep.wrapperSpanContext
+      : undefined;
+
+  return {
+    [PERF_HEADER_RUN_ID]: context.runId,
+    [PERF_HEADER_CASE_ID]: perfCase.id,
+    [PERF_HEADER_ENGINE]: context.engine,
+    [PERF_HEADER_STEP_ID]: stepId,
+    ...(activeSpanContext
+      ? {
+          [PERF_HEADER_TRACE_CHECKPOINT]: activeStep?.wrapperExportable
+            ? "1"
+            : "0",
+          traceparent: `00-${activeSpanContext.traceId}-${activeSpanContext.spanId}-01`,
+        }
+      : {}),
+  };
+};
 
 const parseTraceparent = (traceparent?: string) => {
   const match = traceparent?.match(
@@ -346,7 +465,7 @@ const parseTraceparent = (traceparent?: string) => {
 
 const pushTraceRef = (ref: PerfTraceRef) => {
   const maxRefs = getPositiveIntegerEnv("PERF_LAB_TRACE_MAX_REFS", 500);
-  if (traceRefs.length < maxRefs) {
+  if (ref.failed || traceRefs.length < maxRefs) {
     traceRefs.push(ref);
   }
 };
@@ -387,6 +506,14 @@ export const recordPerfTraceRefFromHeaders = ({
   if (!isTraceCollectionEnabled()) {
     return undefined;
   }
+  const activeStep = traceStepStorage.getStore();
+  if (
+    activeStep &&
+    !activeStep.wrapperExportable &&
+    (status == null || status < 400)
+  ) {
+    return undefined;
+  }
 
   const traceparent = getHeaderValue(headers, "traceparent");
   const parsedTraceparent = parseTraceparent(traceparent);
@@ -407,6 +534,7 @@ export const recordPerfTraceRefFromHeaders = ({
     url,
     ...(requestBodyShape ? { requestBodyShape } : {}),
     status,
+    failed: status != null && status >= 400,
     capturedAt: new Date().toISOString(),
   };
   pushTraceRef(ref);
@@ -436,6 +564,58 @@ const resolveRequestUrl = (config: unknown) => {
   } catch {
     return requestConfig.url;
   }
+};
+
+const getPerfTraceRequestMetadata = (config: unknown) =>
+  config && typeof config === "object"
+    ? (config as PerfTraceAxiosConfig)[perfTraceRequestMetadata]
+    : undefined;
+
+const pushAxiosTraceRef = ({
+  config,
+  headers,
+  status,
+  failed,
+}: {
+  config: unknown;
+  headers: unknown;
+  status?: number;
+  failed: boolean;
+}) => {
+  const metadata = getPerfTraceRequestMetadata(config);
+  if (!metadata || (!metadata.exportable && !failed)) {
+    return;
+  }
+
+  const responseTraceparent = getHeaderValue(headers, "traceparent");
+  const parsedResponseTraceparent = parseTraceparent(responseTraceparent);
+  const traceparent =
+    responseTraceparent ??
+    `00-${metadata.spanContext.traceId}-${metadata.spanContext.spanId}-01`;
+  const parsedTraceparent = parsedResponseTraceparent ?? {
+    traceId: metadata.spanContext.traceId,
+    spanId: metadata.spanContext.spanId,
+    sampled: true,
+  };
+  const requestConfig = config as {
+    data?: unknown;
+    headers?: unknown;
+    method?: string;
+  };
+  const requestBodyShape = normalizeTraceRequestBodyShape(requestConfig.data);
+
+  pushTraceRef({
+    ...metadata.step,
+    ...parsedTraceparent,
+    traceparent,
+    traceLink: parseTraceLink(getHeaderValue(headers, "link")),
+    method: requestConfig.method?.toUpperCase(),
+    url: resolveRequestUrl(config),
+    ...(requestBodyShape ? { requestBodyShape } : {}),
+    status,
+    failed,
+    capturedAt: new Date().toISOString(),
+  });
 };
 
 const sanitizePathSegment = (value: string) =>
@@ -627,38 +807,50 @@ export const installPerfTraceCollector = () => {
     }
 
     config.headers ??= {};
+    const requestMetadata = prepareTraceRequest(
+      config as PerfTraceAxiosConfig,
+      step,
+    );
     setHeaderValue(config.headers, PERF_HEADER_RUN_ID, step.runId);
     setHeaderValue(config.headers, PERF_HEADER_CASE_ID, step.caseId);
     setHeaderValue(config.headers, PERF_HEADER_ENGINE, step.engine);
     setHeaderValue(config.headers, PERF_HEADER_STEP_ID, step.stepId);
+    setHeaderValue(
+      config.headers,
+      PERF_HEADER_TRACE_CHECKPOINT,
+      requestMetadata.exportable ? "1" : "0",
+    );
     return config;
   });
 
-  responseInterceptorId = axios.interceptors.response.use((response) => {
-    const traceparent = getHeaderValue(response.headers, "traceparent");
-    const parsedTraceparent = parseTraceparent(traceparent);
-    const step = traceStepStorage.getStore();
-    if (!traceparent || !parsedTraceparent || !step) {
+  responseInterceptorId = axios.interceptors.response.use(
+    (response) => {
+      pushAxiosTraceRef({
+        config: response.config,
+        headers: response.headers,
+        status: response.status,
+        failed: false,
+      });
       return response;
-    }
-
-    const requestBodyShape = normalizeTraceRequestBodyShape(
-      response.config.data,
-    );
-    pushTraceRef({
-      ...step,
-      ...parsedTraceparent,
-      traceparent,
-      traceLink: parseTraceLink(getHeaderValue(response.headers, "link")),
-      method: response.config.method?.toUpperCase(),
-      url: resolveRequestUrl(response.config),
-      ...(requestBodyShape ? { requestBodyShape } : {}),
-      status: response.status,
-      capturedAt: new Date().toISOString(),
-    });
-
-    return response;
-  });
+    },
+    (error: unknown) => {
+      const candidate = error as {
+        config?: unknown;
+        response?: {
+          config?: unknown;
+          headers?: unknown;
+          status?: number;
+        };
+      };
+      pushAxiosTraceRef({
+        config: candidate.response?.config ?? candidate.config,
+        headers: candidate.response?.headers,
+        status: candidate.response?.status,
+        failed: true,
+      });
+      return Promise.reject(error);
+    },
+  );
 
   ensurePerfTraceBackgroundFlush();
 };
@@ -687,16 +879,42 @@ export const withPerfTraceStep = <T>(
   perfCase: PerfCase,
   stepId: string,
   fn: () => T,
-): T =>
-  traceStepStorage.run(
-    {
-      runId: context.runId,
-      caseId: perfCase.id,
-      engine: context.engine,
-      stepId,
-    },
-    fn,
+  options?: PerfTraceStepOptions,
+): T => {
+  if (!isTraceCollectionEnabled()) {
+    return fn();
+  }
+
+  const wrapperExportable =
+    options?.requestCount == null &&
+    shouldExportTraceStepRequest({
+      requestIndex: 0,
+      checkpoint: options?.checkpoint,
+    });
+  const wrapperContext = otelTrace.setSpanContext(
+    otelContext.active(),
+    createPerfSpanContext(wrapperExportable),
   );
+  const wrapperSpanContext = otelTrace.getSpanContext(wrapperContext);
+  if (!wrapperSpanContext) {
+    throw new Error("Unable to establish performance trace context");
+  }
+  return otelContext.with(wrapperContext, () =>
+    traceStepStorage.run(
+      {
+        runId: context.runId,
+        caseId: perfCase.id,
+        engine: context.engine,
+        stepId,
+        options,
+        requestIndex: 0,
+        wrapperExportable,
+        wrapperSpanContext,
+      },
+      fn,
+    ),
+  );
+};
 
 type TraceArtifactTerminalSkip = {
   state: Extract<TraceFetchArtifactState, "pending-job-tail" | "tail-error">;

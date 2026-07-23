@@ -971,20 +971,14 @@ const importAndVerifyCsv = async (
       createdTableId: createdTable.id,
     };
 
-    const completionMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      traceStepId,
-      () =>
-        measureAsync("importCompleted", () =>
-          waitForCsvImportCompletion(
-            baseId,
-            createdTable.id,
-            tableMeta.dbTableName,
-            config,
-            context,
-          ),
-        ),
+    const completionMeasurement = await measureAsync("importCompleted", () =>
+      waitForCsvImportCompletion(
+        baseId,
+        createdTable.id,
+        tableMeta.dbTableName,
+        config,
+        context,
+      ),
     );
 
     const verifyMeasurement = await measureAsync("verifyReady", () =>

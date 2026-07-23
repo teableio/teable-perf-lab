@@ -43,14 +43,9 @@ const restoreDeletedSample = async ({
   cleanupSamples: TableLifecycleCleanupSample[];
 }) => {
   const sampleLabel = formatTableLifecycleSample(sample.iteration);
-  const restoreMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
+  const restoreMeasurement = await measureAsync(
     `cleanupRestoreTable-${sampleLabel}`,
-    () =>
-      measureAsync(`cleanupRestoreTable-${sampleLabel}`, () =>
-        restoreTableTrash(trashId),
-      ),
+    () => restoreTableTrash(trashId),
   );
   const verifyMeasurement = await measureAsync(
     `cleanupFullScan-${sampleLabel}`,
@@ -108,24 +103,27 @@ export const runTableDeleteCase = async (
           measureAsync(`deleteTable-${sampleLabel}`, () =>
             archiveTable(baseId, sample.fixture.tableId),
           ),
+        {
+          checkpoint: {
+            index: sample.iteration - 1,
+            total: getTableLifecycleSampleCount(config),
+          },
+        },
       );
 
-      const verifyMeasurement = await withPerfTraceStep(
-        context,
-        perfCase,
+      const verifyMeasurement = await measureAsync(
         `deleteTableVerify-${sampleLabel}`,
-        () =>
-          measureAsync(`deleteTableVerify-${sampleLabel}`, async () => {
-            const listing = await assertTableNotListed(
-              baseId,
-              sample.fixture.tableId,
-            );
-            const trashLookup = await waitForTableTrashId(
-              baseId,
-              sample.fixture.tableId,
-            );
-            return { ...listing, trashLookup };
-          }),
+        async () => {
+          const listing = await assertTableNotListed(
+            baseId,
+            sample.fixture.tableId,
+          );
+          const trashLookup = await waitForTableTrashId(
+            baseId,
+            sample.fixture.tableId,
+          );
+          return { ...listing, trashLookup };
+        },
       );
       const { trashLookup } = verifyMeasurement.result as {
         trashLookup: TableTrashLookup;

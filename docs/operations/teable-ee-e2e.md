@@ -306,12 +306,29 @@ The workflow exports traces to the shared Jaeger service. Its endpoints and the
 [trace-viewer.md](trace-viewer.md) and set in the workflow env; do not restate
 the endpoint URLs here.
 
-`perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
-`initApp()` creates the Nest test app. The perf framework captures `traceparent`
-response headers from OpenAPI axios calls and from raw SSE/fetch stream
-requests that use the perf SSE helper. A case snapshots those refs and writes
-its measured payload plus a `pending-job-tail` manifest immediately; it does not
-wait for Jaeger. After every case in the engine job completes,
+The runtime environment is applied before `perf-lab.e2e-spec.ts` preloads the
+existing `teable-ee` tracing module and before `initApp()` creates the Nest test
+app. Seed mode permanently disables perf trace collection, clears the trace,
+log, and metric exporter endpoints, and sets the export ratio to zero. Execute
+mode keeps the Teable exporter enabled with
+`PERF_LAB_TRACE_EXPORT_RATIO=0.001`.
+
+`withPerfTraceStep` is the authoritative marker for the product interface a
+case measures. Before a marked request is sent, the perf framework assigns it a
+trace ID admitted by the same deterministic export ratio used by `teable-ee`.
+Normal repeated operations predeclare their request count or iteration
+position; only their first, median, and last requests receive admitted trace
+IDs. Setup, warmup, completion polling, verification, and cleanup are outside
+the marker. Failed HTTP requests are retained by `teable-ee`'s existing error
+promotion and bypass the normal perf snapshot cap. The perf lab does not change
+`teable-ee`'s independent slow/error promotion or its priority-span APM
+behavior, so those upstream safety signals may still reach Jaeger.
+
+The perf framework captures selected `traceparent` response headers from
+OpenAPI axios calls and from isolated/raw SSE/fetch requests that use the perf
+headers or SSE helper. A case snapshots those refs and writes its measured
+payload plus a `pending-job-tail` manifest immediately; it does not wait for
+Jaeger. After every case in the engine job completes,
 `perf-lab.e2e-spec.ts` performs one final exporter flush and one
 `PERF_LAB_TRACE_FETCH_SETTLE_MS` settle, then polls Jaeger at
 `/api/traces/<traceId>`. It writes raw JSON snapshots and replaces the pending
@@ -319,20 +336,17 @@ trace block in each case payload, summary, and manifest. During a large case,
 the runner may still call the Teable OpenTelemetry SDK's force flush periodically
 with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans from accumulating in
 the batch processor. The workflow saves up to
-`PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
-automatically select one representative per semantic request shape (normalized
-step, method, URL shape, and request-body structure); all captured refs remain in
-the manifest. Cases may still set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow
-which shapes are eligible. If a selected representative trace is sampled but
+`PERF_LAB_TRACE_MAX_SNAPSHOTS` normal raw JSON traces per case and fetches them
+with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Failed requests are additional
+and are not capped or deduplicated. Cases may still set
+`PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow which selected steps are
+eligible. If a selected checkpoint trace is sampled but
 cannot be fetched from Jaeger, cases may set
 `PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
-sampled fallback refs before recording a failed fetch. Refs with an unsampled
-`traceparent` are kept in the manifest but skipped for Jaeger fetch because
-those traces are not expected to be stored. Sampled refs above the snapshot cap,
-outside a case's include pattern, replaced by a saved fallback trace, or covered
-by an already saved same-shape trace are also recorded as skipped so the manifest
-explains any intentional `traceRefCount > savedTraceCount` gap.
+sampled fallback refs before recording a failed fetch. Refs outside a case's
+include pattern, above the normal snapshot cap, or replaced by a saved fallback
+trace are recorded as skipped so the manifest explains any intentional
+`traceRefCount > savedTraceCount` gap.
 
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
 (15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (60 seconds). After

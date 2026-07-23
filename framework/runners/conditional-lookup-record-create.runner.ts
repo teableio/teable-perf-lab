@@ -151,20 +151,16 @@ const prepareFixture = async ({
       config,
       fixture.sampleRecords,
     );
-    const createFieldMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
+    const createFieldMeasurement = await measureAsync(
       "createLookupFieldSetup",
       () =>
-        measureAsync("createLookupFieldSetup", () =>
-          createConditionalLookupFieldWithRouting(
-            context,
-            fixture.hostTableId,
-            fixture.sourceTableId,
-            fixture.sourceFields,
-            fixture.hostFields,
-            config,
-          ),
+        createConditionalLookupFieldWithRouting(
+          context,
+          fixture.hostTableId,
+          fixture.sourceTableId,
+          fixture.sourceFields,
+          fixture.hostFields,
+          config,
         ),
     );
     const readyMeasurement = await measureAsync("lookupSetupReady", () =>

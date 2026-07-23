@@ -199,6 +199,9 @@ const restoreRecordTrash = async (
       }
       return results;
     },
+    {
+      requestCount: trashLookups.length,
+    },
   );
   return {
     trashItemCount: batches.length,
