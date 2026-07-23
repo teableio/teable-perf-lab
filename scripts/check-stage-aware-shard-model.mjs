@@ -23,18 +23,21 @@ assert.deepEqual(STAGE_COST_KEYS, [
   "traceMs",
 ]);
 
-assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29957965247");
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29979412537");
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.sourcePerfLabSha,
-  "47259c6cbdef0652e98efb4caea4122b544c211f",
+  "b2c1530e85503db8d982d98c2b3047c7284ba73c",
 );
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.sourceCacheNamespace,
-  "cw-47259c6-20260723-c1",
+  "accept-b2c1530-20260723-01",
 );
-assert.equal(FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId, null);
-assert.equal(FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl, null);
-assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceSeedPlan, null);
+assert.equal(FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId, "29981325193");
+assert.equal(
+  FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl,
+  "https://github.com/teableio/teable-perf-lab/actions/runs/29981325193",
+);
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceSeedPlan.length, 8);
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-read/100k-50fields-filter-number-range-middle-half"

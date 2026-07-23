@@ -1,5 +1,5 @@
 // Stable bundle assignment for the eight-shard plan calibrated through Actions
-// cold run 29957965247. It covers shared affinities and singleton bundles so
+// cold run 29979412537. It covers shared affinities and singleton bundles so
 // unrelated edits preserve seed-cache slots.
 export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:csv-import/mixed-10k-20fields-create-table-import": 2,
