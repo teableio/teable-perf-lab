@@ -54,7 +54,8 @@ registerHooks({
 
 const { runRecordMutationLifecycle, shouldRestoreSharedMutableSeed } =
   await import("./record-mutation-lifecycle.ts");
-const { cleanupDeletedRecordSeed } = await import("./record-trash-cleanup.ts");
+const { cleanupDeletedRecordSeed, resolveRecordTrashCleanupPolling } =
+  await import("./record-trash-cleanup.ts");
 const { PerfRunDiagnosticError } = await import("../types.ts");
 
 test("shared mutable seeds restore between siblings in an isolated execute job", () => {
@@ -145,6 +146,23 @@ test("record trash cleanup deletes a shared dirty seed when restore evidence is 
     deleteFixture: async () => calls.push("delete"),
   });
   assert.deepEqual(calls, ["delete"]);
+});
+
+test("record trash cleanup polling resolves optional verify values", () => {
+  assert.deepEqual(resolveRecordTrashCleanupPolling({}), {
+    timeoutMs: 15_000,
+    pollIntervalMs: 250,
+  });
+  assert.deepEqual(
+    resolveRecordTrashCleanupPolling({
+      timeoutMs: 42_000,
+      pollIntervalMs: 125,
+    }),
+    {
+      timeoutMs: 42_000,
+      pollIntervalMs: 125,
+    },
+  );
 });
 
 test("domain table-name resolver reaches the real lifecycle fixture adapter", async () => {

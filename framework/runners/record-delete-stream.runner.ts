@@ -40,7 +40,10 @@ import {
   type RecordReplayFixture,
   type RecordReplayVerification,
 } from "./record-replay.shared";
-import { cleanupDeletedRecordSeed } from "./record-trash-cleanup";
+import {
+  cleanupDeletedRecordSeed,
+  resolveRecordTrashCleanupPolling,
+} from "./record-trash-cleanup";
 import { findRecordTrashItems } from "./record-trash.shared";
 
 export type DeleteStreamResult = {
@@ -320,10 +323,10 @@ const restoreDeletedStreamSeed = async ({
       `Delete-stream cleanup has ${deletedRecordIds.length}/${fixture.seededRecords.length} deleted record ids`,
     );
   }
+  const cleanupPolling = resolveRecordTrashCleanupPolling(config.verify);
   const trashLookups = await pollUntilReady(
     {
-      timeoutMs: config.verify.timeoutMs,
-      pollIntervalMs: config.verify.pollIntervalMs,
+      ...cleanupPolling,
       description: `record trash cleanup for ${fixture.tableId}`,
     },
     () => findRecordTrashItems(fixture.tableId, deletedRecordIds),
@@ -337,8 +340,7 @@ const restoreDeletedStreamSeed = async ({
     }
   }
   await waitForRowsRestored(fixture, config, {
-    timeoutMs: config.verify.timeoutMs,
-    pollIntervalMs: config.verify.pollIntervalMs,
+    ...cleanupPolling,
     verifySamples: true,
   });
 };
