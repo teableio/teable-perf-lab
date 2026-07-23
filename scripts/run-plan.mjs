@@ -34,6 +34,12 @@ export const HYBRID_COMPUTED_CASES = [
   "field-convert/formula-dependency-remove-4k-depth5-cascade",
   "lookup/foreign-select-flip-1of40-fanout100-4k",
   "lookup/foreign-first-name-update-1of40-fanout100-4k",
+  "lookup/foreign-select-flip-1of40-fanout500-20k",
+  "lookup/foreign-first-name-update-1of40-fanout500-20k",
+  "record-update/single-foreign-select-update-1of40-fanout100-4k",
+  "record-update/single-foreign-first-name-update-1of40-fanout100-4k",
+  "record-update/single-foreign-select-update-1of40-fanout500-20k",
+  "record-update/single-foreign-first-name-update-1of40-fanout500-20k",
   "lookup/customer-update-user-create-order-4k-depth5",
   "lookup/customer-update-user-update-order-4k-depth5",
   "lookup/customer-create-user-create-order-4k-depth5",
@@ -73,17 +79,70 @@ export const parseCaseSeedAffinity = (caseSource) => {
   return seedAffinity;
 };
 
+export const parseCaseAcceptanceContract = (caseSource) => {
+  const routingDeclarations = [
+    ...caseSource.matchAll(/^\s*routingEvidence\s*:/gm),
+  ];
+  const routingMatches = [
+    ...caseSource.matchAll(
+      /^\s*routingEvidence:\s*["']not-applicable["'],?\s*$/gm,
+    ),
+  ];
+  if (
+    routingDeclarations.length > 1 ||
+    routingDeclarations.length !== routingMatches.length
+  ) {
+    throw new Error(
+      'routingEvidence must be declared at most once as "not-applicable".',
+    );
+  }
+  const skipDeclarations = [
+    ...caseSource.matchAll(/^\s*expectedSkipEngines\s*:/gm),
+  ];
+  const skipMatches = [
+    ...caseSource.matchAll(
+      /^\s*expectedSkipEngines:\s*\[((?:\s*["'](?:v1|v2)["']\s*,?)*)\],?\s*$/gm,
+    ),
+  ];
+  if (
+    skipDeclarations.length > 1 ||
+    skipDeclarations.length !== skipMatches.length
+  ) {
+    throw new Error(
+      "expectedSkipEngines must be declared at most once as a literal v1/v2 array.",
+    );
+  }
+  const expectedSkipEngines = skipMatches[0]
+    ? [
+        ...new Set(
+          [...skipMatches[0][1].matchAll(/["'](v1|v2)["']/g)].map(
+            (match) => match[1],
+          ),
+        ),
+      ]
+    : [];
+  if (skipMatches[0] && expectedSkipEngines.length === 0) {
+    throw new Error("expectedSkipEngines must not be empty.");
+  }
+  return {
+    ...(routingMatches.length === 1
+      ? { routingEvidence: "not-applicable" }
+      : {}),
+    ...(expectedSkipEngines.length > 0 ? { expectedSkipEngines } : {}),
+  };
+};
+
 export const loadRegisteredCases = async () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const registry = await loadRegistry(repoRoot);
   return Promise.all(
     registeredCasePathsInOrder(registry).map(async (casePath) => {
-      const seedAffinity = parseCaseSeedAffinity(
-        await readFile(join(repoRoot, casePath), "utf8"),
-      );
+      const caseSource = await readFile(join(repoRoot, casePath), "utf8");
+      const seedAffinity = parseCaseSeedAffinity(caseSource);
       return {
         id: caseIdFromPath(casePath),
         ...(seedAffinity ? { seedAffinity } : {}),
+        ...parseCaseAcceptanceContract(caseSource),
       };
     }),
   );
@@ -290,6 +349,9 @@ const compactStageSimulation = (simulation, executionProfile) => ({
   calibrationSource: {
     sourceRunId: FULL_RUN_STAGE_CALIBRATION.sourceRunId,
     sourceUrl: FULL_RUN_STAGE_CALIBRATION.sourceUrl,
+    sourcePerfLabSha: FULL_RUN_STAGE_CALIBRATION.sourcePerfLabSha,
+    sourceTeableEeSha: FULL_RUN_STAGE_CALIBRATION.sourceTeableEeSha,
+    sourceArtifactRunId: FULL_RUN_STAGE_CALIBRATION.sourceArtifactRunId,
     pairedWarmRunId: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId,
     pairedWarmRunUrl: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl,
   },
@@ -423,6 +485,7 @@ export const resolveRunPlan = ({
 
   return {
     engines,
+    caseFilterIsAll,
     seedPlan: resolveSeedPlan({
       rawCaseFilter,
       selectedCaseIds: caseFilters,
@@ -467,6 +530,7 @@ export const writeGithubOutputs = (
     engines,
     seedPlan,
     executePlan,
+    caseFilterIsAll,
     caseFilterKey,
     seedCacheNamespace,
     planSummary,
@@ -476,6 +540,7 @@ export const writeGithubOutputs = (
   appendFileSync(outputPath, `engines=${JSON.stringify(engines)}\n`);
   appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
+  appendFileSync(outputPath, `case_filter_is_all=${caseFilterIsAll}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
   appendFileSync(outputPath, `seed_cache_namespace=${seedCacheNamespace}\n`);
   appendFileSync(

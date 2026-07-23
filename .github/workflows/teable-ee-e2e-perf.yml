@@ -115,16 +115,31 @@ jobs:
       engines: ${{ steps.engines.outputs.engines }}
       seed_plan: ${{ steps.engines.outputs.seed_plan }}
       execute_plan: ${{ steps.engines.outputs.execute_plan }}
+      case_filter_is_all: ${{ steps.engines.outputs.case_filter_is_all }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
       seed_cache_namespace: ${{ steps.engines.outputs.seed_cache_namespace }}
       seed_cache_namespace_segment: ${{ steps.engines.outputs.seed_cache_namespace_segment }}
       plan_summary: ${{ steps.engines.outputs.plan_summary }}
+      teable_ee_sha: ${{ steps.teable-ee-revision.outputs.sha }}
 
     steps:
       - name: Checkout perf lab
         uses: actions/checkout@v5
         with:
           path: perf-lab
+
+      - name: Checkout teable-ee revision
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ inputs.teable_ee_ref }}
+          path: teable-ee-revision
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Resolve pinned teable-ee revision
+        id: teable-ee-revision
+        working-directory: teable-ee-revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Verify pinned perf-lab revision
         if: inputs.expected_perf_lab_sha != ''
@@ -175,14 +190,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
-
-      - name: Resolve teable-ee revision
-        id: teable-ee-revision
-        working-directory: teable-ee
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Restore perf seed database cache
         id: seed-db-cache
@@ -204,7 +214,7 @@ jobs:
           SEED_CONTRACT_GENERATION: ${{ matrix.plan.seedContractGeneration }}
           SEED_CACHE_NAMESPACE: ${{ needs.resolve_inputs.outputs.seed_cache_namespace }}
           PERF_LAB_SHA: ${{ github.sha }}
-          TEABLE_EE_SHA: ${{ steps.teable-ee-revision.outputs.sha }}
+          TEABLE_EE_SHA: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           OUTPUT_PATH: perf-lab-seed-artifacts/seed-cache-status-${{ matrix.plan.artifactSuffix }}.json
         run: node perf-lab/scripts/write-seed-cache-status.mjs
 
@@ -458,7 +468,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
@@ -663,6 +673,7 @@ jobs:
     name: Report perf results
     needs:
       - resolve_inputs
+      - seed
       - execute
     if: always()
     runs-on: ubuntu-latest
@@ -678,117 +689,40 @@ jobs:
         id: perf_artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          PERF_LAB_ARTIFACT_INVENTORY: ${{ runner.temp }}/perf-artifact-inventory.json
         run: |
           set -euo pipefail
 
-          # Prefer the lightweight results artifacts (payload JSON, summaries, and
-          # trace manifests). Fall back to the full artifacts so report re-runs on
-          # older runs, or runs where lightweight staging produced nothing, still
-          # resolve. The full artifacts also carry the raw Jaeger trace snapshots.
-          mapfile -t artifact_names < <(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-              --paginate \
-              --jq '.artifacts[] | select(.expired == false) | .name'
-          )
-
-          has_artifact_matching() {
-            local regex="$1"
-            local artifact_name
-            for artifact_name in "${artifact_names[@]}"; do
-              if [[ "${artifact_name}" =~ ${regex} ]]; then
-                return 0
-              fi
-            done
-            return 1
-          }
-
-          execute_pattern=""
-          for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
-            for prefix in teable-ee-e2e-perf-results-v teable-ee-e2e-perf-v; do
-              pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
-              regex="^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$"
-              if has_artifact_matching "${regex}"; then
-                execute_pattern="${pattern}"
-                echo "Using ${prefix%-v} artifacts from run attempt ${attempt}."
-                break
-              fi
-            done
-
-            if [ -n "${execute_pattern}" ]; then
-              break
-            fi
-          done
-
-          if [ -z "${execute_pattern}" ]; then
-            echo "No perf execute artifacts found for run ${GITHUB_RUN_ID}." >&2
-            exit 1
-          fi
-          echo "execute_pattern=${execute_pattern}" >> "$GITHUB_OUTPUT"
-
-          seed_pattern=""
-          prefix="teable-ee-e2e-perf-seed-"
-          for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
-            pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
-            regex="^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$"
-            if has_artifact_matching "${regex}"; then
-              seed_pattern="${pattern}"
-              echo "Using seed cache status artifacts from run attempt ${attempt}."
-              break
-            fi
-          done
-          echo "seed_pattern=${seed_pattern}" >> "$GITHUB_OUTPUT"
-          if [ -z "${seed_pattern}" ]; then
-            echo "::warning::No seed cache status artifacts found; stage observation will mark the seed mode incomplete."
-          fi
+          # Re-run failed jobs can leave one logical shard on a newer attempt
+          # while all successful siblings remain on an older attempt. Select
+          # the newest artifact independently per logical execute/seed shard.
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --paginate \
+            --slurp > "$PERF_LAB_ARTIFACT_INVENTORY"
+          node perf-lab/scripts/select-report-artifacts.mjs
 
       - name: Download perf artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: ${{ steps.perf_artifacts.outputs.execute_pattern }}
+          artifact-ids: ${{ steps.perf_artifacts.outputs.execute_artifact_ids }}
           path: perf-lab-artifacts
           merge-multiple: false
 
       - name: Download seed cache status artifacts
-        if: steps.perf_artifacts.outputs.seed_pattern != ''
+        if: steps.perf_artifacts.outputs.seed_artifact_ids != ''
         uses: actions/download-artifact@v7
         with:
-          pattern: ${{ steps.perf_artifacts.outputs.seed_pattern }}
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_artifact_ids }}
           path: perf-lab-seed-artifacts
           merge-multiple: false
 
-      - name: Report perf results to Teable
-        if: env.TEABLE_PERF_LAB_TOKEN != ''
-        working-directory: perf-lab
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
-          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
-        run: node scripts/report-teable-result.mjs
-
-      - name: Send Feishu perf summary
-        if: always()
-        working-directory: perf-lab
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
-          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
-          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
-          PERF_LAB_CHART_URL: https://ppm.teable.app
-        run: node scripts/send-feishu-perf-summary.mjs
-
-      - name: Publish combined summary
-        if: always()
-        working-directory: perf-lab
-        env:
-          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_CHART_URL: https://ppm.teable.app
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
-        run: node scripts/write-github-perf-summary.mjs
+      - name: Download prior seed payload provenance
+        if: steps.perf_artifacts.outputs.seed_provenance_artifact_ids != ''
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_provenance_artifact_ids }}
+          path: perf-lab-seed-provenance-artifacts
+          merge-multiple: false
 
       - name: Publish current-run stage observation
         if: always()
@@ -796,15 +730,113 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
           PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
           PERF_LAB_PLAN_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/observation.json
         run: node scripts/observe-stage-plan.mjs
+
+      - name: Verify physical seed affinity
+        id: seed-affinity
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_SEED_PROVENANCE_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-provenance-artifacts
+          PERF_LAB_SEED_AFFINITY_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/seed-affinity.json
+        run: node scripts/verify-full-run-seed-affinity.mjs
+
+      - name: Verify full-run result acceptance
+        id: result-acceptance
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_RESOLVE_INPUTS_RESULT: ${{ needs.resolve_inputs.result }}
+          PERF_LAB_SEED_RESULT: ${{ needs.seed.result }}
+          PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
+        run: node scripts/verify-full-run-result-acceptance.mjs
+
+      - name: Report perf results to Teable
+        id: teable-report
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/report-teable-result.mjs
+
+      - name: Send Feishu perf summary
+        id: feishu-report
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_REQUIRE_DELIVERY: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+        run: node scripts/send-feishu-perf-summary.mjs
+
+      - name: Publish combined summary
+        id: github-summary
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/write-github-perf-summary.mjs
 
       - name: Upload current-run stage observation
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-plan-observation/observation.json
+          path: perf-plan-observation
           if-no-files-found: ignore
+
+      - name: Enforce physical seed affinity
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true' && steps.seed-affinity.outcome == 'failure'
+        run: exit 1
+
+      - name: Enforce full-run result and report acceptance
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
+          (
+            steps.result-acceptance.outcome != 'success' ||
+            steps.teable-report.outcome != 'success' ||
+            steps.feishu-report.outcome != 'success' ||
+            steps.github-summary.outcome != 'success'
+          )
+        run: |
+          echo "Full-run acceptance failed: results=${{ steps.result-acceptance.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          exit 1
+
+      - name: Enforce targeted report delivery failures
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
+          (
+            steps.teable-report.outcome == 'failure' ||
+            steps.feishu-report.outcome == 'failure' ||
+            steps.github-summary.outcome == 'failure'
+          )
+        run: exit 1

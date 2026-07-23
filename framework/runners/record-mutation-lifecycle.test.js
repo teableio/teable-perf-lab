@@ -54,6 +54,7 @@ registerHooks({
 
 const { runRecordMutationLifecycle, shouldRestoreSharedMutableSeed } =
   await import("./record-mutation-lifecycle.ts");
+const { cleanupDeletedRecordSeed } = await import("./record-trash-cleanup.ts");
 const { PerfRunDiagnosticError } = await import("../types.ts");
 
 test("shared mutable seeds restore between siblings in an isolated execute job", () => {
@@ -89,6 +90,61 @@ test("shared mutable seeds restore between siblings in an isolated execute job",
     }),
     false,
   );
+});
+
+test("record trash cleanup restores a shared seed even in an isolated execute job", async () => {
+  const calls = [];
+  await cleanupDeletedRecordSeed({
+    reusableSeed: true,
+    executeDbIsolated: true,
+    sharedSeedIdentity: true,
+    restoreSeed: async () => calls.push("restore"),
+    deleteFixture: async () => calls.push("delete"),
+  });
+  assert.deepEqual(calls, ["restore"]);
+});
+
+test("record trash cleanup skips an unshared isolated fixture", async () => {
+  const calls = [];
+  await cleanupDeletedRecordSeed({
+    reusableSeed: true,
+    executeDbIsolated: true,
+    sharedSeedIdentity: false,
+    restoreSeed: async () => calls.push("restore"),
+    deleteFixture: async () => calls.push("delete"),
+  });
+  assert.deepEqual(calls, []);
+});
+
+test("record trash cleanup deletes and fails when shared-seed restore fails", async () => {
+  const calls = [];
+  await assert.rejects(
+    cleanupDeletedRecordSeed({
+      reusableSeed: true,
+      executeDbIsolated: true,
+      sharedSeedIdentity: true,
+      restoreSeed: async () => {
+        calls.push("restore");
+        throw new Error("restore failed");
+      },
+      deleteFixture: async () => calls.push("delete"),
+    }),
+    /restore failed/,
+  );
+  assert.deepEqual(calls, ["restore", "delete"]);
+});
+
+test("record trash cleanup deletes a shared dirty seed when restore evidence is unavailable", async () => {
+  const calls = [];
+  await cleanupDeletedRecordSeed({
+    reusableSeed: true,
+    executeDbIsolated: true,
+    sharedSeedIdentity: true,
+    canRestoreSeed: false,
+    restoreSeed: async () => calls.push("restore"),
+    deleteFixture: async () => calls.push("delete"),
+  });
+  assert.deepEqual(calls, ["delete"]);
 });
 
 test("domain table-name resolver reaches the real lifecycle fixture adapter", async () => {
@@ -200,5 +256,51 @@ test("measured diagnostic failures preserve partial primary evidence", async () 
   assert.equal(
     cleanupArgs.primaryMeasurement.durationMs,
     partialPrimaryMeasurement.durationMs,
+  );
+});
+
+test("cleanup failures preserve the original measured diagnostic", async () => {
+  globalThis.testConfig = { baseId: "base-contract" };
+  const perfCase = {
+    id: "lookup/cleanup-diagnostic-contract",
+    title: "Cleanup diagnostic contract",
+    runner: "customer-upsert-computed-flow",
+    timeoutMs: 1_000,
+    config: { tableNamePrefix: "cleanup-diagnostic" },
+  };
+  const context = {
+    app: {},
+    appUrl: "http://localhost",
+    runId: "run-cleanup-diagnostic",
+    engine: "v2",
+  };
+  const spec = {
+    prepareFixture: async ({ tableName }) => ({ tableName }),
+    runMeasuredOperation: async () => {
+      throw new PerfRunDiagnosticError("primary failed", {
+        metrics: { completedWrites: 1 },
+        thresholds: [],
+        details: {},
+      });
+    },
+    buildResult: ({ error }) => ({
+      result: error ? "fail" : "pass",
+      metrics: { completedWrites: 1 },
+      thresholds: [],
+      details: {},
+    }),
+    cleanup: async () => {
+      throw new Error("cleanup failed");
+    },
+  };
+
+  await assert.rejects(
+    runRecordMutationLifecycle(perfCase, context, spec),
+    (error) => {
+      assert.equal(error.name, "PerfRunDiagnosticError");
+      assert.match(error.message, /primary failed/);
+      assert.equal(error.result.details.cleanupError.message, "cleanup failed");
+      return true;
+    },
   );
 });

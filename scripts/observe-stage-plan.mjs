@@ -9,6 +9,7 @@ import {
   observeStagePlan,
   renderStagePlanObservationMarkdown,
   resolveTraceJobIdentity,
+  selectLatestLogicalJobs,
   summarizeSeedCacheStatuses,
 } from "./stage-plan-observation-model.mjs";
 
@@ -38,27 +39,39 @@ const githubApi = async (path) => {
   return response.json();
 };
 
-const loadCurrentAttemptJobs = async () => {
+const loadLatestLogicalJobs = async () => {
   const repository = requiredEnv("GITHUB_REPOSITORY");
   const runId = requiredEnv("GITHUB_RUN_ID");
-  const attempt = Number(env("GITHUB_RUN_ATTEMPT", "1"));
   const jobs = [];
   for (let page = 1; ; page += 1) {
     const response = await githubApi(
-      `/repos/${repository}/actions/runs/${runId}/jobs?filter=latest&per_page=100&page=${page}`,
+      `/repos/${repository}/actions/runs/${runId}/jobs?filter=all&per_page=100&page=${page}`,
     );
     const pageJobs = Array.isArray(response.jobs) ? response.jobs : [];
-    jobs.push(
-      ...pageJobs.filter(
-        (job) => job.run_attempt == null || job.run_attempt === attempt,
-      ),
-    );
+    jobs.push(...pageJobs);
     if (pageJobs.length < 100) {
       break;
     }
   }
-  return jobs;
+  return selectLatestLogicalJobs(jobs);
 };
+
+const parsePlan = (name) => {
+  const value = JSON.parse(requiredEnv(name));
+  if (!Array.isArray(value)) {
+    throw new Error(`${name} must be a JSON array.`);
+  }
+  return value;
+};
+
+const expectedPlanJobNames = () => [
+  ...parsePlan("PERF_LAB_SEED_PLAN").map(
+    ({ name }) => `Prepare perf seed DB (${name})`,
+  ),
+  ...parsePlan("PERF_LAB_EXECUTE_PLAN").map(
+    ({ name }) => `Run perf cases (${name})`,
+  ),
+];
 
 const loadTraceObservation = async (artifactDir, executionProfile) => {
   const manifests = await readTraceManifests({ artifactDir });
@@ -116,15 +129,13 @@ const main = async () => {
   const executionProfile = planSummary.stagePlan.executionProfile;
   const observation = observeStagePlan({
     planSummary,
-    jobs: await loadCurrentAttemptJobs(),
-    traceObservation: await loadTraceObservation(
-      artifactDir,
-      executionProfile,
-    ),
+    jobs: await loadLatestLogicalJobs(),
+    traceObservation: await loadTraceObservation(artifactDir, executionProfile),
     seedCacheObservation: await loadSeedCacheObservation(
       env("PERF_LAB_SEED_ARTIFACT_DIR"),
     ),
     sourceRunId: requiredEnv("GITHUB_RUN_ID"),
+    expectedJobNames: expectedPlanJobNames(),
   });
   const outputPath = requiredEnv("PERF_LAB_PLAN_OBSERVATION_PATH");
   await mkdir(dirname(outputPath), { recursive: true });

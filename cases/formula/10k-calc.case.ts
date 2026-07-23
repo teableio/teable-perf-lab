@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "formula/10k-calc",
   title: "10k rows formula calculation",
   runner: "formula-table",
+  routingEvidence: "not-applicable",
   timeoutMs: 300_000,
   config: {
     baseId: "seed-base",

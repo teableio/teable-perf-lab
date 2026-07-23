@@ -25,6 +25,7 @@ export default definePerfCase({
   id: "csv-import/mixed-10k-20fields-inplace-import",
   title: "Import 10k CSV rows into an existing 20-field mixed table",
   runner: "csv-import",
+  routingEvidence: "not-applicable",
   timeoutMs: 600_000,
   config: {
     baseId: "seed-base",

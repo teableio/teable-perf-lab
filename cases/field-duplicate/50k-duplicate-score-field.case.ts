@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "field-duplicate/50k-duplicate-score-field",
   title: "Duplicate one populated rating field across 50k rows",
   runner: "field-duplicate",
+  seedAffinity: "field-duplicate/scalar-matrix-50k",
   timeoutMs: 900_000,
   watchdogMs: 300_000,
   config: {

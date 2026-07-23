@@ -213,12 +213,13 @@ const resolveCriticalJobs = (jobsInput, plan) => {
   );
 };
 
-const resolveDuplicateSeeds = (observationsInput) => {
+export const resolveDuplicateSeeds = (observationsInput) => {
   const observations = assertNonEmptyArray(
     observationsInput,
     "seedObservations",
   );
   const bySeedHash = new Map();
+  const identitiesByAffinityAndCase = new Map();
 
   for (const observation of observations) {
     assertRecord(observation, "seedObservations[]");
@@ -239,6 +240,14 @@ const resolveDuplicateSeeds = (observationsInput) => {
         observation.affinityId,
         `seedObservations[${caseId}].affinityId`,
       );
+      const identitiesByCase =
+        identitiesByAffinityAndCase.get(observation.affinityId) ?? new Map();
+      const identities = identitiesByCase.get(caseId) ?? new Map();
+      const shards = identities.get(seedHash) ?? new Set();
+      shards.add(shard);
+      identities.set(seedHash, shards);
+      identitiesByCase.set(caseId, identities);
+      identitiesByAffinityAndCase.set(observation.affinityId, identitiesByCase);
     }
     const buildMs = assertNonNegativeNumber(
       observation.buildMs,
@@ -269,8 +278,29 @@ const resolveDuplicateSeeds = (observationsInput) => {
   }
 
   const duplicates = [];
+  const affinityIssues = [];
   for (const [seedHash, seedGroup] of bySeedHash) {
     const { byShard } = seedGroup;
+    const caseIds = [
+      ...new Set(
+        [...byShard.values()].flatMap((observation) => observation.caseIds),
+      ),
+    ].sort();
+    const affinityIds = [...seedGroup.affinityIds].sort();
+    const staticAffinityIssue = seedGroup.missingAffinity
+      ? "missing-affinity-declaration"
+      : affinityIds.length === 1
+        ? undefined
+        : "seed-hash-maps-to-multiple-affinities";
+    if (caseIds.length > 1 && staticAffinityIssue) {
+      affinityIssues.push({
+        seedHash,
+        affinityIds,
+        caseIds,
+        shards: [...byShard.keys()].sort(),
+        issue: staticAffinityIssue,
+      });
+    }
     if (byShard.size < 2) {
       continue;
     }
@@ -280,7 +310,6 @@ const resolveDuplicateSeeds = (observationsInput) => {
     const buildTimes = shardEntries.map(([, value]) => value.buildMs);
     const totalBuildMs = buildTimes.reduce((total, value) => total + value, 0);
     const requiredBuildMs = Math.max(...buildTimes);
-    const affinityIds = [...seedGroup.affinityIds].sort();
     duplicates.push({
       seedHash,
       affinityIds,
@@ -297,8 +326,46 @@ const resolveDuplicateSeeds = (observationsInput) => {
     });
   }
 
+  for (const [affinityId, identitiesByCase] of identitiesByAffinityAndCase) {
+    if (identitiesByCase.size < 2) {
+      continue;
+    }
+    const signatures = new Set(
+      [...identitiesByCase.values()].map((identities) =>
+        [...identities.keys()].sort().join(","),
+      ),
+    );
+    if (signatures.size < 2) {
+      continue;
+    }
+    const identityObservations = [...identitiesByCase]
+      .map(([caseId, identities]) => ({
+        caseId,
+        seedHashes: [...identities.keys()].sort(),
+        shards: [
+          ...new Set([...identities.values()].flatMap((shards) => [...shards])),
+        ].sort(),
+      }))
+      .sort((left, right) => left.caseId.localeCompare(right.caseId));
+    affinityIssues.push({
+      affinityIds: [affinityId],
+      caseIds: identityObservations.map(({ caseId }) => caseId),
+      seedHashes: [
+        ...new Set(
+          identityObservations.flatMap(({ seedHashes }) => seedHashes),
+        ),
+      ].sort(),
+      shards: [
+        ...new Set(identityObservations.flatMap(({ shards }) => shards)),
+      ].sort(),
+      observations: identityObservations,
+      issue: "affinity-maps-to-inconsistent-seed-hash-sets",
+    });
+  }
+
   return {
     duplicates,
+    affinityIssues,
     avoidableBuildMs: duplicates.reduce(
       (total, duplicate) => total + duplicate.avoidableBuildMs,
       0,
@@ -394,6 +461,12 @@ export const evaluateFullRunFeedback = (
       avoidableBuildMs: seed.avoidableBuildMs,
     });
   }
+  if (seed.affinityIssues.length > 0) {
+    failures.push({
+      code: "seed-affinity",
+      issueCount: seed.affinityIssues.length,
+    });
+  }
   if (coverage.observedResults !== coverage.expectedResults) {
     failures.push({
       code: "result-coverage",
@@ -476,6 +549,14 @@ export const renderFullRunFeedback = (evaluationInput) => {
       seed.avoidableBuildMs,
     )}`,
   );
+  lines.push(`Seed affinity issues: ${seed.affinityIssues.length}`);
+  for (const issue of seed.affinityIssues) {
+    lines.push(
+      issue.seedHash
+        ? `Seed ${issue.seedHash}: ${issue.issue} · affinity ${issue.affinityIds.join(", ") || "missing"} · cases ${issue.caseIds.join(", ")}`
+        : `Affinity ${issue.affinityIds.join(", ")}: ${issue.issue} · seeds ${issue.seedHashes.join(", ")} · cases ${issue.caseIds.join(", ")}`,
+    );
+  }
   for (const duplicate of seed.duplicates) {
     lines.push(
       `Seed ${duplicate.seedHash}: ${duplicate.shards.join(", ")} · affinity ${

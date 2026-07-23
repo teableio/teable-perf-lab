@@ -1,9 +1,4 @@
-import {
-  getTrashItems,
-  restoreTrash,
-  TableTrashType,
-  TrashType,
-} from "@teable/openapi";
+import { restoreTrash } from "@teable/openapi";
 import { permanentDeleteTable } from "../../../utils/init-app";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
@@ -39,13 +34,10 @@ import {
   prepareRecordTrashFixture,
   type DeleteStreamResult,
 } from "./record-delete-stream.runner";
-
-type RecordTrashLookup = {
-  trashId: string;
-  resourceCount: number;
-  deletedTime?: string;
-  scannedPages: number;
-};
+import {
+  findRecordTrashItems,
+  type RecordTrashLookup,
+} from "./record-trash.shared";
 
 type RestoreSetupResult = {
   delete: Omit<DeleteStreamResult, "deletedRecordIds">;
@@ -138,59 +130,6 @@ const deleteRowsForRestoreSetup = async (
     routing: first.routing,
     trace: last.trace,
   };
-};
-
-const findRecordTrashItems = async (
-  tableId: string,
-  deletedRecordIds: string[],
-): Promise<RecordTrashLookup[]> => {
-  const expectedIds = new Set(deletedRecordIds);
-  const matchedIds = new Set<string>();
-  const lookups: RecordTrashLookup[] = [];
-  let cursor: string | null | undefined;
-  for (let page = 1; page <= 25; page += 1) {
-    const response = await getTrashItems({
-      resourceId: tableId,
-      resourceType: TrashType.Table,
-      cursor,
-    });
-    const items = response.data.trashItems as Array<{
-      id: string;
-      resourceType?: string;
-      resourceIds?: string[];
-      deletedTime?: string;
-    }>;
-    for (const item of items) {
-      if (
-        item.resourceType !== TableTrashType.Record ||
-        !item.resourceIds?.length ||
-        !item.resourceIds.every((recordId) => expectedIds.has(recordId))
-      ) {
-        continue;
-      }
-      const newIds = item.resourceIds.filter(
-        (recordId) => !matchedIds.has(recordId),
-      );
-      if (newIds.length === 0) continue;
-      newIds.forEach((recordId) => matchedIds.add(recordId));
-      lookups.push({
-        trashId: item.id,
-        resourceCount: item.resourceIds.length,
-        deletedTime: item.deletedTime,
-        scannedPages: page,
-      });
-    }
-    if (matchedIds.size === expectedIds.size) {
-      return lookups;
-    }
-
-    cursor = (response.data as { nextCursor?: string | null }).nextCursor;
-    if (!cursor || items.length === 0) break;
-  }
-
-  throw new Error(
-    `Record trash items cover ${matchedIds.size}/${expectedIds.size} deleted records in table ${tableId}`,
-  );
 };
 
 const setupRecordTrash = async (
@@ -477,8 +416,9 @@ const cleanupRecordRestoreFixture = async ({
   fixture: RecordReplayFixture | undefined;
   primaryMeasurement?: Measurement<RestorePrimaryResult>;
 }) => {
-  if (isExecuteDbIsolated()) return;
   if (!fixture?.tableId) return;
+  const sharedSeedIdentity = Boolean(fixture.seedCacheInfo?.seedAffinity);
+  if (isExecuteDbIsolated() && !sharedSeedIdentity) return;
 
   const verified = primaryMeasurement?.result.verifyMeasurement?.result;
   if (
@@ -488,14 +428,7 @@ const cleanupRecordRestoreFixture = async ({
     return;
   }
 
-  try {
-    await permanentDeleteTable(baseId, fixture.tableId);
-  } catch (error) {
-    console.warn(
-      `Failed to cleanup perf record restore table ${fixture.tableId}`,
-      error,
-    );
-  }
+  await permanentDeleteTable(baseId, fixture.tableId);
 };
 
 const recordRestoreSpec: RecordMutationLifecycleSpec<

@@ -7,6 +7,13 @@ import {
   STAGE_COST_KEYS,
 } from "./stage-aware-shard-model.mjs";
 import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
+import { validateFullRunCalibrationInputs } from "./refresh-full-run-calibration.mjs";
+import { validateHistoricalSlotRefreshInputs } from "./refresh-full-run-historical-slots.mjs";
+import { validateFullRunWarmCalibrationInputs } from "./accept-full-run-warm-calibration.mjs";
+import {
+  buildCaseSetDigest,
+  SEED_CONTRACT_GENERATION,
+} from "./seed-cache-model.mjs";
 
 assert.deepEqual(STAGE_COST_KEYS, [
   "coldSeedMs",
@@ -16,7 +23,18 @@ assert.deepEqual(STAGE_COST_KEYS, [
   "traceMs",
 ]);
 
-assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29951887405");
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceRunId, "29957965247");
+assert.equal(
+  FULL_RUN_STAGE_CALIBRATION.sourcePerfLabSha,
+  "47259c6cbdef0652e98efb4caea4122b544c211f",
+);
+assert.equal(
+  FULL_RUN_STAGE_CALIBRATION.sourceCacheNamespace,
+  "cw-47259c6-20260723-c1",
+);
+assert.equal(FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId, null);
+assert.equal(FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl, null);
+assert.equal(FULL_RUN_STAGE_CALIBRATION.sourceSeedPlan, null);
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-read/100k-50fields-filter-number-range-middle-half"
@@ -32,7 +50,7 @@ assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-duplicate/single-500-checkbox-500fields"
   ].v1Ms,
-  164_638.84,
+  173_813.28,
   "historical execute stragglers must not use the 10s default",
 );
 assert.ok(
@@ -57,6 +75,239 @@ for (const [caseId, costs] of Object.entries(
     );
   }
 }
+
+const historicalSlotSeedPlan = [
+  {
+    name: "shard-1-of-1",
+    stableSlot: "slot-1",
+    caseSetDigest: buildCaseSetDigest(["case/a"]),
+    seedContractGeneration: SEED_CONTRACT_GENERATION,
+    caseFilter: "case/a",
+  },
+];
+assert.deepEqual(
+  validateHistoricalSlotRefreshInputs({
+    sourceRunId: "12345",
+    calibration: {
+      sourceRunId: "12345",
+      sourceSeedPlan: historicalSlotSeedPlan,
+    },
+    selectedCaseIds: ["case/a"],
+  }),
+  historicalSlotSeedPlan,
+);
+assert.throws(
+  () =>
+    validateHistoricalSlotRefreshInputs({
+      sourceRunId: "12345",
+      calibration: { sourceRunId: "12345", sourceSeedPlan: null },
+      selectedCaseIds: ["case/a"],
+    }),
+  /non-empty validated calibration source seed plan/,
+);
+assert.throws(
+  () =>
+    validateHistoricalSlotRefreshInputs({
+      sourceRunId: "12345",
+      calibration: {
+        sourceRunId: "12345",
+        sourceSeedPlan: [
+          { ...historicalSlotSeedPlan[0], caseSetDigest: "stale-digest" },
+        ],
+      },
+      selectedCaseIds: ["case/a"],
+    }),
+  /invalid plan identity/,
+);
+
+const calibrationFixture = {
+  sourceRunId: "12345",
+  selectedCaseIds: ["case/a"],
+  expectedShardCount: 1,
+  seedStatusEntries: [
+    {
+      artifactName: "teable-ee-e2e-perf-seed-shard-1-of-1-12345-1",
+      status: {
+        mode: "cache-miss",
+        requiresRunnerValidation: true,
+        stableSlot: "slot-1",
+        perfLabSha: "perf-sha",
+        teableEeSha: "ee-sha",
+      },
+    },
+  ],
+  seedPayloadEntries: [
+    {
+      artifactName: "teable-ee-e2e-perf-seed-shard-1-of-1-12345-1",
+      payload: {
+        caseId: "case/a",
+        engine: "seed",
+        runId: "12345-1",
+        result: "pass",
+      },
+    },
+  ],
+  resultPayloadEntries: [
+    ...["v1", "v2"].map((engine) => ({
+      artifactName: `teable-ee-e2e-perf-results-${engine}-shard-1-of-1-12345-1`,
+      payload: {
+        caseId: "case/a",
+        engine,
+        runId: "12345-1",
+        result: "pass",
+      },
+    })),
+  ],
+  stageObservation: {
+    sourceRunId: "12345",
+    selectedShardCount: 1,
+    cacheMode: "cold",
+    complete: true,
+    seedCacheObservation: {
+      statusCount: 1,
+      detectedMode: "cold",
+    },
+    observed: Object.fromEntries(
+      ["coldSeedMs", "v1Ms", "v2SyncMs", "v2HybridMs", "traceMs"].map(
+        (stage, index) => [stage, { durationMs: index + 1 }],
+      ),
+    ),
+  },
+  seedGate: {
+    duplicates: [],
+    affinityIssues: [],
+    evidenceIssues: [],
+  },
+};
+const validatedCalibration =
+  validateFullRunCalibrationInputs(calibrationFixture);
+assert.equal(validatedCalibration.perfLabSha, "perf-sha");
+assert.equal(validatedCalibration.teableEeSha, "ee-sha");
+assert.equal(validatedCalibration.artifactRunId, "12345-1");
+assert.equal(validatedCalibration.resultsByCaseId.get("case/a").size, 2);
+assert.throws(
+  () =>
+    validateFullRunCalibrationInputs({
+      ...calibrationFixture,
+      seedStatusEntries: calibrationFixture.seedStatusEntries.map((entry) => ({
+        ...entry,
+        status: { ...entry.status, mode: "exact-hit" },
+      })),
+    }),
+  /all-cache-miss cold run/,
+);
+assert.throws(
+  () =>
+    validateFullRunCalibrationInputs({
+      ...calibrationFixture,
+      seedGate: {
+        ...calibrationFixture.seedGate,
+        duplicates: [{ seedHash: "duplicate" }],
+      },
+    }),
+  /cross-shard duplicate/,
+);
+
+const warmCalibrationFixture = {
+  sourceRunId: "12346",
+  selectedCaseIds: ["case/a"],
+  expectedShardCount: 1,
+  seedPlan: [
+    {
+      name: "shard-1-of-1",
+      stableSlot: "slot-1",
+      caseSetDigest: "digest-a",
+      seedContractGeneration: "seed-contract-v1",
+      caseFilter: "case/a",
+    },
+  ],
+  seedStatusEntries: [
+    {
+      artifactName: "teable-ee-e2e-perf-seed-shard-1-of-1-12346-1",
+      status: {
+        mode: "exact-hit",
+        requiresRunnerValidation: false,
+        stableSlot: "slot-1",
+        caseSetDigest: "digest-a",
+        seedContractGeneration: "seed-contract-v1",
+        cacheNamespace: "acceptance",
+        perfLabSha: "perf-sha",
+        teableEeSha: "ee-sha",
+        primaryKey: "exact-key",
+        matchedKey: "exact-key",
+      },
+    },
+  ],
+  resultPayloadEntries: [
+    ...["v1", "v2"].map((engine) => ({
+      artifactName: `teable-ee-e2e-perf-results-${engine}-shard-1-of-1-12346-1`,
+      payload: {
+        caseId: "case/a",
+        engine,
+        runId: "12346-1",
+        result: "pass",
+      },
+    })),
+  ],
+  stageObservation: {
+    sourceRunId: "12346",
+    selectedShardCount: 1,
+    cacheMode: "warm",
+    complete: true,
+    seedCacheObservation: {
+      statusCount: 1,
+      detectedMode: "warm",
+    },
+    observed: Object.fromEntries(
+      ["warmSeedMs", "v1Ms", "v2SyncMs", "v2HybridMs", "traceMs"].map(
+        (stage, index) => [stage, { durationMs: index + 1 }],
+      ),
+    ),
+  },
+  coldCalibration: {
+    sourceRunId: "12345",
+    sourcePerfLabSha: "perf-sha",
+    sourceTeableEeSha: "ee-sha",
+    sourceCacheNamespace: "acceptance",
+  },
+};
+const validatedWarmCalibration = validateFullRunWarmCalibrationInputs(
+  warmCalibrationFixture,
+);
+assert.equal(validatedWarmCalibration.perfLabSha, "perf-sha");
+assert.equal(validatedWarmCalibration.teableEeSha, "ee-sha");
+assert.equal(validatedWarmCalibration.artifactRunId, "12346-1");
+assert.equal(validatedWarmCalibration.observedStages.warmSeedMs, 1);
+assert.throws(
+  () =>
+    validateFullRunWarmCalibrationInputs({
+      ...warmCalibrationFixture,
+      seedStatusEntries: warmCalibrationFixture.seedStatusEntries.map(
+        (entry) => ({
+          ...entry,
+          status: { ...entry.status, teableEeSha: "different-ee-sha" },
+        }),
+      ),
+    }),
+  /does not match cold calibration/,
+);
+assert.throws(
+  () =>
+    validateFullRunWarmCalibrationInputs({
+      ...warmCalibrationFixture,
+      seedStatusEntries: warmCalibrationFixture.seedStatusEntries.map(
+        (entry) => ({
+          ...entry,
+          status: {
+            ...entry.status,
+            mode: "compatible-candidate",
+            requiresRunnerValidation: true,
+          },
+        }),
+      ),
+    }),
+  /all-exact-hit warm run/,
+);
 
 const syntheticCaseCosts = {
   "shared-a": {

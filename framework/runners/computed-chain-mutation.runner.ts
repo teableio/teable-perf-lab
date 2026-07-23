@@ -44,6 +44,7 @@ import {
   buildExpectedUserState,
   purchaseRowForOrder,
   resolveCascadeImpact,
+  resolveComputedChainCleanupAction,
   resolveFormulaDependencyPlan,
   userRowForOrder,
   type ComputedChainFormulaDependencyMutation,
@@ -54,7 +55,6 @@ import {
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
-  shouldRestoreSharedMutableSeed,
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 
@@ -1311,32 +1311,27 @@ const updateForeignCell = async (
   };
 };
 
-const updateFormulaExpression = async (
-  fixture: Fixture,
-  mutation: FormulaMutation,
-) => {
-  const fieldIdByName = new Map<string, string>([
+const formulaInputFieldIdByName = (fixture: Fixture) =>
+  new Map<string, string>([
     [LOOKUP_FIRST_NAME, fixture.orderFields.lookupFirstName],
     [LOOKUP_LAST_NAME, fixture.orderFields.lookupLastName],
     [LOOKUP_EMAIL, fixture.orderFields.lookupEmail],
     [LOOKUP_STATUS, fixture.orderFields.lookupStatus],
   ]);
-  const expression = compileExpression(
-    updatedProfileSeedExpression(mutation),
-    fieldIdByName,
-  );
-  const expectedDependencyNames = isFormulaDependencyMutation(mutation)
-    ? resolveFormulaDependencyPlan(mutation).after
-    : [LOOKUP_FIRST_NAME, LOOKUP_LAST_NAME, LOOKUP_STATUS];
-  const expectedDependenciesAfter = expectedDependencyNames
-    .map((name) => {
-      const id = fieldIdByName.get(name);
-      if (!id) {
-        throw new Error(`Missing formula dependency field ${name}`);
-      }
-      return id;
-    })
-    .sort();
+
+const convertProfileSeedFormula = async ({
+  fixture,
+  expressionSource,
+  expectedDependencyIds,
+  operation,
+}: {
+  fixture: Fixture;
+  expressionSource: string;
+  expectedDependencyIds: string[];
+  operation: string;
+}) => {
+  const fieldIdByName = formulaInputFieldIdByName(fixture);
+  const expression = compileExpression(expressionSource, fieldIdByName);
   const fieldId = fixture.orderFields.formulas[PROFILE_SEED];
   const response = await apiConvertField(fixture.ordersTableId, fieldId, {
     name: PROFILE_SEED,
@@ -1344,7 +1339,7 @@ const updateFormulaExpression = async (
     options: { expression },
   } as Parameters<typeof apiConvertField>[2]);
   if (response.status !== 200) {
-    throw new Error(`Formula update failed: status=${response.status}`);
+    throw new Error(`${operation} failed: status=${response.status}`);
   }
   if (
     response.data.id !== fieldId ||
@@ -1358,15 +1353,40 @@ const updateFormulaExpression = async (
     fixture.ordersTableId,
   )) as NamedField[];
   const current = resolveNamedField(currentFields, PROFILE_SEED);
-  const dependenciesAfter = extractDependencyIds(current.options?.expression);
-  if (
-    JSON.stringify(dependenciesAfter) !==
-    JSON.stringify(expectedDependenciesAfter)
-  ) {
+  const dependencies = extractDependencyIds(current.options?.expression);
+  const expected = [...expectedDependencyIds].sort();
+  if (JSON.stringify(dependencies) !== JSON.stringify(expected)) {
     throw new Error(
-      `Formula dependencies mismatch for ${mutation}: expected=${expectedDependenciesAfter.join(",")}, actual=${dependenciesAfter.join(",")}`,
+      `${operation} dependencies mismatch: expected=${expected.join(",")}, actual=${dependencies.join(",")}`,
     );
   }
+  return { response, dependencies };
+};
+
+const updateFormulaExpression = async (
+  fixture: Fixture,
+  mutation: FormulaMutation,
+) => {
+  const fieldIdByName = formulaInputFieldIdByName(fixture);
+  const expectedDependencyNames = isFormulaDependencyMutation(mutation)
+    ? resolveFormulaDependencyPlan(mutation).after
+    : [LOOKUP_FIRST_NAME, LOOKUP_LAST_NAME, LOOKUP_STATUS];
+  const expectedDependenciesAfter = expectedDependencyNames
+    .map((name) => {
+      const id = fieldIdByName.get(name);
+      if (!id) {
+        throw new Error(`Missing formula dependency field ${name}`);
+      }
+      return id;
+    })
+    .sort();
+  const { response, dependencies: dependenciesAfter } =
+    await convertProfileSeedFormula({
+      fixture,
+      expressionSource: updatedProfileSeedExpression(mutation),
+      expectedDependencyIds: expectedDependenciesAfter,
+      operation: `Formula update for ${mutation}`,
+    });
   return {
     kind: "formula" as const,
     convertedField: {
@@ -1379,6 +1399,19 @@ const updateFormulaExpression = async (
       response.headers as Record<string, unknown>,
     ),
   };
+};
+
+const restoreFormulaExpression = async (
+  fixture: Fixture,
+  config: ComputedChainMutationCaseConfig,
+) => {
+  await convertProfileSeedFormula({
+    fixture,
+    expressionSource: profileSeedExpression("V1"),
+    expectedDependencyIds: fixture.profileSeedDependencyIds,
+    operation: "Formula seed restore",
+  });
+  await waitForSeedSamples(fixture, config);
 };
 
 const runMeasuredOperation = async (
@@ -1735,40 +1768,40 @@ const cleanupFixture = async ({
   }
 
   const executeDbIsolated = isExecuteDbIsolated();
-  if (!fixture.reusableSeed) {
-    if (!executeDbIsolated) {
-      await deleteFixtureTables(baseId, fixture);
-    }
+  const cleanupAction = resolveComputedChainCleanupAction({
+    mutation: config.mutation,
+    reusableSeed: fixture.reusableSeed,
+    executeDbIsolated,
+    sharedSeedIdentity: true,
+  });
+  if (cleanupAction === "none") {
     return;
   }
-
-  // Every computed-chain case resolves to SHARED_SEED_CASE_ID. Formula
-  // mutations are not cheaply reversible, so remove the shared fixture and
-  // force the next sibling to rebuild it. Foreign-cell mutations are cheap to
-  // reverse and must be restored even in an isolated execute job: isolation is
-  // job-scoped, while sibling cases run serially in that same database.
-  if (isFormulaMutation(config.mutation)) {
+  if (cleanupAction === "delete") {
     await deleteFixtureTables(baseId, fixture);
     return;
   }
-  if (
-    !shouldRestoreSharedMutableSeed({
-      reusableSeed: fixture.reusableSeed,
-      executeDbIsolated,
-      sharedSeedIdentity: true,
-    })
-  ) {
-    return;
-  }
+
+  // All cases in one computed-chain affinity share an execute shard. Restore
+  // the seed even in an isolated job so the next serial sibling starts from
+  // the same graph instead of rebuilding three tables outside its metric.
   try {
-    await updateForeignCell(fixture, config, "seed");
-    await waitForSeedSamples(fixture, config);
+    if (cleanupAction === "restore-formula") {
+      await restoreFormulaExpression(fixture, config);
+    } else {
+      await updateForeignCell(fixture, config, "seed");
+      await waitForSeedSamples(fixture, config);
+    }
   } catch (error) {
     console.warn(
       `Failed to restore computed-chain seed ${fixture.ordersTableId}; deleting it`,
       error,
     );
     await deleteFixtureTables(baseId, fixture);
+    throw new Error(
+      `Computed-chain seed restore failed for ${fixture.ordersTableId}; the fixture was deleted`,
+      { cause: error },
+    );
   }
 };
 

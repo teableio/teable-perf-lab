@@ -98,6 +98,209 @@ export const readSeedCacheStatuses = async ({ artifactDir }) => {
   );
 };
 
+const seedIdentityPath = (segments) =>
+  segments.reduce(
+    (result, segment) =>
+      typeof segment === "number"
+        ? `${result}[${segment}]`
+        : result
+          ? `${result}.${segment}`
+          : segment,
+    "",
+  );
+
+const collectSeedCacheIdentities = (value, path, identities) => {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectSeedCacheIdentities(item, [...path, index], identities),
+    );
+    return;
+  }
+
+  if (typeof value.seedHash === "string" && value.seedHash.trim()) {
+    const seedHash = value.seedHash.trim();
+    const seedAffinity =
+      typeof value.seedAffinity === "string" && value.seedAffinity.trim()
+        ? value.seedAffinity.trim()
+        : undefined;
+    const existing = identities.get(seedHash);
+    if (
+      existing?.seedAffinity &&
+      seedAffinity &&
+      existing.seedAffinity !== seedAffinity
+    ) {
+      const error = new Error(
+        `Seed ${seedHash} reports conflicting affinities: ${existing.seedAffinity}, ${seedAffinity}.`,
+      );
+      error.seedHash = seedHash;
+      error.artifactAffinities = [existing.seedAffinity, seedAffinity].sort();
+      throw error;
+    }
+    const cacheHit =
+      typeof value.cacheHit === "boolean" ? value.cacheHit : undefined;
+    identities.set(seedHash, {
+      seedHash,
+      ...(existing?.seedAffinity || seedAffinity
+        ? { seedAffinity: existing?.seedAffinity ?? seedAffinity }
+        : {}),
+      ...(existing?.cacheHit != null || cacheHit != null
+        ? { cacheHit: (existing?.cacheHit ?? true) && (cacheHit ?? true) }
+        : {}),
+      paths: [...(existing?.paths ?? []), seedIdentityPath(path)].sort(),
+    });
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    collectSeedCacheIdentities(child, [...path, key], identities);
+  }
+};
+
+export const extractSeedCacheIdentities = (payload) => {
+  const identities = new Map();
+  collectSeedCacheIdentities(payload, [], identities);
+  return [...identities.values()].sort((left, right) =>
+    left.seedHash.localeCompare(right.seedHash),
+  );
+};
+
+export const seedShardFromArtifactEntry = ({ artifactName, fileName }) => {
+  const source = `${artifactName ?? ""}/${fileName ?? ""}`;
+  return /seed-(shard-\d+-of-\d+)(?:-|\/)/.exec(source)?.[1];
+};
+
+const normalizeAffinityIndex = (affinityByCaseId) => {
+  if (affinityByCaseId instanceof Map) {
+    return affinityByCaseId;
+  }
+  if (!affinityByCaseId || typeof affinityByCaseId !== "object") {
+    return new Map();
+  }
+  return new Map(Object.entries(affinityByCaseId));
+};
+
+export const buildSeedObservationReport = ({
+  payloadEntries,
+  affinityByCaseId,
+}) => {
+  const affinityIndex = normalizeAffinityIndex(affinityByCaseId);
+  const observations = [];
+  const issues = [];
+
+  for (const entry of payloadEntries) {
+    const { payload } = entry;
+    if (payload.engine !== "seed") {
+      continue;
+    }
+    const shard = seedShardFromArtifactEntry(entry);
+    if (!shard) {
+      issues.push({
+        issue: "unresolved-seed-shard",
+        caseId: payload.caseId,
+        fileName: entry.fileName,
+      });
+      continue;
+    }
+    let identities;
+    try {
+      identities = extractSeedCacheIdentities(payload);
+    } catch (error) {
+      issues.push({
+        issue: "conflicting-artifact-seed-affinities",
+        caseId: payload.caseId,
+        shard,
+        ...(error?.seedHash ? { seedHash: error.seedHash } : {}),
+        ...(error?.artifactAffinities
+          ? { artifactAffinities: error.artifactAffinities }
+          : {}),
+        fileName: entry.fileName,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    if (identities.length === 0) {
+      continue;
+    }
+    const declaredAffinity = affinityIndex.get(payload.caseId);
+    for (const identity of identities) {
+      if (!declaredAffinity && identity.seedAffinity) {
+        issues.push({
+          issue: "artifact-affinity-without-declaration",
+          caseId: payload.caseId,
+          shard,
+          seedHash: identity.seedHash,
+          artifactAffinity: identity.seedAffinity,
+        });
+      }
+      if (
+        declaredAffinity &&
+        identity.seedAffinity &&
+        declaredAffinity !== identity.seedAffinity
+      ) {
+        issues.push({
+          issue: "declared-artifact-affinity-mismatch",
+          caseId: payload.caseId,
+          shard,
+          seedHash: identity.seedHash,
+          declaredAffinity,
+          artifactAffinity: identity.seedAffinity,
+        });
+      }
+      observations.push({
+        caseId: payload.caseId,
+        shard,
+        seedHash: identity.seedHash,
+        ...(declaredAffinity ? { affinityId: declaredAffinity } : {}),
+        buildMs:
+          identity.cacheHit === true
+            ? 0
+            : (numberOrUndefined(payload.durationMs) ?? 0),
+        ...(identity.cacheHit != null ? { cacheHit: identity.cacheHit } : {}),
+        paths: identity.paths,
+      });
+    }
+  }
+
+  return { observations, issues, payloadEntries };
+};
+
+export const readSeedObservationReport = async ({
+  artifactDir,
+  affinityByCaseId,
+}) =>
+  buildSeedObservationReport({
+    payloadEntries: await readArtifactPayloads({
+      artifactDir,
+      allowEmpty: true,
+    }),
+    affinityByCaseId,
+  });
+
+const renderSeedObservationIssue = (issue) => {
+  if (issue.issue === "artifact-affinity-without-declaration") {
+    return `Seed affinity drift for ${issue.caseId}: artifact reports ${issue.artifactAffinity} but the planner has no declaration (seed ${issue.seedHash}, ${issue.shard}).`;
+  }
+  if (issue.issue === "declared-artifact-affinity-mismatch") {
+    return `Seed affinity drift for ${issue.caseId}: declared ${issue.declaredAffinity}, artifact ${issue.artifactAffinity} (seed ${issue.seedHash}, ${issue.shard}).`;
+  }
+  if (issue.issue === "unresolved-seed-shard") {
+    return `Cannot resolve seed shard for ${issue.fileName || issue.caseId}.`;
+  }
+  return issue.message ?? `Invalid seed identity evidence for ${issue.caseId}.`;
+};
+
+export const readSeedObservations = async (options) => {
+  const report = await readSeedObservationReport(options);
+  if (report.issues.length > 0) {
+    const error = new Error(renderSeedObservationIssue(report.issues[0]));
+    error.seedAffinityIssues = report.issues;
+    throw error;
+  }
+  return report.observations;
+};
+
 export const readArtifactPayloads = async ({
   artifactDir,
   fallbackCaseId,
@@ -179,6 +382,48 @@ export const readArtifactPayloads = async ({
       artifactName: artifactNameFromPayloadPath(fileName),
     },
   ];
+};
+
+export const summarizeSeedPayloadCoverage = ({
+  payloadEntries,
+  expectedCaseIds,
+}) => {
+  if (!Array.isArray(payloadEntries) || !Array.isArray(expectedCaseIds)) {
+    throw new Error("Seed payload coverage requires payload and case arrays.");
+  }
+  const expected = new Set(expectedCaseIds);
+  if (expected.size !== expectedCaseIds.length) {
+    throw new Error("Expected seed case ids must be unique.");
+  }
+  const counts = new Map();
+  for (const { payload } of payloadEntries) {
+    if (payload?.engine !== "seed" || typeof payload.caseId !== "string") {
+      continue;
+    }
+    counts.set(payload.caseId, (counts.get(payload.caseId) ?? 0) + 1);
+  }
+  const observed = new Set(counts.keys());
+  const missingCaseIds = [...expected]
+    .filter((caseId) => !observed.has(caseId))
+    .sort();
+  const unexpectedCaseIds = [...observed]
+    .filter((caseId) => !expected.has(caseId))
+    .sort();
+  const duplicateCaseIds = [...counts]
+    .filter(([, count]) => count > 1)
+    .map(([caseId]) => caseId)
+    .sort();
+  return {
+    expectedCaseCount: expected.size,
+    observedCaseCount: observed.size,
+    missingCaseIds,
+    unexpectedCaseIds,
+    duplicateCaseIds,
+    complete:
+      missingCaseIds.length === 0 &&
+      unexpectedCaseIds.length === 0 &&
+      duplicateCaseIds.length === 0,
+  };
 };
 
 export const numberOrUndefined = (value) => {

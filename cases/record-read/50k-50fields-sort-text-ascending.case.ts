@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-read/50k-50fields-sort-text-ascending",
   title: "Sort a 50k 50-field record read by text ascending",
   runner: "record-read",
+  seedAffinity: "record-read/50k-50fields",
   timeoutMs: 1_800_000,
   config: {
     ...baseCase.config,

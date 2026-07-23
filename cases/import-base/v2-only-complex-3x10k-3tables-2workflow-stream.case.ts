@@ -5,6 +5,7 @@ export default definePerfCase({
   title:
     "V2-only: import three 10k-record tables with workflows through the product stream endpoint",
   runner: "import-base",
+  expectedSkipEngines: ["v1"],
   timeoutMs: 1_200_000,
   runtimeEnv: {
     PRISMA_TRANSACTION_TIMEOUT: 30_000,

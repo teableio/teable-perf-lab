@@ -120,8 +120,10 @@ and compatible prefix, then reuse that namespace unchanged on the same commit
 and case set. Every seed cache-status artifact records the namespace; a
 compatible candidate does not count as warm evidence. Controlled acceptance
 also pins the dispatched perf-lab SHA and resolves `teable_ee_ref` to a commit
-SHA; every status records both resolved SHAs so an exact hit cannot hide a code
-change between the two runs.
+SHA once in `resolve_inputs`; every seed and execute shard, including a
+`Re-run failed jobs` attempt, consumes that immutable output. Every status
+records both resolved SHAs so an exact hit cannot hide a code change between
+the two runs.
 
 All runners with a seed fixture are cache-aware today (formula-table,
 conditional-lookup, conditional-lookup-record-create, conditional-rollup, conditional-query, lookup-search-index, field-create, field-delete,
@@ -217,12 +219,12 @@ the table:
 To pick a strategy for a new case, answer one question — _what does the
 measured operation do to the seed fixture?_ — and use the matching class:
 
-| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                                                   |
-| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                                                  |
-| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query create cases, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                   |
-| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | conditional-lookup-record-create, conditional-query propagation cases, record-create (delete created rows), record-update (rewrite seed values), record-reorder, selection-clear, record-delete/undo/redo |
-| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                                           |
+| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                                                                                                                                           |
+| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                                                                                                                                          |
+| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query create cases, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                                                                                                           |
+| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | computed-chain-mutation (restore formula/foreign seed state between affinity siblings), conditional-lookup-record-create, conditional-query propagation cases, record-create (delete created rows), record-update (rewrite seed values), record-reorder, selection-clear, record-delete/undo/redo |
+| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                                                                                                                                   |
 
 Decision order when writing a new runner:
 
@@ -286,9 +288,12 @@ an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
 shards. Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace
 costs. Shared-fixture seed cost uses the maximum member cost because the fixture
 is built once; execute and trace costs are summed per case. The versioned
-calibration imports complete case-level cold-seed, V1/V2 artifact, and bounded
-trace-attribution durations from cold run `29951887405` and exact-hit warm run
-`29955363070`.
+calibration imports a complete case-level cold-seed, V1/V2 artifact, and
+bounded trace-attribution envelope. Its provenance records the run, payload
+attempt, perf-lab SHA, teable-ee SHA, and observed stage maxima. The refresh
+entrypoint accepts only one complete all-cache-miss run whose seed/result
+payloads and stage observation agree; it rejects affinity drift and cross-shard
+physical duplicates before rewriting either calibration module.
 
 The planner simulates 6–12 shards and selects the lowest concurrency that meets
 the 45-minute cold and 25-minute warm SLOs without exceeding the modeled cold or
@@ -307,8 +312,10 @@ trace-manifest timing, and every shard's seed cache-status artifact. An all
 `exact-hit` matrix is compared with the warm-seed prediction. Compatible,
 mixed, missing, or incomplete cache evidence remains explicitly unclassified.
 A missing trace manifest is also a missing observation, never a successful zero
-wait. The report appends the valid prediction delta and uploads a
-machine-readable observation artifact. Seed, V1, V2 sync, and V2 hybrid use one
+wait. For a non-warm run, the report also extracts every physical `seedHash`
+from the seed payloads and fails if one identity crosses shards or maps to zero
+or multiple declared affinities. It uploads this evidence beside the
+machine-readable stage observation. Seed, V1, V2 sync, and V2 hybrid use one
 global mapping; shard N always consumes dump N. Explicit case filters remain a
 single seed job and a single job per engine. Every job has its own
 Postgres/Redis containers, network, cache key, dump, and artifact names. A

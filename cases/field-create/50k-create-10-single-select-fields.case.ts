@@ -9,6 +9,7 @@ export default definePerfCase({
   id: "field-create/50k-create-10-single-select-fields",
   title: "Create 10 single-select fields on a 50k-record table",
   runner: "field-create",
+  seedAffinity: "field-create/scalar-title-only-50k",
   timeoutMs: 900_000,
   watchdogMs: 300_000,
   runtimeEnv: scalarFieldCreateTraceRuntimeEnv(10),

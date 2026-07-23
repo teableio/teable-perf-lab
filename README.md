@@ -65,14 +65,33 @@ ready.
   `scripts/full-run-stage-calibration.mjs`: versioned case-level cold-seed,
   execute, and trace-attribution durations plus observed stage maxima from the
   trusted calibration run.
+- `scripts/refresh-full-run-calibration.mjs`,
+  `scripts/accept-full-run-warm-calibration.mjs`, and
+  `scripts/refresh-full-run-historical-slots.mjs`: guarded regeneration of the
+  complete cost envelope, cold/warm stage provenance, and stable bundle slots.
+  Cold refresh rejects incomplete/failed/mixed artifacts, cross-run SHAs, and
+  physical fixtures duplicated across shards, and clears any stale warm pair.
+  Warm acceptance restores that pair only when exact-hit status, plan,
+  namespace, revisions, result coverage, and stage evidence match the cold
+  source.
 - `scripts/stage-plan-observation-model.mjs` and
   `scripts/observe-stage-plan.mjs`: current-run GitHub job/trace observation,
   seed cache-mode classification, prediction drift rendering, and the
   machine-readable calibration artifact.
+- `scripts/verify-full-run-seed-affinity.mjs`: report-stage evidence gate that
+  requires every non-warm seed payload, reads runner `seedHash` values, and
+  fails when one physical fixture is rebuilt across shards, an affinity member
+  lacks identity evidence, planner and artifact declarations drift, or cache
+  status identities do not match the current shard plan.
 - `scripts/full-run-feedback-model.mjs`: pure evaluation of a complete full-run
   plan plus telemetry: active workflow wall time, phase windows, stage
   stragglers, cross-shard seed rebuilds, trace wait budgets, result coverage,
   and cold/warm SLOs.
+- `scripts/verify-full-run-result-acceptance.mjs`: fail-closed full-run artifact
+  gate requiring successful resolve/seed/execute jobs, exactly one payload per
+  planned case/engine, only case-declared engine skips, required recorded
+  routing assertions unless the case declares them not applicable, and complete
+  bounded trace reconciliation.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
   payload/trace-manifest/seed-status projection, primary metric, trace URL, and
   trace-waste helpers used by report adapters.
