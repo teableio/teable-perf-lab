@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-delete/delete-5k",
   title: "Delete 5k mixed records through selection delete",
   runner: "record-delete",
+  routingEvidence: "not-applicable",
   timeoutMs: 1_800_000,
   config: {
     ...baseline.config,

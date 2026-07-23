@@ -4,6 +4,8 @@ export default definePerfCase({
   id: "field-update/v2-only-10k-select-option-rename-computed-cascade",
   title: "V2-only: rename a single-select option and wait for computed cascade",
   runner: "field-update",
+  routingEvidence: "not-applicable",
+  expectedSkipEngines: ["v1"],
   timeoutMs: 300_000,
   config: {
     baseId: "seed-base",

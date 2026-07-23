@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-update/5k-single-line-text-fields-bulk-update",
   title: "Bulk update 5k rows across four single-line text fields",
   runner: "record-update",
+  seedAffinity: "record-update/mixed-5k-20fields",
   timeoutMs: 600_000,
   config: {
     ...mixedRecordUpdate1kBase,

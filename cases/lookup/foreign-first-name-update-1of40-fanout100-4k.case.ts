@@ -4,6 +4,7 @@ export default definePerfCase({
   id: "lookup/foreign-first-name-update-1of40-fanout100-4k",
   title: "Edit one foreign text cell and await its 100-order computed fanout",
   runner: "computed-chain-mutation",
+  seedAffinity: "computed-chain/4k-depth5",
   timeoutMs: 420_000,
   watchdogMs: 300_000,
   config: {

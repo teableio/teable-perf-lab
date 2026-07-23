@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "export-base/10k-3tables-link-2workflow-stream",
   title: "Export a 10k 3-table linked base through the product stream endpoint",
   runner: "duplicate-base",
+  routingEvidence: "not-applicable",
   timeoutMs: 900_000,
   config: {
     ...duplicateBaseCase.config,

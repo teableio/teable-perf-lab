@@ -1,13 +1,27 @@
-import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
 import {
-  buildFullRunCaseShards,
+  buildFullRunCaseShardPlan,
+  resolveFixtureAffinities,
+  resolveFullRunCaseIds,
   resolveFullRunShardCount,
   validateFixtureAffinities,
+  validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
+import { FULL_RUN_HISTORICAL_BUNDLE_SLOTS } from "./full-run-historical-bundle-slots.mjs";
+import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
+import {
+  buildCaseSetDigest,
+  normalizeSeedCacheNamespace,
+  SEED_CONTRACT_GENERATION,
+} from "./seed-cache-model.mjs";
+import {
+  renderStagePlanSummaryMarkdown,
+  simulateStageAwareShardPlans,
+} from "./stage-aware-shard-model.mjs";
 
 export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-4k",
@@ -20,12 +34,20 @@ export const HYBRID_COMPUTED_CASES = [
   "field-convert/formula-dependency-remove-4k-depth5-cascade",
   "lookup/foreign-select-flip-1of40-fanout100-4k",
   "lookup/foreign-first-name-update-1of40-fanout100-4k",
+  "lookup/foreign-select-flip-1of40-fanout500-20k",
+  "lookup/foreign-first-name-update-1of40-fanout500-20k",
+  "record-update/single-foreign-select-update-1of40-fanout100-4k",
+  "record-update/single-foreign-first-name-update-1of40-fanout100-4k",
+  "record-update/single-foreign-select-update-1of40-fanout500-20k",
+  "record-update/single-foreign-first-name-update-1of40-fanout500-20k",
   "lookup/customer-update-user-create-order-4k-depth5",
   "lookup/customer-update-user-update-order-4k-depth5",
   "lookup/customer-create-user-create-order-4k-depth5",
   "lookup/customer-create-order-only-4k-depth5",
+  "lookup/customer-create-order-only-20k-depth5",
   "lookup/customer-update-user-first-name-only-create-order-4k-depth5",
   "lookup/customer-update-user-control-field-create-order-4k-depth5",
+  "lookup/customer-update-user-control-field-create-order-20k-depth5",
   "lookup/customer-update-other-user-create-order-4k-depth5",
 ];
 
@@ -39,10 +61,91 @@ const caseIdFromPath = (casePath) => {
   return match[1];
 };
 
-export const loadRegisteredCaseIds = async () => {
+export const parseCaseSeedAffinity = (caseSource) => {
+  const declarations = [...caseSource.matchAll(/^\s*seedAffinity\s*:/gm)];
+  const matches = [
+    ...caseSource.matchAll(/^\s*seedAffinity:\s*["']([^"']+)["'],?\s*$/gm),
+  ];
+  if (declarations.length > 1) {
+    throw new Error("seedAffinity must be declared at most once per case.");
+  }
+  if (declarations.length === 1 && matches.length !== 1) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  const seedAffinity = matches[0]?.[1];
+  if (seedAffinity != null && seedAffinity.trim().length === 0) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  return seedAffinity;
+};
+
+export const parseCaseAcceptanceContract = (caseSource) => {
+  const routingDeclarations = [
+    ...caseSource.matchAll(/^\s*routingEvidence\s*:/gm),
+  ];
+  const routingMatches = [
+    ...caseSource.matchAll(
+      /^\s*routingEvidence:\s*["']not-applicable["'],?\s*$/gm,
+    ),
+  ];
+  if (
+    routingDeclarations.length > 1 ||
+    routingDeclarations.length !== routingMatches.length
+  ) {
+    throw new Error(
+      'routingEvidence must be declared at most once as "not-applicable".',
+    );
+  }
+  const skipDeclarations = [
+    ...caseSource.matchAll(/^\s*expectedSkipEngines\s*:/gm),
+  ];
+  const skipMatches = [
+    ...caseSource.matchAll(
+      /^\s*expectedSkipEngines:\s*\[((?:\s*["'](?:v1|v2)["']\s*,?)*)\],?\s*$/gm,
+    ),
+  ];
+  if (
+    skipDeclarations.length > 1 ||
+    skipDeclarations.length !== skipMatches.length
+  ) {
+    throw new Error(
+      "expectedSkipEngines must be declared at most once as a literal v1/v2 array.",
+    );
+  }
+  const expectedSkipEngines = skipMatches[0]
+    ? [
+        ...new Set(
+          [...skipMatches[0][1].matchAll(/["'](v1|v2)["']/g)].map(
+            (match) => match[1],
+          ),
+        ),
+      ]
+    : [];
+  if (skipMatches[0] && expectedSkipEngines.length === 0) {
+    throw new Error("expectedSkipEngines must not be empty.");
+  }
+  return {
+    ...(routingMatches.length === 1
+      ? { routingEvidence: "not-applicable" }
+      : {}),
+    ...(expectedSkipEngines.length > 0 ? { expectedSkipEngines } : {}),
+  };
+};
+
+export const loadRegisteredCases = async () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const registry = await loadRegistry(repoRoot);
-  return registeredCasePathsInOrder(registry).map(caseIdFromPath);
+  return Promise.all(
+    registeredCasePathsInOrder(registry).map(async (casePath) => {
+      const caseSource = await readFile(join(repoRoot, casePath), "utf8");
+      const seedAffinity = parseCaseSeedAffinity(caseSource);
+      return {
+        id: caseIdFromPath(casePath),
+        ...(seedAffinity ? { seedAffinity } : {}),
+        ...parseCaseAcceptanceContract(caseSource),
+      };
+    }),
+  );
 };
 
 const expandShardedPlan = ({
@@ -130,10 +233,7 @@ export const buildCaseFilterKey = (caseFilter = "") =>
     .slice(0, 160);
 
 export const buildFullRunShardCaseFilterKey = (shardLabel, caseIds) => {
-  const caseSetHash = createHash("sha256")
-    .update(caseIds.join("\n"))
-    .digest("hex")
-    .slice(0, 12);
+  const caseSetHash = buildCaseSetDigest(caseIds);
   return `all-${shardLabel}-${caseSetHash}`;
 };
 
@@ -201,6 +301,7 @@ const resolveExecutePlan = ({
 
 const resolveSeedPlan = ({
   rawCaseFilter,
+  selectedCaseIds,
   caseFilterIsAll,
   fullRunCaseShards,
 }) => {
@@ -210,6 +311,9 @@ const resolveSeedPlan = ({
         name: "seed",
         caseFilter: rawCaseFilter,
         caseFilterKey: buildCaseFilterKey(rawCaseFilter),
+        caseSetDigest: buildCaseSetDigest(selectedCaseIds),
+        stableSlot: "targeted",
+        seedContractGeneration: SEED_CONTRACT_GENERATION,
         artifactSuffix: "seed",
       },
     ];
@@ -221,22 +325,61 @@ const resolveSeedPlan = ({
       name: shardLabel,
       caseFilter: caseIds.join(","),
       caseFilterKey: buildFullRunShardCaseFilterKey(shardLabel, caseIds),
+      caseSetDigest: buildCaseSetDigest(caseIds),
+      stableSlot: `slot-${index + 1}`,
+      seedContractGeneration: SEED_CONTRACT_GENERATION,
       artifactSuffix: shardLabel,
     };
   });
 };
 
+const compactStageCandidate = (candidate) => ({
+  shardCount: candidate.shardCount,
+  stageMaxima: candidate.stageMaxima,
+  criticalPath: candidate.criticalPath,
+  concurrencyCost: candidate.concurrencyCost,
+  estimatedCacheImpactMs: candidate.estimatedCacheImpactMs,
+  bundleCount: candidate.bundleCount,
+  caseCount: candidate.caseCount,
+});
+
+const compactStageSimulation = (simulation, executionProfile) => ({
+  ...simulation.summary,
+  executionProfile,
+  calibrationSource: {
+    sourceRunId: FULL_RUN_STAGE_CALIBRATION.sourceRunId,
+    sourceUrl: FULL_RUN_STAGE_CALIBRATION.sourceUrl,
+    sourcePerfLabSha: FULL_RUN_STAGE_CALIBRATION.sourcePerfLabSha,
+    sourceTeableEeSha: FULL_RUN_STAGE_CALIBRATION.sourceTeableEeSha,
+    sourceArtifactRunId: FULL_RUN_STAGE_CALIBRATION.sourceArtifactRunId,
+    pairedWarmRunId: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunId,
+    pairedWarmRunUrl: FULL_RUN_STAGE_CALIBRATION.pairedWarmRunUrl,
+  },
+  baselineCriticalPath: simulation.baselineCriticalPath,
+  candidates: simulation.candidates.map(compactStageCandidate),
+});
+
 export const resolveRunPlan = ({
   engineFilter,
   caseFilter,
   computedUpdateMode = "",
+  seedCacheNamespace = "",
   allCaseIds = [],
+  seedAffinityDeclarations = [],
 }) => {
   const engines = parseEngineList(engineFilter);
   const caseFilters = parseCaseFiltersForCacheKey(caseFilter);
   const rawCaseFilter = caseFilter ?? "";
   const caseFilterIsAll = caseFilters.length === 1 && caseFilters[0] === "all";
   const requestedComputedUpdateMode = computedUpdateMode.trim();
+  const normalizedSeedCacheNamespace =
+    normalizeSeedCacheNamespace(seedCacheNamespace);
+  if (
+    requestedComputedUpdateMode &&
+    !["sync", "hybrid"].includes(requestedComputedUpdateMode)
+  ) {
+    throw new Error("computed_update_mode must be empty, sync, or hybrid.");
+  }
 
   if (caseFilterIsAll && allCaseIds.length === 0) {
     throw new Error(
@@ -248,6 +391,9 @@ export const resolveRunPlan = ({
   }
 
   const registeredCaseIds = new Set(allCaseIds);
+  const fullRunCaseIds = caseFilterIsAll
+    ? resolveFullRunCaseIds({ allCaseIds })
+    : [];
   const missingHybridCaseIds = HYBRID_COMPUTED_CASES.filter(
     (caseId) => !registeredCaseIds.has(caseId),
   );
@@ -262,28 +408,87 @@ export const resolveRunPlan = ({
     );
   }
 
+  const fixtureAffinities = caseFilterIsAll
+    ? resolveFixtureAffinities({ seedAffinityDeclarations })
+    : [];
   const affinityIssues = caseFilterIsAll
     ? validateFixtureAffinities({
         allCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
+        affinities: fixtureAffinities,
       })
     : [];
   if (affinityIssues.length > 0) {
     throw new Error(affinityIssues.join("\n"));
   }
 
-  const fullRunCaseShards = caseFilterIsAll
-    ? buildFullRunCaseShards({
-        allCaseIds,
+  const scalarBaselineShardPlan = caseFilterIsAll
+    ? buildFullRunCaseShardPlan({
+        allCaseIds: fullRunCaseIds,
         hybridCaseIds: HYBRID_COMPUTED_CASES,
-        shardCount: resolveFullRunShardCount(allCaseIds.length),
+        shardCount: resolveFullRunShardCount(fullRunCaseIds.length),
+        affinities: fixtureAffinities,
+      })
+    : {
+        caseShards: [],
+        shardLoads: [],
+        movedAffinities: [],
+        preservedAffinityCount: 0,
+      };
+  const v2Mode = !engines.includes("v2")
+    ? "none"
+    : requestedComputedUpdateMode || "split";
+  const stageHybridCaseIds =
+    v2Mode === "split"
+      ? HYBRID_COMPUTED_CASES
+      : v2Mode === "hybrid"
+        ? fullRunCaseIds
+        : [];
+  const activeExecuteStages = [
+    ...(engines.includes("v1") ? ["v1Ms"] : []),
+    ...(v2Mode === "split" || v2Mode === "sync" ? ["v2SyncMs"] : []),
+    ...(v2Mode === "split" || v2Mode === "hybrid" ? ["v2HybridMs"] : []),
+  ];
+  const executionProfile = { engines: engines.slice(), v2Mode };
+  const stageSimulation = caseFilterIsAll
+    ? simulateStageAwareShardPlans({
+        caseIds: fullRunCaseIds,
+        hybridCaseIds: stageHybridCaseIds,
+        affinities: fixtureAffinities,
+        caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
+        preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
+        activeExecuteStages,
+        fixedCosts: FULL_RUN_STAGE_CALIBRATION.fixedCosts,
+        baselineCaseShards: scalarBaselineShardPlan.caseShards,
+      })
+    : null;
+  const fullRunShardPlan = stageSimulation?.selected ?? scalarBaselineShardPlan;
+  const movedBundles = stageSimulation
+    ? fullRunShardPlan.movedBundles
+    : fullRunShardPlan.movedAffinities.map(({ affinityId, ...movement }) => ({
+        bundleId: affinityId,
+        ...movement,
+      }));
+  const preservedBundleCount = stageSimulation
+    ? fullRunShardPlan.preservedBundleCount
+    : fullRunShardPlan.preservedAffinityCount;
+  const fullRunCaseShards = fullRunShardPlan.caseShards;
+  const assignmentIssues = caseFilterIsAll
+    ? validateShardAffinityAssignments({
+        caseShards: fullRunCaseShards,
+        affinities: fixtureAffinities,
       })
     : [];
+  if (assignmentIssues.length > 0) {
+    throw new Error(assignmentIssues.join("\n"));
+  }
 
   return {
     engines,
+    caseFilterIsAll,
     seedPlan: resolveSeedPlan({
       rawCaseFilter,
+      selectedCaseIds: caseFilters,
       caseFilterIsAll,
       fullRunCaseShards,
     }),
@@ -295,30 +500,121 @@ export const resolveRunPlan = ({
       fullRunCaseShards,
     }),
     caseFilterKey: buildCaseFilterKey(caseFilter),
+    seedCacheNamespace: normalizedSeedCacheNamespace,
+    planSummary: {
+      shardCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
+      stableSlotCount: caseFilterIsAll ? fullRunCaseShards.length : 1,
+      preservedBundleCount,
+      movedBundles,
+      estimatedCacheImpactMs: movedBundles.reduce(
+        (total, movement) => total + movement.estimatedCacheImpactMs,
+        0,
+      ),
+      ...(normalizedSeedCacheNamespace
+        ? { seedCacheNamespace: normalizedSeedCacheNamespace }
+        : {}),
+      ...(stageSimulation
+        ? {
+            stagePlan: compactStageSimulation(
+              stageSimulation,
+              executionProfile,
+            ),
+          }
+        : {}),
+    },
   };
 };
 
 export const writeGithubOutputs = (
-  { engines, seedPlan, executePlan, caseFilterKey },
+  {
+    engines,
+    seedPlan,
+    executePlan,
+    caseFilterIsAll,
+    caseFilterKey,
+    seedCacheNamespace,
+    planSummary,
+  },
   outputPath,
 ) => {
   appendFileSync(outputPath, `engines=${JSON.stringify(engines)}\n`);
   appendFileSync(outputPath, `seed_plan=${JSON.stringify(seedPlan)}\n`);
   appendFileSync(outputPath, `execute_plan=${JSON.stringify(executePlan)}\n`);
+  appendFileSync(outputPath, `case_filter_is_all=${caseFilterIsAll}\n`);
   appendFileSync(outputPath, `case_filter_key=${caseFilterKey}\n`);
+  appendFileSync(outputPath, `seed_cache_namespace=${seedCacheNamespace}\n`);
+  appendFileSync(
+    outputPath,
+    `seed_cache_namespace_segment=${
+      seedCacheNamespace ? `${seedCacheNamespace}-` : ""
+    }\n`,
+  );
+  appendFileSync(outputPath, `plan_summary=${JSON.stringify(planSummary)}\n`);
+};
+
+export const renderPlanSummaryMarkdown = (summary) => {
+  const lines = [
+    "## Full-run plan",
+    "",
+    `- Shards: ${summary.shardCount}`,
+    `- Stable slots: ${summary.stableSlotCount}`,
+    `- Preserved bundles: ${summary.preservedBundleCount}`,
+    `- Estimated cache impact: ${summary.estimatedCacheImpactMs} ms cold seed`,
+  ];
+  if (summary.seedCacheNamespace) {
+    lines.push(`- Seed cache namespace: ${summary.seedCacheNamespace}`);
+  }
+  if (summary.movedBundles.length === 0) {
+    lines.push("- Bundle moves: none");
+  } else {
+    lines.push("- Bundle moves:");
+    for (const movement of summary.movedBundles) {
+      lines.push(
+        `  - ${movement.bundleId}: slot-${movement.fromStableSlot} -> slot-${movement.toStableSlot}; ${movement.estimatedCacheImpactMs} ms cache impact; cases ${movement.caseIds.join(", ")}`,
+      );
+    }
+  }
+  if (summary.stagePlan) {
+    const selected = summary.stagePlan.candidates.find(
+      ({ shardCount }) => shardCount === summary.stagePlan.selectedShardCount,
+    );
+    lines.push(
+      "",
+      renderStagePlanSummaryMarkdown({
+        selected,
+        candidates: summary.stagePlan.candidates,
+        summary: summary.stagePlan,
+      }).trimEnd(),
+    );
+  }
+  return `${lines.join("\n")}\n`;
 };
 
 const main = async () => {
-  const allCaseIds = await loadRegisteredCaseIds();
+  const registeredCases = await loadRegisteredCases();
+  const allCaseIds = registeredCases.map(({ id }) => id);
   const plan = resolveRunPlan({
     engineFilter: process.env.ENGINE_FILTER ?? "",
     caseFilter: process.env.CASE_FILTER ?? "",
     computedUpdateMode: process.env.COMPUTED_UPDATE_MODE ?? "",
+    seedCacheNamespace: process.env.SEED_CACHE_NAMESPACE ?? "",
     allCaseIds,
+    seedAffinityDeclarations: registeredCases
+      .filter(({ seedAffinity }) => seedAffinity != null)
+      .map(({ id, seedAffinity }) => ({
+        caseId: id,
+        affinityId: seedAffinity,
+      })),
   });
 
   if (process.env.GITHUB_OUTPUT) {
     writeGithubOutputs(plan, process.env.GITHUB_OUTPUT);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        renderPlanSummaryMarkdown(plan.planSummary),
+      );
+    }
   } else {
     console.log(JSON.stringify(plan, null, 2));
   }
@@ -327,6 +623,7 @@ const main = async () => {
   console.log(`Resolved case filter cache key: ${plan.caseFilterKey}`);
   console.log(`Resolved seed plan: ${JSON.stringify(plan.seedPlan)}`);
   console.log(`Resolved execute plan: ${JSON.stringify(plan.executePlan)}`);
+  console.log(`Resolved plan summary: ${JSON.stringify(plan.planSummary)}`);
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

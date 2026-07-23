@@ -23,9 +23,11 @@ There are two different cache decisions. Do not collapse them:
 
 - **Workflow DB dump cache**: GitHub Actions restores/saves
   `perf-lab-seed-cache/e2e_test_teable.dump`. This is a whole Postgres database
-  snapshot used as a transport container. Its key is runner OS, normalized case
-  filter, database schema hash, and perf-lab case/framework source hash. It does
-  not include the target `teable-ee` commit ref.
+  snapshot used as a transport container. Its exact key binds runner OS,
+  database schema, seed-contract generation, stable shard slot, full case-set
+  digest, and perf-lab source hash. Its compatible prefix stops at the stable
+  slot and cannot bypass runner validation. Neither form includes the target
+  `teable-ee` commit ref.
 - **Runner `seedHash`**: after the dump is restored, each runner looks for its
   own hash-derived seed table(s), then runs `seedReady`/`sourceReady`. This is
   the per-case correctness gate. A restored dump may contain stale tables; they
@@ -77,10 +79,11 @@ The GitHub workflow enables seed caching with
 runner still decides whether a specific fixture is reusable by looking for seed
 tables named with that case's `seedHash`.
 
-The seed DB cache key is:
+The seed DB cache uses an exact key plus a compatible restore prefix:
 
 ```text
-perf-seed-db-<runner-os>-<case-filter-key>-<teable-prisma-schema-hash>-<perf-lab-source-hash>
+exact:      perf-seed-db-[<namespace>-]<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-<case-set-digest>-<perf-lab-source-hash>
+compatible: perf-seed-db-[<namespace>-]<runner-os>-<teable-prisma-schema-hash>-<seed-contract-generation>-<stable-slot>-
 ```
 
 `teable-prisma-schema-hash` is `hashFiles()` over these checked-out `teable-ee`
@@ -102,10 +105,25 @@ perf-lab/perf-lab.e2e-spec.ts
 perf-lab/registry.ts
 ```
 
-The key deliberately excludes `inputs.teable_ee_ref`. Ordinary backend code
-changes in `teable-ee` reuse the same seed DB cache when the Prisma schema and
-perf-lab source hashes are unchanged. Prisma schema/migration changes change the
-key and force a new dump.
+Both forms deliberately exclude `inputs.teable_ee_ref`. The exact key binds the
+complete sorted shard case set and seed-relevant perf-lab source. The compatible
+prefix is scoped to runner OS, schema/migrations, seed contract generation, and
+stable shard slot. It permits safe catalog or source changes to restore an old
+dump only as a candidate; `PERF_LAB_MODE=seed` must then validate every runner's
+seed identity/readiness and rebuild missing or stale fixtures before saving a
+new exact snapshot.
+
+`seed_cache_namespace` is empty by default, preserving the historical key
+shape. For a controlled cold/warm acceptance pair, pass one new validated
+namespace (maximum 40 cache-key-safe characters) to isolate both the exact key
+and compatible prefix, then reuse that namespace unchanged on the same commit
+and case set. Every seed cache-status artifact records the namespace; a
+compatible candidate does not count as warm evidence. Controlled acceptance
+also pins the dispatched perf-lab SHA and resolves `teable_ee_ref` to a commit
+SHA once in `resolve_inputs`; every seed and execute shard, including a
+`Re-run failed jobs` attempt, consumes that immutable output. Every status
+records both resolved SHAs so an exact hit cannot hide a code change between
+the two runs.
 
 All runners with a seed fixture are cache-aware today (formula-table,
 conditional-lookup, conditional-lookup-record-create, conditional-rollup, conditional-query, lookup-search-index, field-create, field-delete,
@@ -138,10 +156,18 @@ when the V1 path has a 1,000-record cap.
 `seedHash` is not the GitHub Actions cache key. It is the runner's identity for
 reusable fixture tables inside a restored database dump.
 
-Include in the hash: case id and runner kind; the seed-relevant config (row
-count, fields, generator, relationships, batch size, fixture version); case file
-content when it affects seed behavior; runner seed code and shared seed helpers;
-the schema signature needed to safely restore.
+When multiple cases intentionally reuse one physical fixture, each case must
+declare the same top-level string-literal `seedAffinity`. The runner resolves
+its seed identity from that value, the full-run planner treats those cases as
+one indivisible bundle, and `SeedCacheInfo` carries the value into result
+artifacts. Only share an affinity when the seed-relevant config and seed code
+produce the same physical tables; query or threshold similarity is not enough.
+
+Include in the hash: the resolved seed identity (case id, or shared
+`seedAffinity`) and runner kind; the seed-relevant config (row count, fields,
+generator, relationships, batch size, fixture version); case file content when
+it affects seed behavior; runner seed code and shared seed helpers; the schema
+signature needed to safely restore.
 
 Exclude from the hash: thresholds, sample count, owner, tags, description;
 execute-only code (the measured field/paste/request); trace/reporting code.
@@ -193,12 +219,12 @@ the table:
 To pick a strategy for a new case, answer one question — _what does the
 measured operation do to the seed fixture?_ — and use the matching class:
 
-| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                                                   |
-| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                                                  |
-| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query create cases, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                   |
-| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | conditional-lookup-record-create, conditional-query propagation cases, record-create (delete created rows), record-update (rewrite seed values), record-reorder, selection-clear, record-delete/undo/redo |
-| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                                           |
+| Class | Execute does ... to the seed                                   | Local (non-isolated) cleanup                                                  | Runners                                                                                                                                                                                                                                                                                           |
+| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | nothing reusable exists; the workload itself builds the table  | delete the per-run table                                                      | http-endpoint (no fixture at all), record-paste, csv-import create-table                                                                                                                                                                                                                          |
+| B     | only adds new objects next to it (fields) or reads it          | delete the execute-created objects, keep the seed table                       | formula-table, conditional-lookup, conditional-rollup, conditional-query create cases, field-duplicate, field-create, lookup-search-index (read-only: nothing to clean)                                                                                                                           |
+| C     | mutates it in a cheaply reversible way                         | reverse the mutation, verify seed-ready again, delete the table if that fails | computed-chain-mutation (restore formula/foreign seed state between affinity siblings), conditional-lookup-record-create, conditional-query propagation cases, record-create (delete created rows), record-update (rewrite seed values), record-reorder, selection-clear, record-delete/undo/redo |
+| D     | mutates it irreversibly (restoring costs as much as reseeding) | delete the table; the next run or seed job rebuilds it                        | field-delete, field-convert, csv-import inplace                                                                                                                                                                                                                                                   |
 
 Decision order when writing a new runner:
 
@@ -244,38 +270,73 @@ It must not delete reusable seed tables on a cacheable case.
 CI splits seed construction from measured execution:
 
 ```text
-seed shard N -> restore shard cache or migrate + e2e seed -> initApp once -> seed shard N fixtures -> pg_dump N
-execute v1 shard N -> restore seed dump N -> initApp once -> run shard N serially
-execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its mode subset serially
+seed shard N -> restore shard cache or migrate + e2e seed -> initApp once -> seed shard N fixtures -> bounded trace tail -> pg_dump N
+execute v1 shard N -> restore seed dump N -> initApp once -> run shard N serially -> bounded trace tail
+execute v2 sync/hybrid shard N -> restore seed dump N -> initApp once -> run its mode subset serially -> bounded trace tail
 ```
 
 The seed and execute jobs run in parallel for a full `case_filter=all` run.
-`scripts/full-run-shard-model.mjs` treats cases proven to emit the same physical
-`seedHash` as one indivisible fixture-affinity bundle. The shard count is derived
-from catalog size (about 40 cases per shard, capped at 8), not fixed in the
-workflow. Calibrated cold-seed cost plus a per-case execute overhead weight is
-used for least-loaded assignment. Sync and hybrid bundles are balanced
-independently, then paired by weight. Seed, V1, V2 sync, and V2 hybrid use this
-one global mapping; shard N always consumes dump N. Explicit case filters remain
-a single seed job and a single job per engine. Every job has its own
+Every case writes its measured payload before trace retrieval. One job-tail
+flush/settle/fetch pass then finalizes all per-case manifests and rewrites only
+their trace blocks, so Jaeger waiting is outside case duration and is bounded by
+the shared job budget.
+`scripts/run-plan.mjs` reads literal `seedAffinity` declarations from registered
+case contracts and merges them with the accepted legacy affinity families in
+`scripts/full-run-shard-model.mjs`. Every resulting physical-fixture family is
+one indivisible bundle. Planning fails if an affinity is duplicated, references
+an unknown case, crosses V2 sync/hybrid pools, or ends up in multiple seed
+shards. Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace
+costs. Shared-fixture seed cost uses the maximum member cost because the fixture
+is built once; execute and trace costs are summed per case. The versioned
+calibration imports a complete case-level cold-seed, V1/V2 artifact, and
+bounded trace-attribution envelope. Its provenance records the run, payload
+attempt, perf-lab SHA, teable-ee SHA, and observed stage maxima. The refresh
+entrypoint accepts only one complete all-cache-miss run whose seed/result
+payloads and stage observation agree; it rejects affinity drift and cross-shard
+physical duplicates before rewriting either calibration module.
+
+The planner simulates 6–12 shards and selects the lowest concurrency that meets
+the 45-minute cold and 25-minute warm SLOs without exceeding the modeled cold or
+warm path of the old scalar eight-shard assignment. Accepted affinity bundles
+retain historical stable slots only when stage load permits; every forced move
+and its estimated cache impact is written to the plan summary. The summary also
+records each candidate's stage maxima and critical shards, job concurrency, and
+predicted costs. Only stages selected by `engine_filter` and
+`computed_update_mode` participate in packing or concurrency totals. Historical
+slots cover singleton bundles as well as declared shared affinities, so cache
+movement accounts for all changed fixture slots.
+
+After execute completes, the report job observes the current GitHub jobs,
+trace-manifest timing, and every shard's seed cache-status artifact. An all
+`cache-miss` seed matrix is compared with the cold-seed prediction; only an all
+`exact-hit` matrix is compared with the warm-seed prediction. Compatible,
+mixed, missing, or incomplete cache evidence remains explicitly unclassified.
+A missing trace manifest is also a missing observation, never a successful zero
+wait. For a non-warm run, the report also extracts every physical `seedHash`
+from the seed payloads and fails if one identity crosses shards or maps to zero
+or multiple declared affinities. It uploads this evidence beside the
+machine-readable stage observation. Seed, V1, V2 sync, and V2 hybrid use one
+global mapping; shard N always consumes dump N. Explicit case filters remain a
+single seed job and a single job per engine. Every job has its own
 Postgres/Redis containers, network, cache key, dump, and artifact names. A
-digest of the shard's ordered case list is part of its cache key, so regrouping
-cannot exact-hit a dump produced for different members.
+digest of the shard's sorted case set is part of its exact cache key, so
+regrouping cannot exact-hit a dump produced for different members.
 
 The workflow uses `actions/cache`, same-run artifacts, `pg_dump -Fc`, and
 `pg_restore` in three paths:
 
-1. Exact seed DB cache hit: `steps.seed-db-cache.outputs.cache-hit == 'true'`.
-   The seed job only asserts that `e2e_test_teable.dump` exists and writes a
-   summary. It skips dependency install, service startup, `PERF_LAB_MODE=seed`,
-   and seed validation.
-2. Cache miss or restore-key hit: the seed job installs dependencies, starts
-   Postgres/Redis, and runs `Prepare e2e database`. If a restored dump file is
-   present, it tries `pg_restore`; on restore failure, it rebuilds from
-   migrations and `prisma-db-seed -- --e2e`. It then runs
-   `PERF_LAB_MODE=seed`, where cache-aware runners validate existing
-   hash-derived seed tables or build missing/stale fixtures. A successful seed
-   job saves a new exact-key `pg_dump -Fc`.
+1. Exact seed DB cache hit: the tested cache-mode step maps the cache action's
+   exact-hit signal to `requires_seed_validation == 'false'`. The seed job only
+   asserts that `e2e_test_teable.dump` exists and writes a summary. It skips
+   dependency install, service startup, `PERF_LAB_MODE=seed`, and seed
+   validation.
+2. Cache miss or compatible-prefix hit: the seed job records a cache-status JSON,
+   installs dependencies, starts Postgres/Redis, and runs `Prepare e2e database`.
+   If a restored dump file is present, it tries `pg_restore`; on restore failure,
+   it rebuilds from migrations and `prisma-db-seed -- --e2e`. It then runs
+   `PERF_LAB_MODE=seed`, where every cache-aware runner validates existing
+   hash-derived seed tables or rebuilds missing/stale fixtures. A successful
+   seed job saves a new exact-key `pg_dump -Fc`.
 3. Each seed job uploads the selected dump as a
    `teable-ee-e2e-perf-seed-db-shard-N-of-M-<run>` artifact. Execute shard N
    downloads that artifact, restores it into its own database, sets
@@ -303,6 +364,8 @@ and revalidates the table between measured samples, while link-detach delete
 keeps separate fixtures because V1 destructively converts the surviving link
 field.
 
-For cached seeds, also record `seedHash`, `seedCacheHit`, `seedRestoreMs`,
-`seedBuildMs`, `seedReadyMs`. A cache miss is a valid run, but the report should
-make the paid construction cost obvious.
+For cached seeds, also record `seedAffinity` when declared, `seedHash`,
+`seedCacheHit`, `seedRestoreMs`, `seedBuildMs`, and `seedReadyMs`. A cache miss is
+a valid run, but the report should make the paid construction cost obvious. If
+one `seedHash` is observed in multiple shards, classify the static contract as
+missing, declared-but-split, or mapping the same hash to multiple affinities.

@@ -37,6 +37,20 @@ on:
         required: false
         default: ""
         type: string
+      seed_cache_namespace:
+        description: >-
+          Optional isolated namespace for controlled cold/warm seed-cache
+          acceptance. Leave empty for the shared default cache.
+        required: false
+        default: ""
+        type: string
+      expected_perf_lab_sha:
+        description: >-
+          Optional exact perf-lab commit SHA guard for cold/warm acceptance.
+          The workflow fails before planning if the dispatched ref moved.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -62,15 +76,24 @@ env:
   PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
   PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
-  # Traces that exist in Jaeger return within ~1s of the 5s settle. A trace
+  # Each engine job performs this settle once in its bounded trace tail, after
+  # all measured case results are written. Traces that exist in Jaeger return
+  # within ~1s of the 5s settle. A trace
   # still missing after this timeout will not appear later: it was dropped
   # upstream before reaching Jaeger (root cause is engine-side and tracked
-  # separately). Polling longer only burns wall-clock: each missing trace
-  # wastes timeout/concurrency seconds. Keep this tight; the missing-trace
-  # count/waste is surfaced in the per-case summary and Feishu card.
-  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "10000"
+  # separately). Polling longer only burns wall-clock. The collector selects
+  # one representative per semantic request shape, opens a partial-loss
+  # breaker after three misses, and allows one bounded recovery probe.
+  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
   PERF_LAB_TRACE_FETCH_CONCURRENCY: "8"
+  PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
+  PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
+  PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "60000"
+  # Stop network retrieval early enough to atomically reconcile every case's
+  # payload, summary, and manifest inside the full job-tail lifecycle SLO.
+  PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
@@ -92,7 +115,12 @@ jobs:
       engines: ${{ steps.engines.outputs.engines }}
       seed_plan: ${{ steps.engines.outputs.seed_plan }}
       execute_plan: ${{ steps.engines.outputs.execute_plan }}
+      case_filter_is_all: ${{ steps.engines.outputs.case_filter_is_all }}
       case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
+      seed_cache_namespace: ${{ steps.engines.outputs.seed_cache_namespace }}
+      seed_cache_namespace_segment: ${{ steps.engines.outputs.seed_cache_namespace_segment }}
+      plan_summary: ${{ steps.engines.outputs.plan_summary }}
+      teable_ee_sha: ${{ steps.teable-ee-revision.outputs.sha }}
 
     steps:
       - name: Checkout perf lab
@@ -100,12 +128,38 @@ jobs:
         with:
           path: perf-lab
 
+      - name: Checkout teable-ee revision
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ inputs.teable_ee_ref }}
+          path: teable-ee-revision
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Resolve pinned teable-ee revision
+        id: teable-ee-revision
+        working-directory: teable-ee-revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify pinned perf-lab revision
+        if: inputs.expected_perf_lab_sha != ''
+        env:
+          EXPECTED_PERF_LAB_SHA: ${{ inputs.expected_perf_lab_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_SHA}" != "${EXPECTED_PERF_LAB_SHA}" ]; then
+            echo "Expected perf-lab ${EXPECTED_PERF_LAB_SHA}, dispatched ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
       - name: Resolve engine matrix
         id: engines
         env:
           ENGINE_FILTER: ${{ inputs.engine_filter }}
           CASE_FILTER: ${{ inputs.case_filter }}
           COMPUTED_UPDATE_MODE: ${{ inputs.computed_update_mode }}
+          SEED_CACHE_NAMESPACE: ${{ inputs.seed_cache_namespace }}
         run: |
           set -euo pipefail
 
@@ -136,7 +190,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
@@ -145,12 +199,27 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
           restore-keys: |
-            perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-
+            perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-
+
+      - name: Record seed database cache mode
+        id: seed-cache-mode
+        env:
+          CACHE_HIT: ${{ steps.seed-db-cache.outputs.cache-hit }}
+          CACHE_PRIMARY_KEY: ${{ steps.seed-db-cache.outputs.cache-primary-key }}
+          CACHE_MATCHED_KEY: ${{ steps.seed-db-cache.outputs.cache-matched-key }}
+          CASE_SET_DIGEST: ${{ matrix.plan.caseSetDigest }}
+          STABLE_SLOT: ${{ matrix.plan.stableSlot }}
+          SEED_CONTRACT_GENERATION: ${{ matrix.plan.seedContractGeneration }}
+          SEED_CACHE_NAMESPACE: ${{ needs.resolve_inputs.outputs.seed_cache_namespace }}
+          PERF_LAB_SHA: ${{ github.sha }}
+          TEABLE_EE_SHA: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          OUTPUT_PATH: perf-lab-seed-artifacts/seed-cache-status-${{ matrix.plan.artifactSuffix }}.json
+        run: node perf-lab/scripts/write-seed-cache-status.mjs
 
       - name: Publish seed database cache hit summary
-        if: steps.seed-db-cache.outputs.cache-hit == 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'false'
         run: |
           set -euo pipefail
 
@@ -164,13 +233,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: pnpm/action-setup@v5
         with:
           version: 9.13.0
 
       - name: Setup Node.js
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22.18.0
@@ -178,12 +247,12 @@ jobs:
           cache-dependency-path: teable-ee/pnpm-lock.yaml
 
       - name: Install teable-ee dependencies
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma clients
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -192,7 +261,7 @@ jobs:
           pnpm -F @teable/db-data-prisma prisma-generate-ci
 
       - name: Install perf cases
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         run: |
           set -euo pipefail
 
@@ -207,7 +276,7 @@ jobs:
           cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
 
       - name: Start e2e services
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -241,7 +310,7 @@ jobs:
           done
 
       - name: Prepare e2e database
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -277,7 +346,7 @@ jobs:
           pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
 
       - name: Build perf seed DB
-        if: steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -298,7 +367,7 @@ jobs:
             --silent=false
 
       - name: Dump perf seed database
-        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set -euo pipefail
@@ -312,11 +381,11 @@ jobs:
           ls -lh "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Save perf seed database cache
-        if: success() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
-          key: perf-seed-db-${{ runner.os }}-${{ matrix.plan.caseFilterKey }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
 
       - name: Upload perf seed database dump
         if: success()
@@ -332,7 +401,7 @@ jobs:
           overwrite: true
 
       - name: Upload perf seed artifacts
-        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-seed-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -354,7 +423,7 @@ jobs:
           fi
 
       - name: Cleanup teable-ee e2e services
-        if: always() && steps.seed-db-cache.outputs.cache-hit != 'true'
+        if: always() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         working-directory: teable-ee
         run: |
           set +e
@@ -399,7 +468,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           path: teable-ee
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
@@ -602,7 +671,10 @@ jobs:
 
   report:
     name: Report perf results
-    needs: execute
+    needs:
+      - resolve_inputs
+      - seed
+      - execute
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -613,84 +685,158 @@ jobs:
         with:
           path: perf-lab
 
-      - name: Resolve perf artifact attempt
+      - name: Resolve perf and seed artifact attempts
         id: perf_artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          PERF_LAB_ARTIFACT_INVENTORY: ${{ runner.temp }}/perf-artifact-inventory.json
         run: |
           set -euo pipefail
 
-          # Prefer the lightweight results artifacts (payload JSON, summaries, and
-          # trace manifests). Fall back to the full artifacts so report re-runs on
-          # older runs, or runs where lightweight staging produced nothing, still
-          # resolve. The full artifacts also carry the raw Jaeger trace snapshots.
-          selected_attempt=""
-          for attempt in $(seq "${GITHUB_RUN_ATTEMPT}" -1 1); do
-            for prefix in teable-ee-e2e-perf-results-v teable-ee-e2e-perf-v; do
-              pattern="${prefix}*-${GITHUB_RUN_ID}-${attempt}"
-              count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
-                --paginate \
-                --jq "[.artifacts[] | select(.expired == false and (.name | test(\"^${prefix}[A-Za-z0-9_.-]+-${GITHUB_RUN_ID}-${attempt}$\")))] | length")"
-
-              if [ "${count}" -gt 0 ]; then
-                selected_attempt="${attempt}"
-                echo "Using ${prefix%-v} artifacts from run attempt ${attempt}."
-                echo "pattern=${pattern}" >> "$GITHUB_OUTPUT"
-                break
-              fi
-            done
-
-            if [ -n "${selected_attempt}" ]; then
-              break
-            fi
-          done
-
-          if [ -z "${selected_attempt}" ]; then
-            echo "No perf execute artifacts found for run ${GITHUB_RUN_ID}." >&2
-            exit 1
-          fi
+          # Re-run failed jobs can leave one logical shard on a newer attempt
+          # while all successful siblings remain on an older attempt. Select
+          # the newest artifact independently per logical execute/seed shard.
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --paginate \
+            --slurp > "$PERF_LAB_ARTIFACT_INVENTORY"
+          node perf-lab/scripts/select-report-artifacts.mjs
 
       - name: Download perf artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: ${{ steps.perf_artifacts.outputs.pattern }}
+          artifact-ids: ${{ steps.perf_artifacts.outputs.execute_artifact_ids }}
           path: perf-lab-artifacts
           merge-multiple: false
 
+      - name: Download seed cache status artifacts
+        if: steps.perf_artifacts.outputs.seed_artifact_ids != ''
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_artifact_ids }}
+          path: perf-lab-seed-artifacts
+          merge-multiple: false
+
+      - name: Download prior seed payload provenance
+        if: steps.perf_artifacts.outputs.seed_provenance_artifact_ids != ''
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_provenance_artifact_ids }}
+          path: perf-lab-seed-provenance-artifacts
+          merge-multiple: false
+
+      - name: Publish current-run stage observation
+        if: always()
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_PLAN_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/observation.json
+        run: node scripts/observe-stage-plan.mjs
+
+      - name: Verify physical seed affinity
+        id: seed-affinity
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_SEED_PROVENANCE_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-provenance-artifacts
+          PERF_LAB_SEED_AFFINITY_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/seed-affinity.json
+        run: node scripts/verify-full-run-seed-affinity.mjs
+
+      - name: Verify full-run result acceptance
+        id: result-acceptance
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_RESOLVE_INPUTS_RESULT: ${{ needs.resolve_inputs.result }}
+          PERF_LAB_SEED_RESULT: ${{ needs.seed.result }}
+          PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
+        run: node scripts/verify-full-run-result-acceptance.mjs
+
       - name: Report perf results to Teable
-        if: env.TEABLE_PERF_LAB_TOKEN != ''
+        id: teable-report
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
         working-directory: perf-lab
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/report-teable-result.mjs
 
       - name: Send Feishu perf summary
+        id: feishu-report
         if: always()
+        continue-on-error: true
         working-directory: perf-lab
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
           TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result }}
-          PERF_LAB_TEABLE_EE_REF: ${{ inputs.teable_ee_ref }}
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_REQUIRE_DELIVERY: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           PERF_LAB_CHART_URL: https://ppm.teable.app
         run: node scripts/send-feishu-perf-summary.mjs
 
       - name: Publish combined summary
+        id: github-summary
         if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/write-github-perf-summary.mjs
+
+      - name: Upload current-run stage observation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-plan-observation
+          if-no-files-found: ignore
+
+      - name: Enforce physical seed affinity
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true' && steps.seed-affinity.outcome == 'failure'
+        run: exit 1
+
+      - name: Enforce full-run result and report acceptance
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
+          (
+            steps.result-acceptance.outcome != 'success' ||
+            steps.teable-report.outcome != 'success' ||
+            steps.feishu-report.outcome != 'success' ||
+            steps.github-summary.outcome != 'success'
+          )
         run: |
-          shopt -s nullglob
-          summaries=(perf-lab-artifacts/*/summary-*.md)
-          if [ "${#summaries[@]}" -gt 0 ]; then
-            for summary in "${summaries[@]}"; do
-              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
-              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
-            done
-          else
-            echo "No combined perf summary was generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "Full-run acceptance failed: results=${{ steps.result-acceptance.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          exit 1
+
+      - name: Enforce targeted report delivery failures
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
+          (
+            steps.teable-report.outcome == 'failure' ||
+            steps.feishu-report.outcome == 'failure' ||
+            steps.github-summary.outcome == 'failure'
+          )
+        run: exit 1

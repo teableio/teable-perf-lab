@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "formula/10k-5-concurrent",
   title: "10k rows concurrent 5 formula calculations",
   runner: "formula-table",
+  routingEvidence: "not-applicable",
   timeoutMs: 300_000,
   config: {
     baseId: "seed-base",

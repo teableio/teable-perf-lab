@@ -228,6 +228,7 @@ export const runRecordMutationLifecycle = async <
   let seedReadyMeasurement: Measurement<TSeedReady> | undefined;
   let primaryMeasurement: Measurement<TPrimary> | undefined;
   let fixture: TFixture | undefined;
+  let lifecycleError: unknown;
 
   try {
     prepareMeasurement = await measureAsync("prepare", () =>
@@ -281,13 +282,38 @@ export const runRecordMutationLifecycle = async <
       seedReadyMeasurement,
       primaryMeasurement,
     });
+  } catch (error) {
+    lifecycleError = error;
+    throw error;
   } finally {
-    await spec.cleanup({
-      baseId,
-      fixture,
-      config,
-      windowId,
-      primaryMeasurement,
-    });
+    try {
+      await spec.cleanup({
+        baseId,
+        fixture,
+        config,
+        windowId,
+        primaryMeasurement,
+      });
+    } catch (cleanupError) {
+      if (lifecycleError instanceof PerfRunDiagnosticError) {
+        lifecycleError.result.details = {
+          ...lifecycleError.result.details,
+          cleanupError: {
+            message:
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : String(cleanupError),
+          },
+        };
+        throw lifecycleError;
+      }
+      if (lifecycleError != null) {
+        throw new AggregateError(
+          [lifecycleError, cleanupError],
+          "Record mutation and cleanup both failed",
+        );
+      }
+      throw cleanupError;
+    }
   }
 };

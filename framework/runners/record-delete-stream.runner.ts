@@ -1,4 +1,9 @@
-import { axios, RangeType, X_CANARY_HEADER } from "@teable/openapi";
+import {
+  axios,
+  RangeType,
+  restoreTrash,
+  X_CANARY_HEADER,
+} from "@teable/openapi";
 import type {
   IDeleteSelectionStreamDoneEvent,
   IDeleteSelectionStreamErrorEvent,
@@ -8,6 +13,7 @@ import type {
 import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
+import { pollUntilReady } from "../readiness";
 import { assertEngineRouting } from "../routing";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
@@ -19,6 +25,7 @@ import type {
   RecordDeleteStreamCaseConfig,
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
+import { PerfRunDiagnosticError } from "../types";
 import {
   runRecordMutationLifecycle,
   seedRecordMutationLifecycle,
@@ -29,9 +36,15 @@ import {
   assertRowsRestored,
   buildRecordReplayResult,
   prepareRecordReplayFixture,
+  waitForRowsRestored,
   type RecordReplayFixture,
   type RecordReplayVerification,
 } from "./record-replay.shared";
+import {
+  cleanupDeletedRecordSeed,
+  resolveRecordTrashCleanupPolling,
+} from "./record-trash-cleanup";
+import { findRecordTrashItems } from "./record-trash.shared";
 
 export type DeleteStreamResult = {
   totalCount: number;
@@ -81,8 +94,8 @@ export const prepareRecordTrashFixture = ({
 // hands back one primary measurement whose duration is the metric, and
 // buildResult splits the bundle back into the delete + verifyDeleted phases.
 type DeleteStreamPrimaryResult = {
-  delete: DeleteStreamResult;
-  verify: Measurement<RecordReplayVerification>;
+  delete?: DeleteStreamResult;
+  verify?: Measurement<RecordReplayVerification>;
 };
 
 const getStreamHeaders = (context: PerfRunContext, windowId: string) => ({
@@ -210,31 +223,49 @@ const runDeleteStreamMeasuredOperation = async (
   fixture: RecordReplayFixture,
   windowId: string,
 ): Promise<Measurement<DeleteStreamPrimaryResult>> => {
-  const deleteMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
-    config.threshold.metric,
-    () =>
-      measureAsync(config.threshold.metric, () =>
-        deleteAllRowsByEngineStream(
-          fixture,
-          config.threshold.metric,
-          perfCase,
-          context,
-          windowId,
+  const result: DeleteStreamPrimaryResult = {};
+  let durationMs = 0;
+  try {
+    const deleteMeasurement = await withPerfTraceStep(
+      context,
+      perfCase,
+      config.threshold.metric,
+      () =>
+        measureAsync(config.threshold.metric, () =>
+          deleteAllRowsByEngineStream(
+            fixture,
+            config.threshold.metric,
+            perfCase,
+            context,
+            windowId,
+          ),
         ),
-      ),
-  );
-  const verifyMeasurement = await measureAsync("verifyDeleted", () =>
-    assertDeleted(fixture),
-  );
+    );
+    result.delete = deleteMeasurement.result;
+    durationMs = deleteMeasurement.durationMs;
+    result.verify = await measureAsync("verifyDeleted", () =>
+      assertDeleted(fixture),
+    );
+  } catch (error) {
+    throw new PerfRunDiagnosticError(
+      error instanceof Error ? error.message : String(error),
+      {
+        metrics: {},
+        thresholds: [],
+        details: {
+          partialPrimaryMeasurement: {
+            name: config.threshold.metric,
+            durationMs,
+            result,
+          } satisfies Measurement<DeleteStreamPrimaryResult>,
+        },
+      },
+    );
+  }
   return {
-    name: deleteMeasurement.name,
-    durationMs: deleteMeasurement.durationMs,
-    result: {
-      delete: deleteMeasurement.result,
-      verify: verifyMeasurement,
-    },
+    name: config.threshold.metric,
+    durationMs,
+    result,
   };
 };
 
@@ -265,7 +296,7 @@ const buildDeleteStreamResult = ({
     fixture,
     prepareMeasurement,
     seedReadyMeasurement,
-    operationMeasurement: primaryMeasurement
+    operationMeasurement: primaryMeasurement?.result.delete
       ? {
           name: primaryMeasurement.name,
           durationMs: primaryMeasurement.durationMs,
@@ -276,25 +307,71 @@ const buildDeleteStreamResult = ({
     error,
   });
 
-// Cleanup class D: delete-all is the measured workload, so the post-op state
-// (empty table) is not a reusable seed — drop the execute table and let the next
-// run rebuild. CI execute jobs run on an isolated restored DB, so cleanup is
-// skipped there and the mutated copy is simply discarded.
+const restoreDeletedStreamSeed = async ({
+  fixture,
+  config,
+  primaryMeasurement,
+}: {
+  fixture: RecordReplayFixture;
+  config: RecordDeleteStreamCaseConfig;
+  primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
+}) => {
+  const deletedRecordIds =
+    primaryMeasurement?.result.delete?.deletedRecordIds ?? [];
+  if (deletedRecordIds.length !== fixture.seededRecords.length) {
+    throw new Error(
+      `Delete-stream cleanup has ${deletedRecordIds.length}/${fixture.seededRecords.length} deleted record ids`,
+    );
+  }
+  const cleanupPolling = resolveRecordTrashCleanupPolling(config.verify);
+  const trashLookups = await pollUntilReady(
+    {
+      ...cleanupPolling,
+      description: `record trash cleanup for ${fixture.tableId}`,
+    },
+    () => findRecordTrashItems(fixture.tableId, deletedRecordIds),
+  );
+  for (const trashLookup of trashLookups) {
+    const response = await restoreTrash(trashLookup.trashId, fixture.tableId);
+    if (![200, 201].includes(response.status)) {
+      throw new Error(
+        `Record trash cleanup returned HTTP ${response.status} for ${trashLookup.trashId}`,
+      );
+    }
+  }
+  await waitForRowsRestored(fixture, config, {
+    ...cleanupPolling,
+    verifySamples: true,
+  });
+};
+
+// Delete-stream is class C when its reusable fixture has affinity siblings:
+// restore every deleted row and verify seed readiness before the next case in
+// the same execute process. A standalone isolated execute DB can still skip
+// cleanup because the whole copy is discarded. Restore failure deletes the
+// dirty fixture and fails the case instead of making the next sibling rebuild
+// it silently.
 const cleanupDeleteStreamFixture = async ({
   baseId,
   fixture,
+  config,
+  primaryMeasurement,
 }: {
   baseId: string;
   fixture: RecordReplayFixture | undefined;
+  config: RecordDeleteStreamCaseConfig;
+  primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
 }) => {
-  if (isExecuteDbIsolated() || !fixture?.tableId) {
-    return;
-  }
-  try {
-    await permanentDeleteTable(baseId, fixture.tableId);
-  } catch (error) {
-    console.warn(`Failed to cleanup perf table ${fixture.tableId}`, error);
-  }
+  if (!fixture?.tableId) return;
+  await cleanupDeletedRecordSeed({
+    reusableSeed: Boolean(fixture.reusableSeed),
+    executeDbIsolated: isExecuteDbIsolated(),
+    sharedSeedIdentity: Boolean(fixture.seedCacheInfo?.seedAffinity),
+    canRestoreSeed: Boolean(primaryMeasurement?.result.delete),
+    restoreSeed: () =>
+      restoreDeletedStreamSeed({ fixture, config, primaryMeasurement }),
+    deleteFixture: () => permanentDeleteTable(baseId, fixture.tableId),
+  });
 };
 
 // record-delete-stream rides the record-mutation lifecycle: seed a mixed table

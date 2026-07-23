@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildCaseRows,
   buildPerfSummaryCard,
+  buildPerfSummaryMarkdown,
   formatDuration,
   formatMetricSeconds,
   resolveRunTimingFromJobs,
@@ -389,15 +390,79 @@ const panels = card.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
 assert.equal(panels[0].header.title.content, "**退化 3**");
-assert.equal(panels[1].header.title.content, "**未退化 2**");
+assert.equal(panels[1].header.title.content, "**待确认 1**");
 assert.match(
   panels[0].elements[0].text.content,
   /🔴 \*\*\[lookup\/slightly-slower\].*慢 1\.1x/,
 );
-assert.doesNotMatch(
-  panels[1].elements[0].text.content,
-  /lookup\/slightly-slower/,
-);
+assert.doesNotMatch(JSON.stringify(card), /formula\/fast/);
+assert.match(JSON.stringify(card), /已省略 1 个 V2 更快或持平项/);
+
+const markdown = buildPerfSummaryMarkdown({
+  payloads,
+  context: {
+    chartUrl: "https://charts.example",
+    executeResult: "success",
+    runId: "123",
+    runUrl: "https://github.example/run/123",
+    sha: "abcdef0",
+    teableRef: "main",
+    teableResultsUrl: "https://teable.example/results",
+  },
+});
+assert.match(markdown, /lookup\/regressed/);
+assert.match(markdown, /smoke\/skip/);
+assert.doesNotMatch(markdown, /formula\/fast/);
+assert.match(markdown, /Omitted 1 V2 faster or equal comparisons/);
+assert.match(markdown, /\[CI run\]\(https:\/\/github\.example\/run\/123\)/);
+
+const manyFastPayloads = Array.from({ length: 1_000 }, (_, index) => [
+  {
+    caseId: `record-read/fast-${index}`,
+    engine: "v1",
+    result: "pass",
+    durationMs: 2_000,
+    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
+  },
+  {
+    caseId: `record-read/fast-${index}`,
+    engine: "v2",
+    result: "pass",
+    durationMs: 1_000,
+    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
+  },
+]).flat();
+const manyFastCard = buildPerfSummaryCard({
+  payloads: manyFastPayloads,
+  timings: {},
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+const manyFastCardJson = JSON.stringify(manyFastCard);
+assert.ok(Buffer.byteLength(manyFastCardJson, "utf8") < 100 * 1024);
+assert.doesNotMatch(manyFastCardJson, /record-read\/fast-/);
+assert.match(manyFastCardJson, /已省略 1000 个 V2 更快或持平项/);
+
+const manyAttentionPayloads = Array.from({ length: 1_000 }, (_, index) => [
+  {
+    caseId: `record-read/regressed-${index}`,
+    engine: "v1",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
+  },
+  {
+    caseId: `record-read/regressed-${index}`,
+    engine: "v2",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
+  },
+]).flat();
+const boundedMarkdown = buildPerfSummaryMarkdown({
+  payloads: manyAttentionPayloads,
+  maxBytes: 4_096,
+  context: { chartUrl: "https://charts.example" },
+});
+assert.ok(Buffer.byteLength(boundedMarkdown, "utf8") <= 4_096);
+assert.match(boundedMarkdown, /Truncated \d+ detail rows/);
 
 const outageCard = buildPerfSummaryCard({
   payloads: [

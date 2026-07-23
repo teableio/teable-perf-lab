@@ -5,6 +5,7 @@ export default definePerfCase({
   id: "record-delete/delete-stream-10k",
   title: "Delete a 10k-row table through the grid selection delete stream",
   runner: "record-delete-stream",
+  seedAffinity: "record-replay/10k",
   timeoutMs: 900_000,
   config: {
     ...recordReplay10kBaseConfig,

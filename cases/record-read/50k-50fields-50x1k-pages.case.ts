@@ -6,6 +6,7 @@ export default definePerfCase({
   title:
     "Read a 50k table through fifty 1k-record pages with 50 projected fields",
   runner: "record-read",
+  seedAffinity: "record-read/50k-50fields",
   timeoutMs: 1_800_000,
   watchdogMs: 300_000,
   config: {
