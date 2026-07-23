@@ -4,11 +4,18 @@
 
 **Blocked by:** 07 — Accept cold and warm full-run feedback SLOs. Only execute this ticket when ticket 07 records an SLO miss attributable to the global seed barrier.
 
-**Status:** ready-for-agent
+**Status:** not-needed
 
-- [ ] 验收记录明确证明 barrier 是剩余关键路径；如果 Cold/Warm SLO 已通过，本 ticket 标记为无需执行。
+- [x] 验收记录明确证明 barrier 是剩余关键路径；如果 Cold/Warm SLO 已通过，本 ticket 标记为无需执行。
 - [ ] 每个 execute shard 只依赖对应 seed shard，不能下载或运行错误的 seed artifact。
 - [ ] V1、V2 sync 和 V2 hybrid 保持原有 case mapping、computed mode 与结果命名。
 - [ ] 任一 seed/execute shard 失败时，report 仍能收集已有轻量 artifact 并给出完整失败诊断。
 - [ ] workflow graph、artifact dependency 和 cache identity 有静态行为检查。
 - [ ] 新结构再次通过 cold/warm full-run artifact 验收，并证明 active wall 的改善来自 overlap 而非 coverage 或 threshold 变化。
+
+## Decision
+
+不实施。最终 cold run `29979412537` 在现有全局 seed barrier 下以 43m45s 达到
+45 分钟 SLO，紧接着的 exact-hit warm run `29981325193` 以 18m31s 达到 25 分钟
+SLO。剩余五项只适用于 pipeline 实施路径，因此保持未勾选；不为未触发的条件式
+方案扩大 workflow graph 和 artifact dependency。

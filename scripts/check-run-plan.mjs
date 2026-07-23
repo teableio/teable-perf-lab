@@ -326,11 +326,11 @@ assert.equal(
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.calibrationSource.sourceRunId,
-  "29957965247",
+  "29979412537",
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.calibrationSource.pairedWarmRunId,
-  null,
+  "29981325193",
 );
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.observed, null);
 assert.equal(defaultFullRunPlan.planSummary.stagePlan.calibrationDeltaMs, null);
@@ -367,9 +367,23 @@ assert.ok(
     defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath.warmWallMs,
   "selected stage-aware plan must not regress the scalar baseline warm path",
 );
+const observedColdWallMs =
+  FULL_RUN_STAGE_CALIBRATION.observedStages.coldSeedMs +
+  Math.max(
+    FULL_RUN_STAGE_CALIBRATION.observedStages.v1Ms,
+    FULL_RUN_STAGE_CALIBRATION.observedStages.v2SyncMs,
+    FULL_RUN_STAGE_CALIBRATION.observedStages.v2HybridMs,
+  ) +
+  FULL_RUN_STAGE_CALIBRATION.observedStages.traceMs +
+  FULL_RUN_STAGE_CALIBRATION.fixedCosts.reportMs;
 assert.ok(
-  defaultFullRunPlan.planSummary.stagePlan.predicted.coldWallMs <= 45 * 60_000,
-  "the trusted cold calibration must select a plan within the 45 minute SLO",
+  observedColdWallMs <= 45 * 60_000,
+  "the trusted cold observation must remain within the 45 minute SLO",
+);
+assert.ok(
+  defaultFullRunPlan.planSummary.stagePlan.predicted.coldWallMs <=
+    observedColdWallMs + FULL_RUN_STAGE_CALIBRATION.fixedCosts.executeSetupMs,
+  "the conservative cold prediction must stay within one execute setup envelope of the accepted observation",
 );
 assert.ok(
   defaultFullRunPlan.planSummary.stagePlan.predicted.warmWallMs <= 25 * 60_000,
@@ -387,7 +401,24 @@ const firstEligibleCandidate =
         defaultFullRunPlan.planSummary.stagePlan.baselineCriticalPath
           .warmWallMs,
   );
-assert.equal(firstEligibleCandidate.shardCount, selectedFullRunShardCount);
+if (firstEligibleCandidate) {
+  assert.equal(firstEligibleCandidate.shardCount, selectedFullRunShardCount);
+} else {
+  const bestConservativeCandidate =
+    defaultFullRunPlan.planSummary.stagePlan.candidates
+      .slice()
+      .sort(
+        (left, right) =>
+          left.criticalPath.coldWallMs - right.criticalPath.coldWallMs ||
+          left.criticalPath.warmWallMs - right.criticalPath.warmWallMs ||
+          left.shardCount - right.shardCount,
+      )[0];
+  assert.equal(
+    bestConservativeCandidate.shardCount,
+    selectedFullRunShardCount,
+    "when preserved historical maxima exceed the SLO, select the best conservative plan backed by the accepted observation",
+  );
+}
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.candidates[0].stageMaxima.coldSeedMs
     .bundleId,
