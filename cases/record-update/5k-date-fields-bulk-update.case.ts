@@ -12,6 +12,7 @@ export default definePerfCase({
     seedIdentity: "mixed-5k-20fields",
     tableNamePrefix: "perf-record-update-5k-date",
     updateFieldNames: ["Start Date", "Due Date"],
+    isolatedHttpClient: true,
     verify: {
       sampleRows: [0, 2_499, 4_999],
       fullScanPageSize: 1_000,

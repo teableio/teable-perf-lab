@@ -11,7 +11,8 @@ import {
 } from "../../../utils/init-app";
 import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, type Measurement } from "../metrics";
+import { runIsolatedJsonRequest } from "../isolated-json-request";
+import { measureAsync, roundMetric, type Measurement } from "../metrics";
 import {
   assertEngineRouting,
   pickRoutingResponseHeaders,
@@ -22,7 +23,11 @@ import {
   findSeedTable,
   type SeedCacheInfo,
 } from "../seed-cache";
-import { withPerfTraceStep } from "../trace-collector";
+import {
+  buildPerfTraceHeaders,
+  recordPerfTraceRefFromHeaders,
+  withPerfTraceStep,
+} from "../trace-collector";
 import type {
   PerfCaseFor,
   PerfCase,
@@ -614,6 +619,80 @@ const updateAllRecords = async (
   };
 };
 
+const updateAllRecordsIsolated = async ({
+  perfCase,
+  context,
+  fixture,
+  config,
+  phase,
+  windowId,
+  stepId,
+}: {
+  perfCase: PerfCase;
+  context: PerfRunContext;
+  fixture: RecordUpdateFixture;
+  config: RecordUpdateCaseConfig;
+  phase: "seed" | "updated";
+  windowId: string;
+  stepId: string;
+}) => {
+  const payloadFields = selectRecordUpdatePayloadFields(
+    fixture.fields,
+    config.updateFieldNames,
+  );
+  const updates = fixture.seededRecords.map((record) => ({
+    id: record.recordId,
+    fields: buildRecordFields(
+      payloadFields,
+      record.rowNumber,
+      config,
+      phase,
+      "id",
+    ),
+  }));
+  const url = `${context.appUrl}/api/table/${fixture.tableId}/record`;
+  const response = await runIsolatedJsonRequest({
+    url,
+    method: "PATCH",
+    headers: {
+      accept: "application/json, text/plain, */*",
+      "content-type": "application/json",
+      ...(context.cookie ? { cookie: context.cookie } : {}),
+      "x-window-id": windowId,
+      ...buildPerfTraceHeaders(context, perfCase, stepId),
+    },
+    body: {
+      fieldKeyType: FieldKeyType.Id,
+      typecast: false,
+      records: updates,
+    },
+    responseMode: "recordIds",
+  });
+
+  recordPerfTraceRefFromHeaders({
+    context,
+    perfCase,
+    stepId,
+    headers: response.headers,
+    method: "PATCH",
+    url,
+    status: response.status,
+  });
+
+  expect(response.status).toBe(200);
+  expect(response.recordIds).toHaveLength(updates.length);
+
+  return {
+    durationMs: response.durationMs,
+    result: {
+      status: response.status,
+      requestedRecords: updates.length,
+      updatedRecords: response.recordIds.length,
+      responseHeaders: pickResponseHeaders(response.headers),
+    },
+  };
+};
+
 const verifyUpdatedRecords = async (
   fixture: RecordUpdateFixture,
   config: RecordUpdateCaseConfig,
@@ -790,16 +869,31 @@ const runRecordUpdateMeasuredOperation = async (
   context: PerfRunContext,
   config: RecordUpdateCaseConfig,
   fixture: RecordUpdateFixture,
+  windowId: string,
 ): Promise<Measurement<RecordUpdatePrimaryResult>> => {
-  const updateMeasurement = await withPerfTraceStep(
-    context,
-    perfCase,
-    config.threshold.metric,
-    () =>
-      measureAsync(config.threshold.metric, () =>
-        updateAllRecords(fixture, config, "updated"),
-      ),
-  );
+  const stepId = config.threshold.metric;
+  const updateMeasurement = config.isolatedHttpClient
+    ? await withPerfTraceStep(context, perfCase, stepId, async () => {
+        const isolated = await updateAllRecordsIsolated({
+          perfCase,
+          context,
+          fixture,
+          config,
+          phase: "updated",
+          windowId,
+          stepId,
+        });
+        return {
+          name: stepId,
+          durationMs: roundMetric(isolated.durationMs),
+          result: isolated.result,
+        };
+      })
+    : await withPerfTraceStep(context, perfCase, stepId, () =>
+        measureAsync(stepId, () =>
+          updateAllRecords(fixture, config, "updated"),
+        ),
+      );
   let primaryMeasurement: Measurement<RecordUpdatePrimaryResult> = {
     ...updateMeasurement,
     result: {
@@ -898,8 +992,14 @@ const recordUpdateLifecycleSpec: RecordMutationLifecycleSpec<
     prepareRecordUpdateFixture(baseId, tableName, config, perfCase),
   assertSeedReady: ({ fixture, config }) =>
     assertSampleRecordsState(fixture, config, "seed"),
-  runMeasuredOperation: ({ perfCase, context, config, fixture }) =>
-    runRecordUpdateMeasuredOperation(perfCase, context, config, fixture),
+  runMeasuredOperation: ({ perfCase, context, config, fixture, windowId }) =>
+    runRecordUpdateMeasuredOperation(
+      perfCase,
+      context,
+      config,
+      fixture,
+      windowId,
+    ),
   buildResult: buildRecordUpdateResult,
   cleanup: cleanupRecordUpdateFixture,
 };

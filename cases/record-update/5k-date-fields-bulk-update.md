@@ -16,7 +16,10 @@ Reuse the shared deterministic 5,000-row, 20-field mixed fixture and verify it b
 
 ## Execute Phase
 
-Send one 5,000-record PATCH and assert V1/V2 `updateRecords` routing plus 5,000 response ids.
+Send one 5,000-record PATCH from a worker-owned HTTP client and assert V1/V2
+`updateRecords` routing plus 5,000 response ids. The worker keeps response
+receipt and JSON parsing off the Nest/Vitest event loop, matching an external
+client instead of racing V2 after-response projections in the same process.
 
 ## Primary Metric
 
@@ -28,4 +31,7 @@ Verify rows 1, 2,500, and 5,000 and prove all omitted fields retain their determ
 
 ## Notes
 
-Only records per request change from the baseline. Shared-seed cleanup restores and revalidates the fixture between siblings.
+Only records per request change from the baseline. Shared-seed cleanup restores
+and revalidates the fixture between siblings. The workflow-level `samples`
+input does not repeat this mutation case; each engine currently records one
+measured PATCH.
