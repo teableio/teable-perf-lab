@@ -8,6 +8,7 @@ import {
 } from "./trace-evidence-policy";
 import {
   createTraceFetchControl,
+  getExponentialBackoffDelayMs,
   type TraceFetchArtifactState,
   type TraceFetchDecision,
 } from "./trace-fetch-control";
@@ -527,9 +528,17 @@ const fetchJaegerTrace = async (
     "PERF_LAB_TRACE_FETCH_TIMEOUT_MS",
     60_000,
   );
-  const pollIntervalMs = getPositiveIntegerEnv(
+  const initialPollIntervalMs = getPositiveIntegerEnv(
     "PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS",
     500,
+  );
+  const maxPollIntervalMs = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS",
+    4_000,
+  );
+  const pollMultiplier = getPositiveIntegerEnv(
+    "PERF_LAB_TRACE_FETCH_POLL_MULTIPLIER",
+    2,
   );
   const startedAt = Date.now();
   let lastError = "";
@@ -595,7 +604,13 @@ const fetchJaegerTrace = async (
 
     const remainingMs = fetchDeadlineAt - Date.now();
     if (remainingMs > 0) {
-      await delay(Math.min(pollIntervalMs, remainingMs));
+      const backoffMs = getExponentialBackoffDelayMs({
+        attempt: attempts,
+        initialDelayMs: initialPollIntervalMs,
+        maxDelayMs: maxPollIntervalMs,
+        multiplier: pollMultiplier,
+      });
+      await delay(Math.min(backoffMs, remainingMs));
     }
   }
 
