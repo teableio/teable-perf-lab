@@ -1,8 +1,7 @@
 import { appendFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadRegistry, registeredCasePathsInOrder } from "./case-catalog.mjs";
+import { loadCaseCatalog } from "./case-catalog.mjs";
 import {
   buildFullRunCaseShardPlan,
   resolveFixtureAffinities,
@@ -53,97 +52,14 @@ export const HYBRID_COMPUTED_CASES = [
 
 const VALID_ENGINES = new Set(["v1", "v2"]);
 
-const caseIdFromPath = (casePath) => {
-  const match = /^cases\/(.+)\.case\.ts$/.exec(casePath);
-  if (!match) {
-    throw new Error(`Unsupported registered case path: ${casePath}`);
-  }
-  return match[1];
-};
-
-export const parseCaseSeedAffinity = (caseSource) => {
-  const declarations = [...caseSource.matchAll(/^\s*seedAffinity\s*:/gm)];
-  const matches = [
-    ...caseSource.matchAll(/^\s*seedAffinity:\s*["']([^"']+)["'],?\s*$/gm),
-  ];
-  if (declarations.length > 1) {
-    throw new Error("seedAffinity must be declared at most once per case.");
-  }
-  if (declarations.length === 1 && matches.length !== 1) {
-    throw new Error("seedAffinity must be a non-empty string literal.");
-  }
-  const seedAffinity = matches[0]?.[1];
-  if (seedAffinity != null && seedAffinity.trim().length === 0) {
-    throw new Error("seedAffinity must be a non-empty string literal.");
-  }
-  return seedAffinity;
-};
-
-export const parseCaseAcceptanceContract = (caseSource) => {
-  const routingDeclarations = [
-    ...caseSource.matchAll(/^\s*routingEvidence\s*:/gm),
-  ];
-  const routingMatches = [
-    ...caseSource.matchAll(
-      /^\s*routingEvidence:\s*["']not-applicable["'],?\s*$/gm,
-    ),
-  ];
-  if (
-    routingDeclarations.length > 1 ||
-    routingDeclarations.length !== routingMatches.length
-  ) {
-    throw new Error(
-      'routingEvidence must be declared at most once as "not-applicable".',
-    );
-  }
-  const skipDeclarations = [
-    ...caseSource.matchAll(/^\s*expectedSkipEngines\s*:/gm),
-  ];
-  const skipMatches = [
-    ...caseSource.matchAll(
-      /^\s*expectedSkipEngines:\s*\[((?:\s*["'](?:v1|v2)["']\s*,?)*)\],?\s*$/gm,
-    ),
-  ];
-  if (
-    skipDeclarations.length > 1 ||
-    skipDeclarations.length !== skipMatches.length
-  ) {
-    throw new Error(
-      "expectedSkipEngines must be declared at most once as a literal v1/v2 array.",
-    );
-  }
-  const expectedSkipEngines = skipMatches[0]
-    ? [
-        ...new Set(
-          [...skipMatches[0][1].matchAll(/["'](v1|v2)["']/g)].map(
-            (match) => match[1],
-          ),
-        ),
-      ]
-    : [];
-  if (skipMatches[0] && expectedSkipEngines.length === 0) {
-    throw new Error("expectedSkipEngines must not be empty.");
-  }
-  return {
-    ...(routingMatches.length === 1
-      ? { routingEvidence: "not-applicable" }
-      : {}),
-    ...(expectedSkipEngines.length > 0 ? { expectedSkipEngines } : {}),
-  };
-};
-
 export const loadRegisteredCases = async () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const registry = await loadRegistry(repoRoot);
-  return Promise.all(
-    registeredCasePathsInOrder(registry).map(async (casePath) => {
-      const caseSource = await readFile(join(repoRoot, casePath), "utf8");
-      const seedAffinity = parseCaseSeedAffinity(caseSource);
-      return {
-        id: caseIdFromPath(casePath),
-        ...(seedAffinity ? { seedAffinity } : {}),
-        ...parseCaseAcceptanceContract(caseSource),
-      };
+  return (await loadCaseCatalog(repoRoot)).map(
+    ({ id, seedAffinity, routingEvidence, expectedSkipEngines }) => ({
+      id,
+      ...(seedAffinity ? { seedAffinity } : {}),
+      ...(routingEvidence ? { routingEvidence } : {}),
+      ...(expectedSkipEngines ? { expectedSkipEngines } : {}),
     }),
   );
 };

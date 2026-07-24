@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSeedIdentityCaseId } from "../framework/seed-contract.ts";
 import {
+  parseCaseAcceptanceContract,
+  parseCaseSeedAffinity,
+} from "./case-catalog.mjs";
+import {
   FULL_RUN_FIXTURE_AFFINITIES,
   FULL_RUN_MAX_SHARD_COUNT,
   FULL_RUN_SCALE_REPLACEMENTS,
@@ -24,8 +28,6 @@ import {
   buildFullRunShardCaseFilterKey,
   HYBRID_COMPUTED_CASES,
   loadRegisteredCases,
-  parseCaseAcceptanceContract,
-  parseCaseSeedAffinity,
   renderPlanSummaryMarkdown,
   resolveRunPlan,
   writeGithubOutputs,

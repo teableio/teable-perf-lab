@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
 const yamlFiles = [
+  ".github/actions/perf-runtime/action.yml",
   ".github/workflows/teable-ee-e2e-perf.yml",
   ".github/workflows/sync-perf-cases.yml",
 ];

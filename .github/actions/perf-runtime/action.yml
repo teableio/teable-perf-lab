@@ -1,0 +1,130 @@
+name: Perf runtime
+description: Bootstrap or clean up the shared teable-ee performance runtime.
+
+inputs:
+  operation:
+    description: Runtime operation. Supported values are bootstrap and cleanup.
+    required: true
+  perf-lab-path:
+    description: Perf-lab checkout path.
+    required: false
+    default: perf-lab
+  teable-ee-path:
+    description: teable-ee checkout path.
+    required: false
+    default: teable-ee
+
+runs:
+  using: composite
+  steps:
+    - name: Validate operation
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "${{ inputs.operation }}" in
+          bootstrap|cleanup) ;;
+          *)
+            echo "Unsupported perf runtime operation: ${{ inputs.operation }}" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Setup pnpm
+      if: inputs.operation == 'bootstrap'
+      uses: pnpm/action-setup@v5
+      with:
+        version: 9.13.0
+
+    - name: Setup Node.js
+      if: inputs.operation == 'bootstrap'
+      uses: actions/setup-node@v5
+      with:
+        node-version: 22.18.0
+        cache: pnpm
+        cache-dependency-path: ${{ inputs.teable-ee-path }}/pnpm-lock.yaml
+
+    - name: Install teable-ee dependencies
+      if: inputs.operation == 'bootstrap'
+      shell: bash
+      working-directory: ${{ inputs.teable-ee-path }}
+      run: pnpm install --frozen-lockfile
+
+    - name: Generate Prisma clients
+      if: inputs.operation == 'bootstrap'
+      shell: bash
+      working-directory: ${{ inputs.teable-ee-path }}
+      run: |
+        set -euo pipefail
+        pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
+        pnpm -F @teable/db-data-prisma prisma-generate-ci
+
+    - name: Install perf cases
+      if: inputs.operation == 'bootstrap'
+      shell: bash
+      run: |
+        set -euo pipefail
+        target="${{ inputs.teable-ee-path }}/community/apps/nestjs-backend/test/perf-lab"
+        rm -rf "$target"
+        mkdir -p "$target"
+        cp -R \
+          "${{ inputs.perf-lab-path }}/cases" \
+          "${{ inputs.perf-lab-path }}/framework" \
+          "${{ inputs.perf-lab-path }}/perf-lab.e2e-spec.ts" \
+          "${{ inputs.perf-lab-path }}/registry.ts" \
+          "$target/"
+        cp \
+          "${{ inputs.perf-lab-path }}/vitest-perf-lab.config.ts" \
+          "${{ inputs.teable-ee-path }}/enterprise/backend-ee/vitest-perf-lab.config.ts"
+
+    - name: Start e2e services
+      if: inputs.operation == 'bootstrap'
+      shell: bash
+      working-directory: ${{ inputs.teable-ee-path }}
+      run: |
+        set -euo pipefail
+        export DOCKER_UID="$(id -u)"
+        export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+
+        make docker.create.network
+        docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+        docker rm -fv teable-cache || true
+
+        docker compose \
+          --env-file ./dockers/.env \
+          -f ./dockers/networks.yml \
+          -f ./dockers/database-postgres.yml \
+          -f ./dockers/cache-redis.yml \
+          run -p 25432:5432 -d -T --no-deps --rm \
+          --name "$TEST_PG_CONTAINER_NAME" teable-postgres
+
+        docker compose \
+          --env-file ./dockers/.env \
+          -f ./dockers/networks.yml \
+          -f ./dockers/cache-redis.yml \
+          up --no-recreate -d teable-cache
+
+        chmod +x scripts/wait-for
+        scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
+        scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
+        until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
+          sleep 1
+        done
+
+    - name: Cleanup e2e services
+      if: inputs.operation == 'cleanup'
+      shell: bash
+      working-directory: ${{ inputs.teable-ee-path }}
+      run: |
+        set +e
+        export DOCKER_UID="$(id -u)"
+        export DOCKER_GID="$(getent group docker | cut -d: -f3)"
+
+        docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
+        docker rm -fv teable-cache || true
+        docker compose \
+          --env-file ./dockers/.env \
+          -f ./dockers/networks.yml \
+          -f ./dockers/database-postgres.yml \
+          -f ./dockers/cache-redis.yml \
+          down -v || true
+        docker network rm "$NETWORK_MODE" || true

@@ -232,82 +232,11 @@ jobs:
             ls -lh "$PERF_LAB_SEED_DB_DUMP"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup pnpm
+      - name: Bootstrap perf runtime
         if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        uses: pnpm/action-setup@v5
+        uses: ./perf-lab/.github/actions/perf-runtime
         with:
-          version: 9.13.0
-
-      - name: Setup Node.js
-        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22.18.0
-          cache: pnpm
-          cache-dependency-path: teable-ee/pnpm-lock.yaml
-
-      - name: Install teable-ee dependencies
-        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        working-directory: teable-ee
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma clients
-        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
-          pnpm -F @teable/db-data-prisma prisma-generate-ci
-
-      - name: Install perf cases
-        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        run: |
-          set -euo pipefail
-
-          rm -rf teable-ee/community/apps/nestjs-backend/test/perf-lab
-          mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
-          cp -R \
-            perf-lab/cases \
-            perf-lab/framework \
-            perf-lab/perf-lab.e2e-spec.ts \
-            perf-lab/registry.ts \
-            teable-ee/community/apps/nestjs-backend/test/perf-lab/
-          cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
-
-      - name: Start e2e services
-        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-
-          make docker.create.network
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker rm -fv teable-cache || true
-
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            -f ./dockers/cache-redis.yml \
-            run -p 25432:5432 -d -T --no-deps --rm \
-            --name "$TEST_PG_CONTAINER_NAME" teable-postgres
-
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/cache-redis.yml \
-            up --no-recreate -d teable-cache
-
-          chmod +x scripts/wait-for
-          scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
-          scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
-          until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
-            sleep 1
-          done
+          operation: bootstrap
 
       - name: Prepare e2e database
         if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
@@ -422,24 +351,11 @@ jobs:
             echo "No perf seed summary was generated." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Cleanup teable-ee e2e services
+      - name: Cleanup perf runtime
         if: always() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
-        working-directory: teable-ee
-        run: |
-          set +e
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker rm -fv teable-cache || true
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            -f ./dockers/cache-redis.yml \
-            down -v || true
-          docker network rm "$NETWORK_MODE" || true
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: cleanup
 
   execute:
     name: Run perf cases (${{ matrix.plan.name }})
@@ -478,76 +394,10 @@ jobs:
           name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.seedArtifactSuffix }}-${{ github.run_id }}
           path: perf-lab-seed-cache
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+      - name: Bootstrap perf runtime
+        uses: ./perf-lab/.github/actions/perf-runtime
         with:
-          version: 9.13.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22.18.0
-          cache: pnpm
-          cache-dependency-path: teable-ee/pnpm-lock.yaml
-
-      - name: Install teable-ee dependencies
-        working-directory: teable-ee
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma clients
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          pnpm -F @teable/db-main-prisma-ee prisma-generate-ci
-          pnpm -F @teable/db-data-prisma prisma-generate-ci
-
-      - name: Install perf cases
-        run: |
-          set -euo pipefail
-
-          rm -rf teable-ee/community/apps/nestjs-backend/test/perf-lab
-          mkdir -p teable-ee/community/apps/nestjs-backend/test/perf-lab
-          cp -R \
-            perf-lab/cases \
-            perf-lab/framework \
-            perf-lab/perf-lab.e2e-spec.ts \
-            perf-lab/registry.ts \
-            teable-ee/community/apps/nestjs-backend/test/perf-lab/
-          cp perf-lab/vitest-perf-lab.config.ts teable-ee/enterprise/backend-ee/vitest-perf-lab.config.ts
-
-      - name: Start e2e services
-        working-directory: teable-ee
-        run: |
-          set -euo pipefail
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-
-          make docker.create.network
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker rm -fv teable-cache || true
-
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            -f ./dockers/cache-redis.yml \
-            run -p 25432:5432 -d -T --no-deps --rm \
-            --name "$TEST_PG_CONTAINER_NAME" teable-postgres
-
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/cache-redis.yml \
-            up --no-recreate -d teable-cache
-
-          chmod +x scripts/wait-for
-          scripts/wait-for 127.0.0.1:25432 --timeout=60 -- echo 'pg database started successfully'
-          scripts/wait-for 127.0.0.1:6379 --timeout=60 -- echo 'redis cache started successfully'
-          until docker exec "$TEST_PG_CONTAINER_NAME" pg_isready -U teable -d postgres; do
-            sleep 1
-          done
+          operation: bootstrap
 
       - name: Restore perf seed database
         working-directory: teable-ee
@@ -650,24 +500,11 @@ jobs:
             echo "No perf summary was generated for ${{ matrix.plan.name }}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Cleanup teable-ee e2e services
+      - name: Cleanup perf runtime
         if: always()
-        working-directory: teable-ee
-        run: |
-          set +e
-
-          export DOCKER_UID="$(id -u)"
-          export DOCKER_GID="$(getent group docker | cut -d: -f3)"
-
-          docker rm -fv "$TEST_PG_CONTAINER_NAME" || true
-          docker rm -fv teable-cache || true
-          docker compose \
-            --env-file ./dockers/.env \
-            -f ./dockers/networks.yml \
-            -f ./dockers/database-postgres.yml \
-            -f ./dockers/cache-redis.yml \
-            down -v || true
-          docker network rm "$NETWORK_MODE" || true
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: cleanup
 
   report:
     name: Report perf results
@@ -763,6 +600,18 @@ jobs:
           PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
         run: node scripts/verify-full-run-result-acceptance.mjs
 
+      - name: Resolve perf run verdict
+        id: run-verdict
+        if: always()
+        working-directory: perf-lab
+        env:
+          PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+          PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
+          PERF_LAB_SEED_AFFINITY_OUTCOME: ${{ steps.seed-affinity.outcome }}
+          PERF_LAB_RESULT_ACCEPTANCE_OUTCOME: ${{ steps.result-acceptance.outcome }}
+          PERF_LAB_RUN_VERDICT_PATH: ${{ github.workspace }}/perf-plan-observation/run-verdict.json
+        run: node scripts/write-full-run-verdict.mjs
+
       - name: Report perf results to Teable
         id: teable-report
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
@@ -772,7 +621,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/report-teable-result.mjs
 
@@ -786,7 +635,7 @@ jobs:
           FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
           TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
           PERF_LAB_REQUIRE_DELIVERY: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           PERF_LAB_CHART_URL: https://ppm.teable.app
@@ -800,7 +649,7 @@ jobs:
         env:
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
           PERF_LAB_CHART_URL: https://ppm.teable.app
-          PERF_LAB_JOB_RESULT: ${{ needs.execute.result == 'success' && (needs.resolve_inputs.outputs.case_filter_is_all != 'true' || (steps.seed-affinity.outcome == 'success' && steps.result-acceptance.outcome == 'success')) && 'success' || 'failure' }}
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/write-github-perf-summary.mjs
 
@@ -812,22 +661,18 @@ jobs:
           path: perf-plan-observation
           if-no-files-found: ignore
 
-      - name: Enforce physical seed affinity
-        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true' && steps.seed-affinity.outcome == 'failure'
-        run: exit 1
-
       - name: Enforce full-run result and report acceptance
         if: >-
           always() &&
           needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
           (
-            steps.result-acceptance.outcome != 'success' ||
+            steps.run-verdict.outputs.status != 'success' ||
             steps.teable-report.outcome != 'success' ||
             steps.feishu-report.outcome != 'success' ||
             steps.github-summary.outcome != 'success'
           )
         run: |
-          echo "Full-run acceptance failed: results=${{ steps.result-acceptance.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
           exit 1
 
       - name: Enforce targeted report delivery failures

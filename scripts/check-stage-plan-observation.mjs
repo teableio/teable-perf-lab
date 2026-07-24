@@ -404,6 +404,20 @@ assert.equal(
   resultAcceptanceStep.env.PERF_LAB_EXECUTE_PLAN,
   "${{ needs.resolve_inputs.outputs.execute_plan }}",
 );
+const runVerdictStep = workflow.jobs.report.steps.find(
+  ({ name }) => name === "Resolve perf run verdict",
+);
+assert.equal(runVerdictStep.id, "run-verdict");
+assert.equal(runVerdictStep.if, "always()");
+assert.equal(runVerdictStep.run, "node scripts/write-full-run-verdict.mjs");
+assert.equal(
+  runVerdictStep.env.PERF_LAB_SEED_AFFINITY_OUTCOME,
+  "${{ steps.seed-affinity.outcome }}",
+);
+assert.equal(
+  runVerdictStep.env.PERF_LAB_RESULT_ACCEPTANCE_OUTCOME,
+  "${{ steps.result-acceptance.outcome }}",
+);
 for (const stepName of [
   "Report perf results to Teable",
   "Send Feishu perf summary",
@@ -504,22 +518,23 @@ for (const reporterName of [
   );
   assert.ok(
     reportStepNames.indexOf(reporterName) >
-      reportStepNames.indexOf("Verify physical seed affinity"),
-    `${reporterName} must run after the seed-affinity gate`,
+      reportStepNames.indexOf("Resolve perf run verdict"),
+    `${reporterName} must run after the run verdict`,
   );
-  assert.match(reporterStep.env.PERF_LAB_JOB_RESULT, /seed-affinity\.outcome/);
-  assert.match(reporterStep.env.PERF_LAB_JOB_RESULT, /case_filter_is_all/);
+  assert.equal(
+    reporterStep.env.PERF_LAB_JOB_RESULT,
+    "${{ steps.run-verdict.outputs.status }}",
+  );
 }
-const enforceSeedAffinityStep = workflow.jobs.report.steps.find(
-  ({ name }) => name === "Enforce physical seed affinity",
+const enforceFullRunStep = workflow.jobs.report.steps.find(
+  ({ name }) => name === "Enforce full-run result and report acceptance",
 );
-assert.equal(
-  enforceSeedAffinityStep.if,
-  "always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true' && steps.seed-affinity.outcome == 'failure'",
+assert.match(
+  enforceFullRunStep.if,
+  /steps\.run-verdict\.outputs\.status != 'success'/,
 );
-assert.equal(enforceSeedAffinityStep.run, "exit 1");
 assert.ok(
-  reportStepNames.indexOf("Enforce physical seed affinity") >
+  reportStepNames.indexOf("Enforce full-run result and report acceptance") >
     reportStepNames.indexOf("Upload current-run stage observation"),
 );
 

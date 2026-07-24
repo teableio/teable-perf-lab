@@ -431,23 +431,27 @@ assert.equal(
   "steps.seed-cache-mode.outputs.requires_seed_validation == 'false'",
 );
 for (const stepName of [
-  "Setup pnpm",
-  "Setup Node.js",
-  "Install teable-ee dependencies",
-  "Generate Prisma clients",
-  "Install perf cases",
-  "Start e2e services",
+  "Bootstrap perf runtime",
   "Prepare e2e database",
   "Build perf seed DB",
   "Dump perf seed database",
   "Save perf seed database cache",
-  "Cleanup teable-ee e2e services",
+  "Cleanup perf runtime",
 ]) {
   const step = seedSteps.find(({ name }) => name === stepName);
   assert.match(
     step.if,
     /steps\.seed-cache-mode\.outputs\.requires_seed_validation == 'true'/,
   );
+}
+for (const jobName of ["seed", "execute"]) {
+  const steps = workflow.jobs[jobName].steps;
+  const bootstrap = steps.find(({ name }) => name === "Bootstrap perf runtime");
+  const cleanup = steps.find(({ name }) => name === "Cleanup perf runtime");
+  assert.equal(bootstrap.uses, "./perf-lab/.github/actions/perf-runtime");
+  assert.equal(bootstrap.with.operation, "bootstrap");
+  assert.equal(cleanup.uses, "./perf-lab/.github/actions/perf-runtime");
+  assert.equal(cleanup.with.operation, "cleanup");
 }
 const uploadSeedStatusStep = seedSteps.find(
   (step) => step.name === "Upload perf seed artifacts",

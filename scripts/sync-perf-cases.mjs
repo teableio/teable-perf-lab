@@ -1,11 +1,6 @@
-import { access, readFile } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  findCaseFilesOnDisk,
-  importedCasePathsSorted,
-  loadRegistry,
-} from "./case-catalog.mjs";
+import { loadCaseCatalog } from "./case-catalog.mjs";
 import {
   chunkPerfCaseWriteRecords,
   DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
@@ -59,193 +54,6 @@ const compactFields = (fields) =>
   Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== undefined),
   );
-
-const readText = (path) => readFile(path, "utf8");
-
-const fileExists = async (path) => {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const parseScalar = (value) => {
-  const inlineList = value.match(/^\[(.*)\]$/);
-  if (inlineList) {
-    const items = inlineList[1].trim();
-    return items
-      ? items
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .map(parseScalar)
-      : [];
-  }
-  if (value === "true") {
-    return true;
-  }
-  if (value === "false") {
-    return false;
-  }
-  const unquoted = value.replace(/^["']|["']$/g, "");
-  return unquoted;
-};
-
-const parseFrontmatter = (markdown) => {
-  if (!markdown.startsWith("---\n")) {
-    return {};
-  }
-
-  const endIndex = markdown.indexOf("\n---", 4);
-  if (endIndex === -1) {
-    return {};
-  }
-
-  const lines = markdown.slice(4, endIndex).split("\n");
-  const data = {};
-  let currentKey = "";
-  let flowSequence = "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (flowSequence) {
-      flowSequence += ` ${trimmed}`;
-      if (trimmed.includes("]")) {
-        data[currentKey] = parseScalar(flowSequence);
-        flowSequence = "";
-      }
-      continue;
-    }
-
-    if (currentKey && trimmed.startsWith("[")) {
-      flowSequence = trimmed;
-      if (trimmed.includes("]")) {
-        data[currentKey] = parseScalar(flowSequence);
-        flowSequence = "";
-      }
-      continue;
-    }
-
-    const listMatch = line.match(/^\s*-\s+(.+)$/);
-    if (listMatch && currentKey) {
-      data[currentKey] ??= [];
-      data[currentKey].push(parseScalar(listMatch[1].trim()));
-      continue;
-    }
-
-    const pairMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!pairMatch) {
-      continue;
-    }
-
-    currentKey = pairMatch[1];
-    const value = pairMatch[2].trim();
-    data[currentKey] = value === "" ? [] : parseScalar(value);
-  }
-
-  if (flowSequence) {
-    throw new Error(`Unterminated frontmatter list for ${currentKey}`);
-  }
-
-  return data;
-};
-
-const matchString = (source, pattern, label) => {
-  const match = source.match(pattern);
-  if (!match?.[1]) {
-    throw new Error(`Could not parse ${label}`);
-  }
-  return match[1];
-};
-
-const matchNumber = (source, pattern, label) => {
-  const value = Number(matchString(source, pattern, label).replace(/_/g, ""));
-  if (!Number.isFinite(value)) {
-    throw new Error(`Could not parse numeric ${label}`);
-  }
-  return value;
-};
-
-const parseCaseSource = async (casePath) => {
-  const source = await readText(casePath);
-  const id = matchString(source, /id:\s*["']([^"']+)["']/, `${casePath} id`);
-  const title = matchString(
-    source,
-    /title:\s*["']([^"']+)["']/,
-    `${casePath} title`,
-  );
-  const runner = matchString(
-    source,
-    /runner:\s*["']([^"']+)["']/,
-    `${casePath} runner`,
-  );
-  const timeoutMs = matchNumber(
-    source,
-    /timeoutMs:\s*([0-9_]+)/,
-    `${casePath} timeoutMs`,
-  );
-  const primaryMetric = matchString(
-    source,
-    /threshold:\s*{[\s\S]*?metric:\s*["']([^"']+)["'][\s\S]*?maxMs:/,
-    `${casePath} threshold metric`,
-  );
-  const primaryThresholdMs = matchNumber(
-    source,
-    /threshold:\s*{[\s\S]*?maxMs:\s*([0-9_]+)/,
-    `${casePath} threshold maxMs`,
-  );
-
-  return {
-    id,
-    title,
-    runner,
-    timeoutMs,
-    primaryMetric,
-    primaryThresholdMs,
-  };
-};
-
-// Reconciliation reads through the shared catalog so this and sync-readme parse
-// registry.ts the same way; check:catalog catches the wider drift set (e.g. an
-// import missing from the `cases` array) separately and earlier in `pnpm check`.
-const assertRegisteredCasesMatchDisk = async () => {
-  const diskCasePaths = await findCaseFilesOnDisk(repoRoot);
-  const registeredCasePaths = importedCasePathsSorted(
-    await loadRegistry(repoRoot),
-  );
-  if (registeredCasePaths.length === 0) {
-    throw new Error("No registered perf cases found in registry.ts");
-  }
-  const disk = new Set(diskCasePaths);
-  const registered = new Set(registeredCasePaths);
-  const missingFromRegistry = diskCasePaths.filter(
-    (path) => !registered.has(path),
-  );
-  const missingFromDisk = registeredCasePaths.filter((path) => !disk.has(path));
-
-  if (missingFromRegistry.length > 0 || missingFromDisk.length > 0) {
-    throw new Error(
-      [
-        "Perf case registry does not match case files.",
-        missingFromRegistry.length
-          ? `Missing from registry.ts: ${missingFromRegistry.join(", ")}`
-          : "",
-        missingFromDisk.length
-          ? `Missing on disk: ${missingFromDisk.join(", ")}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-  }
-
-  return registeredCasePaths.map((path) => join(repoRoot, path));
-};
-
-const getMarkdownPath = (casePath) =>
-  join(dirname(casePath), `${basename(casePath, ".case.ts")}.md`);
 
 const buildGithubBlobUrl = ({ repository, path }) =>
   `https://github.com/${repository}/blob/main/${path}`;
@@ -387,24 +195,16 @@ const main = async () => {
   const sourceSha = env("GITHUB_SHA") || env("PERF_LAB_SOURCE_SHA");
   const syncedAt = new Date().toISOString();
   const maxWriteBytes = perfCaseWriteMaxBytes();
-  const caseFiles = await assertRegisteredCasesMatchDisk();
+  const caseCatalog = await loadCaseCatalog(repoRoot);
 
   if (!dryRun) {
     await ensureFields({ endpoint, token, tableId });
   }
 
   const desiredRecords = [];
-  for (const casePath of caseFiles) {
-    const markdownPath = getMarkdownPath(casePath);
-    if (!(await fileExists(markdownPath))) {
-      throw new Error(`Missing case description markdown: ${markdownPath}`);
-    }
-
-    const caseInfo = await parseCaseSource(casePath);
-    const markdown = await readText(markdownPath);
-    const frontmatter = parseFrontmatter(markdown);
-    const relativeCasePath = relative(repoRoot, casePath);
-    const relativeMarkdownPath = relative(repoRoot, markdownPath);
+  for (const caseInfo of caseCatalog) {
+    const relativeCasePath = caseInfo.casePath;
+    const relativeMarkdownPath = caseInfo.markdownPath;
     const descriptionUrl = buildGithubBlobUrl({
       repository,
       path: relativeMarkdownPath,
@@ -413,9 +213,9 @@ const main = async () => {
     const fields = compactFields({
       "Case ID": caseInfo.id,
       Title: caseInfo.title,
-      Owner: frontmatter.owner,
-      Tags: frontmatter.tags,
-      Enabled: frontmatter.enabled,
+      Owner: caseInfo.frontmatter.owner,
+      Tags: caseInfo.frontmatter.tags,
+      Enabled: caseInfo.frontmatter.enabled,
       Runner: caseInfo.runner,
       "Primary Metric": caseInfo.primaryMetric,
       "Primary Threshold Ms": caseInfo.primaryThresholdMs,
@@ -470,7 +270,9 @@ const main = async () => {
     );
   }
 
-  console.log(`Base: ${baseId}, table: ${tableId}, cases: ${caseFiles.length}`);
+  console.log(
+    `Base: ${baseId}, table: ${tableId}, cases: ${caseCatalog.length}`,
+  );
 };
 
 main().catch((error) => {

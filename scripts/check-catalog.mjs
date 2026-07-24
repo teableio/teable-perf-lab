@@ -8,7 +8,11 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { listCatalogIssues, listCatalogIssuesForViews } from "./case-catalog.mjs";
+import {
+  listCatalogIssues,
+  listCatalogIssuesForViews,
+  loadCaseCatalog,
+} from "./case-catalog.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -86,7 +90,13 @@ const main = async () => {
     return;
   }
 
-  console.log("Perf case catalog ok (disk, imports, and cases array agree).");
+  const catalog = await loadCaseCatalog(repoRoot);
+  if (catalog.length === 0) {
+    throw new Error("Perf case catalog must contain at least one case.");
+  }
+  console.log(
+    `Perf case catalog ok (${catalog.length} metadata entries; disk, imports, and cases array agree).`,
+  );
 };
 
 main().catch((error) => {

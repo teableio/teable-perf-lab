@@ -157,7 +157,10 @@ export const listCatalogIssues = async (repoRoot) => {
 
   // Every registered case needs its same-name description markdown.
   for (const path of importedCasePathsSorted(registry)) {
-    if (disk.has(path) && !(await fileExists(join(repoRoot, getMarkdownPath(path))))) {
+    if (
+      disk.has(path) &&
+      !(await fileExists(join(repoRoot, getMarkdownPath(path))))
+    ) {
       add(
         "missing-markdown",
         getMarkdownPath(path),
@@ -173,7 +176,11 @@ export const listCatalogIssues = async (repoRoot) => {
 // views so the detector can be exercised against synthetic catalogs without
 // touching disk. Mirrors the consistency rules above except the markdown check
 // (which needs the filesystem).
-export const listCatalogIssuesForViews = ({ diskPaths, imports, arrayEntries }) => {
+export const listCatalogIssuesForViews = ({
+  diskPaths,
+  imports,
+  arrayEntries,
+}) => {
   const issues = [];
   const add = (type, detail) => issues.push({ type, detail });
   const disk = new Set(diskPaths);
@@ -196,4 +203,255 @@ export const listCatalogIssuesForViews = ({ diskPaths, imports, arrayEntries }) 
     if (!arrayNames.has(name)) add("import-not-in-array", name);
   }
   return issues;
+};
+
+const matchString = (source, pattern, label) => {
+  const match = source.match(pattern);
+  if (!match?.[1]) {
+    throw new Error(`Could not parse ${label}`);
+  }
+  return match[1];
+};
+
+const matchNumber = (source, pattern, label) => {
+  const value = Number(matchString(source, pattern, label).replace(/_/g, ""));
+  if (!Number.isFinite(value)) {
+    throw new Error(`Could not parse numeric ${label}`);
+  }
+  return value;
+};
+
+const parseScalar = (value) => {
+  const inlineList = value.match(/^\[(.*)\]$/);
+  if (inlineList) {
+    const items = inlineList[1].trim();
+    return items
+      ? items
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .map(parseScalar)
+      : [];
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return value.replace(/^["']|["']$/g, "");
+};
+
+export const parseCaseFrontmatter = (markdown) => {
+  if (!markdown.startsWith("---\n")) {
+    return {};
+  }
+  const endIndex = markdown.indexOf("\n---", 4);
+  if (endIndex === -1) {
+    return {};
+  }
+
+  const lines = markdown.slice(4, endIndex).split("\n");
+  const data = {};
+  let currentKey = "";
+  let flowSequence = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (flowSequence) {
+      flowSequence += ` ${trimmed}`;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+    if (currentKey && trimmed.startsWith("[")) {
+      flowSequence = trimmed;
+      if (trimmed.includes("]")) {
+        data[currentKey] = parseScalar(flowSequence);
+        flowSequence = "";
+      }
+      continue;
+    }
+    const listMatch = line.match(/^\s*-\s+(.+)$/);
+    if (listMatch && currentKey) {
+      data[currentKey] ??= [];
+      data[currentKey].push(parseScalar(listMatch[1].trim()));
+      continue;
+    }
+    const pairMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!pairMatch) {
+      continue;
+    }
+    currentKey = pairMatch[1];
+    const value = pairMatch[2].trim();
+    data[currentKey] = value === "" ? [] : parseScalar(value);
+  }
+  if (flowSequence) {
+    throw new Error(`Unterminated frontmatter list for ${currentKey}`);
+  }
+  return data;
+};
+
+export const parseCaseSeedAffinity = (caseSource) => {
+  const declarations = [...caseSource.matchAll(/^\s*seedAffinity\s*:/gm)];
+  const matches = [
+    ...caseSource.matchAll(/^\s*seedAffinity:\s*["']([^"']+)["'],?\s*$/gm),
+  ];
+  if (declarations.length > 1) {
+    throw new Error("seedAffinity must be declared at most once per case.");
+  }
+  if (declarations.length === 1 && matches.length !== 1) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  const seedAffinity = matches[0]?.[1];
+  if (seedAffinity != null && seedAffinity.trim().length === 0) {
+    throw new Error("seedAffinity must be a non-empty string literal.");
+  }
+  return seedAffinity;
+};
+
+export const parseCaseAcceptanceContract = (caseSource) => {
+  const routingDeclarations = [
+    ...caseSource.matchAll(/^\s*routingEvidence\s*:/gm),
+  ];
+  const routingMatches = [
+    ...caseSource.matchAll(
+      /^\s*routingEvidence:\s*["']not-applicable["'],?\s*$/gm,
+    ),
+  ];
+  if (
+    routingDeclarations.length > 1 ||
+    routingDeclarations.length !== routingMatches.length
+  ) {
+    throw new Error(
+      'routingEvidence must be declared at most once as "not-applicable".',
+    );
+  }
+
+  const skipDeclarations = [
+    ...caseSource.matchAll(/^\s*expectedSkipEngines\s*:/gm),
+  ];
+  const skipMatches = [
+    ...caseSource.matchAll(
+      /^\s*expectedSkipEngines:\s*\[((?:\s*["'](?:v1|v2)["']\s*,?)*)\],?\s*$/gm,
+    ),
+  ];
+  if (
+    skipDeclarations.length > 1 ||
+    skipDeclarations.length !== skipMatches.length
+  ) {
+    throw new Error(
+      "expectedSkipEngines must be declared at most once as a literal v1/v2 array.",
+    );
+  }
+  const expectedSkipEngines = skipMatches[0]
+    ? [
+        ...new Set(
+          [...skipMatches[0][1].matchAll(/["'](v1|v2)["']/g)].map(
+            (match) => match[1],
+          ),
+        ),
+      ]
+    : [];
+  if (skipMatches[0] && expectedSkipEngines.length === 0) {
+    throw new Error("expectedSkipEngines must not be empty.");
+  }
+  return {
+    ...(routingMatches.length === 1
+      ? { routingEvidence: "not-applicable" }
+      : {}),
+    ...(expectedSkipEngines.length > 0 ? { expectedSkipEngines } : {}),
+  };
+};
+
+export const parseCaseGoalSummary = (markdown, markdownPath) => {
+  const goalMatch = markdown.match(
+    /(?:^|\n)## Goal\s*\n([\s\S]*?)(?=\n## |\s*$)/,
+  );
+  if (!goalMatch) {
+    throw new Error(`Missing "## Goal" section: ${markdownPath}`);
+  }
+  const goalSummary = goalMatch[1]
+    .trim()
+    .split(/\n\s*\n/)[0]
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!goalSummary) {
+    throw new Error(`Empty "## Goal" section: ${markdownPath}`);
+  }
+  return goalSummary;
+};
+
+export const parseCaseSourceMetadata = (source, casePath) => {
+  const id = matchString(source, /id:\s*["']([^"']+)["']/, `${casePath} id`);
+  const expectedId = /^cases\/(.+)\.case\.ts$/.exec(casePath)?.[1];
+  if (!expectedId) {
+    throw new Error(`Unsupported registered case path: ${casePath}`);
+  }
+  if (id !== expectedId) {
+    throw new Error(
+      `${casePath} declares id ${id}; expected path-derived id ${expectedId}.`,
+    );
+  }
+  const seedAffinity = parseCaseSeedAffinity(source);
+  return {
+    id,
+    title: matchString(
+      source,
+      /title:\s*["']([^"']+)["']/,
+      `${casePath} title`,
+    ),
+    runner: matchString(
+      source,
+      /runner:\s*["']([^"']+)["']/,
+      `${casePath} runner`,
+    ),
+    timeoutMs: matchNumber(
+      source,
+      /timeoutMs:\s*([0-9_]+)/,
+      `${casePath} timeoutMs`,
+    ),
+    primaryMetric: matchString(
+      source,
+      /threshold:\s*{[\s\S]*?metric:\s*["']([^"']+)["'][\s\S]*?maxMs:/,
+      `${casePath} threshold metric`,
+    ),
+    primaryThresholdMs: matchNumber(
+      source,
+      /threshold:\s*{[\s\S]*?maxMs:\s*([0-9_]+)/,
+      `${casePath} threshold maxMs`,
+    ),
+    ...(seedAffinity ? { seedAffinity } : {}),
+    ...parseCaseAcceptanceContract(source),
+  };
+};
+
+export const loadCaseCatalog = async (repoRoot) => {
+  const issues = await listCatalogIssues(repoRoot);
+  if (issues.length > 0) {
+    throw new Error(
+      `Perf case catalog has ${issues.length} issue(s): ${issues
+        .map(({ type, detail }) => `${type}:${detail}`)
+        .join(", ")}`,
+    );
+  }
+
+  const registry = await loadRegistry(repoRoot);
+  return Promise.all(
+    registeredCasePathsInOrder(registry).map(async (casePath) => {
+      const markdownPath = getMarkdownPath(casePath);
+      const [source, markdown] = await Promise.all([
+        readText(join(repoRoot, casePath)),
+        readText(join(repoRoot, markdownPath)),
+      ]);
+      return {
+        casePath,
+        markdownPath,
+        ...parseCaseSourceMetadata(source, casePath),
+        goalSummary: parseCaseGoalSummary(markdown, markdownPath),
+        frontmatter: parseCaseFrontmatter(markdown),
+      };
+    }),
+  );
 };

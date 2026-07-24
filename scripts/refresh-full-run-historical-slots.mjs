@@ -3,16 +3,13 @@
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateHistoricalSlotRefreshInputs } from "./full-run-calibration-lifecycle.mjs";
 import {
   resolveFixtureAffinities,
   resolveFullRunCaseIds,
 } from "./full-run-shard-model.mjs";
 import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
 import { loadRegisteredCases } from "./run-plan.mjs";
-import {
-  buildCaseSetDigest,
-  SEED_CONTRACT_GENERATION,
-} from "./seed-cache-model.mjs";
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -26,60 +23,6 @@ const renderSlots = (slots) =>
   `{\n${Object.entries(slots)
     .map(([bundleId, slot]) => `  ${JSON.stringify(bundleId)}: ${slot},`)
     .join("\n")}\n}`;
-
-export const validateHistoricalSlotRefreshInputs = ({
-  sourceRunId,
-  calibration,
-  selectedCaseIds,
-}) => {
-  if (sourceRunId !== calibration.sourceRunId) {
-    throw new Error(
-      `Stable slots may only be refreshed from the validated calibration source ${calibration.sourceRunId}; got ${sourceRunId}.`,
-    );
-  }
-  const seedPlan = calibration.sourceSeedPlan;
-  if (!Array.isArray(seedPlan) || seedPlan.length === 0) {
-    throw new Error(
-      "Stable slots require a non-empty validated calibration source seed plan.",
-    );
-  }
-  const observedCaseIds = [];
-  const stableSlots = new Set();
-  for (const [index, shard] of seedPlan.entries()) {
-    const caseIds =
-      typeof shard.caseFilter === "string"
-        ? shard.caseFilter.split(",").filter(Boolean)
-        : [];
-    if (
-      !shard.name ||
-      !shard.stableSlot ||
-      caseIds.length === 0 ||
-      shard.seedContractGeneration !== SEED_CONTRACT_GENERATION ||
-      shard.caseSetDigest !== buildCaseSetDigest(caseIds)
-    ) {
-      throw new Error(
-        `Calibration source seed plan shard ${index + 1} has invalid plan identity.`,
-      );
-    }
-    if (stableSlots.has(shard.stableSlot)) {
-      throw new Error(
-        `Calibration source seed plan repeats stable slot ${shard.stableSlot}.`,
-      );
-    }
-    stableSlots.add(shard.stableSlot);
-    observedCaseIds.push(...caseIds);
-  }
-  if (
-    observedCaseIds.length !== new Set(observedCaseIds).size ||
-    observedCaseIds.slice().sort().join("\n") !==
-      selectedCaseIds.slice().sort().join("\n")
-  ) {
-    throw new Error(
-      "Calibration source seed plan does not exactly cover the current full-run case set.",
-    );
-  }
-  return seedPlan;
-};
 
 const main = async () => {
   if (!sourceRunId) {
