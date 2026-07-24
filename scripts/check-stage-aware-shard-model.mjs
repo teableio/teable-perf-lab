@@ -11,6 +11,8 @@ import {
   validateFullRunWarmCalibrationInputs,
   validateHistoricalSlotRefreshInputs,
 } from "./full-run-calibration-lifecycle.mjs";
+import { FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID } from "./full-run-execute-calibration.mjs";
+import { FULL_RUN_STABLE_PAUSED_CASE_IDS } from "./full-run-shard-model.mjs";
 import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
 import {
   buildCaseSetDigest,
@@ -48,9 +50,17 @@ assert.equal(
 );
 assert.equal(
   Object.keys(FULL_RUN_STAGE_CALIBRATION.caseCosts).length,
-  316,
-  "the trusted run must calibrate the complete default full selection",
+  Object.keys(FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID).length -
+    FULL_RUN_STABLE_PAUSED_CASE_IDS.length,
+  "the trusted calibration must cover the current default full selection",
 );
+for (const pausedCaseId of FULL_RUN_STABLE_PAUSED_CASE_IDS) {
+  assert.equal(
+    FULL_RUN_STAGE_CALIBRATION.caseCosts[pausedCaseId],
+    undefined,
+    `${pausedCaseId} must not contribute to the active stage plan`,
+  );
+}
 assert.equal(
   FULL_RUN_STAGE_CALIBRATION.caseCosts[
     "record-duplicate/single-500-checkbox-500fields"

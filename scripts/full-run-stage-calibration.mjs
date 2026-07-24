@@ -2,6 +2,14 @@
 // Warm provenance is added only after exact-hit status, result coverage, plan,
 // namespace, and commit identities match that cold source.
 import { FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID } from "./full-run-execute-calibration.mjs";
+import { FULL_RUN_STABLE_PAUSED_CASE_IDS } from "./full-run-shard-model.mjs";
+
+const pausedCaseIds = new Set(FULL_RUN_STABLE_PAUSED_CASE_IDS);
+const activeCaseCosts = Object.fromEntries(
+  Object.entries(FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID).filter(
+    ([caseId]) => !pausedCaseIds.has(caseId),
+  ),
+);
 
 export const FULL_RUN_STAGE_CALIBRATION = {
   sourceRunId: "29979412537",
@@ -105,5 +113,5 @@ export const FULL_RUN_STAGE_CALIBRATION = {
     v2HybridMs: 171798,
     traceMs: 28131,
   },
-  caseCosts: FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID,
+  caseCosts: activeCaseCosts,
 };

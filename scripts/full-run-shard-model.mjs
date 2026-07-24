@@ -321,6 +321,60 @@ export const FULL_RUN_SCALE_REPLACEMENTS = {
   "table-restore/10k-20f-link-1k": "table-restore/50k-20f-link-1k",
 };
 
+// Temporarily omit historically stable V2-fast cases from the default full
+// regression only. The evidence window is the latest ten complete 316-case
+// runs through 30080812828: every case below passed on both engines in all ten
+// runs and its worst paired V1 / V2 primary-metric ratio was at least 5x.
+// Cases stay registered and remain runnable through an exact case filter.
+export const FULL_RUN_STABLE_PAUSED_CASE_IDS = [
+  "csv-import/mixed-10k-20fields-create-table-import",
+  "csv-import/mixed-10k-20fields-inplace-import",
+  "field-create/10k-create-1-single-line-text-field",
+  "field-create/10k-create-10-checkbox-fields",
+  "field-create/10k-create-10-date-fields",
+  "field-create/10k-create-10-long-text-fields",
+  "field-create/10k-create-10-multiple-select-fields",
+  "field-create/10k-create-10-number-fields",
+  "field-create/10k-create-10-rating-fields",
+  "field-create/10k-create-10-single-line-text-fields",
+  "field-create/10k-create-10-single-select-fields",
+  "field-create/10k-create-20-single-line-text-fields",
+  "field-create/10k-create-5-simple-fields",
+  "field-create/50k-create-1-single-line-text-field",
+  "field-create/50k-create-10-checkbox-fields",
+  "field-create/50k-create-10-date-fields",
+  "field-create/50k-create-10-long-text-fields",
+  "field-create/50k-create-10-multiple-select-fields",
+  "field-create/50k-create-10-number-fields",
+  "field-create/50k-create-10-rating-fields",
+  "field-create/50k-create-10-single-line-text-fields",
+  "field-create/50k-create-10-single-select-fields",
+  "field-create/50k-create-20-single-line-text-fields",
+  "field-create/mixed-10k-create-19-fields",
+  "field-duplicate/10k-duplicate-amount-field",
+  "field-duplicate/10k-duplicate-assignee-field",
+  "field-duplicate/10k-duplicate-description-field",
+  "field-duplicate/10k-duplicate-many-many-link-field",
+  "field-duplicate/10k-duplicate-many-one-link-field",
+  "field-duplicate/10k-duplicate-one-many-one-way-link-field",
+  "field-duplicate/10k-duplicate-owner-text-field",
+  "field-duplicate/10k-duplicate-score-field",
+  "field-duplicate/10k-duplicate-status-field",
+  "field-duplicate/10k-duplicate-tags-field",
+  "field-duplicate/50k-duplicate-active-field",
+  "field-duplicate/50k-duplicate-amount-field",
+  "field-duplicate/50k-duplicate-description-field",
+  "field-duplicate/50k-duplicate-owner-text-field",
+  "field-duplicate/50k-duplicate-score-field",
+  "field-duplicate/50k-duplicate-start-date-field",
+  "field-duplicate/50k-duplicate-status-field",
+  "field-duplicate/50k-duplicate-tags-field",
+  "record-duplicate/grid-block-duplicate-1k",
+  "rollup/conditional-group-text-top3-10k",
+  "table-delete/10k-20f-link-detach",
+  "table-delete/30k-20f-link-detach",
+];
+
 export const validateFullRunScaleReplacements = ({
   allCaseIds,
   replacements = FULL_RUN_SCALE_REPLACEMENTS,
@@ -357,16 +411,58 @@ export const validateFullRunScaleReplacements = ({
   return issues;
 };
 
+export const validateFullRunStablePausedCaseIds = ({
+  allCaseIds,
+  pausedCaseIds = FULL_RUN_STABLE_PAUSED_CASE_IDS,
+  replacements = FULL_RUN_SCALE_REPLACEMENTS,
+}) => {
+  const registeredCaseIds = new Set(allCaseIds);
+  const replacementOmissions = new Set(Object.keys(replacements));
+  const seenPausedCaseIds = new Set();
+  const issues = [];
+
+  for (const caseId of pausedCaseIds) {
+    if (seenPausedCaseIds.has(caseId)) {
+      issues.push(`Full-run stable pause policy repeats case ${caseId}`);
+    }
+    seenPausedCaseIds.add(caseId);
+
+    if (!registeredCaseIds.has(caseId)) {
+      issues.push(
+        `Full-run stable pause policy references unknown case ${caseId}`,
+      );
+    }
+    if (replacementOmissions.has(caseId)) {
+      issues.push(
+        `Full-run stable pause policy repeats scale omission ${caseId}`,
+      );
+    }
+  }
+
+  return issues;
+};
+
 export const resolveFullRunCaseIds = ({
   allCaseIds,
   replacements = FULL_RUN_SCALE_REPLACEMENTS,
+  pausedCaseIds = FULL_RUN_STABLE_PAUSED_CASE_IDS,
 }) => {
-  const issues = validateFullRunScaleReplacements({ allCaseIds, replacements });
+  const issues = [
+    ...validateFullRunScaleReplacements({ allCaseIds, replacements }),
+    ...validateFullRunStablePausedCaseIds({
+      allCaseIds,
+      pausedCaseIds,
+      replacements,
+    }),
+  ];
   if (issues.length > 0) {
     throw new Error(issues.join("\n"));
   }
 
-  const omittedCaseIds = new Set(Object.keys(replacements));
+  const omittedCaseIds = new Set([
+    ...Object.keys(replacements),
+    ...pausedCaseIds,
+  ]);
   return allCaseIds.filter((caseId) => !omittedCaseIds.has(caseId));
 };
 
@@ -376,6 +472,10 @@ export const resolveFullRunCaseIds = ({
 // jobs.
 export const FULL_RUN_TARGET_CASES_PER_SHARD = 40;
 export const FULL_RUN_MAX_SHARD_COUNT = 8;
+// Keep the accepted eight stable cache slots while the stable-pause batch
+// changes only the selected cases. Higher counts remain available if the
+// calibrated SLO later requires more concurrency.
+export const FULL_RUN_STAGE_SHARD_COUNTS = [8, 9, 10, 11, 12];
 
 // A case has execution/trace overhead even when seed mode is effectively free.
 // Adding this baseline keeps seed-heavy LPT packing from producing pathological
