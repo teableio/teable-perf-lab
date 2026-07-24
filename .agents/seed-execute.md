@@ -295,7 +295,9 @@ entrypoint accepts only one complete all-cache-miss run whose seed/result
 payloads and stage observation agree; it rejects affinity drift and cross-shard
 physical duplicates before rewriting either calibration module.
 
-The planner simulates 6–12 shards and selects the lowest concurrency that meets
+The planner supports bounded shard simulation. The current full-run policy
+evaluates 8–12 shards to preserve the accepted eight stable cache slots and
+selects the lowest concurrency that meets
 the 45-minute cold and 25-minute warm SLOs without exceeding the modeled cold or
 warm path of the old scalar eight-shard assignment. Accepted affinity bundles
 retain historical stable slots only when stage load permits; every forced move

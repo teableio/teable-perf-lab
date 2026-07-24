@@ -7,6 +7,7 @@ import {
   resolveFixtureAffinities,
   resolveFullRunCaseIds,
   resolveFullRunShardCount,
+  FULL_RUN_STAGE_SHARD_COUNTS,
   validateFixtureAffinities,
   validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
@@ -374,6 +375,7 @@ export const resolveRunPlan = ({
         caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
         preferredSlotByBundle: FULL_RUN_HISTORICAL_BUNDLE_SLOTS,
         activeExecuteStages,
+        shardCounts: FULL_RUN_STAGE_SHARD_COUNTS,
         fixedCosts: FULL_RUN_STAGE_CALIBRATION.fixedCosts,
         baselineCaseShards: scalarBaselineShardPlan.caseShards,
       })
