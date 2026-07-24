@@ -9,6 +9,8 @@
 // fixture families declare seedAffinity in their case contract instead. The
 // planner merges both sources and rejects unknown, duplicated,
 // sync/hybrid-crossing, or post-plan split affinities.
+import { buildExecutionBundles } from "./execution-bundle-model.mjs";
+
 export const FULL_RUN_FIXTURE_AFFINITIES = [
   {
     id: "record-read/10k-50fields",
@@ -587,23 +589,20 @@ export const validateShardAffinityAssignments = ({
 };
 
 const buildBundles = (caseIds, affinities, caseWeight, caseCacheImpact) => {
-  const membership = affinityByCaseId(affinities);
-  const bundles = new Map();
-  caseIds.forEach((caseId, index) => {
-    const key = membership.get(caseId) ?? `case:${caseId}`;
-    const bundle = bundles.get(key) ?? {
-      id: key,
-      caseIds: [],
-      firstIndex: index,
+  const bundles = buildExecutionBundles({ caseIds, affinities }).map(
+    (bundle) => ({
+      ...bundle,
       weight: 0,
       cacheImpactMs: 0,
-    };
-    bundle.caseIds.push(caseId);
-    bundle.weight += caseWeight(caseId);
-    bundle.cacheImpactMs += caseCacheImpact(caseId);
-    bundles.set(key, bundle);
-  });
-  return [...bundles.values()].sort(
+    }),
+  );
+  for (const bundle of bundles) {
+    for (const caseId of bundle.caseIds) {
+      bundle.weight += caseWeight(caseId);
+      bundle.cacheImpactMs += caseCacheImpact(caseId);
+    }
+  }
+  return bundles.sort(
     (left, right) =>
       right.weight - left.weight ||
       right.caseIds.length - left.caseIds.length ||

@@ -1,3 +1,4 @@
+import { buildExecutionBundles } from "./execution-bundle-model.mjs";
 import { fullRunCaseSeedWeightMs } from "./full-run-shard-model.mjs";
 
 export const STAGE_COST_KEYS = [
@@ -68,39 +69,6 @@ const compareNumberVectors = (left, right) => {
   return 0;
 };
 
-const affinityMembership = ({ caseIds, hybridCaseIds, affinities }) => {
-  const selected = new Set(caseIds);
-  const hybrid = new Set(hybridCaseIds);
-  const membership = new Map();
-
-  for (const affinity of affinities) {
-    if (typeof affinity.id !== "string" || affinity.id.trim().length === 0) {
-      throw new Error("Fixture affinity id must be a non-empty string.");
-    }
-    const selectedCaseIds = affinity.caseIds.filter((caseId) =>
-      selected.has(caseId),
-    );
-    const modes = new Set(
-      selectedCaseIds.map((caseId) => (hybrid.has(caseId) ? "hybrid" : "sync")),
-    );
-    if (modes.size > 1) {
-      throw new Error(
-        `Fixture affinity ${affinity.id} crosses V2 sync and hybrid pools`,
-      );
-    }
-    for (const caseId of selectedCaseIds) {
-      const previous = membership.get(caseId);
-      if (previous) {
-        throw new Error(
-          `Case ${caseId} belongs to multiple fixture affinities: ${previous}, ${affinity.id}`,
-        );
-      }
-      membership.set(caseId, affinity.id);
-    }
-  }
-  return membership;
-};
-
 const resolveCaseStageCosts = ({
   caseId,
   hybrid,
@@ -145,10 +113,7 @@ export const buildAffinityStageBundles = ({
   defaultCaseCosts = DEFAULT_STAGE_CASE_COSTS,
   activeExecuteStages = EXECUTE_STAGE_KEYS,
 }) => {
-  if (new Set(caseIds).size !== caseIds.length) {
-    throw new Error("caseIds must not include duplicate case ids.");
-  }
-  const membership = affinityMembership({
+  const executionBundles = buildExecutionBundles({
     caseIds,
     hybridCaseIds,
     affinities,
@@ -156,39 +121,34 @@ export const buildAffinityStageBundles = ({
   const hybrid = new Set(hybridCaseIds);
   const normalizedActiveExecuteStages =
     normalizeActiveExecuteStages(activeExecuteStages);
-  const bundles = new Map();
-
-  caseIds.forEach((caseId, firstIndex) => {
-    const id = membership.get(caseId) ?? `case:${caseId}`;
-    const bundle = bundles.get(id) ?? {
-      id,
-      caseIds: [],
-      firstIndex,
-      stageCosts: emptyStageCosts(),
-      cacheImpactMs: 0,
-    };
-    const costs = resolveCaseStageCosts({
-      caseId,
-      hybrid: hybrid.has(caseId),
-      caseCosts,
-      defaultCaseCosts,
-      activeExecuteStages: normalizedActiveExecuteStages,
-    });
-    bundle.caseIds.push(caseId);
-    // A physical fixture is built once per affinity bundle. All measured case
-    // executions and trace evidence still run independently.
-    bundle.stageCosts.coldSeedMs = Math.max(
-      bundle.stageCosts.coldSeedMs,
-      costs.coldSeedMs,
-    );
-    for (const stage of STAGE_COST_KEYS.slice(1)) {
-      bundle.stageCosts[stage] += costs[stage];
+  const bundles = executionBundles.map((bundle) => ({
+    ...bundle,
+    stageCosts: emptyStageCosts(),
+    cacheImpactMs: 0,
+  }));
+  for (const bundle of bundles) {
+    for (const caseId of bundle.caseIds) {
+      const costs = resolveCaseStageCosts({
+        caseId,
+        hybrid: hybrid.has(caseId),
+        caseCosts,
+        defaultCaseCosts,
+        activeExecuteStages: normalizedActiveExecuteStages,
+      });
+      // A physical fixture is built once per affinity bundle. All measured case
+      // executions and trace evidence still run independently.
+      bundle.stageCosts.coldSeedMs = Math.max(
+        bundle.stageCosts.coldSeedMs,
+        costs.coldSeedMs,
+      );
+      for (const stage of STAGE_COST_KEYS.slice(1)) {
+        bundle.stageCosts[stage] += costs[stage];
+      }
+      bundle.cacheImpactMs = bundle.stageCosts.coldSeedMs;
     }
-    bundle.cacheImpactMs = bundle.stageCosts.coldSeedMs;
-    bundles.set(id, bundle);
-  });
+  }
 
-  return [...bundles.values()];
+  return bundles;
 };
 
 const addBundleCosts = ({ current, bundle, traceJobBudgetMs }) => {
