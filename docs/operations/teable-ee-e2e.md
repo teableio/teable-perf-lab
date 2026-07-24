@@ -94,7 +94,11 @@ fixture affinities in `scripts/full-run-shard-model.mjs`. Cases declaring the
 same affinity must use that identity in their runner seed contract and are
 treated as one indivisible physical-fixture bundle. Planning fails on duplicate
 declarations, unknown cases, V2 sync/hybrid crossings, or a final assignment
-that splits a bundle. The planner imports a complete case-level cold-seed,
+that splits a bundle. Before packing, the full-run selection policy omits
+scale-replaced and historically stable paused cases. Both groups stay in the
+registry and remain runnable through an exact `case_filter`.
+
+The planner imports a complete case-level cold-seed,
 V1/V2 execute, and trace-attribution envelope through trusted cold run
 `29957965247`, retaining larger observations from cold run `29951887405` and
 exact-hit warm run `29955363070`.
@@ -104,18 +108,19 @@ explicit default costs until a later trusted run recalibrates them.
 
 Each bundle has independent cold seed, V1, V2 sync, V2 hybrid, and trace costs.
 Shared-fixture seed cost is paid once using the bundle maximum; execute and trace
-costs remain per case. The planner simulates 6 through 12 shards, reports each
-candidate's critical shard and stage maxima, concurrency jobs, and cache movement,
-then selects the lowest concurrency that meets the 45-minute cold and 25-minute
-warm SLOs without regressing the modeled scalar baseline. The current calibrated
-catalog selects eight shards. Historical stable slots and cache reuse are
-secondary tie-breakers after stage load. The historical assignment covers both
-shared affinities and singleton bundles, so an unrelated catalog edit only moves
-the bundles needed to protect stage balance; cache movement includes every
-actual bundle move. Planning uses only the execute stages requested by
-`engine_filter` and `computed_update_mode`: a V1-only run has no V2 cost, while
-an explicitly unsplit V2 hybrid run prices every selected case in the hybrid
-stage.
+costs remain per case. The planner supports bounded shard simulation; the
+current full-run policy evaluates 8 through 12 shards to preserve the accepted
+eight stable cache slots, reports each candidate's critical shard and stage
+maxima, concurrency jobs, and cache movement, then selects the lowest
+concurrency that meets the 45-minute cold and 25-minute warm SLOs without
+regressing the modeled scalar baseline. The current calibrated catalog selects
+eight shards. Historical stable slots and cache reuse are secondary tie-breakers
+after stage load. The historical assignment covers both shared affinities and
+singleton bundles, so an unrelated catalog edit only moves the bundles needed
+to protect stage balance; cache movement includes every actual bundle move.
+Planning uses only the execute stages requested by `engine_filter` and
+`computed_update_mode`: a V1-only run has no V2 cost, while an explicitly
+unsplit V2 hybrid run prices every selected case in the hybrid stage.
 
 Seed, V1, V2 sync, and V2 hybrid all use the selected global slot mapping, so a
 shared fixture is built into exactly one seed dump and every case is selected

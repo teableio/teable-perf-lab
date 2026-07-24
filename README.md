@@ -52,11 +52,12 @@ ready.
   used after bounded job-tail collection finishes.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
-- `scripts/full-run-shard-model.mjs`: authoritative case-declared plus accepted
-  legacy fixture-affinity bundles and the scalar eight-shard baseline used to
-  reject a slower replacement plan.
+- `scripts/full-run-shard-model.mjs`: authoritative full-run selection policy,
+  including scale replacements and stable pauses, plus accepted legacy
+  fixture-affinity bundles and the scalar eight-shard baseline used to reject a
+  slower replacement plan.
 - `scripts/stage-aware-shard-model.mjs`: deterministic five-stage bundle
-  packing, 6–12 shard simulation, SLO selection, cache-movement accounting, and
+  packing, bounded shard simulation, SLO selection, cache-movement accounting, and
   predicted-versus-observed plan summaries.
 - `scripts/full-run-historical-bundle-slots.mjs`: accepted stage-aware
   eight-shard slots for every shared and singleton bundle, used to bound cache

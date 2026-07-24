@@ -11,6 +11,8 @@ import {
   FULL_RUN_FIXTURE_AFFINITIES,
   FULL_RUN_MAX_SHARD_COUNT,
   FULL_RUN_SCALE_REPLACEMENTS,
+  FULL_RUN_STAGE_SHARD_COUNTS,
+  FULL_RUN_STABLE_PAUSED_CASE_IDS,
   FULL_RUN_TARGET_CASES_PER_SHARD,
   planCaseIdsByFixtureAffinity,
   resolveFullRunCaseIds,
@@ -18,6 +20,7 @@ import {
   resolveFullRunShardCount,
   shardCaseIdsByFixtureAffinity,
   validateFullRunScaleReplacements,
+  validateFullRunStablePausedCaseIds,
   validateFixtureAffinities,
   validateShardAffinityAssignments,
 } from "./full-run-shard-model.mjs";
@@ -320,7 +323,7 @@ assert.equal(selectedFullRunShardCount, 8);
 assert.equal(defaultFullRunPlan.seedPlan.length, selectedFullRunShardCount);
 assert.deepEqual(
   defaultFullRunPlan.planSummary.stagePlan.candidateShardCounts,
-  [6, 7, 8, 9, 10, 11, 12],
+  FULL_RUN_STAGE_SHARD_COUNTS,
 );
 assert.equal(
   defaultFullRunPlan.planSummary.stagePlan.selectedShardCount,
@@ -445,13 +448,46 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.equal(legacyFullRunShardCount, 8);
+assert.equal(legacyFullRunShardCount, 7);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   expectedFullRunCaseIds.slice().sort(),
 );
 assert.equal(Object.keys(FULL_RUN_SCALE_REPLACEMENTS).length, 71);
-assert.equal(expectedFullRunCaseIds.length, allCaseIds.length - 71);
+assert.equal(FULL_RUN_STABLE_PAUSED_CASE_IDS.length, 46);
+assert.deepEqual(
+  validateFullRunStablePausedCaseIds({ allCaseIds }),
+  [],
+  "stable pause policy must reference unique registered cases",
+);
+assert.deepEqual(
+  validateFullRunStablePausedCaseIds({
+    allCaseIds,
+    pausedCaseIds: ["missing/case"],
+  }),
+  ["Full-run stable pause policy references unknown case missing/case"],
+);
+assert.deepEqual(
+  validateFullRunStablePausedCaseIds({
+    allCaseIds,
+    pausedCaseIds: [
+      FULL_RUN_STABLE_PAUSED_CASE_IDS[0],
+      FULL_RUN_STABLE_PAUSED_CASE_IDS[0],
+    ],
+  }),
+  [
+    `Full-run stable pause policy repeats case ${FULL_RUN_STABLE_PAUSED_CASE_IDS[0]}`,
+  ],
+);
+const [scaleOmittedCaseId] = Object.keys(FULL_RUN_SCALE_REPLACEMENTS);
+assert.deepEqual(
+  validateFullRunStablePausedCaseIds({
+    allCaseIds,
+    pausedCaseIds: [scaleOmittedCaseId],
+  }),
+  [`Full-run stable pause policy repeats scale omission ${scaleOmittedCaseId}`],
+);
+assert.equal(expectedFullRunCaseIds.length, allCaseIds.length - 71 - 46);
 for (const [omittedCaseId, replacementCaseId] of Object.entries(
   FULL_RUN_SCALE_REPLACEMENTS,
 )) {
@@ -479,6 +515,26 @@ assert.equal(
   "small-scale cases omitted from full runs must remain runnable by exact filter",
 );
 assert.equal(targetedOmittedCasePlan.caseFilterIsAll, false);
+for (const pausedCaseId of FULL_RUN_STABLE_PAUSED_CASE_IDS) {
+  assert.equal(
+    fullRunCaseShards.flat().includes(pausedCaseId),
+    false,
+    `${pausedCaseId} must be paused in full runs`,
+  );
+}
+const [targetedPausedCaseId] = FULL_RUN_STABLE_PAUSED_CASE_IDS;
+const targetedPausedCasePlan = resolveRunPlan({
+  engineFilter: "v1,v2",
+  caseFilter: targetedPausedCaseId,
+  computedUpdateMode: "",
+  allCaseIds,
+});
+assert.deepEqual(
+  targetedPausedCasePlan.executePlan.map(({ caseFilter }) => caseFilter),
+  [targetedPausedCaseId, targetedPausedCaseId],
+  "stable paused cases must remain runnable by exact filter",
+);
+assert.equal(targetedPausedCasePlan.caseFilterIsAll, false);
 const normalizedFullRunPlan = resolveRunPlan({
   engineFilter: "v1,v2",
   caseFilter: " ALL ",
@@ -567,7 +623,7 @@ const currentBundleIds = buildAffinityStageBundles({
   affinities: resolvedFullRunAffinities,
   caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
 }).map(({ id }) => id);
-assert.equal(currentBundleIds.length, 205);
+assert.equal(currentBundleIds.length, 185);
 assert.deepEqual(
   currentBundleIds.filter(
     (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,
