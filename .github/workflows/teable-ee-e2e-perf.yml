@@ -76,27 +76,29 @@ env:
   PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
   PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
-  # Each engine job performs this settle once in its bounded trace tail, after
-  # all measured case results are written. Traces that exist in Jaeger return
-  # within ~1s of the 5s settle. A trace
-  # still missing after this timeout will not appear later: it was dropped
-  # upstream before reaching Jaeger (root cause is engine-side and tracked
-  # separately). Polling longer only burns wall-clock. The collector selects
-  # one representative per semantic request shape, opens a partial-loss
-  # breaker after three misses, and allows one bounded recovery probe.
-  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
+  # Give delayed exports time to arrive without querying Jaeger aggressively.
+  # This does not recover spans already dropped by the engine BSP; the larger
+  # BSP queue below and the existing 1s background forceFlush reduce that risk.
+  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "10000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
-  PERF_LAB_TRACE_FETCH_CONCURRENCY: "8"
+  PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS: "4000"
+  PERF_LAB_TRACE_FETCH_POLL_MULTIPLIER: "2"
+  PERF_LAB_TRACE_FETCH_CONCURRENCY: "4"
   PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
   PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
-  PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
-  PERF_LAB_TRACE_JOB_BUDGET_MS: "60000"
+  PERF_LAB_TRACE_CASE_BUDGET_MS: "30000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "120000"
   # Stop network retrieval early enough to atomically reconcile every case's
   # payload, summary, and manifest inside the full job-tail lifecycle SLO.
   PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
+  # The engine's BatchSpanProcessor is single-exporter per process. Give its
+  # in-memory queue enough headroom for bursty perf cases instead of adding a
+  # separately deployed global gateway.
+  OTEL_BSP_MAX_QUEUE_SIZE: "4096"
+  OTEL_BSP_EXPORT_TIMEOUT: "60000"
   TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
   OTEL_EXPORT_RATIO: "1"
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g

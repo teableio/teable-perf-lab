@@ -35,6 +35,28 @@ const assertPositiveInteger = (value: number, label: string) => {
   }
 };
 
+export const getExponentialBackoffDelayMs = ({
+  attempt,
+  initialDelayMs,
+  maxDelayMs,
+  multiplier,
+}: {
+  attempt: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  multiplier: number;
+}) => {
+  assertPositiveInteger(attempt, "attempt");
+  assertPositiveInteger(initialDelayMs, "initialDelayMs");
+  assertPositiveInteger(maxDelayMs, "maxDelayMs");
+  assertPositiveInteger(multiplier, "multiplier");
+
+  return Math.min(
+    maxDelayMs,
+    Math.round(initialDelayMs * multiplier ** (attempt - 1)),
+  );
+};
+
 export const createTraceFetchControl = ({
   partialLossThreshold,
   recoveryProbeLimit,

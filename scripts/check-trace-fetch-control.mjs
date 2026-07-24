@@ -24,7 +24,18 @@ const modulePath = join(tempDir, "trace-fetch-control.mjs");
 
 try {
   await writeFile(modulePath, output.outputText);
-  const { createTraceFetchControl } = await import(pathToFileURL(modulePath));
+  const { createTraceFetchControl, getExponentialBackoffDelayMs } =
+    await import(pathToFileURL(modulePath));
+
+  const delays = Array.from({ length: 6 }, (_, index) =>
+    getExponentialBackoffDelayMs({
+      attempt: index + 1,
+      initialDelayMs: 500,
+      maxDelayMs: 4000,
+      multiplier: 2,
+    }),
+  );
+  assert.deepEqual(delays, [500, 1000, 2000, 4000, 4000, 4000]);
 
   const healthy = createTraceFetchControl({
     partialLossThreshold: 2,

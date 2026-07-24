@@ -334,8 +334,13 @@ outside a case's include pattern, replaced by a saved fallback trace, or covered
 by an already saved same-shape trace are also recorded as skipped so the manifest
 explains any intentional `traceRefCount > savedTraceCount` gap.
 
+The workflow gives the engine BatchSpanProcessor a 4,096-span queue and keeps
+the existing one-second background `forceFlush`, reducing burst-time queue
+drops without adding another deployed service. Trace retrieval uses four workers
+and polls with exponential backoff from 500 milliseconds up to 4 seconds.
+
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
-(15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (60 seconds). After
+(30 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). After
 `PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
 partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
 probe, then records the remaining refs as skipped instead of polling each one.
