@@ -11,6 +11,7 @@ import {
   buildRecordReplayPhaseName,
   deleteAllRowsViaSelectionDelete,
   undoLastOperation,
+  waitForDeleteReplayReady,
   waitForRowsRestored,
 } from "./record-replay.shared";
 
@@ -26,6 +27,7 @@ export const runRecordUndoCase = (
     operation: "undo",
     seedCodeFile: new URL(import.meta.url),
     runSetup: async ({ fixture, context, config }) => {
+      const deleteStartedAt = new Date();
       const deleteSetupMeasurement = await measureAsync(
         buildRecordReplayPhaseName("deleteSetup", config.rowCount),
         () => deleteAllRowsViaSelectionDelete(fixture, context),
@@ -34,7 +36,19 @@ export const runRecordUndoCase = (
         "deleteSetupVerify",
         () => assertDeleted(fixture),
       );
-      return { deleteSetupMeasurement, deleteSetupVerifyMeasurement };
+      const deleteReplayReadyMeasurement = await measureAsync(
+        "deleteReplayReady",
+        () =>
+          waitForDeleteReplayReady(fixture, context, deleteStartedAt, {
+            timeoutMs: config.verify.timeoutMs,
+            pollIntervalMs: config.verify.pollIntervalMs,
+          }),
+      );
+      return {
+        deleteSetupMeasurement,
+        deleteSetupVerifyMeasurement,
+        deleteReplayReadyMeasurement,
+      };
     },
     measuredOperation: ({ fixture, context, perfCase, config }) =>
       undoLastOperation(fixture, context, perfCase, config.threshold.metric),

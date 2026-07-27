@@ -23,6 +23,29 @@ const loadFixture = async (name) =>
     ),
   );
 
+const recordUndoRunnerSource = await readFile(
+  new URL("../framework/runners/record-undo.runner.ts", import.meta.url),
+  "utf8",
+);
+const deleteStartedAtIndex = recordUndoRunnerSource.indexOf(
+  "const deleteStartedAt = new Date();",
+);
+const deleteReplayReadyIndex = recordUndoRunnerSource.indexOf(
+  "waitForDeleteReplayReady(",
+);
+const measuredUndoIndex = recordUndoRunnerSource.indexOf("measuredOperation:");
+assert.ok(
+  deleteStartedAtIndex >= 0 &&
+    deleteReplayReadyIndex > deleteStartedAtIndex &&
+    measuredUndoIndex > deleteReplayReadyIndex,
+  "record-undo must wait for the delete replay snapshot before measuring undo",
+);
+assert.match(
+  recordUndoRunnerSource,
+  /return \{[\s\S]*deleteReplayReadyMeasurement[\s\S]*\};/,
+  "record-undo must preserve delete replay readiness evidence in its setup result",
+);
+
 const acceptanceExecutePlan = [
   {
     name: "v1-shard-1-of-1",
