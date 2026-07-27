@@ -11,7 +11,8 @@ existing `teable-ee` e2e harness:
    A full `case_filter=all` run instead prepares a stage-aware number of
    fixture-affinity seed shards in parallel.
 5. V1 and V2 execute jobs restore the matching shard dump into separate
-   Postgres containers and run in parallel through `@teable/backend-ee`.
+   Postgres containers and run through `@teable/backend-ee`, with at most eight
+   execute jobs running concurrently to bound shared OTLP exporter fan-in.
 
 This keeps the auth bootstrap, seed data, and Nest application startup aligned
 with the existing `teable-ee` e2e harness.

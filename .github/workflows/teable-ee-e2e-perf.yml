@@ -367,6 +367,9 @@ jobs:
     timeout-minutes: 180
     strategy:
       fail-fast: false
+      # Keep all planned shards, but bound simultaneous exporter fan-in to the
+      # shared OTLP endpoint.
+      max-parallel: 8
       matrix:
         plan: ${{ fromJSON(needs.resolve_inputs.outputs.execute_plan) }}
 
