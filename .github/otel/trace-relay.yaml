@@ -1,0 +1,44 @@
+extensions:
+  file_storage/trace_relay:
+    directory: /var/lib/otelcol/trace-relay
+    create_directory: true
+    fsync: true
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  otlp_http/jaeger:
+    traces_endpoint: ${env:PERF_LAB_OTEL_UPSTREAM_ENDPOINT}
+    timeout: 15s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 250ms
+      max_interval: 2s
+      max_elapsed_time: 55s
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      block_on_overflow: true
+      sizer: items
+      queue_size: 200000
+      storage: file_storage/trace_relay
+      batch:
+        flush_timeout: 100ms
+        min_size: 64
+        max_size: 64
+
+service:
+  extensions: [file_storage/trace_relay, health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_http/jaeger]
+  telemetry:
+    logs:
+      level: info

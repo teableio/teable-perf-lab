@@ -91,13 +91,13 @@ env:
   # payload, summary, and manifest inside the full job-tail lifecycle SLO.
   PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
+  PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
   # The engine's BatchSpanProcessor is single-exporter per process. Give its
   # in-memory queue enough headroom for bursty perf cases instead of adding a
   # separately deployed global gateway.
   OTEL_BSP_MAX_QUEUE_SIZE: "4096"
-  OTEL_BSP_MAX_EXPORT_BATCH_SIZE: "128"
   OTEL_BSP_EXPORT_TIMEOUT: "60000"
   TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
   OTEL_EXPORT_RATIO: "1"
@@ -375,6 +375,8 @@ jobs:
       CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+      OTEL_TRACE_RELAY_CONTAINER_NAME: otel-trace-relay-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
 
     steps:
       - name: Checkout perf lab
@@ -416,6 +418,39 @@ jobs:
             --if-exists \
             < "$PERF_LAB_SEED_DB_DUMP"
 
+      - name: Start job-local trace relay
+        run: |
+          set -euo pipefail
+
+          relay_root="${RUNNER_TEMP}/otel-trace-relay"
+          mkdir -p "${relay_root}/storage"
+
+          docker run --detach \
+            --name "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            --publish 127.0.0.1:4318:4318 \
+            --publish 127.0.0.1:13133:13133 \
+            --env "PERF_LAB_OTEL_UPSTREAM_ENDPOINT=${PERF_LAB_OTEL_UPSTREAM_ENDPOINT}" \
+            --volume "${GITHUB_WORKSPACE}/perf-lab/.github/otel/trace-relay.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+            --volume "${relay_root}/storage:/var/lib/otelcol:rw" \
+            ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0 \
+            --config=/etc/otelcol-contrib/config.yaml
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:13133/ >/dev/null; then
+              exit 0
+            fi
+            if ! docker inspect --format '{{.State.Running}}' "$OTEL_TRACE_RELAY_CONTAINER_NAME" |
+              grep -qx true; then
+              docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+          echo "Trace relay did not become healthy within 30 seconds." >&2
+          exit 1
+
       - name: Run perf cases through teable-ee e2e
         working-directory: teable-ee
         run: |
@@ -440,6 +475,26 @@ jobs:
             --config ./vitest-perf-lab.config.ts \
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false
+
+      - name: Stop job-local trace relay
+        if: always()
+        run: |
+          set -euo pipefail
+
+          artifact_dir="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+          mkdir -p "$artifact_dir"
+
+          if ! docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" >/dev/null 2>&1; then
+            echo "Trace relay container was not created." > "$artifact_dir/otel-trace-relay.log"
+            exit 0
+          fi
+
+          docker stop --timeout 60 "$OTEL_TRACE_RELAY_CONTAINER_NAME" || true
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay.log" 2>&1
+          docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay-inspect.json"
+          docker rm "$OTEL_TRACE_RELAY_CONTAINER_NAME"
 
       - name: Upload perf artifacts
         if: always()
