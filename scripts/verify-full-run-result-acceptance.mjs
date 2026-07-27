@@ -4,8 +4,32 @@ import { fileURLToPath } from "node:url";
 import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
 import { loadRegisteredCases } from "./run-plan.mjs";
 
-const TRACE_CASE_BUDGET_MS = 15_000;
-const TRACE_JOB_BUDGET_MS = 60_000;
+const DEFAULT_TRACE_CASE_BUDGET_MS = 15_000;
+const DEFAULT_TRACE_JOB_BUDGET_MS = 60_000;
+
+const positiveInteger = (value, label, fallback) => {
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return parsed;
+};
+
+export const resolveTraceAcceptanceBudgets = (env = process.env) => ({
+  caseBudgetMs: positiveInteger(
+    env.PERF_LAB_TRACE_CASE_BUDGET_MS,
+    "PERF_LAB_TRACE_CASE_BUDGET_MS",
+    DEFAULT_TRACE_CASE_BUDGET_MS,
+  ),
+  jobBudgetMs: positiveInteger(
+    env.PERF_LAB_TRACE_JOB_BUDGET_MS,
+    "PERF_LAB_TRACE_JOB_BUDGET_MS",
+    DEFAULT_TRACE_JOB_BUDGET_MS,
+  ),
+});
 
 const assertArray = (value, label) => {
   if (!Array.isArray(value)) {
@@ -134,7 +158,10 @@ const findRoutingAssertions = (value) => {
   );
 };
 
-const traceEvidenceIssues = (traceInput) => {
+const traceEvidenceIssues = (
+  traceInput,
+  { caseBudgetMs, jobBudgetMs },
+) => {
   const trace = assertRecord(traceInput, "payload trace evidence");
   const refs = assertArray(trace.refs, "payload trace evidence refs");
   const savedTraces = assertArray(
@@ -184,12 +211,12 @@ const traceEvidenceIssues = (traceInput) => {
     [
       "traceFetchCaseBudgetMs",
       trace.traceFetchCaseBudgetMs,
-      TRACE_CASE_BUDGET_MS,
+      caseBudgetMs,
     ],
     [
       "traceFetchJobBudgetMs",
       trace.traceFetchJobBudgetMs,
-      TRACE_JOB_BUDGET_MS,
+      jobBudgetMs,
     ],
   ];
   const issues = checks.flatMap(([field, actual, expected]) =>
@@ -293,23 +320,23 @@ const traceEvidenceIssues = (traceInput) => {
   if (
     !Number.isFinite(trace.traceFetchWaitMs) ||
     trace.traceFetchWaitMs < 0 ||
-    trace.traceFetchWaitMs > TRACE_CASE_BUDGET_MS
+    trace.traceFetchWaitMs > caseBudgetMs
   ) {
     issues.push({
       field: "traceFetchWaitMs",
       actual: trace.traceFetchWaitMs,
-      maximum: TRACE_CASE_BUDGET_MS,
+      maximum: caseBudgetMs,
     });
   }
   if (
     !Number.isFinite(trace.traceFetchJobWaitMs) ||
     trace.traceFetchJobWaitMs < 0 ||
-    trace.traceFetchJobWaitMs > TRACE_JOB_BUDGET_MS
+    trace.traceFetchJobWaitMs > jobBudgetMs
   ) {
     issues.push({
       field: "traceFetchJobWaitMs",
       actual: trace.traceFetchJobWaitMs,
-      maximum: TRACE_JOB_BUDGET_MS,
+      maximum: jobBudgetMs,
     });
   }
   if (trace.traceFetchBreakerState === "tail-error") {
@@ -326,6 +353,7 @@ export const evaluateFullRunResultAcceptance = ({
   payloadEntries,
   jobConclusions,
   caseContracts = [],
+  traceBudgets = resolveTraceAcceptanceBudgets({}),
 }) => {
   const expected = expectedResultIdentities(executePlan, caseContracts);
   const conclusions = assertRecord(jobConclusions, "jobConclusions");
@@ -424,6 +452,7 @@ export const evaluateFullRunResultAcceptance = ({
     try {
       issues = traceEvidenceIssues(
         payload.details?.observability?.traces,
+        traceBudgets,
       );
     } catch (error) {
       issues = [
@@ -493,6 +522,7 @@ const main = async () => {
       execute: requiredEnv("PERF_LAB_EXECUTE_RESULT"),
     },
     caseContracts,
+    traceBudgets: resolveTraceAcceptanceBudgets(),
   });
   console.log(JSON.stringify(evaluation, null, 2));
   if (!evaluation.passed) {

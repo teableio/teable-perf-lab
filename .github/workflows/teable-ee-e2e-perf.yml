@@ -76,18 +76,17 @@ env:
   PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
   PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
-  # Give delayed exports time to arrive without querying Jaeger aggressively.
-  # This does not recover spans already dropped by the engine BSP; the larger
-  # BSP queue below and the existing 1s background forceFlush reduce that risk.
-  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "10000"
+  # Bound retrieval for traces that never reached Jaeger. Exporter pressure is
+  # handled by the lower concurrency, backoff, and larger BSP queue below.
+  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
   PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS: "4000"
   PERF_LAB_TRACE_FETCH_POLL_MULTIPLIER: "2"
   PERF_LAB_TRACE_FETCH_CONCURRENCY: "4"
   PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
   PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
-  PERF_LAB_TRACE_CASE_BUDGET_MS: "30000"
-  PERF_LAB_TRACE_JOB_BUDGET_MS: "120000"
+  PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "60000"
   # Stop network retrieval early enough to atomically reconcile every case's
   # payload, summary, and manifest inside the full job-tail lifecycle SLO.
   PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
