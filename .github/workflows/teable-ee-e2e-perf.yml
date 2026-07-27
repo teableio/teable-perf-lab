@@ -97,6 +97,7 @@ env:
   # in-memory queue enough headroom for bursty perf cases instead of adding a
   # separately deployed global gateway.
   OTEL_BSP_MAX_QUEUE_SIZE: "4096"
+  OTEL_BSP_MAX_EXPORT_BATCH_SIZE: "128"
   OTEL_BSP_EXPORT_TIMEOUT: "60000"
   TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
   OTEL_EXPORT_RATIO: "1"
@@ -433,7 +434,7 @@ jobs:
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.plan.otelServiceSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
-          export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="0"
+          export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \
