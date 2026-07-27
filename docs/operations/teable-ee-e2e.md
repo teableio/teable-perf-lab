@@ -320,10 +320,11 @@ wait for Jaeger. After every case in the engine job completes,
 `perf-lab.e2e-spec.ts` performs one final exporter flush and one
 `PERF_LAB_TRACE_FETCH_SETTLE_MS` settle, then polls Jaeger at
 `/api/traces/<traceId>`. It writes raw JSON snapshots and replaces the pending
-trace block in each case payload, summary, and manifest. During a large case,
-the runner may still call the Teable OpenTelemetry SDK's force flush periodically
-with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans from accumulating in
-the batch processor. The workflow saves up to
+trace block in each case payload, summary, and manifest. The runner can
+optionally call the Teable OpenTelemetry SDK's force flush periodically with
+`PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`, but CI leaves this disabled and relies on
+the engine BatchSpanProcessor's scheduled exports plus the final job-tail flush.
+The workflow saves up to
 `PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
 with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
 automatically select one representative per semantic request shape (normalized
@@ -339,10 +340,11 @@ outside a case's include pattern, replaced by a saved fallback trace, or covered
 by an already saved same-shape trace are also recorded as skipped so the manifest
 explains any intentional `traceRefCount > savedTraceCount` gap.
 
-The workflow gives the engine BatchSpanProcessor a 4,096-span queue and keeps
-the existing one-second background `forceFlush`, reducing burst-time queue
-drops without adding another deployed service. Trace retrieval uses four workers
-and polls with exponential backoff from 500 milliseconds up to 4 seconds.
+The workflow gives the engine BatchSpanProcessor a 4,096-span queue and disables
+the additional background `forceFlush` so every execute job does not
+synchronously pressure both engine exporters once per second. Trace retrieval
+uses four workers and polls with exponential backoff from 500 milliseconds up
+to 4 seconds.
 
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
 (30 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). After

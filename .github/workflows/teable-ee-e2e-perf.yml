@@ -433,7 +433,7 @@ jobs:
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.plan.otelServiceSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
-          export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
+          export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="0"
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \
