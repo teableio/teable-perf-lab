@@ -341,14 +341,14 @@ explains any intentional `traceRefCount > savedTraceCount` gap.
 
 The workflow gives the engine BatchSpanProcessor a 4,096-span queue and keeps
 the one-second background `forceFlush`. Every execute job also starts an
-ephemeral OpenTelemetry Collector on `127.0.0.1:4318`. The job-local relay
-persists accepted batches to its runner disk, splits exports into at most 64
-spans, serializes upstream requests, and retries transient failures before
-forwarding to the shared Jaeger OTLP endpoint. The relay receives a graceful
-shutdown window and is removed with the job, so it does not require another
-managed deployment. Its logs and container state are included in the full perf
-artifact. Trace retrieval uses four workers and polls with exponential backoff
-from 500 milliseconds up to 4 seconds.
+ephemeral Jaeger all-in-one container. Teable exports to the job-local
+`127.0.0.1:4318` endpoint and trace collection queries its in-memory store at
+`127.0.0.1:16686`. The raw Jaeger responses are saved in the perf artifact
+before the container is removed, so full-run trace evidence does not depend on
+the availability or capacity of a separately managed shared collector. The
+container logs and state are included in the full perf artifact. Trace
+retrieval uses four workers and polls with exponential backoff from 500
+milliseconds up to 4 seconds.
 
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
 (30 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). After
