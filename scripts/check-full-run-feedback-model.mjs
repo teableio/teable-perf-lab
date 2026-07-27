@@ -13,7 +13,10 @@ import {
   evaluateSeedPlanStatusEvidence,
   resolveSeedPayloadProvenance,
 } from "./verify-full-run-seed-affinity.mjs";
-import { evaluateFullRunResultAcceptance } from "./verify-full-run-result-acceptance.mjs";
+import {
+  evaluateFullRunResultAcceptance,
+  resolveTraceAcceptanceBudgets,
+} from "./verify-full-run-result-acceptance.mjs";
 
 const loadFixture = async (name) =>
   JSON.parse(
@@ -22,6 +25,29 @@ const loadFixture = async (name) =>
       "utf8",
     ),
   );
+
+const recordUndoRunnerSource = await readFile(
+  new URL("../framework/runners/record-undo.runner.ts", import.meta.url),
+  "utf8",
+);
+const deleteStartedAtIndex = recordUndoRunnerSource.indexOf(
+  "const deleteStartedAt = new Date();",
+);
+const deleteReplayReadyIndex = recordUndoRunnerSource.indexOf(
+  "waitForDeleteReplayReady(",
+);
+const measuredUndoIndex = recordUndoRunnerSource.indexOf("measuredOperation:");
+assert.ok(
+  deleteStartedAtIndex >= 0 &&
+    deleteReplayReadyIndex > deleteStartedAtIndex &&
+    measuredUndoIndex > deleteReplayReadyIndex,
+  "record-undo must wait for the delete replay snapshot before measuring undo",
+);
+assert.match(
+  recordUndoRunnerSource,
+  /return \{[\s\S]*deleteReplayReadyMeasurement[\s\S]*\};/,
+  "record-undo must preserve delete replay readiness evidence in its setup result",
+);
 
 const acceptanceExecutePlan = [
   {
@@ -75,6 +101,20 @@ const acceptedPayloadEntries = acceptanceExecutePlan.flatMap((plan) =>
     },
   })),
 );
+assert.deepEqual(resolveTraceAcceptanceBudgets({}), {
+  caseBudgetMs: 15_000,
+  jobBudgetMs: 60_000,
+});
+assert.deepEqual(
+  resolveTraceAcceptanceBudgets({
+    PERF_LAB_TRACE_CASE_BUDGET_MS: "30000",
+    PERF_LAB_TRACE_JOB_BUDGET_MS: "120000",
+  }),
+  {
+    caseBudgetMs: 30_000,
+    jobBudgetMs: 120_000,
+  },
+);
 assert.equal(
   evaluateFullRunResultAcceptance({
     executePlan: acceptanceExecutePlan,
@@ -86,6 +126,47 @@ assert.equal(
     },
   }).passed,
   true,
+);
+const configuredBudgetPayloads = structuredClone(acceptedPayloadEntries);
+for (const { payload } of configuredBudgetPayloads) {
+  const trace = payload.details.observability.traces;
+  trace.traceFetchCaseBudgetMs = 30_000;
+  trace.traceFetchJobBudgetMs = 120_000;
+  trace.traceFetchWaitMs = 20_000;
+  trace.traceFetchJobWaitMs = 90_000;
+}
+assert.equal(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: configuredBudgetPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+    traceBudgets: {
+      caseBudgetMs: 30_000,
+      jobBudgetMs: 120_000,
+    },
+  }).passed,
+  true,
+  "result acceptance must validate artifacts against the configured trace budgets",
+);
+assert.deepEqual(
+  evaluateFullRunResultAcceptance({
+    executePlan: acceptanceExecutePlan,
+    payloadEntries: configuredBudgetPayloads,
+    jobConclusions: {
+      resolveInputs: "success",
+      seed: "success",
+      execute: "success",
+    },
+    traceBudgets: {
+      caseBudgetMs: 15_000,
+      jobBudgetMs: 60_000,
+    },
+  }).failures.map(({ code }) => code),
+  ["trace-evidence-incomplete"],
 );
 const acceptedMissingTracePayloads = structuredClone(acceptedPayloadEntries);
 const missingTrace =
