@@ -12,14 +12,19 @@ The shapes are authoritative as of the framework source:
 
 ## Which artifact to download
 
-Each execute job (one per engine) uploads two artifacts. See the artifact name
-list in [../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.md).
+Each execute job uploads full and lightweight pre-publication artifacts. The
+report job uploads one reconciled artifact after shared-Jaeger verification.
+See the artifact name list in
+[../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.md).
 
 - `teable-ee-e2e-perf-results-v*-<run>-<attempt>` — lightweight, the default the
-  report job resolves. Contains everything except the raw Jaeger snapshots.
-  Use this for metrics, thresholds, routing, summaries, and trace counts.
-- `teable-ee-e2e-perf-v*-<run>-<attempt>` — full. Everything above **plus** the
-  raw per-trace snapshot JSON. Only pull this when you must read span-level data.
+  report job resolves. It includes the filtered OTLP payload and
+  `pending-shared-publish` manifests.
+- `teable-ee-e2e-perf-v*-<run>-<attempt>` — full execute diagnostics, including
+  spool summary, Collector logs, metrics, and state.
+- `teable-ee-e2e-perf-reconciled-results-<run>-<attempt>` — final payloads,
+  summaries, and manifests after serialized publication. Use this for accepted
+  trace counts and links.
 
 ## Layout
 
@@ -27,10 +32,11 @@ list in [../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.m
 <artifact-root>/
   <case-id>-<engine>.json                 # payload (results + full artifact)
   summary-<case-id>-<engine>.md           # GitHub summary (results + full)
+  selected-traces-summary.json            # local spool reduction metrics
+  selected-traces.otlp.jsonl              # selected OTLP (execute artifacts only)
   traces/
     <case-id>-<engine>/
       manifest.json                       # trace summary (results + full)
-      <step-id>-<trace-id>.json           # raw Jaeger snapshot (FULL artifact only)
 ```
 
 `<case-id>` and `<engine>` are sanitized: non `[A-Za-z0-9_.-]` runs become `-`,
@@ -41,8 +47,10 @@ so `formula/10k-calc` + `v2` → `formula-10k-calc-v2`.
 The primary file. One per case+engine. Trace counts are duplicated inline here
 (see `details.observability.traces`), so most checks never need `manifest.json`.
 The case first writes a `pending-job-tail` trace block; the engine job tail
-rewrites only that block after bounded collection, leaving metrics, business
-details, routing evidence, result, and measured duration unchanged.
+records `pending-shared-publish` after selecting evidence, and the report job
+rewrites only that block after serialized shared-Jaeger publication. Metrics,
+business details, routing evidence, result, and measured duration stay
+unchanged.
 
 ```json
 {
@@ -114,13 +122,14 @@ uses `tail-error` wherever the artifact directory remains writable.
   "traceRefCount": 37,
   "uniqueTraceCount": 21,
   "selectedTraceCount": 21,
+  "selectedTraceIds": ["0af7651916cd43dd8448eb211c80319c"],
   "savedTraceCount": 20,
   "failedTraceCount": 1,
   "skippedTraceCount": 16,
   "missingFetchCount": 1,
   "wastedFetchMs": 3000,
   "traceFetchCaseBudgetMs": 15000,
-  "traceFetchJobBudgetMs": 60000,
+  "traceFetchJobBudgetMs": 120000,
   "traceFetchWaitMs": 8120,
   "traceFetchJobWaitMs": 42100,
   "traceFetchBreakerState": "partial-loss",
@@ -133,6 +142,8 @@ uses `tail-error` wherever the artifact directory remains writable.
   "backgroundFlushCount": 12,
   "backgroundFlushErrorCount": 0,
   "flushDurationMs": 512,
+  "sharedPublishTraceCount": 21,
+  "sharedPublishSpanCount": 8421,
   "traceFetchSkippedReason": null,
   "jaegerApiBaseUrl": "http://host:16686",
   "artifactDir": "traces/formula-10k-calc-v2",
@@ -192,6 +203,12 @@ captured ref.
 the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.
 
+`selectedTraceIds` is the exact publication allowlist generated in the execute
+job. `sharedPublishTraceCount` and `sharedPublishSpanCount` record what the
+single report job serialized to shared Jaeger. The execute artifact also carries
+`selected-traces-summary.json` and `selected-traces.otlp.jsonl`; the latter is
+excluded from the final reconciled artifact after publication.
+
 `traceFetchWaitMs` is the case-attributed wait capped by
 `traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is the actual cumulative elapsed
 tail time observed when that manifest is finalized. It is compared with
@@ -200,54 +217,32 @@ work cannot hide an SLO overrun. A non-`closed`
 `traceFetchBreakerState` plus `traceFetchBreakerReason` preserves why retrieval
 stopped. `partial-loss` can recover through a bounded probe;
 `traceFetchRecoverySucceeded` records that transition. `pending-job-tail` means
-the measured result exists but trace finalization did not complete;
-`tail-error` means finalization or its artifact rewrite failed without deleting
-that result. Artifact replacement uses same-directory temporary files and atomic
-rename, so interruption keeps the previous valid JSON instead of truncating it.
+the measured result exists but local trace selection did not complete;
+`pending-shared-publish` means selection completed but the report job has not
+published/reconciled it yet. `tail-error` means finalization or its artifact
+rewrite failed without deleting that result. Artifact replacement uses
+same-directory temporary files and atomic rename, so interruption keeps the
+previous valid JSON instead of truncating it.
 
-## `traces/<case-id>-<engine>/<step-id>-<trace-id>.json` — raw Jaeger snapshot
-
-Full artifact only. This is the verbatim Jaeger `/api/traces/<id>` response and
-is the heavy part of the artifact. Open it only for span-level debugging.
-
-```json
-{
-  "data": [
-    {
-      "traceID": "0af7651916cd43dd8448eb211c80319c",
-      "spans": [
-        {
-          "spanID": "b7ad6b7169203331",
-          "operationName": "POST /api/table/:id/field",
-          "duration": 1234,
-          "tags": []
-        }
-      ],
-      "processes": { "p1": { "serviceName": "teable-perf-v2" } }
-    }
-  ],
-  "total": 0,
-  "limit": 0,
-  "offset": 0,
-  "errors": null
-}
-```
+Raw Jaeger snapshots are no longer copied into execute artifacts. Use a saved
+`refs[].traceLink` for the long-lived UI view or query the shared Jaeger API by
+that trace ID when span-level JSON is required.
 
 ## What to read for a given question
 
-| Question                           | Field                                                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Did the case pass?                 | `result`; per gate `thresholds[].passed`                                                                  |
-| Primary metric value vs. budget    | `thresholds[0].actual` vs `thresholds[0].max` (`thresholds[0].metric` names it)                           |
-| All measured numbers               | `metrics`                                                                                                 |
-| Phase breakdown                    | `phases[]`                                                                                                |
-| V1/V2 routed correctly?            | `details.routing.routeMatched`, `.actualV2Header`, `.feature`                                             |
-| Failure detail                     | `error.message`, `error.stack`                                                                            |
-| Trace capture health               | `details.observability.traces.{traceRefCount,savedTraceCount,failedTraceCount,skippedTraceCount}`         |
-| Why a trace was not saved          | `details.observability.traces.savedTraces[]` where `status` is `error`/`missing`/`skipped` (read `error`) |
-| Open a trace in the Jaeger UI      | any `refs[].traceLink`                                                                                    |
-| Span-level timings (full artifact) | `traces/<case>-<engine>/<step>-<trace>.json` → `.data[0].spans`                                           |
-| Trace service unavailable          | `details.observability.traces.traceFetchSkippedReason`                                                    |
+| Question                        | Field                                                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Did the case pass?              | `result`; per gate `thresholds[].passed`                                                                  |
+| Primary metric value vs. budget | `thresholds[0].actual` vs `thresholds[0].max` (`thresholds[0].metric` names it)                           |
+| All measured numbers            | `metrics`                                                                                                 |
+| Phase breakdown                 | `phases[]`                                                                                                |
+| V1/V2 routed correctly?         | `details.routing.routeMatched`, `.actualV2Header`, `.feature`                                             |
+| Failure detail                  | `error.message`, `error.stack`                                                                            |
+| Trace capture health            | `details.observability.traces.{traceRefCount,savedTraceCount,failedTraceCount,skippedTraceCount}`         |
+| Why a trace was not saved       | `details.observability.traces.savedTraces[]` where `status` is `error`/`missing`/`skipped` (read `error`) |
+| Open a trace in the Jaeger UI   | any `refs[].traceLink`                                                                                    |
+| Span-level timings              | Open `refs[].traceLink`, or query shared Jaeger `/api/traces/<traceId>`                                   |
+| Trace service unavailable       | `details.observability.traces.traceFetchSkippedReason`                                                    |
 
 ## jq quick paths
 

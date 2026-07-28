@@ -87,6 +87,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               traceRefCount?: number;
               uniqueTraceCount?: number;
               selectedTraceCount?: number;
+              selectedTraceIds?: string[];
               savedTraceCount?: number;
               failedTraceCount?: number;
               skippedTraceCount?: number;
@@ -108,6 +109,17 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               backgroundFlushLastError?: string;
               flushDurationMs?: number;
               flushError?: string;
+              relayDrainDurationMs?: number;
+              relayDrainPollCount?: number;
+              relayDrainQueueSize?: number;
+              relayDrainInFlightRequests?: number;
+              relayDrainAcceptedSpans?: number;
+              relayDrainSentSpans?: number;
+              relayDrainEnqueueFailedSpans?: number;
+              relayDrainSendFailedSpans?: number;
+              relayDrainError?: string;
+              sharedPublishTraceCount?: number;
+              sharedPublishSpanCount?: number;
               traceFetchSkippedReason?: string;
               manifestPath?: string;
               artifactDir?: string;
@@ -128,10 +140,26 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| captured refs | ${traces.traceRefCount ?? 0} |`,
       `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
       `| selected for fetch | ${traces.selectedTraceCount ?? 0} |`,
+      `| published to shared Jaeger | ${
+        traces.sharedPublishTraceCount == null
+          ? "pending"
+          : `${traces.sharedPublishTraceCount} traces · ${
+              traces.sharedPublishSpanCount ?? 0
+            } spans`
+      } |`,
       `| max JSON snapshots | ${traces.maxSnapshotCount ?? 0} |`,
       `| fetch concurrency | ${traces.fetchConcurrency ?? 0} |`,
       `| OTEL flush duration | ${
         traces.flushDurationMs == null ? "n/a" : `${traces.flushDurationMs} ms`
+      } |`,
+      `| relay drain | ${
+        traces.relayDrainDurationMs == null
+          ? "n/a"
+          : `${traces.relayDrainDurationMs} ms · ${
+              traces.relayDrainPollCount ?? 0
+            } polls · ${traces.relayDrainSentSpans ?? 0}/${
+              traces.relayDrainAcceptedSpans ?? 0
+            } spans sent`
       } |`,
       `| saved JSON traces | ${traces.savedTraceCount ?? 0} |`,
       `| failed trace fetches | ${traces.failedTraceCount ?? 0} |`,
@@ -192,6 +220,19 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     }
     if (traces.flushError) {
       lines.push(`| OTEL flush error | \`${traces.flushError}\` |`);
+    }
+    if (traces.relayDrainError) {
+      lines.push(`| relay drain error | \`${traces.relayDrainError}\` |`);
+    }
+    if (
+      traces.relayDrainEnqueueFailedSpans ||
+      traces.relayDrainSendFailedSpans
+    ) {
+      lines.push(
+        `| relay exporter failures | enqueue ${
+          traces.relayDrainEnqueueFailedSpans ?? 0
+        } · send ${traces.relayDrainSendFailedSpans ?? 0} |`,
+      );
     }
     if (traces.traceFetchSkippedReason) {
       lines.push(
