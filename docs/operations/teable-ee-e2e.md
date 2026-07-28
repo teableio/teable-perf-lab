@@ -324,10 +324,12 @@ all spans for one trace into one OTLP object, and uploads only that selected
 payload. Seed jobs disable trace sampling because their traces are not report
 evidence.
 
-The single report job downloads all selected payloads and publishes one trace
-per request to shared Jaeger with a fixed interval. This is the only workflow
-stage that writes to shared `4318`, so execute-job completion cannot create a
-21-writer burst. After a settle, the report job verifies every selected trace at
+The single report job downloads all selected payloads and publishes them to
+shared Jaeger with a fixed interval. OTLP requests are capped at 1 MB; an
+oversized trace is split by spans across multiple requests that retain the same
+trace ID. This is the only workflow stage that writes to shared `4318`, so
+execute-job completion cannot create a 21-writer burst. After a settle, the
+report job verifies every selected trace at
 `/api/traces/<traceId>`, retries missing traces once, and atomically replaces the
 pending trace block in each downloaded payload, summary, and manifest. The
 reconciled lightweight results are uploaded as a separate workflow artifact.

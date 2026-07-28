@@ -173,10 +173,11 @@ shards for `case_filter=all`):
 - Each case writes its measured result before trace publication. Execute jobs
   spool OTLP traces to runner-local disk, select representative trace IDs after
   all cases finish, and upload only those traces. The single report job publishes
-  selected traces to shared Jaeger at a fixed rate, verifies them, then rewrites
-  only the trace block in each payload and summary. Jaeger latency does not
-  inflate case duration, and 21 execute jobs never write to shared `4318`
-  concurrently.
+  selected traces to shared Jaeger at a fixed rate using requests capped at
+  1 MB, splitting an oversized trace without changing its trace ID. It verifies
+  them, then rewrites only the trace block in each payload and summary. Jaeger
+  latency does not inflate case duration, and 21 execute jobs never write to
+  shared `4318` concurrently.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload

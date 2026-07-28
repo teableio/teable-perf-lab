@@ -7,6 +7,7 @@ import { prepareSelectedTraceSpool } from "../scripts/prepare-selected-traces.mj
 import {
   buildPublishedTraceSummary,
   publishAndReconcileSelectedTraces,
+  splitSelectedTracePayload,
 } from "../scripts/publish-selected-traces.mjs";
 
 const traceA = "11111111111111111111111111111111";
@@ -197,6 +198,56 @@ test("reconciles selected publication outcomes without losing ref accounting", (
   assert.equal(summary.traceFetchBreakerState, "partial-loss");
 });
 
+test("splits an oversized trace into bounded OTLP requests with the same trace id", () => {
+  const payload = {
+    resourceSpans: [
+      {
+        resource: { attributes: [{ key: "service.name", value: "teable" }] },
+        scopeSpans: [
+          {
+            scope: { name: "test" },
+            spans: Array.from({ length: 6 }, (_, index) => ({
+              traceId: traceA,
+              spanId: String(index).padStart(16, "0"),
+              attributes: [{ key: "payload", value: "x".repeat(250) }],
+            })),
+          },
+        ],
+      },
+    ],
+  };
+  const selected = {
+    traceId: traceA,
+    spanCount: 6,
+    payload,
+    body: JSON.stringify(payload),
+    sourcePath: "selected-traces.otlp.jsonl",
+  };
+  const maxRequestBytes = 800;
+  const chunks = splitSelectedTracePayload(selected, maxRequestBytes);
+
+  assert.ok(chunks.length > 1);
+  assert.equal(
+    chunks.reduce((sum, chunk) => sum + chunk.spanCount, 0),
+    selected.spanCount,
+  );
+  for (const chunk of chunks) {
+    assert.ok(Buffer.byteLength(chunk.body) <= maxRequestBytes);
+    assert.deepEqual(
+      [
+        ...new Set(
+          chunk.payload.resourceSpans.flatMap((resource) =>
+            resource.scopeSpans.flatMap((scope) =>
+              scope.spans.map((span) => span.traceId),
+            ),
+          ),
+        ),
+      ],
+      [traceA],
+    );
+  }
+});
+
 test("publishes selected OTLP traces serially and reconciles downloaded artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "selected-trace-publish-"));
   const artifactDir = join(root, "downloaded");
@@ -209,7 +260,14 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (init?.method === "POST" && url === `${baseUrl}/v1/traces`) {
-      const payload = JSON.parse(String(init.body));
+      const body = String(init.body);
+      if (Buffer.byteLength(body) > 800) {
+        return Response.json(
+          { code: 3, message: "http: request body too large" },
+          { status: 400 },
+        );
+      }
+      const payload = JSON.parse(body);
       const { traceId } = payload.resourceSpans[0].scopeSpans[0].spans[0];
       published.add(traceId);
       requests.push(traceId);
@@ -291,7 +349,11 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
           {
             scopeSpans: [
               {
-                spans: [{ traceId: traceA, spanId: "aaaaaaaaaaaaaaaa" }],
+                spans: Array.from({ length: 6 }, (_, index) => ({
+                  traceId: traceA,
+                  spanId: String(index).padStart(16, "a"),
+                  attributes: [{ key: "payload", value: "x".repeat(250) }],
+                })),
               },
             ],
           },
@@ -305,12 +367,15 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
       jaegerApiBaseUrl: baseUrl,
       outputPath: join(root, "trace-publish.json"),
       intervalMs: 0,
+      maxRequestBytes: 800,
       settleMs: 0,
       fetchTimeoutMs: 100,
       fetchConcurrency: 1,
     });
     assert.equal(result.savedTraceCount, 1);
-    assert.deepEqual(requests, [traceA]);
+    assert.ok(requests.length > 1);
+    assert.deepEqual(new Set(requests), new Set([traceA]));
+    assert.equal(result.publishRequestCount, requests.length);
 
     const payload = JSON.parse(
       await readFile(join(resultDir, "case-v1.json"), "utf8"),

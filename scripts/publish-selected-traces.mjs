@@ -61,6 +61,106 @@ const traceIdsAndSpanCount = (payload) => {
   return { traceIds: [...traceIds], spanCount };
 };
 
+const jsonBytes = (value) => Buffer.byteLength(JSON.stringify(value));
+
+const buildScopePayload = ({ resourceSpans, scopeSpans, spans }) => ({
+  resourceSpans: [
+    {
+      ...resourceSpans,
+      scopeSpans: [
+        {
+          ...scopeSpans,
+          spans,
+        },
+      ],
+    },
+  ],
+});
+
+const splitScopeSpans = ({
+  resourceSpans,
+  scopeSpans,
+  maxRequestBytes,
+  traceId,
+}) => {
+  const spans = scopeSpans?.spans ?? [];
+  const chunks = [];
+  let start = 0;
+  while (start < spans.length) {
+    let low = start + 1;
+    let high = spans.length;
+    let acceptedEnd = start;
+    let acceptedPayload;
+    let acceptedBody;
+    while (low <= high) {
+      const end = Math.floor((low + high) / 2);
+      const payload = buildScopePayload({
+        resourceSpans,
+        scopeSpans,
+        spans: spans.slice(start, end),
+      });
+      const body = JSON.stringify(payload);
+      if (Buffer.byteLength(body) <= maxRequestBytes) {
+        acceptedEnd = end;
+        acceptedPayload = payload;
+        acceptedBody = body;
+        low = end + 1;
+      } else {
+        high = end - 1;
+      }
+    }
+    if (acceptedEnd === start) {
+      const singleSpanBytes = jsonBytes(
+        buildScopePayload({
+          resourceSpans,
+          scopeSpans,
+          spans: spans.slice(start, start + 1),
+        }),
+      );
+      throw new Error(
+        `Trace ${traceId} contains a single span that exceeds the ${maxRequestBytes}-byte OTLP request limit (${singleSpanBytes} bytes).`,
+      );
+    }
+    chunks.push({
+      payload: acceptedPayload,
+      body: acceptedBody,
+      spanCount: acceptedEnd - start,
+    });
+    start = acceptedEnd;
+  }
+  return chunks;
+};
+
+export const splitSelectedTracePayload = (selected, maxRequestBytes) => {
+  if (Buffer.byteLength(selected.body) <= maxRequestBytes) {
+    return [{ ...selected, chunkIndex: 0, chunkCount: 1 }];
+  }
+  const chunks = [];
+  for (const resourceSpans of selected.payload?.resourceSpans ?? []) {
+    for (const scopeSpans of resourceSpans?.scopeSpans ?? []) {
+      chunks.push(
+        ...splitScopeSpans({
+          resourceSpans,
+          scopeSpans,
+          maxRequestBytes,
+          traceId: selected.traceId,
+        }),
+      );
+    }
+  }
+  if (chunks.length === 0) {
+    throw new Error(
+      `Trace ${selected.traceId} exceeds the OTLP request limit but contains no spans to split.`,
+    );
+  }
+  return chunks.map((chunk, chunkIndex) => ({
+    ...selected,
+    ...chunk,
+    chunkIndex,
+    chunkCount: chunks.length,
+  }));
+};
+
 const loadSelectedPayloads = async (artifactDir) => {
   const payloads = new Map();
   for (const path of await findFiles(
@@ -89,6 +189,7 @@ const loadSelectedPayloads = async (artifactDir) => {
       payloads.set(traceId, {
         traceId,
         spanCount,
+        payload,
         body: line,
         sourcePath: path,
       });
@@ -129,17 +230,21 @@ const publishSequentially = async ({
   endpoint,
   selectedPayloads,
   intervalMs,
+  maxRequestBytes,
 }) => {
   const startedAt = Date.now();
   let requestCount = 0;
   let spanCount = 0;
   for (const selected of selectedPayloads) {
-    await postTrace({ endpoint, selected });
-    requestCount += 1;
-    spanCount += selected.spanCount;
-    if (intervalMs > 0) {
-      await delay(intervalMs);
+    const chunks = splitSelectedTracePayload(selected, maxRequestBytes);
+    for (const chunk of chunks) {
+      await postTrace({ endpoint, selected: chunk });
+      requestCount += 1;
+      if (intervalMs > 0) {
+        await delay(intervalMs);
+      }
     }
+    spanCount += selected.spanCount;
   }
   return {
     traceCount: selectedPayloads.length,
@@ -355,6 +460,7 @@ export const publishAndReconcileSelectedTraces = async ({
   jaegerApiBaseUrl,
   outputPath,
   intervalMs,
+  maxRequestBytes = 1_000_000,
   settleMs,
   fetchTimeoutMs,
   fetchConcurrency,
@@ -367,6 +473,7 @@ export const publishAndReconcileSelectedTraces = async ({
     endpoint,
     selectedPayloads,
     intervalMs,
+    maxRequestBytes,
   });
   await delay(settleMs);
 
@@ -399,6 +506,7 @@ export const publishAndReconcileSelectedTraces = async ({
       endpoint,
       selectedPayloads: initiallyMissing,
       intervalMs,
+      maxRequestBytes,
     });
     await delay(Math.min(settleMs, 3_000));
     const recovered = await runWithConcurrency(
@@ -440,6 +548,7 @@ export const publishAndReconcileSelectedTraces = async ({
       initialPublish.requestCount + recoveryPublish.requestCount,
     publishDurationMs: initialPublish.durationMs + recoveryPublish.durationMs,
     publishIntervalMs: intervalMs,
+    maxRequestBytes,
     recoveryPublishTraceCount: recoveryPublish.traceCount,
     fetchDurationMs: fetchJobWaitMs,
     manifestCount: manifests.length,
@@ -477,6 +586,11 @@ const main = async () => {
       process.env.PERF_LAB_TRACE_PUBLISH_INTERVAL_MS,
       50,
       "PERF_LAB_TRACE_PUBLISH_INTERVAL_MS",
+    ),
+    maxRequestBytes: positiveInteger(
+      process.env.PERF_LAB_TRACE_PUBLISH_MAX_REQUEST_BYTES,
+      1_000_000,
+      "PERF_LAB_TRACE_PUBLISH_MAX_REQUEST_BYTES",
     ),
     settleMs: positiveInteger(
       process.env.PERF_LAB_TRACE_PUBLISH_SETTLE_MS,
