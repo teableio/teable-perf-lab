@@ -9,6 +9,50 @@ import { fileURLToPath } from "node:url";
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
+const REDACTED_SPAN_ATTRIBUTE_KEYS = new Set(["db.postgresql.values"]);
+
+export const redactSelectedTraceAttributes = (payload) => {
+  let redactedAttributeCount = 0;
+  let redactedAttributeBytes = 0;
+
+  for (const resourceSpans of payload?.resourceSpans ?? []) {
+    for (const scopeSpans of resourceSpans?.scopeSpans ?? []) {
+      for (const span of scopeSpans?.spans ?? []) {
+        if (!Array.isArray(span?.attributes)) {
+          continue;
+        }
+        const retainedAttributes = [];
+        let spanRedactedAttributeCount = 0;
+        for (const attribute of span.attributes) {
+          if (
+            isRecord(attribute) &&
+            REDACTED_SPAN_ATTRIBUTE_KEYS.has(attribute.key)
+          ) {
+            redactedAttributeCount += 1;
+            spanRedactedAttributeCount += 1;
+            redactedAttributeBytes += Buffer.byteLength(
+              JSON.stringify(attribute),
+            );
+          } else {
+            retainedAttributes.push(attribute);
+          }
+        }
+        if (spanRedactedAttributeCount === 0) {
+          continue;
+        }
+        span.attributes = retainedAttributes;
+        const existingDroppedCount = Number(span.droppedAttributesCount);
+        span.droppedAttributesCount =
+          (Number.isInteger(existingDroppedCount) && existingDroppedCount >= 0
+            ? existingDroppedCount
+            : 0) + spanRedactedAttributeCount;
+      }
+    }
+  }
+
+  return { redactedAttributeCount, redactedAttributeBytes };
+};
+
 const findFiles = async (root, fileName) => {
   const matches = [];
   const visit = async (directory) => {
@@ -126,6 +170,13 @@ export const prepareSelectedTraceSpool = async ({ spoolPath, artifactDir }) => {
   const missingTraceIds = [...selectedTraceIds].filter(
     (traceId) => !payloadsByTraceId.has(traceId),
   );
+  let redactedAttributeCount = 0;
+  let redactedAttributeBytes = 0;
+  for (const payload of payloadsByTraceId.values()) {
+    const redaction = redactSelectedTraceAttributes(payload);
+    redactedAttributeCount += redaction.redactedAttributeCount;
+    redactedAttributeBytes += redaction.redactedAttributeBytes;
+  }
   const selectedPayloads = [...payloadsByTraceId]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([traceId, payload]) => ({ traceId, payload }));
@@ -147,6 +198,8 @@ export const prepareSelectedTraceSpool = async ({ spoolPath, artifactDir }) => {
     missingTraceIds,
     rawSpanCount,
     selectedSpanCount,
+    redactedAttributeCount,
+    redactedAttributeBytes,
     outputPath: basename(outputPath),
     outputBytes: Buffer.byteLength(output ? `${output}\n` : ""),
   };
@@ -189,6 +242,7 @@ const main = async () => {
         `- selected traces: ${summary.foundTraceCount}/${summary.selectedTraceCount}`,
         `- selected spans: ${summary.selectedSpanCount}/${summary.rawSpanCount}`,
         `- selected bytes: ${summary.outputBytes}/${summary.spoolBytes}`,
+        `- redacted span attributes: ${summary.redactedAttributeCount} (${summary.redactedAttributeBytes} bytes)`,
         `- artifact: \`${relative(process.cwd(), summary.outputPath)}\``,
         "",
       ].join("\n"),

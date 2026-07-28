@@ -3,7 +3,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { prepareSelectedTraceSpool } from "../scripts/prepare-selected-traces.mjs";
+import {
+  prepareSelectedTraceSpool,
+  redactSelectedTraceAttributes,
+} from "../scripts/prepare-selected-traces.mjs";
 import {
   buildPublishedTraceSummary,
   publishAndReconcileSelectedTraces,
@@ -116,6 +119,115 @@ test("keeps every span for selected traces and writes one OTLP object per trace"
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("removes PostgreSQL bind values while preserving trace evidence", () => {
+  const payload = {
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            spans: [
+              {
+                traceId: traceA,
+                spanId: "aaaaaaaaaaaaaaaa",
+                droppedAttributesCount: 2,
+                attributes: [
+                  {
+                    key: "db.postgresql.values",
+                    value: {
+                      arrayValue: {
+                        values: [
+                          { stringValue: "record snapshot" },
+                          { stringValue: "another value" },
+                        ],
+                      },
+                    },
+                  },
+                  {
+                    key: "db.statement",
+                    value: { stringValue: "INSERT INTO record_trash ..." },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = redactSelectedTraceAttributes(payload);
+  const span = payload.resourceSpans[0].scopeSpans[0].spans[0];
+
+  assert.equal(result.redactedAttributeCount, 1);
+  assert.ok(result.redactedAttributeBytes > 0);
+  assert.equal(span.droppedAttributesCount, 3);
+  assert.deepEqual(
+    span.attributes.map((attribute) => attribute.key),
+    ["db.statement"],
+  );
+  assert.equal(span.traceId, traceA);
+  assert.equal(span.spanId, "aaaaaaaaaaaaaaaa");
+});
+
+test("makes a multi-megabyte PostgreSQL span publishable without changing its identity", () => {
+  const payload = {
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            spans: [
+              {
+                traceId: traceA,
+                spanId: "bbbbbbbbbbbbbbbb",
+                name: "pg.query:INSERT e2e_test_teable",
+                attributes: [
+                  {
+                    key: "db.postgresql.values",
+                    value: {
+                      arrayValue: {
+                        values: [{ stringValue: "x".repeat(5_970_000) }],
+                      },
+                    },
+                  },
+                  {
+                    key: "db.statement",
+                    value: { stringValue: "y".repeat(240_000) },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const oversized = {
+    traceId: traceA,
+    spanCount: 1,
+    payload,
+    body: JSON.stringify(payload),
+    sourcePath: "selected-traces.otlp.jsonl",
+  };
+
+  assert.throws(
+    () => splitSelectedTracePayload(oversized, 1_000_000),
+    /single span that exceeds/,
+  );
+
+  const result = redactSelectedTraceAttributes(payload);
+  const redacted = { ...oversized, body: JSON.stringify(payload) };
+  const chunks = splitSelectedTracePayload(redacted, 1_000_000);
+
+  assert.equal(result.redactedAttributeCount, 1);
+  assert.ok(result.redactedAttributeBytes > 5_970_000);
+  assert.equal(chunks.length, 1);
+  assert.ok(Buffer.byteLength(chunks[0].body) < 1_000_000);
+  assert.equal(
+    chunks[0].payload.resourceSpans[0].scopeSpans[0].spans[0].traceId,
+    traceA,
+  );
 });
 
 test("fails when a selected trace is absent from the local spool", async () => {
