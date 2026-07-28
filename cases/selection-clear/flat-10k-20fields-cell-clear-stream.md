@@ -43,6 +43,9 @@ local and CI history establishes the 10k envelope.
 - The stream must report 10,000 processed rows.
 - All 10,000 rows must remain present.
 - A paged full scan must prove every projected cell is empty.
+- V2 verification retries only transient HTTP 500 responses with exponential
+  backoff inside one shared 15-second budget, allowing response-triggered
+  background work to drain without changing `clear10kMs`.
 
 ## Notes
 

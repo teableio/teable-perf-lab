@@ -26,6 +26,7 @@ import {
 } from "../seed-cache";
 import { perfStreamSse } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
+import { retryTransientHttp500 } from "../transient-http-retry";
 import type {
   PerfCaseFor,
   PerfCase,
@@ -495,23 +496,46 @@ const clearAllCells = async (
 const assertCellsCleared = async (
   fixture: ClearFixture,
   config: SelectionClearCaseConfig,
+  context: PerfRunContext,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
   const sampleRowOffsets = new Set(config.verify.sampleRows);
   const verifiedSamples = [];
+  const retryBudgetMs = 15_000;
+  const retryStartedAt = Date.now();
+  let transientHttp500RetryCount = 0;
 
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
       totalRows: config.rowCount,
       pageSize,
-      fetchPage: (skip, take) =>
-        getRecords(fixture.tableId, {
-          viewId: fixture.viewId,
-          fieldKeyType: FieldKeyType.Id,
-          projection: fixture.projection,
-          skip,
-          take,
-        }),
+      fetchPage: (skip, take) => {
+        const fetchRecords = () =>
+          getRecords(fixture.tableId, {
+            viewId: fixture.viewId,
+            fieldKeyType: FieldKeyType.Id,
+            projection: fixture.projection,
+            skip,
+            take,
+          });
+        if (context.engine !== "v2") {
+          return fetchRecords();
+        }
+
+        const remainingRetryBudgetMs = Math.max(
+          0,
+          retryBudgetMs - (Date.now() - retryStartedAt),
+        );
+        return retryTransientHttp500(fetchRecords, {
+          timeoutMs: remainingRetryBudgetMs,
+          onRetry: ({ attempt, delayMs }) => {
+            transientHttp500RetryCount += 1;
+            console.warn(
+              `[perf-lab] selection-clear verification page retry skip=${skip} attempt=${attempt} delayMs=${delayMs}`,
+            );
+          },
+        });
+      },
     },
     (record, rowNumber) => {
       const actual: Record<string, unknown> = {};
@@ -545,6 +569,7 @@ const assertCellsCleared = async (
     scannedRecords,
     pageSize,
     pageCount,
+    transientHttp500RetryCount,
     verifiedSamples,
   };
 };
@@ -830,7 +855,7 @@ const runSelectionClearMeasuredOperation = async (
       measureAsync("clear", () => clearAllCells(fixture, perfCase, context)),
   );
   const verifyMeasurement = await measureAsync("verify", () =>
-    assertCellsCleared(fixture, config),
+    assertCellsCleared(fixture, config, context),
   );
   return {
     name: clearMeasurement.name,
@@ -970,6 +995,7 @@ export const seedSelectionClearCase = async (
         scannedRecords: seedReadyMeasurement.result.scannedRecords,
         pageSize: seedReadyMeasurement.result.pageSize,
         pageCount: seedReadyMeasurement.result.pageCount,
+        transientHttp500RetryCount: 0,
         verifiedSamples: seedReadyMeasurement.result.verifiedSamples.map(
           ({ rowOffset, rowNumber, recordId, actual }) => ({
             rowOffset,
