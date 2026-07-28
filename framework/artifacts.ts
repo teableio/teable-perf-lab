@@ -87,6 +87,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               traceRefCount?: number;
               uniqueTraceCount?: number;
               selectedTraceCount?: number;
+              selectedTraceIds?: string[];
               savedTraceCount?: number;
               failedTraceCount?: number;
               skippedTraceCount?: number;
@@ -117,6 +118,8 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
               relayDrainEnqueueFailedSpans?: number;
               relayDrainSendFailedSpans?: number;
               relayDrainError?: string;
+              sharedPublishTraceCount?: number;
+              sharedPublishSpanCount?: number;
               traceFetchSkippedReason?: string;
               manifestPath?: string;
               artifactDir?: string;
@@ -137,6 +140,13 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| captured refs | ${traces.traceRefCount ?? 0} |`,
       `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
       `| selected for fetch | ${traces.selectedTraceCount ?? 0} |`,
+      `| published to shared Jaeger | ${
+        traces.sharedPublishTraceCount == null
+          ? "pending"
+          : `${traces.sharedPublishTraceCount} traces · ${
+              traces.sharedPublishSpanCount ?? 0
+            } spans`
+      } |`,
       `| max JSON snapshots | ${traces.maxSnapshotCount ?? 0} |`,
       `| fetch concurrency | ${traces.fetchConcurrency ?? 0} |`,
       `| OTEL flush duration | ${

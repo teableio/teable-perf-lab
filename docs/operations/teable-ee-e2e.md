@@ -235,9 +235,8 @@ a skip.
 Filtered runs upload `teable-ee-e2e-perf-seed-seed-<run>-<attempt>` and
 `teable-ee-e2e-perf-seed-db-seed-<run>`. Full runs upload one pair per shard,
 for example `teable-ee-e2e-perf-seed-shard-1-of-N-<run>-<attempt>` and
-`teable-ee-e2e-perf-seed-db-shard-1-of-N-<run>`. The execute jobs upload two
-artifacts per engine: a lightweight results artifact for normal checks and a
-full artifact for raw Jaeger trace debugging.
+`teable-ee-e2e-perf-seed-db-shard-1-of-N-<run>`. The execute jobs upload a
+lightweight publication input and a full local-spool diagnostic artifact.
 
 Lightweight results artifacts (default for the report job and routine
 downloads) use the engine suffix for filtered runs:
@@ -256,21 +255,19 @@ scripts consume:
   thresholds, and phases, including trace collection manifest details.
 - `summary-<case-id>-<engine>.md`: compact GitHub summary for that result.
 - `traces/<case-id>-<engine>/manifest.json`: trace refs captured from response
-  headers and the list of Jaeger snapshots saved for the run.
+  headers and the exact selected trace IDs awaiting publication.
+- `selected-traces.otlp.jsonl`: one OTLP JSON object per selected trace.
+- `selected-traces-summary.json`: local raw-versus-selected span and byte counts.
 
-Full artifacts (kept for deep debugging and to preserve old links) follow the
-same suffix rule:
+Full execute diagnostic artifacts follow the same suffix rule:
 
 - `teable-ee-e2e-perf-v1-<run>-<attempt>`
 - `teable-ee-e2e-perf-v2-<run>-<attempt>`
 
-Each full artifact contains everything in the results artifact plus the heavy
-raw Jaeger snapshots:
-
-- `traces/<case-id>-<engine>/<step>-<trace-id>.json`: raw Jaeger trace snapshots
-  for selected requests. Download the full artifact only when you need to
-  inspect these raw snapshots; the results artifact is enough for metrics,
-  summaries, and manifest counts.
+They also contain Collector logs, metrics, and container state. After
+publication, the report job uploads
+`teable-ee-e2e-perf-reconciled-results-<run>-<attempt>` with final payloads,
+summaries, and manifests; the OTLP publication input is excluded.
 
 The report job resolves artifacts independently per logical execute and seed
 shard. It chooses that shard's newest run attempt, preferring the lightweight
@@ -306,8 +303,8 @@ snapshot) plus a "what to read for X" cheat sheet, see
 
 ## Trace collection
 
-The workflow exports traces to the shared Jaeger service. Its endpoints and the
-`OTEL_*` / `TRACE_LINK_BASE_URL` values are defined once in
+The workflow publishes selected traces to the shared Jaeger service. Its
+endpoints and the `OTEL_*` / `TRACE_LINK_BASE_URL` values are defined once in
 [trace-viewer.md](trace-viewer.md) and set in the workflow env; do not restate
 the endpoint URLs here.
 
@@ -316,68 +313,50 @@ the endpoint URLs here.
 response headers from OpenAPI axios calls and from raw SSE/fetch stream
 requests that use the perf SSE helper. A case snapshots those refs and writes
 its measured payload plus a `pending-job-tail` manifest immediately; it does not
-wait for Jaeger. After every case in the engine job completes,
-`perf-lab.e2e-spec.ts` performs one final exporter flush and one
-`PERF_LAB_TRACE_FETCH_SETTLE_MS` settle, then polls Jaeger at
-`/api/traces/<traceId>`. It writes raw JSON snapshots and replaces the pending
-trace block in each case payload, summary, and manifest. During a large case,
-the runner calls the Teable OpenTelemetry SDK's force flush periodically with
-`PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans from accumulating in the
-batch processor. The workflow saves up to
-`PERF_LAB_TRACE_MAX_SNAPSHOTS` sampled raw JSON traces per case and fetches them
-with `PERF_LAB_TRACE_FETCH_CONCURRENCY` workers. Repeated GET and POST requests
-automatically select one representative per semantic request shape (normalized
-step, method, URL shape, and request-body structure); all captured refs remain in
-the manifest. Cases may still set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow
-which shapes are eligible. If a selected representative trace is sampled but
-cannot be fetched from Jaeger, cases may set
-`PERF_LAB_TRACE_FALLBACK_STEP_PATTERN` to try a bounded number of same-shape
-sampled fallback refs before recording a failed fetch. Refs with an unsampled
-`traceparent` are kept in the manifest but skipped for Jaeger fetch because
-those traces are not expected to be stored. Sampled refs above the snapshot cap,
-outside a case's include pattern, replaced by a saved fallback trace, or covered
-by an already saved same-shape trace are also recorded as skipped so the manifest
-explains any intentional `traceRefCount > savedTraceCount` gap.
+wait for Jaeger.
 
-The workflow gives the engine BatchSpanProcessor a 4,096-span queue and keeps
-the one-second background `forceFlush`. Every execute job also starts an
-ephemeral OpenTelemetry Collector on `127.0.0.1:4318`. The job-local relay
-persists accepted batches to runner disk, serializes upstream requests, and
-retries transient failures while forwarding to the shared Jaeger OTLP endpoint.
-After the engine SDK flushes, the job-tail lifecycle waits until the relay
-reports an empty sending queue, zero in-flight requests, no exporter failures,
-and equal accepted/sent span counters for two consecutive polls. Only then does
-it query the shared Jaeger API and save raw snapshots. This preserves the
-long-lived shared Jaeger links while preventing a job from finishing before its
-own exporter queue drains. Relay queue state, span counters, failure counters,
-logs, metrics, and container state remain available in the artifacts. Trace
-retrieval uses four workers and polls with exponential backoff from 500
-milliseconds up to 4 seconds.
+Every execute job starts an ephemeral OpenTelemetry Collector on
+`127.0.0.1:4318`. The Collector writes OTLP JSON to runner-local disk and never
+forwards execution traffic to shared Jaeger. After all cases finish, the engine
+flushes once and the manifest moves to `pending-shared-publish`. The job stops
+the Collector, filters the local spool to the exact `selectedTraceIds`, groups
+all spans for one trace into one OTLP object, and uploads only that selected
+payload. Seed jobs disable trace sampling because their traces are not report
+evidence.
 
-Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
-(15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). The relay drain
-uses at most 45 seconds inside that job budget. After
-`PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
-partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
-probe, then records the remaining refs as skipped instead of polling each one.
-An unavailable exporter records `exporter-outage`; an unavailable Jaeger query
-path opens `hard-outage` immediately.
+The single report job downloads all selected payloads and publishes one trace
+per request to shared Jaeger with a fixed interval. This is the only workflow
+stage that writes to shared `4318`, so execute-job completion cannot create a
+21-writer burst. After a settle, the report job verifies every selected trace at
+`/api/traces/<traceId>`, retries missing traces once, and atomically replaces the
+pending trace block in each downloaded payload, summary, and manifest. The
+reconciled lightweight results are uploaded as a separate workflow artifact.
+The shared Jaeger links remain long-lived while unselected spans never leave the
+ephemeral runner.
+
+During a large case, the runner calls the Teable OpenTelemetry SDK's force
+flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans
+from accumulating in the batch processor. Repeated GET and POST requests select
+one representative per semantic request shape (normalized step, method, URL
+shape, and request-body structure); all captured refs remain in the manifest.
+Cases may still set `PERF_LAB_TRACE_INCLUDE_STEP_PATTERN` to narrow eligible
+shapes. Refs that are unsampled, above the snapshot cap, outside the include
+pattern, duplicates, or covered by another selected representative are recorded
+as skipped so the manifest explains any intentional
+`traceRefCount > savedTraceCount` gap.
+
+Shared trace verification has two independent bounds:
+`PERF_LAB_TRACE_CASE_BUDGET_MS` (15 seconds) and
+`PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). A selected trace still missing
+after the recovery publication fails the trace-publication step.
 `traceFetchWaitMs`, `traceFetchJobWaitMs`, breaker state/reason, recovery-probe
 counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
-manifest and case summary. These bounds reduce evidence-collection overhead;
-the job bound includes the shared final flush and settle. A case budget only
-stops that case; the job budget and partial-loss breaker are shared by the whole
-tail, so remaining refs receive an explicit skipped reason.
-`PERF_LAB_TRACE_FINALIZE_RESERVE_MS` reserves the final 5 seconds of the job
-budget for atomic raw/manifest/payload writes; network retrieval closes before
-that reserve. The job-tail lifecycle includes both trace retrieval and the
-payload/summary/manifest reconciliation. `traceFetchJobWaitMs` records its real
-elapsed time rather than clamping an overrun to the configured budget, so an SLO
-miss remains visible.
+manifest and case summary.
 If the process stops before finalization, the provisional `pending-job-tail`
-state explains the incomplete evidence. Payloads, summaries, raw snapshots, and
-manifests use same-directory temporary files plus atomic rename. A reconciliation
-failure retries every writable result/summary/manifest as one `tail-error` set;
+state explains the incomplete evidence. `pending-shared-publish` means local
+selection succeeded but the report job has not reconciled shared Jaeger yet.
+Payloads, summaries, and manifests use same-directory temporary files plus
+atomic rename.
 an unrecoverable filesystem failure leaves the prior valid file rather than a
 truncated performance result. These bounds do not hide missing-trace warnings
 or disable sampling. Stream artifacts

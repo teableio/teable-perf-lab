@@ -46,6 +46,7 @@ export interface PerfTraceArtifactSummary {
   traceRefCount: number;
   uniqueTraceCount: number;
   selectedTraceCount: number;
+  selectedTraceIds: string[];
   savedTraceCount: number;
   failedTraceCount: number;
   skippedTraceCount: number;
@@ -80,6 +81,8 @@ export interface PerfTraceArtifactSummary {
   relayDrainEnqueueFailedSpans?: number;
   relayDrainSendFailedSpans?: number;
   relayDrainError?: string;
+  sharedPublishTraceCount?: number;
+  sharedPublishSpanCount?: number;
   traceFetchSkippedReason?: string;
   artifactDir?: string;
   manifestPath?: string;
@@ -724,7 +727,10 @@ export const withPerfTraceStep = <T>(
   );
 
 type TraceArtifactTerminalSkip = {
-  state: Extract<TraceFetchArtifactState, "pending-job-tail" | "tail-error">;
+  state: Extract<
+    TraceFetchArtifactState,
+    "pending-job-tail" | "pending-shared-publish" | "tail-error"
+  >;
   reason: string;
 };
 
@@ -806,6 +812,7 @@ export const writeTraceArtifacts = async ({
       })
     : undefined;
   const selectedRefs = evidencePolicy?.selectedRefs ?? [];
+  const selectedTraceIds = new Set(selectedRefs.map((ref) => ref.traceId));
   const savedTraceIds = new Set<string>();
   const failedTraceIds = new Set<string>();
   const fallbackTraceIds = new Set<string>();
@@ -815,6 +822,7 @@ export const writeTraceArtifacts = async ({
     traceRefCount: capturedRunRefs.length,
     uniqueTraceCount: runRefs.length,
     selectedTraceCount: selectedRefs.length,
+    selectedTraceIds: [...selectedTraceIds],
     savedTraceCount: 0,
     failedTraceCount: 0,
     skippedTraceCount: 0,
@@ -1473,6 +1481,8 @@ export const finalizePerfTraceJobTail = async ({
   const hasCapturedRefs = items.some(
     ({ capturedTraceRefs }) => capturedTraceRefs.length > 0,
   );
+  const deferSharedPublish =
+    process.env.PERF_LAB_TRACE_DEFER_SHARED_PUBLISH === "true";
   let sharedFlushDurationMs: number | undefined;
   let sharedFlushError: string | undefined;
   let sharedRelayDrainDurationMs: number | undefined;
@@ -1503,6 +1513,7 @@ export const finalizePerfTraceJobTail = async ({
   const relayMetricsUrl = process.env.PERF_LAB_TRACE_RELAY_METRICS_URL;
   if (
     hasCapturedRefs &&
+    !deferSharedPublish &&
     relayMetricsUrl &&
     !isTraceServiceUnavailableError(sharedFlushError) &&
     Date.now() < jobFetchDeadlineAt
@@ -1544,6 +1555,7 @@ export const finalizePerfTraceJobTail = async ({
 
   if (
     hasCapturedRefs &&
+    !deferSharedPublish &&
     !isTraceServiceUnavailableError(sharedFlushError) &&
     Date.now() < jobFetchDeadlineAt
   ) {
@@ -1581,6 +1593,15 @@ export const finalizePerfTraceJobTail = async ({
           capturedBackgroundFlushCount: item.backgroundFlushCount,
           capturedBackgroundFlushErrorCount: item.backgroundFlushErrorCount,
           capturedBackgroundFlushLastError: item.backgroundFlushLastError,
+          ...(deferSharedPublish
+            ? {
+                terminalSkip: {
+                  state: "pending-shared-publish" as const,
+                  reason:
+                    "Selected traces are pending serialized publication by the report job",
+                },
+              }
+            : {}),
         },
       });
       results.push({

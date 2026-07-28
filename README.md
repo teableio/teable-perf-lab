@@ -170,12 +170,13 @@ shards for `case_filter=all`):
   fixture stay in one shard. Cache-aware runners run `seedReady`/`sourceReady`
   again before execute. Destructive cases may mutate their isolated execute
   database, restoring shared fixtures between sibling cases when required.
-- Each case writes its measured result before trace retrieval. After all cases
-  in one engine job finish, one bounded tail flushes and settles the exporter,
-  fetches selected Jaeger traces, then rewrites only the trace block in each
-  payload and summary with atomic file replacement. The tail reserves time for
-  artifact finalization and reports real elapsed time, so Jaeger latency does not
-  inflate case duration and a tail overrun cannot be hidden by telemetry clamping.
+- Each case writes its measured result before trace publication. Execute jobs
+  spool OTLP traces to runner-local disk, select representative trace IDs after
+  all cases finish, and upload only those traces. The single report job publishes
+  selected traces to shared Jaeger at a fixed rate, verifies them, then rewrites
+  only the trace block in each payload and summary. Jaeger latency does not
+  inflate case duration, and 21 execute jobs never write to shared `4318`
+  concurrently.
 
 Every runner with a seed fixture is cache-aware; only `http-endpoint` (no
 fixture) and `record-paste` / `csv-import` create-table mode (the workload

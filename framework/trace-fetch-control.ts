@@ -10,6 +10,7 @@ export type TraceFetchArtifactState =
   | TraceFetchBreakerState
   | "exporter-outage"
   | "pending-job-tail"
+  | "pending-shared-publish"
   | "tail-error";
 
 export type TraceFetchDecision =

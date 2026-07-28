@@ -76,8 +76,8 @@ env:
   PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
   PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
-  # Bound retrieval for traces that never reached Jaeger. Exporter pressure is
-  # handled by the lower concurrency, backoff, and larger BSP queue below.
+  # Bound verification for selected traces after the report job serially
+  # publishes them to shared Jaeger.
   PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
   PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS: "4000"
@@ -95,8 +95,7 @@ env:
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
   # The engine's BatchSpanProcessor is single-exporter per process. Give its
-  # in-memory queue enough headroom for bursty perf cases instead of adding a
-  # separately deployed global gateway.
+  # in-memory queue enough headroom for bursty writes to the job-local spool.
   OTEL_BSP_MAX_QUEUE_SIZE: "4096"
   OTEL_BSP_EXPORT_TIMEOUT: "60000"
   TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
@@ -181,6 +180,8 @@ jobs:
       CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
       NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
       TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      PERF_LAB_TRACE_ENABLED: "false"
+      OTEL_EXPORT_RATIO: "0"
 
     steps:
       - name: Checkout perf lab
@@ -376,8 +377,6 @@ jobs:
       NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
-      PERF_LAB_TRACE_RELAY_METRICS_URL: "http://127.0.0.1:8888/metrics"
-      PERF_LAB_TRACE_RELAY_DRAIN_TIMEOUT_MS: "45000"
       OTEL_TRACE_RELAY_CONTAINER_NAME: otel-trace-relay-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
 
     steps:
@@ -420,7 +419,7 @@ jobs:
             --if-exists \
             < "$PERF_LAB_SEED_DB_DUMP"
 
-      - name: Start job-local trace relay
+      - name: Start job-local trace spool
         run: |
           set -euo pipefail
 
@@ -433,7 +432,6 @@ jobs:
             --publish 127.0.0.1:4318:4318 \
             --publish 127.0.0.1:8888:8888 \
             --publish 127.0.0.1:13133:13133 \
-            --env "PERF_LAB_OTEL_UPSTREAM_ENDPOINT=${PERF_LAB_OTEL_UPSTREAM_ENDPOINT}" \
             --volume "${GITHUB_WORKSPACE}/perf-lab/.github/otel/trace-relay.yaml:/etc/otelcol-contrib/config.yaml:ro" \
             --volume "${relay_root}/storage:/var/lib/otelcol:rw" \
             ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0 \
@@ -475,13 +473,14 @@ jobs:
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
           export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
+          export PERF_LAB_TRACE_DEFER_SHARED_PUBLISH="true"
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false
 
-      - name: Stop job-local trace relay
+      - name: Stop job-local trace spool
         if: always()
         run: |
           set -euo pipefail
@@ -502,6 +501,15 @@ jobs:
           docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
             > "$artifact_dir/otel-trace-relay-inspect.json"
           docker rm "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+
+      - name: Prepare selected trace payload
+        if: always()
+        run: |
+          set -euo pipefail
+
+          node perf-lab/scripts/prepare-selected-traces.mjs \
+            --spool "${RUNNER_TEMP}/otel-trace-relay/storage/trace-spool.jsonl" \
+            --artifact-dir "perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
 
       - name: Upload perf artifacts
         if: always()
@@ -528,6 +536,7 @@ jobs:
 
           # Top-level perf payload JSON files; raw trace snapshots live under traces/.
           find "$src" -maxdepth 1 -type f -name '*.json' -exec cp {} "$dest/" \;
+          find "$src" -maxdepth 1 -type f -name 'selected-traces.otlp.jsonl' -exec cp {} "$dest/" \;
 
           # Per-result summary markdown.
           find "$src" -maxdepth 1 -type f -name 'summary-*.md' -exec cp {} "$dest/" \;
@@ -624,6 +633,18 @@ jobs:
           artifact-ids: ${{ steps.perf_artifacts.outputs.seed_provenance_artifact_ids }}
           path: perf-lab-seed-provenance-artifacts
           merge-multiple: false
+
+      - name: Publish selected traces to shared Jaeger
+        id: trace-publish
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_TRACE_PUBLISH_SUMMARY_PATH: ${{ github.workspace }}/perf-plan-observation/trace-publish.json
+          PERF_LAB_TRACE_PUBLISH_INTERVAL_MS: "50"
+          PERF_LAB_TRACE_PUBLISH_SETTLE_MS: "5000"
+        run: >-
+          node --experimental-strip-types
+          scripts/publish-selected-traces.mjs
 
       - name: Publish current-run stage observation
         if: always()
@@ -725,18 +746,29 @@ jobs:
           path: perf-plan-observation
           if-no-files-found: ignore
 
+      - name: Upload reconciled lightweight perf results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-reconciled-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            perf-lab-artifacts
+            !perf-lab-artifacts/**/selected-traces.otlp.jsonl
+          if-no-files-found: warn
+
       - name: Enforce full-run result and report acceptance
         if: >-
           always() &&
           needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
           (
             steps.run-verdict.outputs.status != 'success' ||
+            steps.trace-publish.outcome != 'success' ||
             steps.teable-report.outcome != 'success' ||
             steps.feishu-report.outcome != 'success' ||
             steps.github-summary.outcome != 'success'
           )
         run: |
-          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
           exit 1
 
       - name: Enforce targeted report delivery failures
@@ -744,6 +776,7 @@ jobs:
           always() &&
           needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
           (
+            steps.trace-publish.outcome == 'failure' ||
             steps.teable-report.outcome == 'failure' ||
             steps.feishu-report.outcome == 'failure' ||
             steps.github-summary.outcome == 'failure'
