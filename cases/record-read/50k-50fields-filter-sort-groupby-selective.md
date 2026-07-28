@@ -20,4 +20,4 @@ Run the same paged baseline scan and query scan as the baseline case. Require 25
 
 ## Primary Metric
 
-- `getRecordsQueryOverheadMs`: query scan time minus baseline scan time, clamped at zero; initial maximum 30,000 ms.
+- `getRecordsQueryOverheadMs`: query scan time minus baseline scan time, clamped at zero; initial maximum 60,000 ms.

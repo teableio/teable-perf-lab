@@ -107,6 +107,11 @@ ready.
 - `scripts/perf-artifact-diff-model.mjs`: artifact normalization and mask profile
   for behavior-preserving artifact diffs; keep CLI file I/O in
   `scripts/diff-artifacts.mjs`.
+- `scripts/check-case-docs.mjs`: guardrail that fails when a case description
+  restates its threshold in prose and disagrees with `config.threshold.maxMs`.
+  The detector is deliberately narrow — polling intervals, observed latencies,
+  metric names, and superseded guardrails cited as history do not trip it — and
+  self-tests before checking the repo.
 - `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules
