@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   prepareSelectedTraceSpool,
-  redactSelectedTraceAttributes,
+  sanitizeSelectedTraceAttributes,
 } from "../scripts/prepare-selected-traces.mjs";
 import {
   buildPublishedTraceSummary,
@@ -157,7 +157,7 @@ test("removes PostgreSQL bind values while preserving trace evidence", () => {
     ],
   };
 
-  const result = redactSelectedTraceAttributes(payload);
+  const result = sanitizeSelectedTraceAttributes(payload);
   const span = payload.resourceSpans[0].scopeSpans[0].spans[0];
 
   assert.equal(result.redactedAttributeCount, 1);
@@ -216,7 +216,7 @@ test("makes a multi-megabyte PostgreSQL span publishable without changing its id
     /single span that exceeds/,
   );
 
-  const result = redactSelectedTraceAttributes(payload);
+  const result = sanitizeSelectedTraceAttributes(payload);
   const redacted = { ...oversized, body: JSON.stringify(payload) };
   const chunks = splitSelectedTracePayload(redacted, 1_000_000);
 
@@ -228,6 +228,54 @@ test("makes a multi-megabyte PostgreSQL span publishable without changing its id
     chunks[0].payload.resourceSpans[0].scopeSpans[0].spans[0].traceId,
     traceA,
   );
+});
+
+test("bounds oversized Prisma query text and marks the retained span", () => {
+  const payload = {
+    resourceSpans: [
+      {
+        scopeSpans: [
+          {
+            spans: [
+              {
+                traceId: traceA,
+                spanId: "cccccccccccccccc",
+                name: "prisma:engine:db_query",
+                attributes: [
+                  {
+                    key: "db.query.text",
+                    value: { stringValue: "x".repeat(1_151_700) },
+                  },
+                  {
+                    key: "db.system",
+                    value: { stringValue: "postgresql" },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = sanitizeSelectedTraceAttributes(payload);
+  const span = payload.resourceSpans[0].scopeSpans[0].spans[0];
+  const queryText = span.attributes.find(
+    (attribute) => attribute.key === "db.query.text",
+  );
+  const marker = span.attributes.find(
+    (attribute) => attribute.key === "perf_lab.truncated_trace_attributes",
+  );
+
+  assert.equal(result.truncatedAttributeCount, 1);
+  assert.ok(result.truncatedAttributeBytes > 895_000);
+  assert.equal(Buffer.byteLength(queryText.value.stringValue), 256_000);
+  assert.deepEqual(marker.value.arrayValue.values, [
+    { stringValue: "db.query.text:1151700->256000" },
+  ]);
+  assert.equal(span.traceId, traceA);
+  assert.ok(Buffer.byteLength(JSON.stringify(span)) < 1_000_000);
 });
 
 test("fails when a selected trace is absent from the local spool", async () => {

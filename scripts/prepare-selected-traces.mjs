@@ -10,10 +10,25 @@ const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const REDACTED_SPAN_ATTRIBUTE_KEYS = new Set(["db.postgresql.values"]);
+const BOUNDED_SQL_ATTRIBUTE_KEYS = new Set(["db.query.text", "db.statement"]);
+const MAX_SQL_ATTRIBUTE_BYTES = 256_000;
+const TRUNCATED_ATTRIBUTE_MARKER_KEY = "perf_lab.truncated_trace_attributes";
 
-export const redactSelectedTraceAttributes = (payload) => {
+const truncateUtf8 = (value, maxBytes) => {
+  if (Buffer.byteLength(value) <= maxBytes) {
+    return value;
+  }
+  return Buffer.from(value)
+    .subarray(0, maxBytes)
+    .toString("utf8")
+    .replace(/\uFFFD$/, "");
+};
+
+export const sanitizeSelectedTraceAttributes = (payload) => {
   let redactedAttributeCount = 0;
   let redactedAttributeBytes = 0;
+  let truncatedAttributeCount = 0;
+  let truncatedAttributeBytes = 0;
 
   for (const resourceSpans of payload?.resourceSpans ?? []) {
     for (const scopeSpans of resourceSpans?.scopeSpans ?? []) {
@@ -23,6 +38,7 @@ export const redactSelectedTraceAttributes = (payload) => {
         }
         const retainedAttributes = [];
         let spanRedactedAttributeCount = 0;
+        const truncatedAttributes = [];
         for (const attribute of span.attributes) {
           if (
             isRecord(attribute) &&
@@ -34,23 +50,61 @@ export const redactSelectedTraceAttributes = (payload) => {
               JSON.stringify(attribute),
             );
           } else {
+            const stringValue = attribute?.value?.stringValue;
+            if (
+              isRecord(attribute) &&
+              BOUNDED_SQL_ATTRIBUTE_KEYS.has(attribute.key) &&
+              typeof stringValue === "string"
+            ) {
+              const originalBytes = Buffer.byteLength(stringValue);
+              if (originalBytes > MAX_SQL_ATTRIBUTE_BYTES) {
+                attribute.value.stringValue = truncateUtf8(
+                  stringValue,
+                  MAX_SQL_ATTRIBUTE_BYTES,
+                );
+                const retainedBytes = Buffer.byteLength(
+                  attribute.value.stringValue,
+                );
+                truncatedAttributeCount += 1;
+                truncatedAttributeBytes += originalBytes - retainedBytes;
+                truncatedAttributes.push(
+                  `${attribute.key}:${originalBytes}->${retainedBytes}`,
+                );
+              }
+            }
             retainedAttributes.push(attribute);
           }
         }
-        if (spanRedactedAttributeCount === 0) {
-          continue;
+        if (truncatedAttributes.length > 0) {
+          retainedAttributes.push({
+            key: TRUNCATED_ATTRIBUTE_MARKER_KEY,
+            value: {
+              arrayValue: {
+                values: truncatedAttributes.map((stringValue) => ({
+                  stringValue,
+                })),
+              },
+            },
+          });
         }
         span.attributes = retainedAttributes;
-        const existingDroppedCount = Number(span.droppedAttributesCount);
-        span.droppedAttributesCount =
-          (Number.isInteger(existingDroppedCount) && existingDroppedCount >= 0
-            ? existingDroppedCount
-            : 0) + spanRedactedAttributeCount;
+        if (spanRedactedAttributeCount > 0) {
+          const existingDroppedCount = Number(span.droppedAttributesCount);
+          span.droppedAttributesCount =
+            (Number.isInteger(existingDroppedCount) && existingDroppedCount >= 0
+              ? existingDroppedCount
+              : 0) + spanRedactedAttributeCount;
+        }
       }
     }
   }
 
-  return { redactedAttributeCount, redactedAttributeBytes };
+  return {
+    redactedAttributeCount,
+    redactedAttributeBytes,
+    truncatedAttributeCount,
+    truncatedAttributeBytes,
+  };
 };
 
 const findFiles = async (root, fileName) => {
@@ -172,10 +226,14 @@ export const prepareSelectedTraceSpool = async ({ spoolPath, artifactDir }) => {
   );
   let redactedAttributeCount = 0;
   let redactedAttributeBytes = 0;
+  let truncatedAttributeCount = 0;
+  let truncatedAttributeBytes = 0;
   for (const payload of payloadsByTraceId.values()) {
-    const redaction = redactSelectedTraceAttributes(payload);
-    redactedAttributeCount += redaction.redactedAttributeCount;
-    redactedAttributeBytes += redaction.redactedAttributeBytes;
+    const sanitization = sanitizeSelectedTraceAttributes(payload);
+    redactedAttributeCount += sanitization.redactedAttributeCount;
+    redactedAttributeBytes += sanitization.redactedAttributeBytes;
+    truncatedAttributeCount += sanitization.truncatedAttributeCount;
+    truncatedAttributeBytes += sanitization.truncatedAttributeBytes;
   }
   const selectedPayloads = [...payloadsByTraceId]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -200,6 +258,8 @@ export const prepareSelectedTraceSpool = async ({ spoolPath, artifactDir }) => {
     selectedSpanCount,
     redactedAttributeCount,
     redactedAttributeBytes,
+    truncatedAttributeCount,
+    truncatedAttributeBytes,
     outputPath: basename(outputPath),
     outputBytes: Buffer.byteLength(output ? `${output}\n` : ""),
   };
@@ -243,6 +303,7 @@ const main = async () => {
         `- selected spans: ${summary.selectedSpanCount}/${summary.rawSpanCount}`,
         `- selected bytes: ${summary.outputBytes}/${summary.spoolBytes}`,
         `- redacted span attributes: ${summary.redactedAttributeCount} (${summary.redactedAttributeBytes} bytes)`,
+        `- truncated SQL attributes: ${summary.truncatedAttributeCount} (${summary.truncatedAttributeBytes} bytes removed)`,
         `- artifact: \`${relative(process.cwd(), summary.outputPath)}\``,
         "",
       ].join("\n"),
