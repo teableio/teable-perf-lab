@@ -30,12 +30,18 @@ pnpm check
 
 This runs the full check chain declared in `package.json`, including
 `format:check`, `check:yaml`, `check:ts`, `check:types`, `check:trace`,
-`check:catalog`, `check:run-plan`, `check:full-run-feedback`, artifact and
-summary model checks, runner/workload model checks, `check:cases`, and
-`check:readme`. `check:catalog` fails loud if the disk case files, the
+`check:catalog`, `check:case-docs`, `check:run-plan`, `check:full-run-feedback`,
+artifact and summary model checks, runner/workload model checks, `check:cases`,
+and `check:readme`. `check:catalog` fails loud if the disk case files, the
 `registry.ts` imports, and the registered `cases` array disagree — so adding a
 case requires all of: the `*.case.ts` plus its same-name `*.md`, the import in
 `registry.ts`, and the entry in the `cases` array.
+
+`check:case-docs` fails loud when a case description restates its guardrail in
+prose and that prose disagrees with `config.threshold.maxMs`. If you change a
+threshold, update the same-name `*.md` in the same edit. A description that
+cites a superseded guardrail as history still passes, as long as it also states
+the current value.
 
 For case registry validation only:
 
