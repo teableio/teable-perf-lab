@@ -120,7 +120,7 @@ uses `tail-error` wherever the artifact directory remains writable.
   "missingFetchCount": 1,
   "wastedFetchMs": 3000,
   "traceFetchCaseBudgetMs": 15000,
-  "traceFetchJobBudgetMs": 60000,
+  "traceFetchJobBudgetMs": 120000,
   "traceFetchWaitMs": 8120,
   "traceFetchJobWaitMs": 42100,
   "traceFetchBreakerState": "partial-loss",
@@ -133,6 +133,14 @@ uses `tail-error` wherever the artifact directory remains writable.
   "backgroundFlushCount": 12,
   "backgroundFlushErrorCount": 0,
   "flushDurationMs": 512,
+  "relayDrainDurationMs": 750,
+  "relayDrainPollCount": 4,
+  "relayDrainQueueSize": 0,
+  "relayDrainInFlightRequests": 0,
+  "relayDrainAcceptedSpans": 8421,
+  "relayDrainSentSpans": 8421,
+  "relayDrainEnqueueFailedSpans": 0,
+  "relayDrainSendFailedSpans": 0,
   "traceFetchSkippedReason": null,
   "jaegerApiBaseUrl": "http://host:16686",
   "artifactDir": "traces/formula-10k-calc-v2",
@@ -191,6 +199,12 @@ captured ref.
 `traceFetchSkippedReason` is set only when the collector skipped Jaeger fetch for
 the case, for example because the Trace service rejected the final OTEL flush.
 This is not counted as trace polling waste.
+
+When a job-local relay is configured, `relayDrain*` records the state observed
+before the shared Jaeger query begins. A successful drain has an empty queue,
+zero in-flight requests, equal accepted/sent span counters, and zero enqueue or
+send failures. `relayDrainError` is present when that state was not reached
+within the configured drain budget.
 
 `traceFetchWaitMs` is the case-attributed wait capped by
 `traceFetchCaseBudgetMs`; `traceFetchJobWaitMs` is the actual cumulative elapsed

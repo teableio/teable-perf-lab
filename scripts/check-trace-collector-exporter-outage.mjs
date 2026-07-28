@@ -15,6 +15,10 @@ const fetchControlSource = await readFile(
   "framework/trace-fetch-control.ts",
   "utf8",
 );
+const relayDrainSource = await readFile(
+  "framework/trace-relay-drain.ts",
+  "utf8",
+);
 const runPerfCaseSource = await readFile("framework/run-perf-case.ts", "utf8");
 const runPerfSeedSource = await readFile("framework/run-perf-seed.ts", "utf8");
 const perfSpecSource = await readFile("perf-lab.e2e-spec.ts", "utf8");
@@ -52,8 +56,21 @@ const fetchControlOutput = ts.transpileModule(fetchControlSource, {
   fileName: "framework/trace-fetch-control.ts",
   reportDiagnostics: true,
 });
+const relayDrainOutput = ts.transpileModule(relayDrainSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "framework/trace-relay-drain.ts",
+  reportDiagnostics: true,
+});
 
-const errors = [output, evidencePolicyOutput, fetchControlOutput]
+const errors = [
+  output,
+  evidencePolicyOutput,
+  fetchControlOutput,
+  relayDrainOutput,
+]
   .flatMap((result) => result.diagnostics ?? [])
   .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
 assert.equal(errors.length, 0);
@@ -64,6 +81,7 @@ const atomicFile = join(tempDir, "atomic-file.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
 const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const fetchControlFile = join(tempDir, "trace-fetch-control.mjs");
+const relayDrainFile = join(tempDir, "trace-relay-drain.mjs");
 const artifactDir = join(tempDir, "artifacts");
 const traceDir = join(artifactDir, "traces", "smoke-auth-user-v2");
 const manifestPath = join(traceDir, "manifest.json");
@@ -91,7 +109,8 @@ try {
       .replace(
         'from "./trace-fetch-control"',
         'from "./trace-fetch-control.mjs"',
-      ),
+      )
+      .replace('from "./trace-relay-drain"', 'from "./trace-relay-drain.mjs"'),
   );
   await writeFile(atomicFile, atomicFileSource);
   await writeFile(
@@ -102,6 +121,7 @@ try {
     ),
   );
   await writeFile(fetchControlFile, fetchControlOutput.outputText);
+  await writeFile(relayDrainFile, relayDrainOutput.outputText);
   await writeFile(
     join(tempDir, "teable-openapi.mjs"),
     [
@@ -876,10 +896,9 @@ try {
       });
     }
     const pendingFetchTailStartedAt = Date.now();
-    const pendingFetchTailLifecycle =
-      await finalizePerfTraceJobTailLifecycle({
-        reconcileArtifact: reconcileTailArtifact,
-      });
+    const pendingFetchTailLifecycle = await finalizePerfTraceJobTailLifecycle({
+      reconcileArtifact: reconcileTailArtifact,
+    });
     const pendingFetchTail = pendingFetchTailLifecycle.results;
     const pendingFetchTailElapsedMs = Date.now() - pendingFetchTailStartedAt;
     assert.ok(

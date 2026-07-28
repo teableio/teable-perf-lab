@@ -86,11 +86,12 @@ env:
   PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
   PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
   PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
-  PERF_LAB_TRACE_JOB_BUDGET_MS: "60000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "120000"
   # Stop network retrieval early enough to atomically reconcile every case's
   # payload, summary, and manifest inside the full job-tail lifecycle SLO.
   PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
+  PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
   # The engine's BatchSpanProcessor is single-exporter per process. Give its
@@ -375,8 +376,9 @@ jobs:
       NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
-      PERF_LAB_JAEGER_API_BASE_URL: "http://127.0.0.1:16686"
-      PERF_LAB_JAEGER_CONTAINER_NAME: perf-jaeger-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      PERF_LAB_TRACE_RELAY_METRICS_URL: "http://127.0.0.1:8888/metrics"
+      PERF_LAB_TRACE_RELAY_DRAIN_TIMEOUT_MS: "45000"
+      OTEL_TRACE_RELAY_CONTAINER_NAME: otel-trace-relay-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
 
     steps:
       - name: Checkout perf lab
@@ -418,30 +420,40 @@ jobs:
             --if-exists \
             < "$PERF_LAB_SEED_DB_DUMP"
 
-      - name: Start job-local Jaeger
+      - name: Start job-local trace relay
         run: |
           set -euo pipefail
 
+          relay_root="${RUNNER_TEMP}/otel-trace-relay"
+          mkdir -p "${relay_root}/storage"
+          chmod 0777 "${relay_root}/storage"
+
           docker run --detach \
-            --name "$PERF_LAB_JAEGER_CONTAINER_NAME" \
+            --name "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
             --publish 127.0.0.1:4318:4318 \
-            --publish 127.0.0.1:16686:16686 \
-            cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
+            --publish 127.0.0.1:8888:8888 \
+            --publish 127.0.0.1:13133:13133 \
+            --env "PERF_LAB_OTEL_UPSTREAM_ENDPOINT=${PERF_LAB_OTEL_UPSTREAM_ENDPOINT}" \
+            --volume "${GITHUB_WORKSPACE}/perf-lab/.github/otel/trace-relay.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+            --volume "${relay_root}/storage:/var/lib/otelcol:rw" \
+            ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0 \
+            --config=/etc/otelcol-contrib/config.yaml
 
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:16686/api/services >/dev/null; then
+            if curl --fail --silent --show-error http://127.0.0.1:13133/ >/dev/null &&
+              curl --fail --silent --show-error http://127.0.0.1:8888/metrics >/dev/null; then
               exit 0
             fi
-            if ! docker inspect --format '{{.State.Running}}' "$PERF_LAB_JAEGER_CONTAINER_NAME" |
+            if ! docker inspect --format '{{.State.Running}}' "$OTEL_TRACE_RELAY_CONTAINER_NAME" |
               grep -qx true; then
-              docker logs "$PERF_LAB_JAEGER_CONTAINER_NAME"
+              docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
               exit 1
             fi
             sleep 1
           done
 
-          docker logs "$PERF_LAB_JAEGER_CONTAINER_NAME"
-          echo "Job-local Jaeger did not become healthy within 30 seconds." >&2
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+          echo "Trace relay did not become healthy within 30 seconds." >&2
           exit 1
 
       - name: Run perf cases through teable-ee e2e
@@ -469,7 +481,7 @@ jobs:
             ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
             --silent=false
 
-      - name: Stop job-local Jaeger
+      - name: Stop job-local trace relay
         if: always()
         run: |
           set -euo pipefail
@@ -477,17 +489,19 @@ jobs:
           artifact_dir="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
           mkdir -p "$artifact_dir"
 
-          if ! docker inspect "$PERF_LAB_JAEGER_CONTAINER_NAME" >/dev/null 2>&1; then
-            echo "Job-local Jaeger container was not created." > "$artifact_dir/job-local-jaeger.log"
+          if ! docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" >/dev/null 2>&1; then
+            echo "Trace relay container was not created." > "$artifact_dir/otel-trace-relay.log"
             exit 0
           fi
 
-          docker stop --timeout 30 "$PERF_LAB_JAEGER_CONTAINER_NAME" || true
-          docker logs "$PERF_LAB_JAEGER_CONTAINER_NAME" \
-            > "$artifact_dir/job-local-jaeger.log" 2>&1
-          docker inspect "$PERF_LAB_JAEGER_CONTAINER_NAME" \
-            > "$artifact_dir/job-local-jaeger-inspect.json"
-          docker rm "$PERF_LAB_JAEGER_CONTAINER_NAME"
+          curl --fail --silent --show-error http://127.0.0.1:8888/metrics \
+            > "$artifact_dir/otel-trace-relay-metrics.txt" || true
+          docker stop --timeout 60 "$OTEL_TRACE_RELAY_CONTAINER_NAME" || true
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay.log" 2>&1
+          docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay-inspect.json"
+          docker rm "$OTEL_TRACE_RELAY_CONTAINER_NAME"
 
       - name: Upload perf artifacts
         if: always()

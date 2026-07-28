@@ -12,6 +12,7 @@ import {
   type TraceFetchArtifactState,
   type TraceFetchDecision,
 } from "./trace-fetch-control";
+import { waitForTraceRelayDrain } from "./trace-relay-drain";
 import type { PerfCase, PerfRunContext } from "./types";
 import { writeFileAtomically } from "./atomic-file.js";
 
@@ -70,6 +71,15 @@ export interface PerfTraceArtifactSummary {
   backgroundFlushLastError?: string;
   flushDurationMs?: number;
   flushError?: string;
+  relayDrainDurationMs?: number;
+  relayDrainPollCount?: number;
+  relayDrainQueueSize?: number;
+  relayDrainInFlightRequests?: number;
+  relayDrainAcceptedSpans?: number;
+  relayDrainSentSpans?: number;
+  relayDrainEnqueueFailedSpans?: number;
+  relayDrainSendFailedSpans?: number;
+  relayDrainError?: string;
   traceFetchSkippedReason?: string;
   artifactDir?: string;
   manifestPath?: string;
@@ -726,6 +736,15 @@ type WriteTraceArtifactOptions = {
   jobFetchDeadlineAt?: number;
   sharedFlushDurationMs?: number;
   sharedFlushError?: string;
+  sharedRelayDrainDurationMs?: number;
+  sharedRelayDrainPollCount?: number;
+  sharedRelayDrainQueueSize?: number;
+  sharedRelayDrainInFlightRequests?: number;
+  sharedRelayDrainAcceptedSpans?: number;
+  sharedRelayDrainSentSpans?: number;
+  sharedRelayDrainEnqueueFailedSpans?: number;
+  sharedRelayDrainSendFailedSpans?: number;
+  sharedRelayDrainError?: string;
   capturedBackgroundFlushCount?: number;
   capturedBackgroundFlushErrorCount?: number;
   capturedBackgroundFlushLastError?: string;
@@ -818,6 +837,15 @@ export const writeTraceArtifacts = async ({
       options?.capturedBackgroundFlushLastError ?? backgroundFlushLastError,
     flushDurationMs: options?.sharedFlushDurationMs,
     flushError: options?.sharedFlushError,
+    relayDrainDurationMs: options?.sharedRelayDrainDurationMs,
+    relayDrainPollCount: options?.sharedRelayDrainPollCount,
+    relayDrainQueueSize: options?.sharedRelayDrainQueueSize,
+    relayDrainInFlightRequests: options?.sharedRelayDrainInFlightRequests,
+    relayDrainAcceptedSpans: options?.sharedRelayDrainAcceptedSpans,
+    relayDrainSentSpans: options?.sharedRelayDrainSentSpans,
+    relayDrainEnqueueFailedSpans: options?.sharedRelayDrainEnqueueFailedSpans,
+    relayDrainSendFailedSpans: options?.sharedRelayDrainSendFailedSpans,
+    relayDrainError: options?.sharedRelayDrainError,
     jaegerApiBaseUrl,
     refs: capturedRunRefs,
     savedTraces: [],
@@ -1447,6 +1475,15 @@ export const finalizePerfTraceJobTail = async ({
   );
   let sharedFlushDurationMs: number | undefined;
   let sharedFlushError: string | undefined;
+  let sharedRelayDrainDurationMs: number | undefined;
+  let sharedRelayDrainPollCount: number | undefined;
+  let sharedRelayDrainQueueSize: number | undefined;
+  let sharedRelayDrainInFlightRequests: number | undefined;
+  let sharedRelayDrainAcceptedSpans: number | undefined;
+  let sharedRelayDrainSentSpans: number | undefined;
+  let sharedRelayDrainEnqueueFailedSpans: number | undefined;
+  let sharedRelayDrainSendFailedSpans: number | undefined;
+  let sharedRelayDrainError: string | undefined;
 
   if (hasCapturedRefs && flushBeforeTraceFetch) {
     const flushStartedAt = Date.now();
@@ -1460,6 +1497,48 @@ export const finalizePerfTraceJobTail = async ({
       sharedFlushError = error instanceof Error ? error.message : String(error);
     } finally {
       sharedFlushDurationMs = Date.now() - flushStartedAt;
+    }
+  }
+
+  const relayMetricsUrl = process.env.PERF_LAB_TRACE_RELAY_METRICS_URL;
+  if (
+    hasCapturedRefs &&
+    relayMetricsUrl &&
+    !isTraceServiceUnavailableError(sharedFlushError) &&
+    Date.now() < jobFetchDeadlineAt
+  ) {
+    const configuredDrainTimeoutMs = getPositiveIntegerEnv(
+      "PERF_LAB_TRACE_RELAY_DRAIN_TIMEOUT_MS",
+      45_000,
+    );
+    const drainTimeoutMs = Math.min(
+      configuredDrainTimeoutMs,
+      Math.max(1, jobFetchDeadlineAt - Date.now()),
+    );
+    try {
+      const drain = await waitForTraceRelayDrain({
+        metricsUrl: relayMetricsUrl,
+        timeoutMs: drainTimeoutMs,
+        pollIntervalMs: getPositiveIntegerEnv(
+          "PERF_LAB_TRACE_RELAY_DRAIN_POLL_INTERVAL_MS",
+          250,
+        ),
+        stablePolls: getPositiveIntegerEnv(
+          "PERF_LAB_TRACE_RELAY_DRAIN_STABLE_POLLS",
+          2,
+        ),
+      });
+      sharedRelayDrainDurationMs = drain.durationMs;
+      sharedRelayDrainPollCount = drain.pollCount;
+      sharedRelayDrainQueueSize = drain.queueSize;
+      sharedRelayDrainInFlightRequests = drain.inFlightRequests;
+      sharedRelayDrainAcceptedSpans = drain.acceptedSpans;
+      sharedRelayDrainSentSpans = drain.sentSpans;
+      sharedRelayDrainEnqueueFailedSpans = drain.enqueueFailedSpans;
+      sharedRelayDrainSendFailedSpans = drain.sendFailedSpans;
+    } catch (error) {
+      sharedRelayDrainError =
+        error instanceof Error ? error.message : String(error);
     }
   }
 
@@ -1490,6 +1569,15 @@ export const finalizePerfTraceJobTail = async ({
           jobFetchDeadlineAt,
           sharedFlushDurationMs,
           sharedFlushError,
+          sharedRelayDrainDurationMs,
+          sharedRelayDrainPollCount,
+          sharedRelayDrainQueueSize,
+          sharedRelayDrainInFlightRequests,
+          sharedRelayDrainAcceptedSpans,
+          sharedRelayDrainSentSpans,
+          sharedRelayDrainEnqueueFailedSpans,
+          sharedRelayDrainSendFailedSpans,
+          sharedRelayDrainError,
           capturedBackgroundFlushCount: item.backgroundFlushCount,
           capturedBackgroundFlushErrorCount: item.backgroundFlushErrorCount,
           capturedBackgroundFlushLastError: item.backgroundFlushLastError,

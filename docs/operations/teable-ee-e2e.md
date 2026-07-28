@@ -341,17 +341,22 @@ explains any intentional `traceRefCount > savedTraceCount` gap.
 
 The workflow gives the engine BatchSpanProcessor a 4,096-span queue and keeps
 the one-second background `forceFlush`. Every execute job also starts an
-ephemeral Jaeger all-in-one container. Teable exports to the job-local
-`127.0.0.1:4318` endpoint and trace collection queries its in-memory store at
-`127.0.0.1:16686`. The raw Jaeger responses are saved in the perf artifact
-before the container is removed, so full-run trace evidence does not depend on
-the availability or capacity of a separately managed shared collector. The
-container logs and state are included in the full perf artifact. Trace
+ephemeral OpenTelemetry Collector on `127.0.0.1:4318`. The job-local relay
+persists accepted batches to runner disk, serializes upstream requests, and
+retries transient failures while forwarding to the shared Jaeger OTLP endpoint.
+After the engine SDK flushes, the job-tail lifecycle waits until the relay
+reports an empty sending queue, zero in-flight requests, no exporter failures,
+and equal accepted/sent span counters for two consecutive polls. Only then does
+it query the shared Jaeger API and save raw snapshots. This preserves the
+long-lived shared Jaeger links while preventing a job from finishing before its
+own exporter queue drains. Relay queue state, span counters, failure counters,
+logs, metrics, and container state remain available in the artifacts. Trace
 retrieval uses four workers and polls with exponential backoff from 500
 milliseconds up to 4 seconds.
 
 Trace retrieval has two independent bounds: `PERF_LAB_TRACE_CASE_BUDGET_MS`
-(30 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). After
+(15 seconds) and `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). The relay drain
+uses at most 45 seconds inside that job budget. After
 `PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD` misses, the collector opens a
 partial-loss breaker, permits at most `PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT`
 probe, then records the remaining refs as skipped instead of polling each one.
