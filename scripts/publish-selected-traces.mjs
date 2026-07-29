@@ -370,8 +370,16 @@ export const buildPublishedTraceSummary = ({
     skippedTraceCount,
     missingFetchCount: failedTraceCount,
     wastedFetchMs,
-    traceFetchWaitMs: maxFetchMs,
-    traceFetchJobWaitMs: fetchJobWaitMs,
+    // Do NOT overwrite traceFetchWaitMs / traceFetchJobWaitMs here. Those are
+    // the execute job's own trace-fetch measurements, and they are what
+    // PERF_LAB_TRACE_CASE_BUDGET_MS / PERF_LAB_TRACE_JOB_BUDGET_MS bound. This
+    // is the single report job, so writing its elapsed time into every case's
+    // manifest replaced 21 independent per-job measurements with one number and
+    // then had acceptance check that number against a per-job budget. The
+    // report job's publish time scales with the total trace count, so the gate
+    // went red as the suite grew rather than when anything was wrong.
+    sharedPublishWaitMs: fetchJobWaitMs,
+    sharedPublishMaxTraceMs: maxFetchMs,
     traceFetchBreakerState: failedTraceCount === 0 ? "closed" : "partial-loss",
     traceFetchBreakerReason:
       failedTraceCount === 0
