@@ -15,6 +15,9 @@ import {
 import { waitForTraceRelayDrain } from "./trace-relay-drain";
 import type { PerfCase, PerfRunContext } from "./types";
 import { writeFileAtomically } from "./atomic-file.js";
+import { sanitizeSegment as sanitizePathSegment } from "./artifact-names.js";
+import { runWithConcurrency } from "./concurrency";
+import { sleep as delay } from "./sleep.js";
 
 type HeaderBag = Record<string, unknown> & {
   set?: (name: string, value: string) => void;
@@ -192,8 +195,6 @@ const getNonNegativeIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value >= 0 ? value : fallback;
 };
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const waitUntilDeadline = async <T>(
   promise: Promise<T>,
@@ -452,9 +453,6 @@ const resolveRequestUrl = (config: unknown) => {
   }
 };
 
-const sanitizePathSegment = (value: string) =>
-  value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
 const getJaegerApiBaseUrl = () => {
   const explicitBaseUrl = process.env.PERF_LAB_JAEGER_API_BASE_URL;
   if (explicitBaseUrl) {
@@ -508,29 +506,6 @@ const getTraceFallbackStepPattern = (perfCase: PerfCase, engine: string) =>
     "PERF_LAB_TRACE_FALLBACK_STEP_PATTERN",
     engine,
   );
-
-const runWithConcurrency = async <T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-) => {
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-
-  const workers = Array.from(
-    { length: Math.min(concurrency, items.length) },
-    async () => {
-      while (nextIndex < items.length) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        results[currentIndex] = await fn(items[currentIndex]);
-      }
-    },
-  );
-
-  await Promise.all(workers);
-  return results;
-};
 
 const fetchJaegerTrace = async (
   jaegerApiBaseUrl: string,

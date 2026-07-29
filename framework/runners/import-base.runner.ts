@@ -42,6 +42,7 @@ import type {
   PerfRunContext,
   PerfRunResult,
 } from "../types";
+import { sleep as delay } from "../sleep.js";
 
 const IMPORT_BASE_FIXTURE_VERSION = "import-base-v2-only-v2";
 const IMPORT_BASE_METADATA_PREFIX = "perf-lab-import-base:";
@@ -201,8 +202,6 @@ type ImportBasePrimaryResult = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),

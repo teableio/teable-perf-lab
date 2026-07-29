@@ -46,6 +46,7 @@ import {
   buildRecordFields,
   recordReplayMixed20Fields,
 } from "./record-replay.shared";
+import { sleep as delay } from "../sleep.js";
 
 const DUPLICATE_BASE_FIXTURE_VERSION = "duplicate-base-v1";
 const DUPLICATE_BASE_METADATA_PREFIX = "perf-lab-duplicate-base:";
@@ -159,8 +160,6 @@ type DuplicateBasePrimaryResult = {
 };
 
 const padRowNumber = (rowNumber: number) => String(rowNumber).padStart(5, "0");
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const pickResponseHeaders = (headers: Record<string, unknown>) => ({
   "x-teable-v2": getRoutingResponseHeader(headers, "x-teable-v2"),
