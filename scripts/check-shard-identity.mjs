@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import {
   EXECUTE_STAGES,
+  FEEDBACK_STAGE_LABELS,
   SEED_STAGE,
   formatJobName,
   formatSeedJobName,
@@ -90,6 +91,70 @@ for (const { stage } of EXECUTE_STAGES) {
   );
 }
 
+// The three views of a stage must stay in step: the machine cost key, the CI
+// job identity, and the human feedback label. A stage added to one view and not
+// the others is exactly the drift this table exists to prevent.
+for (const row of EXECUTE_STAGES) {
+  for (const field of [
+    "stage",
+    "planName",
+    "artifactSuffix",
+    "otelServiceSuffix",
+    "feedbackLabel",
+  ]) {
+    assert.ok(
+      typeof row[field] === "string" && row[field].length > 0,
+      `execute stage ${row.stage} is missing ${field}`,
+    );
+  }
+  assert.ok(
+    FEEDBACK_STAGE_LABELS.includes(row.feedbackLabel),
+    `execute stage ${row.stage} must appear in the feedback report`,
+  );
+}
+
+// Every name must be unique within its view, or a lookup silently picks one.
+for (const field of [
+  "stage",
+  "planName",
+  "otelServiceSuffix",
+  "feedbackLabel",
+]) {
+  const values = EXECUTE_STAGES.map((row) => row[field]);
+  assert.equal(
+    new Set(values).size,
+    values.length,
+    `execute stage ${field} values must be unique`,
+  );
+}
+
+// artifactSuffix is the documented exception: v2 sync writes under "v2", so it
+// is not unique against a hypothetical future sync-like stage. Pin the current
+// shape so the loss stays deliberate.
+assert.deepEqual(
+  EXECUTE_STAGES.map((row) => row.artifactSuffix),
+  ["v1", "v2", "v2-hybrid-computed"],
+  "artifact suffixes are load-bearing for the read model; change them deliberately",
+);
+
+// The feedback report brackets the execute stages with seed and report.
+assert.deepEqual(FEEDBACK_STAGE_LABELS, [
+  "seed",
+  "v1",
+  "v2-sync",
+  "v2-hybrid",
+  "report",
+]);
+
+const { FULL_RUN_FEEDBACK_STAGES } = await import(
+  "./full-run-feedback-model.mjs"
+);
+assert.deepEqual(
+  FULL_RUN_FEEDBACK_STAGES,
+  FEEDBACK_STAGE_LABELS,
+  "the feedback model must derive its stages from the one stage table",
+);
+
 console.log(
-  `Shard identity checks ok (${EXECUTE_STAGES.length} execute stages round trip over 8 shards).`,
+  `Shard identity checks ok (${EXECUTE_STAGES.length} execute stages round trip over 8 shards; cost key, job identity, and feedback label agree).`,
 );

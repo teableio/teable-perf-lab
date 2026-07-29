@@ -27,16 +27,22 @@ export const parseShardLabel = (label) => {
   return { shardNumber: Number(match[1]), shardCount: Number(match[2]) };
 };
 
-// The execute stages, each with the plan name the planner emits, the stage cost
-// key the calibration uses, and the artifact suffix the execute job writes
-// under. Keeping the three together is the point: they used to be restated
-// independently in the planner, the calibration model, and the observer.
+// The execute stages. Each row carries every name the stage answers to:
+//   stage           the cost key the calibration and observation use
+//   planName        what the planner emits and GitHub puts in the job title
+//   artifactSuffix  what the execute job writes artifacts under
+//   feedbackLabel   the human-facing label in the full-run feedback report
+//
+// These are three legitimate views of one set of stages — machine cost keys,
+// CI job identity, and human labels — and nothing used to map them to each
+// other. A stage added to one view could silently miss the others.
 export const EXECUTE_STAGES = Object.freeze([
   Object.freeze({
     stage: "v1Ms",
     planName: "v1",
     artifactSuffix: "v1",
     otelServiceSuffix: "v1",
+    feedbackLabel: "v1",
   }),
   Object.freeze({
     stage: "v2SyncMs",
@@ -46,12 +52,14 @@ export const EXECUTE_STAGES = Object.freeze([
     // from an artifact path and needs the run's execution profile to decide.
     artifactSuffix: "v2",
     otelServiceSuffix: "v2-sync",
+    feedbackLabel: "v2-sync",
   }),
   Object.freeze({
     stage: "v2HybridMs",
     planName: "v2-hybrid-computed",
     artifactSuffix: "v2-hybrid-computed",
     otelServiceSuffix: "v2-hybrid",
+    feedbackLabel: "v2-hybrid",
   }),
 ]);
 
@@ -95,3 +103,12 @@ export const parseJobName = (jobName) => {
 
   return null;
 };
+
+// The feedback report brackets the execute stages with the seed and report
+// phases. Derived here so a new execute stage cannot appear in the cost model
+// and go missing from the feedback report.
+export const FEEDBACK_STAGE_LABELS = Object.freeze([
+  "seed",
+  ...EXECUTE_STAGES.map(({ feedbackLabel }) => feedbackLabel),
+  "report",
+]);
