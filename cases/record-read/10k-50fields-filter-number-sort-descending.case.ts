@@ -16,6 +16,6 @@ export default definePerfCase({
       orderBy: [{ fieldName: "A", order: "desc" }],
       expectedRowCount: 5_000,
     },
-    threshold: { metric: "getRecordsQueryOverheadMs", maxMs: 8_000 },
+    threshold: { metric: "getRecordsQueryPagedScanMs", maxMs: 8_000 },
   },
 });

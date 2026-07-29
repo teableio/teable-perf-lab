@@ -262,10 +262,14 @@ const chartUrlForCase = (caseId, chartUrl) => `${chartUrl}#${caseId}`;
 
 export const DEFAULT_GITHUB_SUMMARY_MAX_BYTES = 256 * 1024;
 
+// Without a usable baseline `row.baseline` is the no-value placeholder, which
+// reads as "V1 skip" — wrong for a case V1 ran and passed. A measured 0 ms is
+// rejected as a baseline (it yields no ratio) but it is not a skip, so fall
+// back to what V1 actually reported and let "skip" mean skipped.
 const comparisonSource = (row) =>
-  row.baselineLabel === "V1"
+  row.baselineLabel == null || row.baselineLabel === "V1"
     ? `V1 ${row.v1}`
-    : `${row.baselineLabel ?? "V1"} ${row.baseline}`;
+    : `${row.baselineLabel} ${row.baseline}`;
 
 const comparisonLine = (row, chartUrl, prefix = "") =>
   `${prefix}[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)}) ${comparisonSource(row)} → V2 ${row.v2} **${row.comparison}**`;

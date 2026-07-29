@@ -34,8 +34,8 @@ within groups by `A desc`.
 
 ## Primary Metric
 
-`getRecordsQueryOverheadMs`, the non-negative query overhead above the warmed
-baseline. Initial guardrail: 8,000 ms.
+`getRecordsQueryPagedScanMs`, the actual queried paged-scan duration. Initial
+guardrail: 8,000 ms. Baseline duration and signed delta remain diagnostics.
 
 ## Notes
 
