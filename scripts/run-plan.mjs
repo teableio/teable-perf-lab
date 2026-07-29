@@ -13,6 +13,7 @@ import {
 } from "./full-run-shard-model.mjs";
 import { FULL_RUN_HISTORICAL_BUNDLE_SLOTS } from "./full-run-historical-bundle-slots.mjs";
 import { FULL_RUN_STAGE_CALIBRATION } from "./full-run-stage-calibration.mjs";
+import { formatShardLabel } from "./shard-identity.mjs";
 import {
   buildCaseSetDigest,
   normalizeSeedCacheNamespace,
@@ -78,7 +79,7 @@ const expandShardedPlan = ({
       return [];
     }
     const shardNumber = index + 1;
-    const shardLabel = `shard-${shardNumber}-of-${caseShards.length}`;
+    const shardLabel = formatShardLabel(shardNumber - 1, caseShards.length);
     return [
       {
         name: `${name}-${shardLabel}`,
@@ -237,7 +238,7 @@ const resolveSeedPlan = ({
   }
 
   return fullRunCaseShards.map((caseIds, index) => {
-    const shardLabel = `shard-${index + 1}-of-${fullRunCaseShards.length}`;
+    const shardLabel = formatShardLabel(index, fullRunCaseShards.length);
     return {
       name: shardLabel,
       caseFilter: caseIds.join(","),

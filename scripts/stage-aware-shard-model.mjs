@@ -1,5 +1,6 @@
 import { buildExecutionBundles } from "./execution-bundle-model.mjs";
 import { fullRunCaseSeedWeightMs } from "./full-run-shard-model.mjs";
+import { formatShardLabel } from "./shard-identity.mjs";
 
 export const STAGE_COST_KEYS = [
   "coldSeedMs",
@@ -182,7 +183,7 @@ const resolveStageMaxima = ({ shardStageCosts, shardBundles }) =>
         stage,
         {
           durationMs: shardStageCosts[shardIndex][stage],
-          shard: `shard-${shardIndex + 1}-of-${shardStageCosts.length}`,
+          shard: formatShardLabel(shardIndex, shardStageCosts.length),
           bundleId: criticalBundle?.id ?? null,
         },
       ];

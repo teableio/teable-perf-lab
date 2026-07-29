@@ -1,24 +1,6 @@
 import { STAGE_COST_KEYS } from "./stage-aware-shard-model.mjs";
 import { formatCompactDuration } from "./format-duration.mjs";
-
-const JOB_STAGE_PATTERNS = [
-  {
-    stage: "seedJobMs",
-    pattern: /^Prepare perf seed DB \((shard-\d+-of-\d+)\)$/,
-  },
-  {
-    stage: "v1Ms",
-    pattern: /^Run perf cases \(v1-(shard-\d+-of-\d+)\)$/,
-  },
-  {
-    stage: "v2SyncMs",
-    pattern: /^Run perf cases \(v2-sync-default-(shard-\d+-of-\d+)\)$/,
-  },
-  {
-    stage: "v2HybridMs",
-    pattern: /^Run perf cases \(v2-hybrid-computed-(shard-\d+-of-\d+)\)$/,
-  },
-];
+import { parseJobName } from "./shard-identity.mjs";
 
 export const resolveTraceJobIdentity = (
   artifactPath,
@@ -69,11 +51,11 @@ const assertNonNegativeFinite = (value, label) => {
 };
 
 const resolveJobStage = (name, executionProfile) => {
-  for (const { stage, pattern } of JOB_STAGE_PATTERNS) {
-    const match = pattern.exec(name);
-    if (match) {
-      return { stage, shard: match[1] };
-    }
+  // Job titles are parsed by the same module that formats them
+  // (scripts/shard-identity.mjs), so the two directions cannot drift apart.
+  const parsed = parseJobName(name);
+  if (parsed) {
+    return { stage: parsed.stage, shard: parsed.shardLabel };
   }
   const unsplitV2 = /^Run perf cases \(v2-(shard-\d+-of-\d+)\)$/.exec(name);
   if (unsplitV2) {
