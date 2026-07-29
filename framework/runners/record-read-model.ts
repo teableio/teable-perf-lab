@@ -16,6 +16,16 @@ export const SOURCE_KEY_FIELD_NAME = "Source Key";
 export const HOST_LOOKUP_KEY_FIELD_NAME = "Lookup Source Key";
 export const BASE_NUMBER_FIELDS = ["A", "B", "C"] as const;
 
+// Overhead metrics report `max(query - baseline, 0)`, so they only carry
+// meaning while the query variant and the baseline scan the same rows: the
+// clamped delta is then the price of the filter/sort/group clause. See
+// assertConfigShape for why a selective variant may not use one.
+export const isClampedOverheadMetric = (
+  metric: RecordReadCaseConfig["threshold"]["metric"],
+) =>
+  metric === "getRecordsQueryOverheadMs" ||
+  metric === "getRecordsFilterSortGroupByOverheadMs";
+
 export const selectRecordReadPrimaryMetricValue = ({
   metric,
   queryDurationMs,
@@ -25,10 +35,7 @@ export const selectRecordReadPrimaryMetricValue = ({
   queryDurationMs?: number;
   overheadMs?: number;
 }) => {
-  const isOverheadMetric =
-    metric === "getRecordsQueryOverheadMs" ||
-    metric === "getRecordsFilterSortGroupByOverheadMs";
-  if (isOverheadMetric) {
+  if (isClampedOverheadMetric(metric)) {
     return overheadMs == null ? undefined : Math.max(overheadMs, 0);
   }
   return queryDurationMs;
@@ -139,6 +146,19 @@ export const assertConfigShape = (config: RecordReadCaseConfig) => {
   ) {
     throw new Error(
       `record-read query variant expectedRowCount must be between 0 and ${config.rowCount}, got ${queryVariant.expectedRowCount}`,
+    );
+  }
+  // A selective variant pages through fewer records than the baseline scan, so
+  // query-minus-baseline is structurally negative and the clamp reports a flat
+  // 0 ms: a threshold that cannot fail, and a run summary row with no usable
+  // V1 baseline that renders as "V1 skip" even though both engines measured
+  // fine. Selective variants measure the query itself instead.
+  if (
+    queryVariant.expectedRowCount < config.rowCount &&
+    isClampedOverheadMetric(config.threshold.metric)
+  ) {
+    throw new Error(
+      `record-read query variant returning ${queryVariant.expectedRowCount} of ${config.rowCount} rows cannot use the clamped overhead metric ${config.threshold.metric}; measure the query with getRecordsQueryPagedScanMs`,
     );
   }
   if (queryVariant.filters && queryVariant.filters.items.length === 0) {

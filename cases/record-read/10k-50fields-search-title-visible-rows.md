@@ -24,8 +24,8 @@ field `Title`, and `hideNotMatchRow=true` through the same page sequence.
 
 ## Primary Metric
 
-`getRecordsQueryOverheadMs`, the non-negative search-minus-baseline duration.
-Initial guardrail: 8,000 ms.
+`getRecordsQueryPagedScanMs`, the actual search paged-scan duration. Initial
+guardrail: 8,000 ms. Baseline duration and signed delta remain diagnostics.
 
 ## Notes
 

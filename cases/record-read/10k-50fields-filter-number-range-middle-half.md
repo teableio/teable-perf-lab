@@ -22,8 +22,8 @@ Run the unqueried baseline, then query `A isGreater 2500` AND
 
 ## Primary Metric
 
-`getRecordsQueryOverheadMs`, clamped at zero after subtracting the warmed
-baseline. Initial guardrail: 8,000 ms.
+`getRecordsQueryPagedScanMs`, the actual queried paged-scan duration. Initial
+guardrail: 8,000 ms. Baseline duration and signed delta remain diagnostics.
 
 ## Notes
 

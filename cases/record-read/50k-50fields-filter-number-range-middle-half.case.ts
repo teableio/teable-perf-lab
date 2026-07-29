@@ -18,6 +18,6 @@ export default definePerfCase({
       },
       expectedRowCount: 25_000,
     },
-    threshold: { metric: "getRecordsQueryOverheadMs", maxMs: 30_000 },
+    threshold: { metric: "getRecordsQueryPagedScanMs", maxMs: 30_000 },
   },
 });

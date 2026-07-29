@@ -24,8 +24,8 @@ The runner still issues the full deterministic ten-page request sequence.
 
 ## Primary Metric
 
-`getRecordsQueryOverheadMs`, the non-negative queried-minus-baseline duration.
-Initial guardrail: 8,000 ms.
+`getRecordsQueryPagedScanMs`, the actual queried paged-scan duration. Initial
+guardrail: 8,000 ms. Baseline duration and signed delta remain diagnostics.
 
 ## Notes
 

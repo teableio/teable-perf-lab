@@ -18,6 +18,6 @@ export default definePerfCase({
       groupBy: [{ fieldName: "C", order: "asc" }],
       expectedRowCount: 25_000,
     },
-    threshold: { metric: "getRecordsQueryOverheadMs", maxMs: 60_000 },
+    threshold: { metric: "getRecordsQueryPagedScanMs", maxMs: 30_000 },
   },
 });
