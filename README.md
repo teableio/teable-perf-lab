@@ -107,6 +107,8 @@ ready.
 - `scripts/perf-artifact-diff-model.mjs`: artifact normalization and mask profile
   for behavior-preserving artifact diffs; keep CLI file I/O in
   `scripts/diff-artifacts.mjs`.
+- `docs/adr/*.md`: architecture decision records — investigations that
+  concluded "leave this as it is", so a later review does not re-open them.
 - `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules
