@@ -87,6 +87,11 @@ export interface PerfTraceArtifactSummary {
   relayDrainError?: string;
   sharedPublishTraceCount?: number;
   sharedPublishSpanCount?: number;
+  // Report-stage timings. Kept distinct from traceFetchWaitMs /
+  // traceFetchJobWaitMs, which are the execute job's own measurements and the
+  // ones the case/job budgets bound.
+  sharedPublishWaitMs?: number;
+  sharedPublishMaxTraceMs?: number;
   traceFetchSkippedReason?: string;
   artifactDir?: string;
   manifestPath?: string;

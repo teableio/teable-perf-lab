@@ -456,8 +456,10 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
       wastedFetchMs: 0,
       traceFetchCaseBudgetMs: 15_000,
       traceFetchJobBudgetMs: 60_000,
-      traceFetchWaitMs: 0,
-      traceFetchJobWaitMs: 0,
+      // Distinctive execute-job measurements: the report job must preserve
+      // these, not overwrite them with its own publish elapsed time.
+      traceFetchWaitMs: 1_234,
+      traceFetchJobWaitMs: 4_242,
       traceFetchRecoveryProbeCount: 0,
       traceFetchRecoverySucceeded: false,
       maxSnapshotCount: 10,
@@ -549,6 +551,25 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
     assert.equal(
       payload.details.observability.traces.refs[0].traceLink,
       traceLink,
+    );
+    // The report job publishes once for the whole run, so writing its elapsed
+    // time into every case's manifest replaced each execute job's own
+    // measurement with one shared number — which acceptance then checked
+    // against the per-execute-job budget. Keep the two apart.
+    assert.equal(
+      payload.details.observability.traces.traceFetchJobWaitMs,
+      4_242,
+      "execute job trace-fetch job wait must survive report-stage reconcile",
+    );
+    assert.equal(
+      payload.details.observability.traces.traceFetchWaitMs,
+      1_234,
+      "execute job trace-fetch case wait must survive report-stage reconcile",
+    );
+    assert.equal(
+      typeof payload.details.observability.traces.sharedPublishWaitMs,
+      "number",
+      "report-stage publish elapsed must be recorded under its own field",
     );
   } finally {
     globalThis.fetch = previousFetch;
