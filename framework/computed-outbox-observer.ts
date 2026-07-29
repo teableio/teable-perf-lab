@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import pg from "pg";
+import { sleep as wait } from "./sleep.js";
 
 const { Client } = pg;
 
@@ -71,11 +72,6 @@ export type ComputedOutboxObserverSummary = {
 
 const numberValue = (value: string | number | null | undefined) =>
   value == null ? 0 : Number(value);
-
-const wait = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 const emptyTableSnapshot = (): ComputedOutboxTableSnapshot => ({
   total: 0,

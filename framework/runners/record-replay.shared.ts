@@ -40,6 +40,7 @@ import type {
   PerfRunnerKind,
   RecordUndoRedoBaseCaseConfig,
 } from "../types";
+import { sleep } from "../sleep.js";
 
 type NamedField = {
   id: string;
@@ -373,8 +374,6 @@ const buildUiSelectionDeleteRange = (fixture: RecordReplayFixture) => ({
 
 const getStreamHeaders = (context: PerfRunContext) =>
   context.cookie ? { Cookie: context.cookie } : undefined;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const formatRowCountLabel = (rowCount: number) =>
   rowCount % 1_000 === 0 ? `${rowCount / 1_000}k` : String(rowCount);

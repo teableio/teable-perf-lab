@@ -5,9 +5,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSummaryMarkdown } from "../framework/artifacts.ts";
 import { writeFileAtomically as writeFileAtomicallyShared } from "../framework/atomic-file.js";
+import { requiredEnv } from "./env.mjs";
+import { sleep as delay } from "../framework/sleep.js";
 
-const delay = (ms) =>
-  new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 const sanitizeSegment = (value) => value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -568,14 +568,6 @@ export const publishAndReconcileSelectedTraces = async ({
     );
   }
   return summary;
-};
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
 };
 
 const main = async () => {

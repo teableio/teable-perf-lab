@@ -1,5 +1,6 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { env, requiredEnv } from "./env.mjs";
 import {
   fileExists,
   readSeedCacheStatuses,
@@ -12,16 +13,6 @@ import {
   selectLatestLogicalJobs,
   summarizeSeedCacheStatuses,
 } from "./stage-plan-observation-model.mjs";
-
-const env = (name, fallback = "") => process.env[name] ?? fallback;
-
-const requiredEnv = (name) => {
-  const value = env(name);
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
-};
 
 const githubApi = async (path) => {
   const response = await fetch(`https://api.github.com${path}`, {
