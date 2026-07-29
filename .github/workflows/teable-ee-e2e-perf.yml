@@ -60,7 +60,26 @@ concurrency:
   # A comma-separated case list can exceed GitHub's 256-character concurrency
   # key limit before any job starts. Keep single-case keys descriptive and
   # collapse multi-case runs to one bounded key per ref.
-  group: teable-ee-e2e-perf-${{ github.ref }}-${{ contains(inputs.case_filter, ',') && 'multi-case' || inputs.case_filter }}
+  #
+  # Full and multi-case runs drop the ref from the key so they serialize across
+  # every branch. They contend for resources that are shared org-wide, not
+  # per-ref: the OTLP collector on :4318 and the Jaeger instance the report job
+  # publishes to and then reads back. Two full runs on different refs used to
+  # get different keys and overlap; run 30419682175 (a branch) and run
+  # 30420101419 (main) overlapped for 24 minutes, pushed ~2000 traces at one
+  # Jaeger, and both blew the traceFetchJobWaitMs budget (128,805ms and
+  # 146,212ms against 120,000ms) and failed acceptance. Re-running the same
+  # branch commit alone passed 31/31. Queueing is strictly better than two runs
+  # corrupting each other's measurements.
+  #
+  # Single-case runs stay keyed per ref: they publish few traces and are meant
+  # to be runnable in parallel while iterating.
+  group: >-
+    ${{
+      (inputs.case_filter == 'all' || contains(inputs.case_filter, ','))
+        && 'teable-ee-e2e-perf-full-run-shared-observability'
+        || format('teable-ee-e2e-perf-{0}-{1}', github.ref, inputs.case_filter)
+    }}
   cancel-in-progress: false
 
 env:
