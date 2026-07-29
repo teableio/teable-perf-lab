@@ -13,6 +13,10 @@ const artifactNamesSource = await readFile(
   "utf8",
 );
 const concurrencySource = await readFile("framework/concurrency.ts", "utf8");
+const jaegerTransportSource = await readFile(
+  "framework/jaeger-transport.ts",
+  "utf8",
+);
 const evidencePolicySource = await readFile(
   "framework/trace-evidence-policy.ts",
   "utf8",
@@ -87,6 +91,7 @@ const atomicFile = join(tempDir, "atomic-file.mjs");
 const sleepFile = join(tempDir, "sleep.mjs");
 const artifactNamesFile = join(tempDir, "artifact-names.mjs");
 const concurrencyFile = join(tempDir, "concurrency.mjs");
+const jaegerTransportFile = join(tempDir, "jaeger-transport.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
 const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const fetchControlFile = join(tempDir, "trace-fetch-control.mjs");
@@ -114,6 +119,7 @@ try {
       .replace('from "./sleep.js"', 'from "./sleep.mjs"')
       .replace('from "./artifact-names.js"', 'from "./artifact-names.mjs"')
       .replace('from "./concurrency"', 'from "./concurrency.mjs"')
+      .replace('from "./jaeger-transport"', 'from "./jaeger-transport.mjs"')
       .replace(
         'from "./trace-evidence-policy"',
         'from "./trace-evidence-policy.mjs"',
@@ -135,6 +141,16 @@ try {
         target: ts.ScriptTarget.ES2022,
       },
       fileName: "framework/concurrency.ts",
+    }).outputText,
+  );
+  await writeFile(
+    jaegerTransportFile,
+    ts.transpileModule(jaegerTransportSource, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+      fileName: "framework/jaeger-transport.ts",
     }).outputText,
   );
   await writeFile(
@@ -167,6 +183,9 @@ try {
     setPerfTraceFlush,
     writeTraceArtifacts,
   } = await import(pathToFileURL(collectorFile));
+  const { setJaegerTransport, resetJaegerTransport } = await import(
+    pathToFileURL(jaegerTransportFile)
+  );
 
   const previousEnv = {
     PERF_LAB_TRACE_ENABLED: process.env.PERF_LAB_TRACE_ENABLED,
@@ -188,7 +207,6 @@ try {
       process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT,
     PERF_LAB_JAEGER_API_BASE_URL: process.env.PERF_LAB_JAEGER_API_BASE_URL,
   };
-  const previousFetch = globalThis.fetch;
   let fetchCount = 0;
   const reconcileTailArtifact = async (result) => {
     await new Promise((resolve) => setTimeout(resolve, 1));
@@ -206,10 +224,10 @@ try {
     process.env.PERF_LAB_TRACE_MAX_SNAPSHOTS = "10";
     process.env.PERF_LAB_TRACE_FETCH_SETTLE_MS = "1";
     process.env.PERF_LAB_JAEGER_API_BASE_URL = "http://jaeger.example";
-    globalThis.fetch = async () => {
+    setJaegerTransport(async () => {
       fetchCount += 1;
       throw new Error("fetch should not run after exporter outage");
-    };
+    });
 
     const context = { runId: "run-1", engine: "v2" };
     const perfCase = { id: "smoke/auth-user" };
@@ -280,7 +298,7 @@ try {
     process.env.PERF_LAB_TRACE_FETCH_CONCURRENCY = "1";
 
     const fetchedTraceIds = [];
-    globalThis.fetch = async (url) => {
+    setJaegerTransport(async (url) => {
       const traceId = String(url).split("/").at(-1);
       fetchedTraceIds.push(traceId);
       if (
@@ -296,7 +314,7 @@ try {
         });
       }
       return new Response(JSON.stringify({ data: [] }), { status: 404 });
-    };
+    });
 
     for (const traceId of [
       "11111111111111111111111111111111",
@@ -407,10 +425,10 @@ try {
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "100";
     process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "2";
     process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT = "1";
-    globalThis.fetch = async () => {
+    setJaegerTransport(async () => {
       fetchCount += 1;
       throw new Error("connect ECONNREFUSED jaeger.example:16686");
-    };
+    });
     recordDistinctTraceRefs({
       prefix: "hard-outage-shape",
       traceIds: [
@@ -451,10 +469,10 @@ try {
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "200";
     process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "2";
     process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT = "1";
-    globalThis.fetch = async () => {
+    setJaegerTransport(async () => {
       fetchCount += 1;
       return new Response(JSON.stringify({ data: [] }), { status: 404 });
-    };
+    });
     recordDistinctTraceRefs({
       prefix: "partial-loss-shape",
       traceIds: [
@@ -500,7 +518,7 @@ try {
       "2222222222222222222222222222222b",
       "3333333333333333333333333333333c",
     ];
-    globalThis.fetch = async (url) => {
+    setJaegerTransport(async (url) => {
       fetchCount += 1;
       const traceId = String(url).split("/").at(-1);
       if (traceId === recoveryTraceIds[0]) {
@@ -510,7 +528,7 @@ try {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    };
+    });
     recordDistinctTraceRefs({
       prefix: "recovery-shape",
       traceIds: recoveryTraceIds,
@@ -557,7 +575,7 @@ try {
     process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "12";
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "100";
     process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "3";
-    globalThis.fetch = neverResolvingFetch;
+    setJaegerTransport(neverResolvingFetch);
     recordDistinctTraceRefs({
       prefix: "case-budget-shape",
       traceIds: [
@@ -589,7 +607,7 @@ try {
     fetchCount = 0;
     process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "20";
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "10";
-    globalThis.fetch = neverResolvingFetch;
+    setJaegerTransport(neverResolvingFetch);
     const firstJobBudgetCase = { id: "trace/job-budget-first" };
     recordDistinctTraceRefs({
       targetCase: firstJobBudgetCase,
@@ -638,14 +656,14 @@ try {
     setPerfTraceFlush(async () => {
       batchFlushCount += 1;
     });
-    globalThis.fetch = async (url) => {
+    setJaegerTransport(async (url) => {
       fetchCount += 1;
       const traceId = String(url).split("/").at(-1);
       return new Response(JSON.stringify({ data: [{ traceID: traceId }] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    };
+    });
 
     const healthyTailCases = [
       {
@@ -756,10 +774,10 @@ try {
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "60";
     process.env.PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD = "2";
     process.env.PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT = "1";
-    globalThis.fetch = async () => {
+    setJaegerTransport(async () => {
       fetchCount += 1;
       return new Response(JSON.stringify({ data: [] }), { status: 404 });
-    };
+    });
     const partialTailCases = [
       {
         perfCase: { id: "trace/job-tail-partial-a" },
@@ -897,7 +915,7 @@ try {
     process.env.PERF_LAB_TRACE_CASE_BUDGET_MS = "1000";
     process.env.PERF_LAB_TRACE_JOB_BUDGET_MS = "100";
     process.env.PERF_LAB_TRACE_FINALIZE_RESERVE_MS = "80";
-    globalThis.fetch = neverResolvingFetch;
+    setJaegerTransport(neverResolvingFetch);
     const pendingFetchCases = Array.from({ length: 30 }, (_, index) => ({
       perfCase: { id: `trace/job-tail-pending-${index + 1}` },
       traceId:
@@ -955,7 +973,7 @@ try {
         pendingFetchTailElapsedMs - 5,
     );
   } finally {
-    globalThis.fetch = previousFetch;
+    resetJaegerTransport();
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value == null) {
         delete process.env[key];

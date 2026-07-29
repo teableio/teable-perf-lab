@@ -16,6 +16,7 @@ import { waitForTraceRelayDrain } from "./trace-relay-drain";
 import type { PerfCase, PerfRunContext } from "./types";
 import { writeFileAtomically } from "./atomic-file.js";
 import { sanitizeSegment as sanitizePathSegment } from "./artifact-names.js";
+import { jaegerFetch } from "./jaeger-transport";
 import { runWithConcurrency } from "./concurrency";
 import { sleep as delay } from "./sleep.js";
 
@@ -540,9 +541,10 @@ const fetchJaegerTrace = async (
     const remainingRequestMs = fetchDeadlineAt - Date.now();
     const timeout = setTimeout(() => controller.abort(), remainingRequestMs);
     try {
-      const res = await fetch(`${jaegerApiBaseUrl}/api/traces/${traceId}`, {
-        signal: controller.signal,
-      });
+      const res = await jaegerFetch(
+        `${jaegerApiBaseUrl}/api/traces/${traceId}`,
+        { signal: controller.signal },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           data?: unknown[];
