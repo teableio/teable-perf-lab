@@ -1,14 +1,12 @@
 import { formatCompactDuration } from "./format-duration.mjs";
+import { FEEDBACK_STAGE_LABELS } from "./shard-identity.mjs";
 
 const MINUTE_MS = 60_000;
 
-export const FULL_RUN_FEEDBACK_STAGES = Object.freeze([
-  "seed",
-  "v1",
-  "v2-sync",
-  "v2-hybrid",
-  "report",
-]);
+// Derived from the one stage table (scripts/shard-identity.mjs) rather than
+// restated, so an execute stage cannot exist in the cost model and be missing
+// from the feedback report.
+export const FULL_RUN_FEEDBACK_STAGES = FEEDBACK_STAGE_LABELS;
 
 export const FULL_RUN_FEEDBACK_PHASES = Object.freeze([
   "seed",
