@@ -1,5 +1,9 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  getArtifactJsonName,
+  getSummaryMarkdownName,
+} from "./artifact-names.js";
 import { writeFileAtomically } from "./atomic-file.js";
 import type { PerfTraceArtifactSummary } from "./trace-collector";
 import type { TraceFetchArtifactState } from "./trace-fetch-control";
@@ -28,17 +32,10 @@ export interface PerfArtifactPayload {
   };
 }
 
-const sanitizeCaseId = (caseId: string) =>
-  caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
-const sanitizeSegment = (value: string) =>
-  value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
-export const getArtifactJsonName = (caseId: string, engine: string) =>
-  `${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.json`;
-
-export const getSummaryMarkdownName = (caseId: string, engine: string) =>
-  `summary-${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.md`;
+// Re-exported so existing callers and artifacts.test.js keep importing these
+// from here; the filename contract itself is shared with the read side in
+// framework/artifact-names.js.
+export { getArtifactJsonName, getSummaryMarkdownName };
 
 export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
   const lines = [
