@@ -356,6 +356,31 @@ assert.match(
   /Baseline 1\.00s → V2 1\.50s\s+\*\*慢 1\.5x\*\*/,
 );
 
+// A measured 0 ms makes no ratio, so the row has no baseline — but both engines
+// ran it. Reporting the empty baseline as "V1 skip" claimed V1 never ran.
+const zeroBaselinePayloads = ["v1", "v2"].map((engine) => ({
+  caseId: "record-read/zero-overhead",
+  engine,
+  result: "pass",
+  durationMs: 29_512,
+  thresholds: [
+    { metric: "getRecordsQueryOverheadMs", actual: 0, passed: true },
+  ],
+}));
+const [zeroBaselineRow] = buildCaseRows(zeroBaselinePayloads);
+assert.equal(zeroBaselineRow.status, "neutral");
+assert.equal(zeroBaselineRow.v1, "0ms");
+const zeroBaselineCard = buildPerfSummaryCard({
+  payloads: zeroBaselinePayloads,
+  timings: {},
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+const zeroBaselineText = zeroBaselineCard.card.elements
+  .filter((element) => element.tag === "collapsible_panel")
+  .at(-1).elements[0].text.content;
+assert.match(zeroBaselineText, /V1 0ms → V2 0ms\s+\*\*无 V1 基线\*\*/);
+assert.doesNotMatch(zeroBaselineText, /V1 skip/);
+
 const card = buildPerfSummaryCard({
   payloads,
   timings: resolveRunTimingFromJobs(jobs),

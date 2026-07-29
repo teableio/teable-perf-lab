@@ -268,6 +268,38 @@ assert.throws(
     }),
   /expectedRowCount must be between/,
 );
+// A selective variant reads fewer pages than the baseline, so its clamped
+// overhead is a flat 0 ms: a threshold that cannot fail.
+for (const metric of [
+  "getRecordsQueryOverheadMs",
+  "getRecordsFilterSortGroupByOverheadMs",
+]) {
+  assert.throws(
+    () =>
+      assertConfigShape({
+        ...config,
+        threshold: { metric, maxMs: 8_000 },
+        queryVariant: {
+          filters: {
+            conjunction: "and",
+            items: [{ fieldName: "A", operator: "isGreater", value: 5_000 }],
+          },
+          expectedRowCount: 5_000,
+        },
+      }),
+    /cannot use the clamped overhead metric/,
+    `${metric} must be rejected for a selective variant`,
+  );
+  // Same page count on both scans keeps the delta meaningful.
+  assertConfigShape({
+    ...config,
+    threshold: { metric, maxMs: 8_000 },
+    queryVariant: {
+      orderBy: [{ fieldName: "A", order: "desc" }],
+      expectedRowCount: 10_000,
+    },
+  });
+}
 assert.throws(
   () => parseRowNumberFromTitle("wrong-00012", config),
   /Unexpected title value/,
