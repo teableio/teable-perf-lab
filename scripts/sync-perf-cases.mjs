@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCaseCatalog } from "./case-catalog.mjs";
+import { env } from "./env.mjs";
 import {
   chunkPerfCaseWriteRecords,
   DEFAULT_PERF_CASE_WRITE_MAX_BYTES,
@@ -33,8 +34,6 @@ const REQUIRED_FIELD_NAMES = [
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, "..");
-
-const env = (name, fallback = "") => process.env[name] ?? fallback;
 
 const perfCaseWriteMaxBytes = () => {
   const configured = env("PERF_LAB_CASE_SYNC_MAX_WRITE_BYTES");

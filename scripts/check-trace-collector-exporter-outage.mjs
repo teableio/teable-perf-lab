@@ -7,6 +7,7 @@ import ts from "typescript";
 
 const source = await readFile("framework/trace-collector.ts", "utf8");
 const atomicFileSource = await readFile("framework/atomic-file.js", "utf8");
+const sleepSource = await readFile("framework/sleep.js", "utf8");
 const evidencePolicySource = await readFile(
   "framework/trace-evidence-policy.ts",
   "utf8",
@@ -78,6 +79,7 @@ assert.equal(errors.length, 0);
 const tempDir = await mkdtemp(join(tmpdir(), "perf-lab-trace-collector-"));
 const collectorFile = join(tempDir, "trace-collector.mjs");
 const atomicFile = join(tempDir, "atomic-file.mjs");
+const sleepFile = join(tempDir, "sleep.mjs");
 const classificationFile = join(tempDir, "trace-classification.mjs");
 const evidencePolicyFile = join(tempDir, "trace-evidence-policy.mjs");
 const fetchControlFile = join(tempDir, "trace-fetch-control.mjs");
@@ -102,6 +104,7 @@ try {
     output.outputText
       .replace('from "@teable/openapi"', 'from "./teable-openapi.mjs"')
       .replace('from "./atomic-file.js"', 'from "./atomic-file.mjs"')
+      .replace('from "./sleep.js"', 'from "./sleep.mjs"')
       .replace(
         'from "./trace-evidence-policy"',
         'from "./trace-evidence-policy.mjs"',
@@ -113,6 +116,7 @@ try {
       .replace('from "./trace-relay-drain"', 'from "./trace-relay-drain.mjs"'),
   );
   await writeFile(atomicFile, atomicFileSource);
+  await writeFile(sleepFile, sleepSource);
   await writeFile(
     evidencePolicyFile,
     evidencePolicyOutput.outputText.replace(

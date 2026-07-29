@@ -1,4 +1,5 @@
 import { dirname, join } from "node:path";
+import { env, requiredEnv } from "./env.mjs";
 import {
   readArtifactPayloads,
   readJsonFileIfExists,
@@ -13,16 +14,13 @@ import {
   createTeablePerformanceTrackAdapter,
   DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
 } from "./performance-track-record-model.mjs";
+import { sleep } from "../framework/sleep.js";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_BASE_ID = "bselS3I2MeVI6RJhS4g";
 const DEFAULT_TABLE_ID = "tblwPqrcchUzvyEOqLo";
 
-const env = (name, fallback = "") => process.env[name] ?? fallback;
-
 const RETRYABLE_TEABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const retryDelayMs = (attempt, res) => {
   const retryAfter = res.headers.get("retry-after");
@@ -33,14 +31,6 @@ const retryDelayMs = (attempt, res) => {
     }
   }
   return Math.min(1000 * 2 ** (attempt - 1), 5000);
-};
-
-const requiredEnv = (name) => {
-  const value = env(name);
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
 };
 
 const reportWriteMaxBytes = () => {

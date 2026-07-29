@@ -1,11 +1,9 @@
+import { sleep } from "./sleep.js";
 type HttpResponseError = {
   response?: {
     status?: number;
   };
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 export const isTransientHttp500 = (
   error: unknown,

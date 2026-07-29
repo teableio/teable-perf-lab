@@ -15,6 +15,7 @@ import {
 import { waitForTraceRelayDrain } from "./trace-relay-drain";
 import type { PerfCase, PerfRunContext } from "./types";
 import { writeFileAtomically } from "./atomic-file.js";
+import { sleep as delay } from "./sleep.js";
 
 type HeaderBag = Record<string, unknown> & {
   set?: (name: string, value: string) => void;
@@ -192,8 +193,6 @@ const getNonNegativeIntegerEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isInteger(value) && value >= 0 ? value : fallback;
 };
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const waitUntilDeadline = async <T>(
   promise: Promise<T>,
