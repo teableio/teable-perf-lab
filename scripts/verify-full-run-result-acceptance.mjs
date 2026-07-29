@@ -3,6 +3,7 @@
 import { fileURLToPath } from "node:url";
 import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
 import { loadRegisteredCases } from "./run-plan.mjs";
+import { requiredEnv } from "./env.mjs";
 
 const DEFAULT_TRACE_CASE_BUDGET_MS = 15_000;
 const DEFAULT_TRACE_JOB_BUDGET_MS = 60_000;
@@ -497,14 +498,6 @@ export const evaluateFullRunResultAcceptance = ({
     observedResults: payloadEntries.length,
     failures,
   };
-};
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
 };
 
 const main = async () => {

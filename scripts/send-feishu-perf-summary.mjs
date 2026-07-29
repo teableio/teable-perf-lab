@@ -1,4 +1,5 @@
 import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
+import { env, requiredEnv } from "./env.mjs";
 import {
   buildPerfSummaryCard,
   resolveRunTimingFromJobs,
@@ -13,16 +14,6 @@ const DEFAULT_ENDPOINT = "https://app.teable.ai";
 const DEFAULT_TEABLE_RESULTS_TABLE_ID = "tblwPqrcchUzvyEOqLo";
 const DEFAULT_TEABLE_RESULTS_URL =
   "https://app.teable.ai/base/bselS3I2MeVI6RJhS4g/table/tblwPqrcchUzvyEOqLo/viwobw44IRJAHgtADI0";
-
-const env = (name, fallback = "") => process.env[name] ?? fallback;
-
-const requiredEnv = (name) => {
-  const value = env(name);
-  if (!value) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
-};
 
 const teableRequest = async ({
   endpoint,

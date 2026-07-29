@@ -13,8 +13,12 @@
 // hard-code them) and passes plain numbers. The assertion is a zero-arg thunk,
 // so a caller that needs an attempt counter keeps it in its own closure.
 
-export const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+// Imported and re-exported so the many runners that already pull `sleep` from
+// here keep working, and so `pollUntilReady` below can use it; the
+// implementation itself lives in one place (framework/sleep.js).
+import { sleep } from "./sleep.js";
+
+export { sleep };
 
 export const pollUntilReady = async <T>(
   options: { timeoutMs: number; pollIntervalMs: number; description: string },

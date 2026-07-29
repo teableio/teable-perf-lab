@@ -1,3 +1,5 @@
+import { formatCompactDuration } from "./format-duration.mjs";
+
 const MINUTE_MS = 60_000;
 
 export const FULL_RUN_FEEDBACK_STAGES = Object.freeze([
@@ -21,18 +23,8 @@ export const DEFAULT_FULL_RUN_FEEDBACK_SLO = Object.freeze({
   traceJobWaitMs: 60_000,
 });
 
-export const formatFeedbackDuration = (durationMs) => {
-  const totalSeconds = Math.round(
-    assertNonNegativeNumber(durationMs, "durationMs") / 1_000,
-  );
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes > 0) {
-    return `${minutes}m${String(seconds).padStart(2, "0")}s`;
-  }
-  return `${seconds}s`;
-};
+export const formatFeedbackDuration = (durationMs) =>
+  formatCompactDuration(assertNonNegativeNumber(durationMs, "durationMs"));
 
 const assertRecord = (value, label) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

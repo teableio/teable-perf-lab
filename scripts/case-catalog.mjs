@@ -427,6 +427,74 @@ export const parseCaseSourceMetadata = (source, casePath) => {
   };
 };
 
+// A case description restates its guardrail in prose ("`maxMs` is 6,000",
+// "initial maximum 30,000 ms"). Nothing used to check that prose against
+// `config.threshold.maxMs`, and it drifted: a 50k record-read case was raised to
+// 60,000 while its description kept the family's boilerplate 30,000.
+//
+// Deliberately narrow, because a false positive here is worse than a miss:
+//   - a number glued to a letter is an identifier, not a duration
+//     (`formSubmitP95Ms` must not read as 95 ms)
+//   - a number preceded by a dot is a decimal tail (`4,451.78ms` is not 78 ms)
+//   - a bare duration only counts inside a threshold sentence, so polling
+//     intervals ("every 100 ms") and observations ("p95 ~320ms") are ignored
+const THRESHOLD_CONTEXT_PATTERN = /(maxms|maximum|guardrail|threshold)/i;
+const THRESHOLD_CONTEXT_WINDOW = 80;
+const DURATION_NUMBER = "(?<![A-Za-z0-9_.])([0-9][0-9,_]*)(?!\\.[0-9])";
+
+const toDurationMs = (raw, unit) => {
+  const value = Number(String(raw).replaceAll(",", "").replaceAll("_", ""));
+  return (unit ?? "").toLowerCase().startsWith("s") ? value * 1000 : value;
+};
+
+export const parseCaseThresholdRestatements = (markdown) => {
+  const stated = [];
+
+  // "`maxMs` is 6,000." / "`maxMs` (2,000) is calibrated" / "`maxMs` is 10 seconds"
+  for (const match of markdown.matchAll(
+    new RegExp(
+      `maxMs\`?\\s*(?:is|of|=|:)?\\s*\\(?\\s*${DURATION_NUMBER}\\s*(seconds?|s\\b|ms\\b|milliseconds?)?`,
+      "gi",
+    ),
+  )) {
+    stated.push(toDurationMs(match[1], match[2]));
+  }
+
+  // "initial maximum 30,000 ms" — a duration inside a threshold sentence.
+  for (const match of markdown.matchAll(
+    new RegExp(`${DURATION_NUMBER}\\s*(?:ms\\b|milliseconds\\b)`, "gi"),
+  )) {
+    const from = Math.max(0, match.index - THRESHOLD_CONTEXT_WINDOW);
+    const to = match.index + match[0].length + THRESHOLD_CONTEXT_WINDOW;
+    if (!THRESHOLD_CONTEXT_PATTERN.test(markdown.slice(from, to))) {
+      continue;
+    }
+    stated.push(toDurationMs(match[1], "ms"));
+  }
+
+  return stated;
+};
+
+// A description that never states a threshold is fine; one that states a
+// threshold must agree with the case config on at least one of the values it
+// gives (descriptions legitimately also cite superseded guardrails as history).
+export const listCaseDocIssues = (entries) => {
+  const issues = [];
+  for (const entry of entries) {
+    const stated = parseCaseThresholdRestatements(entry.markdown);
+    if (stated.length === 0) {
+      continue;
+    }
+    if (!stated.includes(entry.primaryThresholdMs)) {
+      issues.push({
+        type: "threshold-doc-drift",
+        detail: `${entry.markdownPath} states ${stated.join(", ")} ms but ${entry.casePath} sets maxMs ${entry.primaryThresholdMs}`,
+      });
+    }
+  }
+  return issues;
+};
+
 export const loadCaseCatalog = async (repoRoot) => {
   const issues = await listCatalogIssues(repoRoot);
   if (issues.length > 0) {

@@ -3,6 +3,7 @@ import {
   traceServiceOutage,
   traceWaste,
 } from "./perf-artifact-read-model.mjs";
+import { formatCompactDuration } from "./format-duration.mjs";
 
 export const parseDate = (value) => {
   const time = Date.parse(value ?? "");
@@ -20,9 +21,9 @@ export const formatDuration = (ms) => {
   if (seconds < 60) {
     return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
   }
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = Math.round(seconds % 60);
-  return `${minutes}m${String(restSeconds).padStart(2, "0")}s`;
+  // Shared so this cannot drift back into splitting before rounding, which
+  // rendered 119,700 ms as "1m60s".
+  return formatCompactDuration(ms);
 };
 
 export const formatMetricSeconds = (ms) => {

@@ -1,14 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { buildSeedCacheStatus } from "./seed-cache-model.mjs";
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} must be set`);
-  }
-  return value;
-};
+import { requiredEnv } from "./env.mjs";
 
 const outputPath = requiredEnv("OUTPUT_PATH");
 const status = buildSeedCacheStatus({

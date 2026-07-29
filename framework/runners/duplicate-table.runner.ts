@@ -42,6 +42,7 @@ import {
   seedDuplicateLifecycle,
   type DuplicateLifecycleSpec,
 } from "./duplicate-lifecycle";
+import { sleep as delay } from "../sleep.js";
 
 type NamedField = {
   id: string;
@@ -252,8 +253,6 @@ const getFormulaExpectedValue = (
       return amount * percent;
   }
 };
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const buildRecords = (
   fields: DuplicateField[],

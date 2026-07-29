@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sanitizeSegment } from "../framework/artifact-names.js";
+import { runWithConcurrency } from "../framework/concurrency.ts";
 import { buildSummaryMarkdown } from "../framework/artifacts.ts";
+import { writeFileAtomically as writeFileAtomicallyShared } from "../framework/atomic-file.js";
+import { requiredEnv } from "./env.mjs";
+import { sleep as delay } from "../framework/sleep.js";
 
-const delay = (ms) =>
-  new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
-const sanitizeSegment = (value) => value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -38,11 +40,12 @@ const findFiles = async (root, fileName) => {
   return matches.sort();
 };
 
+// Keep the parent-directory creation this script needs, but delegate the atomic
+// write itself to framework/atomic-file.js. The local copy used a
+// pid+timestamp temp name and left the temp file behind when the rename failed.
 const writeFileAtomically = async (path, contents) => {
   await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporaryPath, contents);
-  await rename(temporaryPath, path);
+  await writeFileAtomicallyShared(path, contents);
 };
 
 const traceIdsAndSpanCount = (payload) => {
@@ -294,21 +297,6 @@ const fetchJaegerTrace = async ({ jaegerApiBaseUrl, traceId, timeoutMs }) => {
     attempts,
     durationMs: Date.now() - startedAt,
   };
-};
-
-const runWithConcurrency = async (items, concurrency, worker) => {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await worker(items[index]);
-      }
-    }),
-  );
-  return results;
 };
 
 export const buildPublishedTraceSummary = ({
@@ -566,14 +554,6 @@ export const publishAndReconcileSelectedTraces = async ({
     );
   }
   return summary;
-};
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
 };
 
 const main = async () => {

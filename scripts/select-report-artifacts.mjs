@@ -2,6 +2,7 @@
 
 import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { requiredEnv } from "./env.mjs";
 
 const flattenArtifactInventory = (inventory) => {
   const pages = Array.isArray(inventory) ? inventory : [inventory];
@@ -90,14 +91,6 @@ export const selectLatestReportArtifacts = ({ artifacts, runId }) => {
     seedArtifactIds: seed.map(({ id }) => id),
     seedProvenanceArtifactIds: seedProvenance.map(({ id }) => id),
   };
-};
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
 };
 
 const main = async () => {

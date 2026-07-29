@@ -18,14 +18,7 @@ import {
 } from "./full-run-shard-model.mjs";
 import { loadRegisteredCases } from "./run-plan.mjs";
 import { summarizeSeedCacheStatuses } from "./stage-plan-observation-model.mjs";
-
-const requiredEnv = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-  return value;
-};
+import { requiredEnv } from "./env.mjs";
 
 const buildAffinityIndex = (affinities) => {
   const result = new Map();

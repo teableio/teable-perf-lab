@@ -1,4 +1,5 @@
 import { STAGE_COST_KEYS } from "./stage-aware-shard-model.mjs";
+import { formatCompactDuration } from "./format-duration.mjs";
 
 const JOB_STAGE_PATTERNS = [
   {
@@ -402,14 +403,7 @@ const formatDuration = (durationMs) => {
     return "n/a";
   }
   const sign = durationMs > 0 ? "+" : durationMs < 0 ? "-" : "";
-  const seconds = Math.round(Math.abs(durationMs) / 1_000);
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  const body =
-    minutes > 0
-      ? `${minutes}m${String(remainder).padStart(2, "0")}s`
-      : `${seconds}s`;
-  return `${sign}${body}`;
+  return `${sign}${formatCompactDuration(Math.abs(durationMs))}`;
 };
 
 export const renderStagePlanObservationMarkdown = (observationInput) => {

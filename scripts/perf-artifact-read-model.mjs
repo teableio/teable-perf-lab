@@ -1,20 +1,22 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  getArtifactJsonName,
+  getSummaryMarkdownName,
+  sanitizeCaseId,
+  sanitizeSegment,
+} from "../framework/artifact-names.js";
 
-export const sanitizeCaseId = (caseId) =>
-  caseId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+// The filename contract is shared with the writer (framework/artifacts.ts) via
+// framework/artifact-names.js. Kept exported under this module's existing names
+// so its callers are untouched.
+export { sanitizeCaseId, sanitizeSegment };
+export const artifactJsonName = getArtifactJsonName;
+export const summaryMarkdownName = getSummaryMarkdownName;
 
-export const sanitizeSegment = (value) =>
-  value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-
-export const artifactJsonName = (caseId, engine) =>
-  `${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.json`;
-
+// Read-side only: the writer has never produced this shape.
 export const legacyArtifactJsonName = (caseId) =>
   `${sanitizeCaseId(caseId)}.json`;
-
-export const summaryMarkdownName = (caseId, engine) =>
-  `summary-${sanitizeCaseId(caseId)}-${sanitizeSegment(engine)}.md`;
 
 export const fileExists = async (path) => {
   try {
