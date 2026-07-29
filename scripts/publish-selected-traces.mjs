@@ -3,12 +3,13 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sanitizeSegment } from "../framework/artifact-names.js";
+import { runWithConcurrency } from "../framework/concurrency.ts";
 import { buildSummaryMarkdown } from "../framework/artifacts.ts";
 import { writeFileAtomically as writeFileAtomicallyShared } from "../framework/atomic-file.js";
 import { requiredEnv } from "./env.mjs";
 import { sleep as delay } from "../framework/sleep.js";
 
-const sanitizeSegment = (value) => value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -296,21 +297,6 @@ const fetchJaegerTrace = async ({ jaegerApiBaseUrl, traceId, timeoutMs }) => {
     attempts,
     durationMs: Date.now() - startedAt,
   };
-};
-
-const runWithConcurrency = async (items, concurrency, worker) => {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await worker(items[index]);
-      }
-    }),
-  );
-  return results;
 };
 
 export const buildPublishedTraceSummary = ({

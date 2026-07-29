@@ -22,6 +22,10 @@ assert.equal(formatDuration(undefined), "-");
 assert.equal(formatDuration(999), "999ms");
 assert.equal(formatDuration(12_345), "12s");
 assert.equal(formatDuration(65_000), "1m05s");
+// A duration that rounds up through a minute boundary must carry into the
+// minutes rather than render a 60-second remainder ("1m60s", "59m60s").
+assert.equal(formatDuration(119_700), "2m00s");
+assert.equal(formatDuration(3_599_600), "60m00s");
 assert.equal(formatMetricSeconds(undefined), "skip");
 assert.equal(formatMetricSeconds(50), "50ms");
 assert.equal(formatMetricSeconds(1234), "1.23s");
