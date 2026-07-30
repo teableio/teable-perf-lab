@@ -419,6 +419,7 @@ const panels = card.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
 assert.equal(panels[0].header.title.content, "**退化 3**");
+assert.equal(panels[0].expanded, false);
 assert.equal(panels[1].header.title.content, "**待确认 1**");
 assert.match(
   panels[0].elements[0].text.content,
@@ -426,6 +427,46 @@ assert.match(
 );
 assert.doesNotMatch(JSON.stringify(card), /formula\/fast/);
 assert.match(JSON.stringify(card), /已省略 1 个 V2 更快或持平项/);
+
+const manyRegressionPayloads = Array.from({ length: 12 }, (_, index) => [
+  {
+    caseId: `record-read/regressed-${index}`,
+    engine: "v1",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
+  },
+  {
+    caseId: `record-read/regressed-${index}`,
+    engine: "v2",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
+  },
+]).flat();
+const manyRegressionCard = buildPerfSummaryCard({
+  payloads: manyRegressionPayloads,
+  timings: {},
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+const [manyRegressionPanel] = manyRegressionCard.card.elements.filter(
+  (element) => element.tag === "collapsible_panel",
+);
+assert.match(
+  manyRegressionPanel.elements[0].text.content,
+  /record-read\/regressed-7/,
+);
+assert.doesNotMatch(
+  manyRegressionPanel.elements[0].text.content,
+  /record-read\/regressed-8/,
+);
+assert.equal(
+  manyRegressionPanel.elements[1].header.title.content,
+  "**其余 2 项（展开全部）**",
+);
+assert.equal(manyRegressionPanel.elements[1].expanded, false);
+assert.match(
+  manyRegressionPanel.elements[1].elements[0].text.content,
+  /record-read\/regressed-8/,
+);
 
 const markdown = buildPerfSummaryMarkdown({
   payloads,
