@@ -117,15 +117,13 @@ const writeArtifact = async ({
   );
 };
 
-const siteBytes = async (siteDir) => {
+const siteBytes = async (directory) => {
   let total = 0;
-  for (const entry of await readdir(siteDir, {
-    withFileTypes: true,
-    recursive: true,
-  })) {
-    if (entry.isFile()) {
-      total += (await stat(join(entry.parentPath, entry.name))).size;
-    }
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    total += entry.isDirectory()
+      ? await siteBytes(path)
+      : (await stat(path)).size;
   }
   return total;
 };
