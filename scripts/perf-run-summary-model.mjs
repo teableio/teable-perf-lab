@@ -487,7 +487,7 @@ export const buildPerfSummaryCard = ({
                 tag: "div",
                 text: {
                   tag: "lark_md",
-                  content: `⚠️ **Trace 服务不可用，本轮跳过 Trace 抓取** · ${traceOutage.skippedFetchCount} 个 trace 未抓取${outageByEngineText ? `(${outageByEngineText})` : ""}\n非引擎性能退化:抓 Trace 的 Jaeger/观测服务当时不可用或无响应，本轮性能结果仍可看，但没有 raw trace 证据。请查 observability-stack / teable-perf-jaeger。`,
+                  content: `⚠️ **Trace 服务不可用，本轮跳过 Trace 抓取** · ${traceOutage.skippedFetchCount} 个 trace 未抓取${outageByEngineText ? `(${outageByEngineText})` : ""}\n非引擎性能退化:本轮 report job 自带的 Jaeger 容器不可用或无响应，性能结果仍可看，但没有 raw trace 证据。请查 report job 的 Start/Publish report-local Jaeger 两步。`,
                 },
               },
             ]

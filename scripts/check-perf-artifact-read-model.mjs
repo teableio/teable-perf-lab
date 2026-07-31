@@ -242,7 +242,7 @@ try {
               traceRefCount: 30,
               selectedTraceCount: 20,
               traceFetchSkippedReason:
-                "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+                "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 127.0.0.1:4318",
             },
           },
         },
@@ -254,7 +254,7 @@ try {
         v2: {
           skippedFetchCount: 20,
           reason:
-            "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+            "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 127.0.0.1:4318",
         },
       },
     },

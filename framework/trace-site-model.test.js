@@ -335,6 +335,42 @@ test("prunes runs past the retention window but never the pinned copy", async ()
   });
 });
 
+test("publishes the trace under the id the result row links to", async () => {
+  await withTempDir("trace-site-identity-", async (root) => {
+    const artifactDir = join(root, "artifacts");
+    await writeArtifact({
+      artifactDir,
+      caseId: "alpha-case",
+      engine: "v2",
+      traceId: traceA,
+      // A snapshot that disagrees with the ref would otherwise be published
+      // under its own id, leaving the row's link pointing at nothing.
+      snapshot: jaegerSnapshot({
+        traceId: traceB,
+        spans: [jaegerSpan({ spanID: "root" })],
+      }),
+    });
+
+    const siteDir = join(root, "site");
+    await publishTraceSite({
+      artifactDir,
+      siteDir,
+      viewerDir,
+      runId: "run-1",
+      publishedAt: "2026-07-31T00:00:00.000Z",
+    });
+
+    await readFile(join(siteDir, "r", "run-1", `${traceA}.json`), "utf8");
+    const index = JSON.parse(
+      await readFile(join(siteDir, "r", "run-1", "index.json"), "utf8"),
+    );
+    assert.deepEqual(
+      index.traces.map((trace) => trace.traceId),
+      [traceA],
+    );
+  });
+});
+
 test("publishes an empty run when the report job downloaded no artifacts", async () => {
   await withTempDir("trace-site-empty-", async (root) => {
     const siteDir = join(root, "site");

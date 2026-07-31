@@ -330,11 +330,14 @@ export const publishTraceSite = async ({
       maxTagBytes,
       maxSpans,
     });
-    await writeJson(join(runDir, `${document.traceId}.json`), document);
+    // Name the file after the ref, not after whatever the snapshot says. The
+    // result row's link is built from the ref, so anything else is a 404 that
+    // only shows up when someone clicks it.
+    await writeJson(join(runDir, `${ref.traceId}.json`), document);
     droppedTagBytes += document.droppedTagBytes;
     droppedSpanCount += document.droppedSpanCount;
     traces.push({
-      traceId: document.traceId,
+      traceId: ref.traceId,
       caseId: payload.caseId,
       engine: payload.engine,
       result: payload.result,
