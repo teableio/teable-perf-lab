@@ -18,16 +18,23 @@ teable-ee ──OTLP──▶ job-local otel relay ──▶ trace-spool.jsonl (
 
 ## Where a trace lives
 
-| Copy                     | Location                                                              | Retention               |
-| ------------------------ | --------------------------------------------------------------------- | ----------------------- |
-| Every span               | `trace-spool.jsonl` in the execute job's runner temp                  | Dies with the job       |
-| Selected traces (OTLP)   | `selected-traces.otlp.jsonl` in the execute artifact                  | 1 day                   |
-| Selected traces (Jaeger) | `traces/<case>-<engine>/<step>-<traceId>.json` in the run's artifacts | 1 day                   |
-| One trace per result row | `r/<runId>/<traceId>.json` on the `trace-pages` branch                | 1 day after publication |
-| Pinned traces            | `pinned/<traceId>.json` on the `trace-pages` branch                   | Until unpinned          |
+| Copy                     | Location                                                              | Retention                     |
+| ------------------------ | --------------------------------------------------------------------- | ----------------------------- |
+| Every span               | `trace-spool.jsonl` in the execute job's runner temp                  | Dies with the job             |
+| Selected traces (OTLP)   | `selected-traces.otlp.jsonl` in the execute artifact                  | 14 days                       |
+| Selected traces (Jaeger) | `traces/<case>-<engine>/<step>-<traceId>.json` in the run's artifacts | 14 days                       |
+| One trace per result row | `r/<runId>/<traceId>.json` on the `trace-pages` branch                | While it fits the 800 MB site |
+| Pinned traces            | `pinned/<traceId>.json` on the `trace-pages` branch                   | Until unpinned                |
 
-A full run selects about 1,000 traces out of ~12 million spans, which is ~414 MB
-of JSON. That is why everything except a pinned trace expires after a day.
+Sizes, measured on run `30600597922`: a full run selects ~1,000 traces out of
+~12 million spans, or ~414 MB of OTLP JSON. The site publishes only the trace
+each result row links to — 540 of them, at a ~156 KB median once tag values are
+bounded — so a published full run costs about **84 MB**.
+
+The site therefore keeps roughly **nine full runs** inside its 800 MB budget,
+and single-case runs cost almost nothing. Artifacts expire on an investigation
+window rather than a storage limit, because Actions storage is free on a public
+repository.
 
 ## Reading a trace
 
@@ -49,11 +56,16 @@ Track` table, and the `primary trace` row in each case's summary markdown,
 
 ## Pinning a trace
 
-Published traces are pruned 24 hours after their run. To keep one — for an
-issue, a regression writeup, anything that outlives the run — run the **Pin perf
-trace** workflow with the run id and trace id. It copies the trace into
-`pinned/`, which the prune never touches, and it is reachable at
+A run is evicted once the site needs its bytes for newer runs. To keep one
+trace — for an issue, a regression writeup, anything that outlives the run — run
+the **Pin perf trace** workflow with the run id and trace id. It copies the
+trace into `pinned/`, which eviction never touches, and it is reachable at
 `trace.html?pinned=<traceId>`. The same workflow unpins.
+
+Pinned bytes count against the budget, so pinning trades site capacity for
+permanence. If pinned traces plus the run being published no longer fit, the
+publish step keeps the run anyway, goes over budget, and emits a warning — that
+is the signal to unpin something before the site reaches the 1 GB Pages ceiling.
 
 Locally:
 
@@ -66,10 +78,11 @@ node scripts/pin-perf-trace.mjs --site <checkout> --trace-id <traceId> --unpin
 
 `scripts/publish-trace-pages.mjs` builds the site from the run's own artifacts:
 it takes the trace each result row links to, bounds every tag value to 2 KB and
-every trace to 3,000 spans, writes `r/<runId>/`, prunes runs older than 24 hours,
-and rebuilds `runs.json`. `.github/actions/trace-site` owns the git side and
-pushes one root commit per publish, so the branch never accumulates superseded
-trace JSON.
+every trace to 3,000 spans, writes `r/<runId>/`, evicts whole runs oldest-first
+until the site fits its byte budget, and rebuilds `runs.json`. Pass
+`--budget-bytes` to change the cap. `.github/actions/trace-site` owns the git
+side and pushes one root commit per publish, so the branch never accumulates
+superseded trace JSON.
 
 The site is public, like the repository. `db.postgresql.values` is redacted
 before a trace ever leaves the execute job, and SQL text is bounded, but the

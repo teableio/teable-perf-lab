@@ -56,8 +56,9 @@ test("workflow spools execute traces locally and publishes only from report", as
     /PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http:\/\/127\.0\.0\.1:4318\/v1\/traces"/,
   );
 
-  // Trace payloads are the bulk of every perf artifact, and only this run reads
-  // them. Each upload that carries them has to say so.
+  // Trace payloads are the bulk of every perf artifact. Storage is free on a
+  // public repository, so these expire on an investigation window rather than a
+  // storage limit — but every upload that carries traces still has to name one.
   const traceArtifactUploads = [
     "name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-",
     "name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-",
@@ -69,8 +70,8 @@ test("workflow spools execute traces locally and publishes only from report", as
     const nextStep = workflow.indexOf("      - name:", start);
     assert.match(
       workflow.slice(start, nextStep === -1 ? undefined : nextStep),
-      /retention-days: 1/,
-      `${upload} must expire its trace payload after a day`,
+      /retention-days: 14/,
+      `${upload} must bound how long it keeps its trace payload`,
     );
   }
 });

@@ -550,10 +550,11 @@ jobs:
           path: perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
           # Selected traces dominate this artifact (~414 MB of OTLP JSON across a
-          # full run) and only the report job of this same run reads them. Result
-          # rows live in Teable and the trace viewer publishes what is worth
-          # linking, so a day is enough to debug the run that just happened.
-          retention-days: 1
+          # full run), and Actions storage is free on a public repository, so the
+          # limit is attention rather than cost: two weeks covers investigating a
+          # regression that took days to notice, without leaving every run's raw
+          # traces around for a quarter.
+          retention-days: 14
 
       - name: Stage lightweight perf results
         if: always()
@@ -594,7 +595,7 @@ jobs:
           name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-results/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 14
 
       - name: Publish job summary
         if: always()
@@ -873,7 +874,7 @@ jobs:
           # Carries the Jaeger-format snapshots written by the publish step:
           # download it, `docker run jaegertracing/all-in-one`, and drop any
           # traces/<case>-<engine>/<step>-<traceId>.json into the Jaeger UI.
-          retention-days: 1
+          retention-days: 14
 
       - name: Enforce full-run result and report acceptance
         if: >-

@@ -231,7 +231,8 @@ Execute artifacts carry no raw Jaeger snapshots; the report job writes them
 after it publishes, at `savedTraces[].path` inside the reconciled artifact. Each
 file is a verbatim `/api/traces/<traceId>` response, so it loads into any Jaeger
 UI through the _JSON File_ tab. Both the artifact and the published viewer copy
-expire after a day — see
+have bounded lifetimes — the artifact expires after 14 days, the published copy
+when the site needs its bytes — see
 [../docs/operations/trace-viewer.md](../docs/operations/trace-viewer.md) for
 retention and for pinning a trace that has to outlive its run.
 

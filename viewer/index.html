@@ -68,11 +68,11 @@
     <h1>Teable perf traces</h1>
     <p>
       Traces selected by each perf run, published straight from the run that
-      produced them. Runs are pruned 24 hours after publication; pinned traces
-      are kept until they are removed by hand.
+      produced them. The site keeps the newest runs that fit its byte budget and
+      evicts oldest-first; pinned traces are never evicted.
     </p>
 
-    <h2>Runs</h2>
+    <h2>Runs <span class="muted" id="usage"></span></h2>
     <ul id="runs">
       <li class="muted">Loading…</li>
     </ul>
@@ -119,15 +119,22 @@
         return entry;
       };
 
-      render("runs.json", "runs", (runs) =>
-        (runs.runs ?? []).map((run) =>
+      const mb = (bytes) =>
+        typeof bytes === "number" ? `${(bytes / 1e6).toFixed(1)} MB` : "?";
+
+      render("runs.json", "runs", (index) => {
+        if (index.usedBytes != null) {
+          document.getElementById("usage").textContent =
+            `— ${mb(index.usedBytes)} of ${mb(index.budgetBytes)}`;
+        }
+        return (index.runs ?? []).map((run) =>
           item(
             `trace.html?run=${encodeURIComponent(run.runId)}`,
             `run ${run.runId}`,
-            `· ${run.traceCount ?? 0} traces · ${run.publishedAt ?? ""} · ${run.teableEeRef ?? ""}`,
+            `· ${run.traceCount ?? 0} traces · ${mb(run.bytes)} · ${run.publishedAt ?? ""} · ${run.teableEeRef ?? ""}`,
           ),
-        ),
-      );
+        );
+      });
 
       render("pinned/index.json", "pinned", (index) =>
         (index.traces ?? []).map((trace) =>

@@ -213,10 +213,10 @@
         return response.json();
       };
 
-      // Traces expire a day after their run. Say so plainly instead of leaving a
-      // bare 404 that reads like the viewer is broken.
+      // A run is evicted once the site runs out of budget. Say so plainly
+      // instead of leaving a bare 404 that reads like the viewer is broken.
       const missingTraceMessage = (path) =>
-        `${path} is not available. Published traces are pruned 24 hours after their run; pin a trace to keep it.`;
+        `${path} is not available. The site keeps the newest runs that fit its byte budget, and this one has been evicted; pin a trace to keep it.`;
 
       const orderSpans = (spans) => {
         const byId = new Map(spans.map((span) => [span.id, span]));

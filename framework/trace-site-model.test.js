@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,8 +16,8 @@ import { pinTrace, unpinTrace } from "../scripts/pin-perf-trace.mjs";
 import {
   buildTraceDocument,
   collectPublishableTraces,
+  enforceSiteBudget,
   publishTraceSite,
-  pruneStaleRuns,
   slimJaegerTrace,
 } from "../scripts/publish-trace-pages.mjs";
 
@@ -107,6 +115,19 @@ const writeArtifact = async ({
       details: { observability: { traces: manifest } },
     }),
   );
+};
+
+const siteBytes = async (siteDir) => {
+  let total = 0;
+  for (const entry of await readdir(siteDir, {
+    withFileTypes: true,
+    recursive: true,
+  })) {
+    if (entry.isFile()) {
+      total += (await stat(join(entry.parentPath, entry.name))).size;
+    }
+  }
+  return total;
 };
 
 const withTempDir = async (prefix, run) => {
@@ -263,7 +284,7 @@ test("publishes the linked trace per result and skips results without one", asyn
   });
 });
 
-test("prunes runs past the retention window but never the pinned copy", async () => {
+test("evicts the oldest run to stay in budget but never the pinned copy", async () => {
   await withTempDir("trace-site-prune-", async (root) => {
     const artifactDir = join(root, "artifacts");
     await writeArtifact({
@@ -292,19 +313,23 @@ test("prunes runs past the retention window but never the pinned copy", async ()
       pinnedAt: "2026-07-30T01:00:00.000Z",
     });
 
+    // Exactly enough room for the site as it stands, so a second run has to
+    // evict the first.
     const summary = await publishTraceSite({
       artifactDir,
       siteDir,
       viewerDir,
       runId: "run-new",
       publishedAt: "2026-07-31T02:00:00.000Z",
+      budgetBytes: await siteBytes(siteDir),
     });
 
     assert.deepEqual(
-      summary.prunedRuns.map(({ runId }) => runId),
-      ["run-old"],
+      summary.evictedRuns.map(({ runId, reason }) => ({ runId, reason })),
+      [{ runId: "run-old", reason: "site byte budget" }],
     );
     assert.deepEqual(summary.retainedRuns, ["run-new"]);
+    assert.equal(summary.overBudgetBytes, 0);
     await assert.rejects(
       readFile(join(siteDir, "r", "run-old", "index.json"), "utf8"),
     );
@@ -433,8 +458,49 @@ test("publishes an empty run when the report job downloaded no artifacts", async
   });
 });
 
-test("never prunes the run being published, whatever the clock says", async () => {
-  await withTempDir("trace-site-keep-", async (root) => {
+test("keeps the newest runs that fit and drops an indexless directory", async () => {
+  await withTempDir("trace-site-budget-", async (root) => {
+    const siteDir = join(root, "site");
+    const writeRun = async (runId, publishedAt, padding) => {
+      const runDir = join(siteDir, "r", runId);
+      await mkdir(runDir, { recursive: true });
+      await writeFile(
+        join(runDir, "index.json"),
+        JSON.stringify({ runId, publishedAt, traces: [] }),
+      );
+      await writeFile(join(runDir, "trace.json"), "x".repeat(padding));
+    };
+    await writeRun("run-newest", "2026-07-31T00:00:00.000Z", 400);
+    await writeRun("run-middle", "2026-07-30T00:00:00.000Z", 400);
+    await writeRun("run-oldest", "2026-07-29T00:00:00.000Z", 400);
+    // No index: nothing links to it and nothing can date it.
+    await mkdir(join(siteDir, "r", "run-garbage"), { recursive: true });
+    await writeFile(join(siteDir, "r", "run-garbage", "stray.json"), "junk");
+
+    const budget = await enforceSiteBudget({
+      siteDir,
+      budgetBytes: 1_200,
+      keepRunId: "run-newest",
+    });
+
+    assert.deepEqual(
+      budget.kept.map(({ runId }) => runId),
+      ["run-newest", "run-middle"],
+    );
+    assert.deepEqual(
+      budget.evicted.map(({ runId, reason }) => ({ runId, reason })),
+      [
+        { runId: "run-garbage", reason: "no run index" },
+        { runId: "run-oldest", reason: "site byte budget" },
+      ],
+    );
+    assert.ok(budget.usedBytes <= budget.budgetBytes);
+    assert.equal(budget.overBudgetBytes, 0);
+  });
+});
+
+test("keeps the published run even when it alone busts the budget", async () => {
+  await withTempDir("trace-site-overbudget-", async (root) => {
     const siteDir = join(root, "site");
     const runDir = join(siteDir, "r", "run-now");
     await mkdir(runDir, { recursive: true });
@@ -442,28 +508,25 @@ test("never prunes the run being published, whatever the clock says", async () =
       join(runDir, "index.json"),
       JSON.stringify({
         runId: "run-now",
-        publishedAt: "2020-01-01T00:00:00.000Z",
+        publishedAt: "2026-07-31T00:00:00.000Z",
       }),
     );
-    const stale = join(siteDir, "r", "run-stale");
-    await mkdir(stale, { recursive: true });
-    await writeFile(join(stale, "index.json"), "{ not json");
+    await writeFile(join(runDir, "trace.json"), "x".repeat(5_000));
 
-    const { removed, kept } = await pruneStaleRuns({
+    const budget = await enforceSiteBudget({
       siteDir,
-      nowMs: Date.parse("2026-07-31T00:00:00.000Z"),
-      retentionMs: 24 * 60 * 60 * 1000,
+      budgetBytes: 1_000,
       keepRunId: "run-now",
     });
 
+    // Dropping it would break the links the run is about to publish, so the
+    // site goes over budget loudly instead of quietly losing this run.
     assert.deepEqual(
-      removed.map(({ runId }) => runId),
-      ["run-stale"],
-    );
-    assert.deepEqual(
-      kept.map(({ runId }) => runId),
+      budget.kept.map(({ runId }) => runId),
       ["run-now"],
     );
+    assert.deepEqual(budget.evicted, []);
+    assert.ok(budget.overBudgetBytes > 0);
   });
 });
 

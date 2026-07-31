@@ -8,10 +8,14 @@
 // could click, because the only long-lived viewer was a VM that is gone.
 //
 // This turns the run's own snapshots into a static site: one slimmed JSON per
-// linked trace under `r/<runId>/`, plus the viewer HTML. Runs are pruned a day
-// after publication because a full run's raw traces are ~414 MB and the value of
-// a trace decays with the run that produced it. `pinned/` is exempt: that is the
-// escape hatch for a trace worth keeping as evidence.
+// linked trace under `r/<runId>/`, plus the viewer HTML.
+//
+// Retention is a byte budget rather than an age. A published full run measures
+// ~84 MB (540 result rows at a ~156 KB median), and GitHub Pages serves up to
+// 1 GB, so the site keeps the newest runs that fit under 800 MB — roughly nine
+// full runs — and evicts oldest-first only when it has to. An age limit would
+// throw away traces while most of the capacity sat unused. `pinned/` is never
+// evicted: that is the escape hatch for a trace worth keeping as evidence.
 
 import {
   cp,
@@ -33,7 +37,11 @@ import {
 
 export const DEFAULT_MAX_TAG_BYTES = 2_048;
 export const DEFAULT_MAX_SPANS = 3_000;
-export const DEFAULT_RETENTION_HOURS = 24;
+// 800 MB against the 1 GB Pages ceiling. The headroom is deliberate: the run
+// being published is never evicted, so the site can exceed the budget when
+// pinned traces plus one run already fill it, and that has to stay short of the
+// hard limit for the warning to be actionable.
+export const DEFAULT_SITE_BUDGET_BYTES = 800_000_000;
 
 const RUN_DIR = "r";
 const PINNED_DIR = "pinned";
@@ -227,55 +235,6 @@ export const collectPublishableTraces = async ({ artifactDir }) => {
   return { publishable, skipped };
 };
 
-export const pruneStaleRuns = async ({
-  siteDir,
-  nowMs,
-  retentionMs,
-  keepRunId,
-}) => {
-  const runsRoot = join(siteDir, RUN_DIR);
-  let entries;
-  try {
-    entries = await readdir(runsRoot, { withFileTypes: true });
-  } catch {
-    return { removed: [], kept: [] };
-  }
-
-  const removed = [];
-  const kept = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const runDir = join(runsRoot, entry.name);
-    const index = await readJsonIfPossible(join(runDir, "index.json"));
-    const publishedMs = Date.parse(index?.publishedAt ?? "");
-    const expired =
-      !Number.isFinite(publishedMs) || nowMs - publishedMs > retentionMs;
-    if (entry.name !== keepRunId && expired) {
-      await rm(runDir, { recursive: true, force: true });
-      removed.push({
-        runId: entry.name,
-        publishedAt: index?.publishedAt,
-        traceCount: index?.traces?.length ?? 0,
-      });
-      continue;
-    }
-    kept.push({
-      runId: index?.runId ?? entry.name,
-      publishedAt: index?.publishedAt,
-      traceCount: index?.traces?.length ?? 0,
-      runUrl: index?.runUrl,
-      teableEeRef: index?.teableEeRef,
-    });
-  }
-
-  kept.sort((left, right) =>
-    String(right.publishedAt ?? "").localeCompare(String(left.publishedAt ?? "")),
-  );
-  return { removed, kept };
-};
-
 const directoryBytes = async (directory) => {
   let total = 0;
   const walk = async (current) => {
@@ -288,8 +247,109 @@ const directoryBytes = async (directory) => {
       }
     }
   };
-  await walk(directory);
+  await walk(directory).catch(() => {});
   return total;
+};
+
+// Everything the budget has to pay for before a single run fits: the viewer, and
+// the pinned traces, which are never evicted. Counting them keeps the budget
+// honest — a site that ignored pinned bytes would drift past the Pages ceiling
+// exactly as more traces got pinned.
+const reservedSiteBytes = async (siteDir) => {
+  let total = 0;
+  for (const entry of await readdir(siteDir, { withFileTypes: true }).catch(
+    () => [],
+  )) {
+    if (entry.name === RUN_DIR) {
+      continue;
+    }
+    const path = join(siteDir, entry.name);
+    total += entry.isDirectory()
+      ? await directoryBytes(path)
+      : ((await stat(path).catch(() => undefined))?.size ?? 0);
+  }
+  return total;
+};
+
+export const enforceSiteBudget = async ({
+  siteDir,
+  budgetBytes,
+  keepRunId,
+}) => {
+  const runsRoot = join(siteDir, RUN_DIR);
+  const entries = await readdir(runsRoot, { withFileTypes: true }).catch(
+    () => [],
+  );
+
+  const evicted = [];
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const runDir = join(runsRoot, entry.name);
+    const index = await readJsonIfPossible(join(runDir, "index.json"));
+    if (!index?.publishedAt && entry.name !== keepRunId) {
+      // No index means nothing links here and nothing can date it. Drop it
+      // rather than let it hold budget forever.
+      const bytes = await directoryBytes(runDir);
+      await rm(runDir, { recursive: true, force: true });
+      evicted.push({ runId: entry.name, bytes, reason: "no run index" });
+      continue;
+    }
+    candidates.push({
+      runId: index?.runId ?? entry.name,
+      dirName: entry.name,
+      publishedAt: index?.publishedAt,
+      traceCount: index?.traces?.length ?? 0,
+      runUrl: index?.runUrl,
+      teableEeRef: index?.teableEeRef,
+      bytes: await directoryBytes(runDir),
+    });
+  }
+
+  // Newest first, with the run being published pinned to the front: its links
+  // are the ones this workflow is about to hand out, so it is never the thing
+  // that gets dropped to make room.
+  candidates.sort((left, right) => {
+    if (left.dirName === keepRunId) return -1;
+    if (right.dirName === keepRunId) return 1;
+    return String(right.publishedAt ?? "").localeCompare(
+      String(left.publishedAt ?? ""),
+    );
+  });
+
+  const reservedBytes = await reservedSiteBytes(siteDir);
+  const kept = [];
+  let usedBytes = reservedBytes;
+  for (const candidate of candidates) {
+    const fits = usedBytes + candidate.bytes <= budgetBytes;
+    if (fits || candidate.dirName === keepRunId) {
+      usedBytes += candidate.bytes;
+      kept.push(candidate);
+      continue;
+    }
+    await rm(join(runsRoot, candidate.dirName), {
+      recursive: true,
+      force: true,
+    });
+    evicted.push({
+      runId: candidate.runId,
+      publishedAt: candidate.publishedAt,
+      traceCount: candidate.traceCount,
+      bytes: candidate.bytes,
+      reason: "site byte budget",
+    });
+  }
+
+  return {
+    evicted,
+    kept: kept.map(({ dirName: _dirName, ...run }) => run),
+    reservedBytes,
+    usedBytes,
+    budgetBytes,
+    overBudgetBytes: Math.max(0, usedBytes - budgetBytes),
+  };
 };
 
 export const publishTraceSite = async ({
@@ -300,7 +360,7 @@ export const publishTraceSite = async ({
   runUrl,
   teableEeRef,
   publishedAt,
-  retentionHours = DEFAULT_RETENTION_HOURS,
+  budgetBytes = DEFAULT_SITE_BUDGET_BYTES,
   maxTagBytes = DEFAULT_MAX_TAG_BYTES,
   maxSpans = DEFAULT_MAX_SPANS,
 }) => {
@@ -355,13 +415,6 @@ export const publishTraceSite = async ({
     traces,
   });
 
-  const { removed, kept } = await pruneStaleRuns({
-    siteDir,
-    nowMs: Date.parse(publishedAt),
-    retentionMs: retentionHours * 60 * 60 * 1000,
-    keepRunId: runId,
-  });
-
   await mkdir(join(siteDir, PINNED_DIR), { recursive: true });
   if (!(await readJsonIfPossible(join(siteDir, PINNED_DIR, "index.json")))) {
     await writeJson(join(siteDir, PINNED_DIR, "index.json"), { traces: [] });
@@ -377,7 +430,21 @@ export const publishTraceSite = async ({
     join(siteDir, "robots.txt"),
     "User-agent: *\nDisallow: /\n",
   );
-  await writeJson(join(siteDir, "runs.json"), { runs: kept });
+
+  // Everything the budget pays for has to exist before it is measured, so this
+  // runs after the viewer and the pinned index are on disk.
+  const budget = await enforceSiteBudget({
+    siteDir,
+    budgetBytes,
+    keepRunId: runId,
+  });
+
+  await writeJson(join(siteDir, "runs.json"), {
+    budgetBytes: budget.budgetBytes,
+    usedBytes: budget.usedBytes,
+    reservedBytes: budget.reservedBytes,
+    runs: budget.kept,
+  });
 
   return {
     runId,
@@ -386,8 +453,11 @@ export const publishTraceSite = async ({
     skipped,
     droppedTagBytes,
     droppedSpanCount,
-    prunedRuns: removed,
-    retainedRuns: kept.map(({ runId: id }) => id),
+    evictedRuns: budget.evicted,
+    retainedRuns: budget.kept.map(({ runId: id }) => id),
+    budgetBytes: budget.budgetBytes,
+    reservedBytes: budget.reservedBytes,
+    overBudgetBytes: budget.overBudgetBytes,
     siteBytes: await directoryBytes(siteDir),
   };
 };
@@ -417,8 +487,8 @@ const main = async () => {
     runUrl: optionalArgument("--run-url"),
     teableEeRef: optionalArgument("--teable-ee-ref"),
     publishedAt: optionalArgument("--now") ?? new Date().toISOString(),
-    retentionHours: Number(
-      optionalArgument("--retention-hours") ?? DEFAULT_RETENTION_HOURS,
+    budgetBytes: Number(
+      optionalArgument("--budget-bytes") ?? DEFAULT_SITE_BUDGET_BYTES,
     ),
   });
 
@@ -427,11 +497,21 @@ const main = async () => {
     await writeJson(resolve(summaryPath), summary);
   }
 
+  const mb = (bytes) => `${(bytes / 1_000_000).toFixed(1)} MB`;
   console.log(
     `Published ${summary.publishedTraceCount} traces for run ${summary.runId}; ` +
-      `retained ${summary.retainedRuns.length} runs, pruned ${summary.prunedRuns.length}, ` +
-      `site is ${summary.siteBytes} bytes.`,
+      `retained ${summary.retainedRuns.length} runs, evicted ${summary.evictedRuns.length}, ` +
+      `site is ${mb(summary.siteBytes)} of a ${mb(summary.budgetBytes)} budget.`,
   );
+  // The published run is never evicted, so the only way past the budget is
+  // pinned traces plus one run. Say it where someone will see it, while there is
+  // still headroom below the 1 GB Pages ceiling to act on.
+  if (summary.overBudgetBytes > 0) {
+    console.warn(
+      `::warning::Trace site is ${mb(summary.overBudgetBytes)} over its ${mb(summary.budgetBytes)} budget ` +
+        `with ${mb(summary.reservedBytes)} held by pinned traces and the viewer. Unpin traces to make room.`,
+    );
+  }
   if (process.env.GITHUB_STEP_SUMMARY) {
     await writeFile(
       process.env.GITHUB_STEP_SUMMARY,
@@ -440,9 +520,12 @@ const main = async () => {
         "",
         `- published traces: ${summary.publishedTraceCount}`,
         `- results without a stored trace: ${summary.skipped.length}`,
-        `- pruned runs: ${summary.prunedRuns.map(({ runId }) => runId).join(", ") || "none"}`,
-        `- retained runs: ${summary.retainedRuns.join(", ") || "none"}`,
-        `- site bytes: ${summary.siteBytes}`,
+        `- site: ${mb(summary.siteBytes)} of ${mb(summary.budgetBytes)} (${mb(summary.reservedBytes)} pinned + viewer)`,
+        `- retained runs: ${summary.retainedRuns.length}`,
+        `- evicted for budget: ${summary.evictedRuns.map(({ runId }) => runId).join(", ") || "none"}`,
+        ...(summary.overBudgetBytes > 0
+          ? [`- ⚠️ over budget by ${mb(summary.overBudgetBytes)}`]
+          : []),
         "",
       ].join("\n"),
       { flag: "a" },
