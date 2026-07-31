@@ -5,6 +5,7 @@ import {
   getSummaryMarkdownName,
 } from "./artifact-names.js";
 import { writeFileAtomically } from "./atomic-file.js";
+import { buildTraceViewUrl } from "./trace-view-url.js";
 import type { PerfTraceArtifactSummary } from "./trace-collector";
 import type { TraceFetchArtifactState } from "./trace-fetch-control";
 import type { MetricThreshold, PerfCase, PerfRunResult } from "./types";
@@ -137,7 +138,7 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
       `| captured refs | ${traces.traceRefCount ?? 0} |`,
       `| unique traces | ${traces.uniqueTraceCount ?? 0} |`,
       `| selected for fetch | ${traces.selectedTraceCount ?? 0} |`,
-      `| published to shared Jaeger | ${
+      `| published to report Jaeger | ${
         traces.sharedPublishTraceCount == null
           ? "pending"
           : `${traces.sharedPublishTraceCount} traces · ${
@@ -254,8 +255,17 @@ export const buildSummaryMarkdown = (payload: PerfArtifactPayload) => {
     const primaryTrace = availableRefs?.find(
       (ref) => ref.traceLink ?? ref.traceId,
     );
-    if (primaryTrace?.traceLink) {
-      lines.push(`| primary trace | ${primaryTrace.traceLink} |`);
+    // The engine stamps `traceLink` from whatever trace host the run was given,
+    // and runs no longer configure one. The published viewer is the link that
+    // resolves, so prefer it and keep the captured one as the fallback.
+    const primaryTraceLink =
+      buildTraceViewUrl(
+        primaryTrace?.traceId,
+        process.env.GITHUB_RUN_ID,
+        process.env.PERF_LAB_TRACE_VIEW_BASE_URL,
+      ) || primaryTrace?.traceLink;
+    if (primaryTraceLink) {
+      lines.push(`| primary trace | ${primaryTraceLink} |`);
     }
   }
 

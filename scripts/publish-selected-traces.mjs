@@ -48,6 +48,42 @@ const writeFileAtomically = async (path, contents) => {
   await writeFileAtomicallyShared(path, contents);
 };
 
+// Jaeger-format snapshot naming has exactly one owner across the two producers.
+// framework/trace-collector.ts wrote `<stepId>-<traceId>.json` next to the
+// manifest back when execute jobs fetched their own traces. The report job now
+// owns that fetch, so it writes the same file name at the same path: a snapshot
+// is droppable into any Jaeger UI regardless of which job produced it, and
+// `savedTraces[].path` keeps meaning "this file exists in the artifact".
+const snapshotFileName = (ref) =>
+  `${sanitizeSegment(ref.stepId)}-${ref.traceId}.json`;
+
+const snapshotRelativePath = (manifest, ref) =>
+  manifest.artifactDir ? join(manifest.artifactDir, snapshotFileName(ref)) : "";
+
+// Resolve which manifest owns each selected trace before any fetch runs, so a
+// fetched trace can be written to disk and dropped from memory immediately.
+// Retaining every `/api/traces` response until reconciliation meant holding a
+// full run's traces (~400 MB of JSON, over a gigabyte once parsed) in one heap.
+const loadManifestOwners = async (artifactDir) => {
+  const manifestFiles = await findFiles(artifactDir, "manifest.json");
+  const ownerByTraceId = new Map();
+  for (const manifestFile of manifestFiles) {
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    const selectedTraceIds = new Set(manifest.selectedTraceIds ?? []);
+    for (const ref of manifest.refs ?? []) {
+      // The first ref for a trace owns its outcome in buildPublishedTraceSummary;
+      // keep the snapshot file name on that same ref.
+      if (!selectedTraceIds.has(ref.traceId) || ownerByTraceId.has(ref.traceId)) {
+        continue;
+      }
+      ownerByTraceId.set(ref.traceId, {
+        snapshotPath: join(dirname(manifestFile), snapshotFileName(ref)),
+      });
+    }
+  }
+  return { manifestFiles, ownerByTraceId };
+};
+
 const traceIdsAndSpanCount = (payload) => {
   const traceIds = new Set();
   let spanCount = 0;
@@ -299,6 +335,38 @@ const fetchJaegerTrace = async ({ jaegerApiBaseUrl, traceId, timeoutMs }) => {
   };
 };
 
+// Write the Jaeger-format trace next to its manifest and return an outcome with
+// the response body dropped. The snapshot is what makes the report-local Jaeger
+// worth starting: the container dies with the job, the artifact does not.
+const fetchAndSnapshotTrace = async ({
+  jaegerApiBaseUrl,
+  traceId,
+  timeoutMs,
+  ownerByTraceId,
+  snapshots,
+}) => {
+  const outcome = await fetchJaegerTrace({
+    jaegerApiBaseUrl,
+    traceId,
+    timeoutMs,
+  });
+  if (outcome.status !== "saved") {
+    return outcome;
+  }
+
+  const { data, ...retained } = outcome;
+  const owner = ownerByTraceId.get(traceId);
+  if (!owner) {
+    return retained;
+  }
+
+  const contents = `${JSON.stringify(data, null, 2)}\n`;
+  await writeFileAtomically(owner.snapshotPath, contents);
+  snapshots.count += 1;
+  snapshots.bytes += Buffer.byteLength(contents);
+  return retained;
+};
+
 export const buildPublishedTraceSummary = ({
   manifest,
   outcomesByTraceId,
@@ -325,7 +393,7 @@ export const buildPublishedTraceSummary = ({
         status: "skipped",
         error: seenTraceIds.has(ref.traceId)
           ? `Duplicate captured trace ref ${ref.traceId}; the first ref owns its publication outcome`
-          : "Trace was not selected for shared Jaeger publication",
+          : "Trace was not selected for report Jaeger publication",
         sampled: ref.sampled,
       });
       continue;
@@ -340,7 +408,7 @@ export const buildPublishedTraceSummary = ({
       savedTraces.push({
         traceId: ref.traceId,
         stepId: ref.stepId,
-        path: "",
+        path: snapshotRelativePath(manifest, ref),
         status: "saved",
         attempts: outcome.attempts,
         durationMs: outcome.durationMs,
@@ -462,6 +530,9 @@ export const publishAndReconcileSelectedTraces = async ({
   fetchConcurrency,
 }) => {
   const publishByTraceId = await loadSelectedPayloads(artifactDir);
+  const { manifestFiles, ownerByTraceId } =
+    await loadManifestOwners(artifactDir);
+  const snapshots = { count: 0, bytes: 0 };
   const selectedPayloads = [...publishByTraceId.values()].sort((left, right) =>
     left.traceId.localeCompare(right.traceId),
   );
@@ -478,10 +549,12 @@ export const publishAndReconcileSelectedTraces = async ({
     selectedPayloads,
     fetchConcurrency,
     ({ traceId }) =>
-      fetchJaegerTrace({
+      fetchAndSnapshotTrace({
         jaegerApiBaseUrl,
         traceId,
         timeoutMs: fetchTimeoutMs,
+        ownerByTraceId,
+        snapshots,
       }),
   );
   const outcomesByTraceId = new Map(
@@ -509,10 +582,12 @@ export const publishAndReconcileSelectedTraces = async ({
       initiallyMissing,
       fetchConcurrency,
       ({ traceId }) =>
-        fetchJaegerTrace({
+        fetchAndSnapshotTrace({
           jaegerApiBaseUrl,
           traceId,
           timeoutMs: fetchTimeoutMs,
+          ownerByTraceId,
+          snapshots,
         }),
     );
     for (const outcome of recovered) {
@@ -520,7 +595,6 @@ export const publishAndReconcileSelectedTraces = async ({
     }
   }
   const fetchJobWaitMs = Date.now() - fetchStartedAt;
-  const manifestFiles = await findFiles(artifactDir, "manifest.json");
   const manifests = [];
   for (const manifestFile of manifestFiles) {
     manifests.push(
@@ -549,6 +623,8 @@ export const publishAndReconcileSelectedTraces = async ({
     fetchDurationMs: fetchJobWaitMs,
     manifestCount: manifests.length,
     savedTraceCount: selectedPayloads.length - missingTraceIds.length,
+    snapshotTraceCount: snapshots.count,
+    snapshotBytes: snapshots.bytes,
     missingTraceCount: missingTraceIds.length,
     missingTraceIds,
   };
@@ -558,7 +634,7 @@ export const publishAndReconcileSelectedTraces = async ({
   );
   if (missingTraceIds.length > 0) {
     throw new Error(
-      `${missingTraceIds.length}/${selectedPayloads.length} selected traces were missing from shared Jaeger after recovery publication.`,
+      `${missingTraceIds.length}/${selectedPayloads.length} selected traces were missing from the report-local Jaeger after recovery publication.`,
     );
   }
   return summary;
@@ -597,19 +673,20 @@ const main = async () => {
     ),
   });
   console.log(
-    `Published ${summary.savedTraceCount}/${summary.selectedTraceCount} selected traces (${summary.publishedSpanCount} spans) through ${summary.publishRequestCount} serialized OTLP requests.`,
+    `Published ${summary.savedTraceCount}/${summary.selectedTraceCount} selected traces (${summary.publishedSpanCount} spans) through ${summary.publishRequestCount} serialized OTLP requests, and stored ${summary.snapshotTraceCount} Jaeger snapshots (${summary.snapshotBytes} bytes).`,
   );
   if (process.env.GITHUB_STEP_SUMMARY) {
     await writeFile(
       process.env.GITHUB_STEP_SUMMARY,
       [
-        "## Shared Jaeger selected-trace publication",
+        "## Report-local Jaeger selected-trace publication",
         "",
         `- traces: ${summary.savedTraceCount}/${summary.selectedTraceCount}`,
         `- spans: ${summary.publishedSpanCount}`,
         `- serialized requests: ${summary.publishRequestCount}`,
         `- publish duration: ${summary.publishDurationMs} ms`,
         `- verification duration: ${summary.fetchDurationMs} ms`,
+        `- Jaeger snapshots: ${summary.snapshotTraceCount} (${summary.snapshotBytes} bytes)`,
         `- summary: \`${relative(process.cwd(), requiredEnv("PERF_LAB_TRACE_PUBLISH_SUMMARY_PATH"))}\``,
         "",
       ].join("\n"),

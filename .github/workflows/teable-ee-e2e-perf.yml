@@ -62,15 +62,17 @@ concurrency:
   # collapse multi-case runs to one bounded key per ref.
   #
   # Full and multi-case runs drop the ref from the key so they serialize across
-  # every branch. They contend for resources that are shared org-wide, not
-  # per-ref: the OTLP collector on :4318 and the Jaeger instance the report job
-  # publishes to and then reads back. Two full runs on different refs used to
-  # get different keys and overlap; run 30419682175 (a branch) and run
-  # 30420101419 (main) overlapped for 24 minutes, pushed ~2000 traces at one
-  # Jaeger, and both blew the traceFetchJobWaitMs budget (128,805ms and
-  # 146,212ms against 120,000ms) and failed acceptance. Re-running the same
-  # branch commit alone passed 31/31. Queueing is strictly better than two runs
-  # corrupting each other's measurements.
+  # every branch. Two full runs on different refs used to get different keys and
+  # overlap; run 30419682175 (a branch) and run 30420101419 (main) overlapped for
+  # 24 minutes, pushed ~2000 traces at one shared Jaeger, and both blew the
+  # traceFetchJobWaitMs budget (128,805ms and 146,212ms against 120,000ms) and
+  # failed acceptance. Re-running the same branch commit alone passed 31/31.
+  #
+  # Trace collection is now job-local, so that particular contention is gone.
+  # The key stays collapsed because full runs still share one org-wide runner
+  # pool and one published trace site, and because overlapping full runs measure
+  # each other's noise. Queueing is strictly better than two runs corrupting
+  # each other's measurements.
   #
   # Single-case runs stay keyed per ref: they publish few traces and are meant
   # to be runnable in parallel while iterating.
@@ -92,11 +94,16 @@ env:
   BACKEND_PERFORMANCE_CACHE: "redis://default:teable@127.0.0.1:6379/1"
   TEABLE_SSRF_PROTECTION_DISABLED: "true"
   PERF_LAB_TRACE_ENABLED: "true"
-  PERF_LAB_JAEGER_API_BASE_URL: "http://136.119.178.56:16686"
+  # Every trace endpoint is job-local. Execute jobs spool to their own relay
+  # container and the report job publishes into its own Jaeger container, so no
+  # job depends on a long-lived observability host staying up. These used to
+  # address a shared GCP VM, which was a single point of failure that took every
+  # full run red with it when it went away. See docs/operations/trace-viewer.md.
+  PERF_LAB_JAEGER_API_BASE_URL: "http://127.0.0.1:16686"
   PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
   PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
   # Bound verification for selected traces after the report job serially
-  # publishes them to shared Jaeger.
+  # publishes them to the report-local Jaeger.
   PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
   PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
   PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS: "4000"
@@ -109,15 +116,20 @@ env:
   # Stop network retrieval early enough to atomically reconcile every case's
   # payload, summary, and manifest inside the full job-tail lifecycle SLO.
   PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
-  PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http://136.119.178.56:4318/v1/traces"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+  PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
   # The engine's BatchSpanProcessor is single-exporter per process. Give its
   # in-memory queue enough headroom for bursty writes to the job-local spool.
   OTEL_BSP_MAX_QUEUE_SIZE: "4096"
   OTEL_BSP_EXPORT_TIMEOUT: "60000"
-  TRACE_LINK_BASE_URL: "http://136.119.178.56:16686"
+  # The engine only uses this to stamp a `Link: <...>; rel="trace"` response
+  # header. Trace ids come from `traceparent`, so leaving it empty costs no
+  # evidence and stops every ref carrying a link to a host that no longer
+  # answers. Result rows link to the published viewer below instead.
+  TRACE_LINK_BASE_URL: ""
+  PERF_LAB_TRACE_VIEW_BASE_URL: "https://teableio.github.io/teable-perf-lab"
   OTEL_EXPORT_RATIO: "1"
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
@@ -537,6 +549,11 @@ jobs:
           name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
+          # Selected traces dominate this artifact (~414 MB of OTLP JSON across a
+          # full run) and only the report job of this same run reads them. Result
+          # rows live in Teable and the trace viewer publishes what is worth
+          # linking, so a day is enough to debug the run that just happened.
+          retention-days: 1
 
       - name: Stage lightweight perf results
         if: always()
@@ -577,6 +594,7 @@ jobs:
           name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: perf-lab-results/${{ matrix.plan.artifactSuffix }}
           if-no-files-found: warn
+          retention-days: 1
 
       - name: Publish job summary
         if: always()
@@ -607,6 +625,12 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      # Reading this run's artifacts, and pushing the published trace site.
+      actions: read
+      contents: write
+    env:
+      PERF_LAB_REPORT_JAEGER_CONTAINER: perf-report-jaeger-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Checkout perf lab
@@ -653,7 +677,42 @@ jobs:
           path: perf-lab-seed-provenance-artifacts
           merge-multiple: false
 
-      - name: Publish selected traces to shared Jaeger
+      # The report job brings its own Jaeger. Execute jobs already spool their
+      # traces to a job-local file and ship them as artifacts, so the only thing
+      # the old always-on VM still provided was somewhere to replay OTLP into
+      # and read Jaeger-format JSON back out of. A container does that for the
+      # 90 seconds it is needed, and the snapshots it produces outlive it in the
+      # artifact.
+      - name: Start report-local Jaeger
+        run: |
+          set -euo pipefail
+
+          docker run --detach \
+            --name "$PERF_LAB_REPORT_JAEGER_CONTAINER" \
+            --publish 127.0.0.1:4318:4318 \
+            --publish 127.0.0.1:16686:16686 \
+            --env COLLECTOR_OTLP_ENABLED=true \
+            --env MEMORY_MAX_TRACES=20000 \
+            jaegertracing/all-in-one:1.76.0
+
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:16686/api/services; then
+              echo "Report-local Jaeger is ready."
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$PERF_LAB_REPORT_JAEGER_CONTAINER")" != "true" ]; then
+              docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER"
+              echo "Report-local Jaeger exited before it became ready." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER"
+          echo "Report-local Jaeger did not become ready within 60 seconds." >&2
+          exit 1
+
+      - name: Publish selected traces to report-local Jaeger
         id: trace-publish
         working-directory: perf-lab
         env:
@@ -665,6 +724,41 @@ jobs:
         run: >-
           node --experimental-strip-types
           scripts/publish-selected-traces.mjs
+
+      - name: Stop report-local Jaeger
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if ! docker inspect "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null 2>&1; then
+            echo "Report-local Jaeger container was not created."
+            exit 0
+          fi
+
+          mkdir -p perf-plan-observation
+          docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER" \
+            > perf-plan-observation/report-jaeger.log 2>&1 || true
+          docker stop --timeout 30 "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null || true
+          docker rm "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null || true
+
+      # Result rows link here, so this has to land before the Teable and Feishu
+      # reports go out with URLs pointing at it.
+      - name: Publish trace viewer site
+        id: trace-site
+        if: always()
+        continue-on-error: true
+        uses: ./perf-lab/.github/actions/trace-site
+        with:
+          token: ${{ github.token }}
+          message: "perf traces for run ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+          run: |
+            node "${GITHUB_WORKSPACE}/perf-lab/scripts/publish-trace-pages.mjs" \
+              --artifact-dir "${GITHUB_WORKSPACE}/perf-lab-artifacts" \
+              --site "${TRACE_SITE_DIR}" \
+              --run-id "${GITHUB_RUN_ID}" \
+              --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              --teable-ee-ref "${{ needs.resolve_inputs.outputs.teable_ee_sha }}" \
+              --summary-path "${GITHUB_WORKSPACE}/perf-plan-observation/trace-site.json"
 
       - name: Publish current-run stage observation
         if: always()
@@ -775,6 +869,10 @@ jobs:
             perf-lab-artifacts
             !perf-lab-artifacts/**/selected-traces.otlp.jsonl
           if-no-files-found: warn
+          # Carries the Jaeger-format snapshots written by the publish step:
+          # download it, `docker run jaegertracing/all-in-one`, and drop any
+          # traces/<case>-<engine>/<step>-<traceId>.json into the Jaeger UI.
+          retention-days: 1
 
       - name: Enforce full-run result and report acceptance
         if: >-
@@ -783,12 +881,13 @@ jobs:
           (
             steps.run-verdict.outputs.status != 'success' ||
             steps.trace-publish.outcome != 'success' ||
+            steps.trace-site.outcome != 'success' ||
             steps.teable-report.outcome != 'success' ||
             steps.feishu-report.outcome != 'success' ||
             steps.github-summary.outcome != 'success'
           )
         run: |
-          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, traceSite=${{ steps.trace-site.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
           exit 1
 
       - name: Enforce targeted report delivery failures
@@ -797,6 +896,7 @@ jobs:
           needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
           (
             steps.trace-publish.outcome == 'failure' ||
+            steps.trace-site.outcome == 'failure' ||
             steps.teable-report.outcome == 'failure' ||
             steps.feishu-report.outcome == 'failure' ||
             steps.github-summary.outcome == 'failure'

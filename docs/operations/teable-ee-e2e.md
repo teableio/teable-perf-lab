@@ -303,10 +303,10 @@ snapshot) plus a "what to read for X" cheat sheet, see
 
 ## Trace collection
 
-The workflow publishes selected traces to the shared Jaeger service. Its
-endpoints and the `OTEL_*` / `TRACE_LINK_BASE_URL` values are defined once in
-[trace-viewer.md](trace-viewer.md) and set in the workflow env; do not restate
-the endpoint URLs here.
+Every trace endpoint the workflow uses is job-local, and the published viewer is
+built from the run's own artifacts. The pipeline, retention, and the pinning
+escape hatch are described once in [trace-viewer.md](trace-viewer.md); do not
+restate the endpoint URLs here.
 
 `perf-lab.e2e-spec.ts` preloads the existing `teable-ee` tracing module before
 `initApp()` creates the Nest test app. The perf framework captures `traceparent`
@@ -317,24 +317,24 @@ wait for Jaeger.
 
 Every execute job starts an ephemeral OpenTelemetry Collector on
 `127.0.0.1:4318`. The Collector writes OTLP JSON to runner-local disk and never
-forwards execution traffic to shared Jaeger. After all cases finish, the engine
+forwards execution traffic anywhere else. After all cases finish, the engine
 flushes once and the manifest moves to `pending-shared-publish`. The job stops
 the Collector, filters the local spool to the exact `selectedTraceIds`, groups
 all spans for one trace into one OTLP object, and uploads only that selected
 payload. Seed jobs disable trace sampling because their traces are not report
 evidence.
 
-The single report job downloads all selected payloads and publishes them to
-shared Jaeger with a fixed interval. OTLP requests are capped at 1 MB; an
-oversized trace is split by spans across multiple requests that retain the same
-trace ID. This is the only workflow stage that writes to shared `4318`, so
-execute-job completion cannot create a 21-writer burst. After a settle, the
-report job verifies every selected trace at
-`/api/traces/<traceId>`, retries missing traces once, and atomically replaces the
-pending trace block in each downloaded payload, summary, and manifest. The
-reconciled lightweight results are uploaded as a separate workflow artifact.
-The shared Jaeger links remain long-lived while unselected spans never leave the
-ephemeral runner.
+The single report job starts its own Jaeger container, downloads all selected
+payloads, and publishes them into it with a fixed interval. OTLP requests are
+capped at 1 MB; an oversized trace is split by spans across multiple requests
+that retain the same trace ID. After a settle, the report job verifies every
+selected trace at `/api/traces/<traceId>`, retries missing traces once, writes
+each verified trace back into the artifact as a Jaeger-format snapshot, and
+atomically replaces the pending trace block in each downloaded payload, summary,
+and manifest. The reconciled lightweight results are uploaded as a separate
+workflow artifact. The container is then stopped: what survives it is the
+snapshots in the artifact and the traces published to the viewer site, so no
+long-lived trace host is on the critical path of a run.
 
 During a large case, the runner calls the Teable OpenTelemetry SDK's force
 flush periodically with `PERF_LAB_TRACE_BACKGROUND_FLUSH_MS`; this keeps spans
@@ -356,7 +356,8 @@ counts, `missingFetchCount`, and `wastedFetchMs` are preserved in every trace
 manifest and case summary.
 If the process stops before finalization, the provisional `pending-job-tail`
 state explains the incomplete evidence. `pending-shared-publish` means local
-selection succeeded but the report job has not reconciled shared Jaeger yet.
+selection succeeded but the report job has not published and reconciled the
+selected traces yet.
 Payloads, summaries, and manifests use same-directory temporary files plus
 atomic rename.
 an unrecoverable filesystem failure leaves the prior valid file rather than a

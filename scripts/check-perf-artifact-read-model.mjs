@@ -151,11 +151,20 @@ try {
   assert.equal(primaryMetricValue(executePayload), 123);
   assert.equal(primaryMetricValue({ durationMs: "789", thresholds: [] }), 789);
 
+  // The published viewer wins over the engine-captured `Link` header, which
+  // points at whatever trace host the run was configured with.
   assert.equal(
     resolvePrimaryTraceUrl({
       payload: executePayload,
-      traceBaseUrl: "https://jaeger.example/",
+      traceBaseUrl: "https://viewer.example/",
+      runId: "42",
     }),
+    "https://viewer.example/trace.html?run=42&trace=trace-b",
+  );
+  // Without a viewer base or a run id there is nothing to build, so the
+  // captured link is all that is left.
+  assert.equal(
+    resolvePrimaryTraceUrl({ payload: executePayload }),
     "https://trace.example/direct",
   );
   assert.equal(
@@ -165,9 +174,21 @@ try {
           observability: { traces: { refs: [{ traceId: "trace-c" }] } },
         },
       },
-      traceBaseUrl: "https://jaeger.example/",
+      traceBaseUrl: "https://viewer.example/",
+      runId: "42",
     }),
-    "https://jaeger.example/trace/trace-c?uiEmbed=v0",
+    "https://viewer.example/trace.html?run=42&trace=trace-c",
+  );
+  assert.equal(
+    resolvePrimaryTraceUrl({
+      payload: {
+        details: {
+          observability: { traces: { refs: [{ traceId: "trace-c" }] } },
+        },
+      },
+      traceBaseUrl: "https://viewer.example/",
+    }),
+    "",
   );
 
   const compacted = compactTraceManifest({
