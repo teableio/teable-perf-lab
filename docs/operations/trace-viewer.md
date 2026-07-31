@@ -76,6 +76,11 @@ before a trace ever leaves the execute job, and SQL text is bounded, but the
 statements, request paths, and table and field ids are visible to anyone with
 the link.
 
+Pages rebuilds are rate-limited to ten an hour. A burst of single-case runs can
+push more often than that; the push still succeeds and the branch is correct,
+but the served site can lag by a few minutes. Read the branch directly if a
+link has not caught up yet.
+
 ## Local runs
 
 Point a local run at your own Jaeger and everything works the same way:
