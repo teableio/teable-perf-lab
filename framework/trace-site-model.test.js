@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildTraceViewUrl } from "./trace-view-url.js";
 import { pinTrace, unpinTrace } from "../scripts/pin-perf-trace.mjs";
 import {
   buildTraceDocument,
@@ -367,6 +368,48 @@ test("publishes the trace under the id the result row links to", async () => {
     assert.deepEqual(
       index.traces.map((trace) => trace.traceId),
       [traceA],
+    );
+  });
+});
+
+// The URL builder and the publisher are separate owners; if they drift, the
+// only symptom is a 404 nobody sees until they click a result row.
+test("the link a result row carries resolves to a published file", async () => {
+  await withTempDir("trace-site-url-", async (root) => {
+    const artifactDir = join(root, "artifacts");
+    await writeArtifact({
+      artifactDir,
+      caseId: "alpha-case",
+      engine: "v2",
+      traceId: traceA,
+      snapshot: jaegerSnapshot({
+        traceId: traceA,
+        spans: [jaegerSpan({ spanID: "root" })],
+      }),
+    });
+
+    const siteDir = join(root, "site");
+    await publishTraceSite({
+      artifactDir,
+      siteDir,
+      viewerDir,
+      runId: "run-1",
+      publishedAt: "2026-07-31T00:00:00.000Z",
+    });
+
+    const url = new URL(
+      buildTraceViewUrl(traceA, "run-1", "https://viewer.example/site/"),
+    );
+    assert.equal(url.pathname, "/site/trace.html");
+    // Exactly what viewer/trace.html fetches for those query parameters.
+    await readFile(
+      join(
+        siteDir,
+        "r",
+        url.searchParams.get("run"),
+        `${url.searchParams.get("trace")}.json`,
+      ),
+      "utf8",
     );
   });
 });
