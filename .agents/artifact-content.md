@@ -13,7 +13,8 @@ The shapes are authoritative as of the framework source:
 ## Which artifact to download
 
 Each execute job uploads full and lightweight pre-publication artifacts. The
-report job uploads one reconciled artifact after shared-Jaeger verification.
+report job uploads one reconciled artifact after it publishes and verifies
+the selected traces.
 See the artifact name list in
 [../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.md).
 
@@ -48,7 +49,8 @@ The primary file. One per case+engine. Trace counts are duplicated inline here
 (see `details.observability.traces`), so most checks never need `manifest.json`.
 The case first writes a `pending-job-tail` trace block; the engine job tail
 records `pending-shared-publish` after selecting evidence, and the report job
-rewrites only that block after serialized shared-Jaeger publication. Metrics,
+rewrites only that block after serialized publication into its own Jaeger.
+Metrics,
 business details, routing evidence, result, and measured duration stay
 unchanged.
 

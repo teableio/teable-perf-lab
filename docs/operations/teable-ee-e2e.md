@@ -347,7 +347,7 @@ pattern, duplicates, or covered by another selected representative are recorded
 as skipped so the manifest explains any intentional
 `traceRefCount > savedTraceCount` gap.
 
-Shared trace verification has two independent bounds:
+Trace verification has two independent bounds:
 `PERF_LAB_TRACE_CASE_BUDGET_MS` (15 seconds) and
 `PERF_LAB_TRACE_JOB_BUDGET_MS` (120 seconds). A selected trace still missing
 after the recovery publication fails the trace-publication step.
