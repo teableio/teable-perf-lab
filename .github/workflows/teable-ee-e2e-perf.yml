@@ -626,8 +626,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # Reading this run's artifacts, and pushing the published trace site.
-      actions: read
+      # Keeps the workflow-level actions scope and adds the one this job needs
+      # on its own: pushing the published trace site.
+      actions: write
       contents: write
     env:
       PERF_LAB_REPORT_JAEGER_CONTAINER: perf-report-jaeger-${{ github.run_id }}-${{ github.run_attempt }}
