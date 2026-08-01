@@ -26,15 +26,22 @@ teable-ee ──OTLP──▶ job-local otel relay ──▶ trace-spool.jsonl (
 | One trace per result row | `r/<runId>/<traceId>.json` on the `trace-pages` branch                | While it fits the 800 MB site |
 | Pinned traces            | `pinned/<traceId>.json` on the `trace-pages` branch                   | Until unpinned                |
 
-Sizes, measured on run `30600597922`: a full run selects ~1,000 traces out of
-~12 million spans, or ~414 MB of OTLP JSON. The site publishes only the trace
-each result row links to — 540 of them, at a ~156 KB median once tag values are
-bounded — so a published full run costs about **84 MB**.
+Sizes, measured end to end on full run `30708195561`: it selected 1,012 traces
+out of ~12 million spans, published all of them into the report-local Jaeger,
+and stored **663 MB** of Jaeger-format snapshots in the artifact. The site
+publishes only the trace each result row links to — 533 of them, averaging
+**232 KB** once tag values are bounded — so a published full run costs
+**~124 MB**.
 
-The site therefore keeps roughly **nine full runs** inside its 800 MB budget,
-and single-case runs cost almost nothing. Artifacts expire on an investigation
-window rather than a storage limit, because Actions storage is free on a public
-repository.
+The site therefore keeps roughly **six full runs** inside its 800 MB budget, and
+single-case runs cost almost nothing (~6 KB each). Artifacts expire on an
+investigation window rather than a storage limit, because Actions storage is
+free on a public repository.
+
+An earlier estimate of 84 MB came from extrapolating one shard's _median_ trace
+size. The distribution is right-skewed — the largest published trace in that run
+is 594 KB against a 152 KB median — so the median understated the total by
+nearly half. Re-measure from a full run, not a shard, if the case catalog grows.
 
 ## Reading a trace
 

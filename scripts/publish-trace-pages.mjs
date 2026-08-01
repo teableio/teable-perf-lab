@@ -11,11 +11,12 @@
 // linked trace under `r/<runId>/`, plus the viewer HTML.
 //
 // Retention is a byte budget rather than an age. A published full run measures
-// ~84 MB (540 result rows at a ~156 KB median), and GitHub Pages serves up to
-// 1 GB, so the site keeps the newest runs that fit under 800 MB — roughly nine
-// full runs — and evicts oldest-first only when it has to. An age limit would
-// throw away traces while most of the capacity sat unused. `pinned/` is never
-// evicted: that is the escape hatch for a trace worth keeping as evidence.
+// ~124 MB (533 result rows averaging 232 KB, measured on run 30708195561), and
+// GitHub Pages serves up to 1 GB, so the site keeps the newest runs that fit
+// under 800 MB — roughly six full runs — and evicts oldest-first only when it
+// has to. An age limit would throw away traces while most of the capacity sat
+// unused. `pinned/` is never evicted: that is the escape hatch for a trace
+// worth keeping as evidence.
 
 import {
   cp,
