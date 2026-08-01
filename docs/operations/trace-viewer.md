@@ -106,24 +106,22 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces
 
 ## When Jaeger does not answer
 
-The report job probes `GET /api/services` before publishing. If Jaeger does not
-answer, the run does **not** fail:
+It fails the run, and that is the intended behaviour: the report job starts the
+container and waits for `GET /api/services` before publishing, so a Jaeger that
+does not answer afterwards is a fault in this workflow rather than someone
+else's outage.
 
-- trace publication is skipped,
-- every trace manifest is reconciled to `traceFetchBreakerState: "hard-outage"`,
-- the run summary carries the "Trace 服务不可用" card,
-- the perf results themselves are reported and gated as usual.
+That was not always true. While the shared service was down, the publish path
+grew a preflight probe and a degradation branch that skipped publication and
+reconciled every manifest to `hard-outage`, because an external host being gone
+should not redden a run whose measurements were fine — it had kept the suite red
+for ~30 hours across 11 runs. Owning the container removed the condition that
+logic existed for, so it was deleted rather than left to rot: a report job that
+cannot reach its own Jaeger should say so loudly.
 
-A Jaeger that _answers_ the probe but then loses traces is still a hard failure,
-because that is a trace-capture regression rather than an outage.
-
-The probe was added while the shared service was down, when the publish step
-aborted on the first trace and the workflow scored that as a full-run failure —
-11 consecutive red runs over ~30 hours with perfectly good perf numbers. It
-outlived that outage on purpose: the report job now starts its own Jaeger, so
-the probe answers within seconds of the container being ready, and the
-degradation path is what keeps a container that dies mid-publish from reddening
-a run whose measurements are intact. See `framework/jaeger-availability.ts`.
+What survived is the diagnosis it came with. `fetch` reports every connection
+failure as a bare "fetch failed" and hides the errno on `error.cause`, which is
+why those 11 red runs recorded nothing usable; the publish path still unwraps it.
 
 ## History
 
