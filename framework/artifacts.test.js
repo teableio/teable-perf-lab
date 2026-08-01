@@ -92,6 +92,48 @@ test("job-tail trace finalization rewrites observability without changing the me
   }
 });
 
+test("summary markdown links the primary trace to the published viewer", async () => {
+  const artifactDir = await mkdtemp(
+    join(tmpdir(), "perf-artifact-trace-link-"),
+  );
+  const previous = {
+    base: process.env.PERF_LAB_TRACE_VIEW_BASE_URL,
+    runId: process.env.GITHUB_RUN_ID,
+  };
+  process.env.PERF_LAB_TRACE_VIEW_BASE_URL = "https://viewer.example/site/";
+  process.env.GITHUB_RUN_ID = "9001";
+  try {
+    await writePerfArtifacts(artifactDir, perfCase, payload);
+    await updatePerfArtifactTraceSummary({
+      artifactDir,
+      perfCase,
+      engine: "v2",
+      traceSummary: {
+        ...finalTraceSummary,
+        refs: [
+          // The engine-captured link points at a host runs no longer configure.
+          { traceId: "trace-x", traceLink: "http://retired.example/trace/x" },
+        ],
+        savedTraces: [{ traceId: "trace-x", status: "saved" }],
+      },
+    });
+
+    const markdown = await readFile(
+      join(artifactDir, getSummaryMarkdownName(perfCase.id, "v2")),
+      "utf8",
+    );
+    assert.match(
+      markdown,
+      /\| primary trace \| https:\/\/viewer\.example\/site\/trace\.html\?run=9001&trace=trace-x \|/,
+    );
+    assert.doesNotMatch(markdown, /retired\.example/);
+  } finally {
+    process.env.PERF_LAB_TRACE_VIEW_BASE_URL = previous.base ?? "";
+    process.env.GITHUB_RUN_ID = previous.runId ?? "";
+    await rm(artifactDir, { recursive: true, force: true });
+  }
+});
+
 test("atomic artifact replacement preserves the old payload when commit fails", async () => {
   const artifactDir = await mkdtemp(join(tmpdir(), "perf-artifact-atomic-"));
   const payloadPath = join(artifactDir, "payload.json");

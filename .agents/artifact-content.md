@@ -13,7 +13,8 @@ The shapes are authoritative as of the framework source:
 ## Which artifact to download
 
 Each execute job uploads full and lightweight pre-publication artifacts. The
-report job uploads one reconciled artifact after shared-Jaeger verification.
+report job uploads one reconciled artifact after it publishes and verifies
+the selected traces.
 See the artifact name list in
 [../docs/operations/teable-ee-e2e.md](../docs/operations/teable-ee-e2e.md).
 
@@ -48,7 +49,8 @@ The primary file. One per case+engine. Trace counts are duplicated inline here
 (see `details.observability.traces`), so most checks never need `manifest.json`.
 The case first writes a `pending-job-tail` trace block; the engine job tail
 records `pending-shared-publish` after selecting evidence, and the report job
-rewrites only that block after serialized shared-Jaeger publication. Metrics,
+rewrites only that block after serialized publication into its own Jaeger.
+Metrics,
 business details, routing evidence, result, and measured duration stay
 unchanged.
 
@@ -205,7 +207,8 @@ This is not counted as trace polling waste.
 
 `selectedTraceIds` is the exact publication allowlist generated in the execute
 job. `sharedPublishTraceCount` and `sharedPublishSpanCount` record what the
-single report job serialized to shared Jaeger. The execute artifact also carries
+single report job serialized into its own Jaeger container. The execute artifact
+also carries
 `selected-traces-summary.json` and `selected-traces.otlp.jsonl`; the latter is
 excluded from the final reconciled artifact after publication.
 
@@ -224,9 +227,14 @@ rewrite failed without deleting that result. Artifact replacement uses
 same-directory temporary files and atomic rename, so interruption keeps the
 previous valid JSON instead of truncating it.
 
-Raw Jaeger snapshots are no longer copied into execute artifacts. Use a saved
-`refs[].traceLink` for the long-lived UI view or query the shared Jaeger API by
-that trace ID when span-level JSON is required.
+Execute artifacts carry no raw Jaeger snapshots; the report job writes them
+after it publishes, at `savedTraces[].path` inside the reconciled artifact. Each
+file is a verbatim `/api/traces/<traceId>` response, so it loads into any Jaeger
+UI through the _JSON File_ tab. Both the artifact and the published viewer copy
+have bounded lifetimes — the artifact expires after 14 days, the published copy
+when the site needs its bytes — see
+[../docs/operations/trace-viewer.md](../docs/operations/trace-viewer.md) for
+retention and for pinning a trace that has to outlive its run.
 
 ## What to read for a given question
 
@@ -240,8 +248,8 @@ that trace ID when span-level JSON is required.
 | Failure detail                  | `error.message`, `error.stack`                                                                            |
 | Trace capture health            | `details.observability.traces.{traceRefCount,savedTraceCount,failedTraceCount,skippedTraceCount}`         |
 | Why a trace was not saved       | `details.observability.traces.savedTraces[]` where `status` is `error`/`missing`/`skipped` (read `error`) |
-| Open a trace in the Jaeger UI   | any `refs[].traceLink`                                                                                    |
-| Span-level timings              | Open `refs[].traceLink`, or query shared Jaeger `/api/traces/<traceId>`                                   |
+| Open a trace in a browser       | The published viewer, linked from the summary's `primary trace` row and the Teable `Trace URL` field      |
+| Span-level timings              | The published viewer, or the snapshot at `savedTraces[].path` loaded into a local Jaeger                  |
 | Trace service unavailable       | `details.observability.traces.traceFetchSkippedReason`                                                    |
 
 ## jq quick paths

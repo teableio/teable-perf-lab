@@ -1,0 +1,79 @@
+name: Trace site
+description: >-
+  Apply a change to the published trace site branch and push it as a single
+  root commit.
+
+inputs:
+  token:
+    description: Token used to fetch and push the site branch.
+    required: true
+  run:
+    description: >-
+      Bash executed against the checked-out site. `TRACE_SITE_DIR` holds its
+      absolute path. It reruns from a fresh checkout if the push races another
+      run, so it must be safe to repeat.
+    required: true
+  message:
+    description: Commit message for the published site.
+    required: true
+  branch:
+    description: Branch that GitHub Pages serves.
+    required: false
+    default: trace-pages
+  path:
+    description: Workspace-relative checkout path for the site.
+    required: false
+    default: trace-site
+
+runs:
+  using: composite
+  steps:
+    - name: Publish trace site
+      shell: bash
+      env:
+        TRACE_SITE_BRANCH: ${{ inputs.branch }}
+        TRACE_SITE_PATH: ${{ inputs.path }}
+        TRACE_SITE_TOKEN: ${{ inputs.token }}
+        TRACE_SITE_MESSAGE: ${{ inputs.message }}
+        TRACE_SITE_RUN: ${{ inputs.run }}
+      run: |
+        set -euo pipefail
+
+        remote="https://x-access-token:${TRACE_SITE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+        for attempt in 1 2 3; do
+          rm -rf "$TRACE_SITE_PATH"
+          mkdir -p "$TRACE_SITE_PATH"
+          git init -q "$TRACE_SITE_PATH"
+          git -C "$TRACE_SITE_PATH" config user.name "github-actions[bot]"
+          git -C "$TRACE_SITE_PATH" config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # A missing branch is the first-publish case, not a failure.
+          if git -C "$TRACE_SITE_PATH" fetch --quiet --depth 1 "$remote" "$TRACE_SITE_BRANCH"; then
+            git -C "$TRACE_SITE_PATH" checkout -q -B "$TRACE_SITE_BRANCH" FETCH_HEAD
+          else
+            echo "Branch ${TRACE_SITE_BRANCH} does not exist yet; publishing the first commit."
+            git -C "$TRACE_SITE_PATH" checkout -q -b "$TRACE_SITE_BRANCH"
+          fi
+
+          TRACE_SITE_DIR="$(cd "$TRACE_SITE_PATH" && pwd)" bash -c "$TRACE_SITE_RUN"
+
+          # One root commit per publish. Chaining commits would keep every
+          # superseded copy of the trace JSON reachable forever, which is how a
+          # site that prunes itself daily still grows a repository without bound.
+          git -C "$TRACE_SITE_PATH" checkout -q --orphan published
+          git -C "$TRACE_SITE_PATH" add -A
+          git -C "$TRACE_SITE_PATH" commit -q -m "$TRACE_SITE_MESSAGE"
+
+          if git -C "$TRACE_SITE_PATH" push --force --quiet "$remote" "HEAD:$TRACE_SITE_BRANCH"; then
+            echo "Published ${TRACE_SITE_BRANCH} on attempt ${attempt}."
+            exit 0
+          fi
+
+          echo "Trace site push attempt ${attempt} lost a race; refetching." >&2
+          sleep "$((attempt * 5))"
+        done
+
+        echo "Trace site push failed after 3 attempts." >&2
+        exit 1

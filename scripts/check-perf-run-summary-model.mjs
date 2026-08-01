@@ -553,7 +553,7 @@ const outageCard = buildPerfSummaryCard({
             missingFetchCount: 0,
             wastedFetchMs: 0,
             traceFetchSkippedReason:
-              "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 136.119.178.56:4318",
+              "Trace service unavailable; skipped Jaeger fetch: connect ECONNREFUSED 127.0.0.1:4318",
           },
         },
       },
@@ -573,7 +573,10 @@ const outageCard = buildPerfSummaryCard({
 
 const outageText = outageCard.card.elements[1].text.content;
 assert.match(outageText, /Trace 服务不可用，本轮跳过 Trace 抓取/);
-assert.match(outageText, /observability-stack \/ teable-perf-jaeger/);
+// Point the reader at the two steps that own the trace host now that it is the
+// report job's own container, not a service someone else operates.
+assert.match(outageText, /report-local Jaeger/);
+assert.doesNotMatch(outageText, /observability-stack/);
 assert.doesNotMatch(outageText, /OTLP/);
 assert.doesNotMatch(JSON.stringify(outageCard.card.elements), /Trace 抓取浪费/);
 
