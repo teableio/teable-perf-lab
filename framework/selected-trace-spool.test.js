@@ -611,3 +611,75 @@ test("publishes selected OTLP traces serially and reconciles downloaded artifact
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// The report job owns its Jaeger, so anything it cannot publish or read back is
+// this workflow's fault and has to be loud. This guarantee used to live in
+// check-trace-publish-outage.mjs alongside a degradation path that no longer
+// exists; the degradation went, the guarantee stays.
+test("a Jaeger that loses traces fails the publish instead of degrading", async () => {
+  const root = await mkdtemp(join(tmpdir(), "selected-trace-lost-"));
+  const artifactDir = join(root, "downloaded");
+  const manifestDir = join(artifactDir, "artifact", "traces", "case-v1");
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) =>
+    init?.method === "POST"
+      ? new Response("", { status: 200 })
+      : // Reachable, answering, and the trace never lands.
+        Response.json({ data: [] });
+
+  try {
+    await mkdir(manifestDir, { recursive: true });
+    await writeFile(
+      join(manifestDir, "manifest.json"),
+      JSON.stringify({
+        enabled: true,
+        selectedTraceIds: [traceA],
+        artifactDir: "traces/case-v1",
+        manifestPath: "traces/case-v1/manifest.json",
+        refs: [{ traceId: traceA, stepId: "selected", sampled: true }],
+        savedTraces: [],
+      }),
+    );
+    await writeFile(
+      join(artifactDir, "artifact", "case-v1.json"),
+      JSON.stringify({
+        caseId: "case",
+        engine: "v1",
+        result: "pass",
+        durationMs: 1,
+        metrics: {},
+        thresholds: [],
+        details: {
+          observability: {
+            traces: { manifestPath: "traces/case-v1/manifest.json" },
+          },
+        },
+      }),
+    );
+    await writeFile(
+      join(artifactDir, "artifact", "selected-traces.otlp.jsonl"),
+      `${JSON.stringify({
+        resourceSpans: [
+          { scopeSpans: [{ spans: [{ traceId: traceA, spanId: "a1" }] }] },
+        ],
+      })}\n`,
+    );
+
+    await assert.rejects(
+      publishAndReconcileSelectedTraces({
+        artifactDir,
+        endpoint: "http://trace.test/v1/traces",
+        jaegerApiBaseUrl: "http://trace.test",
+        outputPath: join(root, "trace-publish.json"),
+        intervalMs: 0,
+        settleMs: 0,
+        fetchTimeoutMs: 10,
+        fetchConcurrency: 1,
+      }),
+      /were missing from the report-local Jaeger/,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});

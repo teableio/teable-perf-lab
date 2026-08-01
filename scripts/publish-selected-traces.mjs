@@ -10,11 +10,27 @@ import { writeFileAtomically as writeFileAtomicallyShared } from "../framework/a
 import { requiredEnv } from "./env.mjs";
 import { sleep as delay } from "../framework/sleep.js";
 import { jaegerFetch } from "../framework/jaeger-transport.ts";
-import {
-  describeFetchError,
-  isTraceServiceUnavailableError,
-  probeJaegerAvailability,
-} from "../framework/jaeger-availability.ts";
+
+// `fetch` rejects with a bare "fetch failed" and hides the real errno on
+// `error.cause`. Eleven consecutive red runs recorded nothing but "fetch
+// failed", which is precisely why the cause was never identifiable from CI
+// logs — always unwrap it.
+const describeFetchError = (error) => {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const cause = error.cause;
+  if (cause instanceof Error) {
+    const detail =
+      typeof cause.code === "string" && cause.code.length > 0
+        ? cause.code
+        : cause.message;
+    return detail && detail !== error.message
+      ? `${error.message} (${detail})`
+      : error.message;
+  }
+  return error.message;
+};
 
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -260,22 +276,13 @@ const postTrace = async ({ endpoint, selected, attempts = 3 }) => {
       }
       return { attempts: attempt };
     } catch (error) {
-      // Unwrap `error.cause`. `fetch` reports every connection failure as a
-      // bare "fetch failed", so 11 consecutive red runs recorded no errno at
-      // all and the outage could not be told apart from a Jaeger-side reject.
       lastError = describeFetchError(error);
       if (attempt < attempts) {
         await delay(250 * 2 ** (attempt - 1));
       }
     }
   }
-  const failure = new Error(
-    `Failed to publish trace ${selected.traceId}: ${lastError}`,
-  );
-  // Lets publishSequentially tell "Jaeger is gone" apart from "Jaeger rejected
-  // this payload". Only the former is allowed to degrade the run.
-  failure.unavailable = isTraceServiceUnavailableError(lastError);
-  throw failure;
+  throw new Error(`Failed to publish trace ${selected.traceId}: ${lastError}`);
 };
 
 const publishSequentially = async ({
@@ -287,41 +294,22 @@ const publishSequentially = async ({
   const startedAt = Date.now();
   let requestCount = 0;
   let spanCount = 0;
-  let traceCount = 0;
   for (const selected of selectedPayloads) {
     const chunks = splitSelectedTracePayload(selected, maxRequestBytes);
     for (const chunk of chunks) {
-      try {
-        await postTrace({ endpoint, selected: chunk });
-      } catch (error) {
-        if (!error?.unavailable) {
-          throw error;
-        }
-        // Jaeger disappearing part-way through is the same outage the preflight
-        // probe catches, just discovered later. Stop publishing and report it
-        // rather than reddening a run whose perf results are intact.
-        return {
-          traceCount,
-          requestCount,
-          spanCount,
-          durationMs: Date.now() - startedAt,
-          outage: error.message,
-        };
-      }
+      await postTrace({ endpoint, selected: chunk });
       requestCount += 1;
       if (intervalMs > 0) {
         await delay(intervalMs);
       }
     }
     spanCount += selected.spanCount;
-    traceCount += 1;
   }
   return {
-    traceCount,
+    traceCount: selectedPayloads.length,
     requestCount,
     spanCount,
     durationMs: Date.now() - startedAt,
-    outage: undefined,
   };
 };
 
@@ -404,7 +392,6 @@ export const buildPublishedTraceSummary = ({
   outcomesByTraceId,
   publishByTraceId,
   fetchJobWaitMs,
-  outage,
 }) => {
   const selectedTraceIds = new Set(manifest.selectedTraceIds ?? []);
   const seenTraceIds = new Set();
@@ -417,22 +404,6 @@ export const buildPublishedTraceSummary = ({
   let publishedSpanCount = 0;
 
   for (const ref of manifest.refs ?? []) {
-    // During an outage nothing was published and nothing was fetched, so every
-    // ref is skipped rather than missing. Reconciling to a terminal state is
-    // the point: shards leave `pending-shared-publish` behind, and
-    // verify-full-run-result-acceptance.mjs rejects that as trace evidence.
-    if (outage) {
-      skippedTraceCount += 1;
-      savedTraces.push({
-        traceId: ref.traceId,
-        stepId: ref.stepId,
-        path: "",
-        status: "skipped",
-        error: `Jaeger unavailable; skipped trace publication: ${outage}`,
-        sampled: ref.sampled,
-      });
-      continue;
-    }
     if (!selectedTraceIds.has(ref.traceId) || seenTraceIds.has(ref.traceId)) {
       skippedTraceCount += 1;
       savedTraces.push({
@@ -497,24 +468,14 @@ export const buildPublishedTraceSummary = ({
     // went red as the suite grew rather than when anything was wrong.
     sharedPublishWaitMs: fetchJobWaitMs,
     sharedPublishMaxTraceMs: maxFetchMs,
-    traceFetchBreakerState: outage
-      ? "hard-outage"
-      : failedTraceCount === 0
-        ? "closed"
-        : "partial-loss",
-    traceFetchBreakerReason: outage
-      ? `Jaeger unavailable: ${outage}`
-      : failedTraceCount === 0
+    traceFetchBreakerState: failedTraceCount === 0 ? "closed" : "partial-loss",
+    traceFetchBreakerReason:
+      failedTraceCount === 0
         ? undefined
         : `${failedTraceCount} selected traces were missing after serialized publication`,
     traceFetchRecoveryProbeCount: 0,
     traceFetchRecoverySucceeded: false,
-    // Drives the "Trace 服务不可用" card in perf-run-summary-model.mjs, which
-    // keys off this field being set. Leaving it undefined during an outage
-    // would silently drop the warning the report is supposed to carry.
-    traceFetchSkippedReason: outage
-      ? `Trace service unavailable; skipped trace publication: ${outage}`
-      : undefined,
+    traceFetchSkippedReason: undefined,
     sharedPublishTraceCount: selectedTraceIds.size,
     sharedPublishSpanCount: publishedSpanCount,
     savedTraces,
@@ -544,7 +505,6 @@ const reconcileManifest = async ({
   outcomesByTraceId,
   publishByTraceId,
   fetchJobWaitMs,
-  outage,
 }) => {
   const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
   const updated = buildPublishedTraceSummary({
@@ -552,7 +512,6 @@ const reconcileManifest = async ({
     outcomesByTraceId,
     publishByTraceId,
     fetchJobWaitMs,
-    outage,
   });
   const artifactRoot = resolve(dirname(manifestFile), "../..");
   const payloadEntry = await findPayloadForManifest({
@@ -579,60 +538,6 @@ const reconcileManifest = async ({
   return updated;
 };
 
-/**
- * Shared Jaeger is unreachable. Reconcile every manifest into a terminal
- * `hard-outage` state and report success: the perf results this run exists to
- * produce are unaffected, and the raw traces are already in the job artifacts.
- *
- * This must still walk the manifests. Execute jobs leave
- * `traceFetchBreakerState: "pending-shared-publish"` behind for the report job
- * to resolve, and verify-full-run-result-acceptance.mjs rejects that value — so
- * simply returning early here would trade a red publish step for a red
- * acceptance step.
- */
-const skipPublicationForOutage = async ({
-  artifactDir,
-  outputPath,
-  selectedPayloads,
-  intervalMs,
-  maxRequestBytes,
-  outage,
-  publishedTraceCount = 0,
-}) => {
-  const manifestFiles = await findFiles(artifactDir, "manifest.json");
-  for (const manifestFile of manifestFiles) {
-    await reconcileManifest({
-      manifestFile,
-      outcomesByTraceId: new Map(),
-      publishByTraceId: new Map(),
-      fetchJobWaitMs: 0,
-      outage,
-    });
-  }
-  const summary = {
-    status: "skipped-jaeger-unavailable",
-    outage,
-    selectedTraceCount: selectedPayloads.length,
-    publishedTraceCount,
-    publishedSpanCount: 0,
-    publishRequestCount: 0,
-    publishDurationMs: 0,
-    publishIntervalMs: intervalMs,
-    maxRequestBytes,
-    recoveryPublishTraceCount: 0,
-    fetchDurationMs: 0,
-    manifestCount: manifestFiles.length,
-    savedTraceCount: 0,
-    missingTraceCount: 0,
-    missingTraceIds: [],
-  };
-  await writeFileAtomically(
-    outputPath,
-    `${JSON.stringify(summary, null, 2)}\n`,
-  );
-  return summary;
-};
-
 export const publishAndReconcileSelectedTraces = async ({
   artifactDir,
   endpoint,
@@ -652,43 +557,12 @@ export const publishAndReconcileSelectedTraces = async ({
     left.traceId.localeCompare(right.traceId),
   );
 
-  // Preflight: ask whether Jaeger is there at all before spending minutes
-  // pushing ~1000 traces at it. The report job starts its own container and
-  // health-checks it, so this now answers within seconds; what it still catches
-  // is that container failing between the health check and here. See
-  // framework/jaeger-availability.ts.
-  const availability = await probeJaegerAvailability({
-    jaegerApiBaseUrl,
-    fetchImpl: jaegerFetch,
-  });
-  if (!availability.available) {
-    return await skipPublicationForOutage({
-      artifactDir,
-      outputPath,
-      selectedPayloads,
-      intervalMs,
-      maxRequestBytes,
-      outage: availability.error,
-    });
-  }
-
   const initialPublish = await publishSequentially({
     endpoint,
     selectedPayloads,
     intervalMs,
     maxRequestBytes,
   });
-  if (initialPublish.outage) {
-    return await skipPublicationForOutage({
-      artifactDir,
-      outputPath,
-      selectedPayloads,
-      intervalMs,
-      maxRequestBytes,
-      outage: initialPublish.outage,
-      publishedTraceCount: initialPublish.traceCount,
-    });
-  }
   await delay(settleMs);
 
   const fetchStartedAt = Date.now();
@@ -724,20 +598,6 @@ export const publishAndReconcileSelectedTraces = async ({
       intervalMs,
       maxRequestBytes,
     });
-    // Jaeger can also disappear during the recovery pass. Without this the run
-    // would fall through to "N selected traces were missing" and go red for an
-    // outage the first publish would have degraded gracefully.
-    if (recoveryPublish.outage) {
-      return await skipPublicationForOutage({
-        artifactDir,
-        outputPath,
-        selectedPayloads,
-        intervalMs,
-        maxRequestBytes,
-        outage: recoveryPublish.outage,
-        publishedTraceCount: initialPublish.traceCount,
-      });
-    }
     await delay(Math.min(settleMs, 3_000));
     const recovered = await runWithConcurrency(
       initiallyMissing,
@@ -833,26 +693,6 @@ const main = async () => {
       "PERF_LAB_TRACE_FETCH_CONCURRENCY",
     ),
   });
-  if (summary.status === "skipped-jaeger-unavailable") {
-    console.warn(
-      `Shared Jaeger is unavailable (${summary.outage}); skipped publishing ${summary.selectedTraceCount} selected traces. Perf results are unaffected and raw traces remain in the job artifacts.`,
-    );
-    if (process.env.GITHUB_STEP_SUMMARY) {
-      await writeFile(
-        process.env.GITHUB_STEP_SUMMARY,
-        [
-          "## Shared Jaeger selected-trace publication",
-          "",
-          `- **skipped: Jaeger unavailable** (\`${summary.outage}\`)`,
-          `- unpublished selected traces: ${summary.selectedTraceCount}`,
-          "- perf results are unaffected; raw traces stay in the job artifacts",
-          "",
-        ].join("\n"),
-        { flag: "a" },
-      );
-    }
-    return;
-  }
   console.log(
     `Published ${summary.savedTraceCount}/${summary.selectedTraceCount} selected traces (${summary.publishedSpanCount} spans) through ${summary.publishRequestCount} serialized OTLP requests, and stored ${summary.snapshotTraceCount} Jaeger snapshots (${summary.snapshotBytes} bytes).`,
   );
