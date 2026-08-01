@@ -46,6 +46,12 @@ export const DEFAULT_SITE_BUDGET_BYTES = 800_000_000;
 
 const RUN_DIR = "r";
 const PINNED_DIR = "pinned";
+// The site is published from a git checkout, and `.git` holds a packed copy of
+// everything the branch already contains. Pages never serves it, but counting it
+// charged the budget for the site twice over — 8.9 MB of phantom "reserved" the
+// first time a 124 MB run was republished, growing with the site until it would
+// have evicted a run to make room for history nobody can read.
+const GIT_DIR = ".git";
 
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -241,6 +247,9 @@ const directoryBytes = async (directory) => {
   const walk = async (current) => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const path = join(current, entry.name);
+      if (entry.name === GIT_DIR) {
+        continue;
+      }
       if (entry.isDirectory()) {
         await walk(path);
       } else if (entry.isFile()) {
@@ -261,7 +270,7 @@ const reservedSiteBytes = async (siteDir) => {
   for (const entry of await readdir(siteDir, { withFileTypes: true }).catch(
     () => [],
   )) {
-    if (entry.name === RUN_DIR) {
+    if (entry.name === RUN_DIR || entry.name === GIT_DIR) {
       continue;
     }
     const path = join(siteDir, entry.name);
