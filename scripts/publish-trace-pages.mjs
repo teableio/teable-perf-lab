@@ -11,11 +11,12 @@
 // linked trace under `r/<runId>/`, plus the viewer HTML.
 //
 // Retention is a byte budget rather than an age. A published full run measures
-// ~84 MB (540 result rows at a ~156 KB median), and GitHub Pages serves up to
-// 1 GB, so the site keeps the newest runs that fit under 800 MB — roughly nine
-// full runs — and evicts oldest-first only when it has to. An age limit would
-// throw away traces while most of the capacity sat unused. `pinned/` is never
-// evicted: that is the escape hatch for a trace worth keeping as evidence.
+// ~124 MB (533 result rows averaging 232 KB, measured on run 30708195561), and
+// GitHub Pages serves up to 1 GB, so the site keeps the newest runs that fit
+// under 800 MB — roughly six full runs — and evicts oldest-first only when it
+// has to. An age limit would throw away traces while most of the capacity sat
+// unused. `pinned/` is never evicted: that is the escape hatch for a trace
+// worth keeping as evidence.
 
 import {
   cp,
@@ -45,6 +46,12 @@ export const DEFAULT_SITE_BUDGET_BYTES = 800_000_000;
 
 const RUN_DIR = "r";
 const PINNED_DIR = "pinned";
+// The site is published from a git checkout, and `.git` holds a packed copy of
+// everything the branch already contains. Pages never serves it, but counting it
+// charged the budget for the site twice over — 8.9 MB of phantom "reserved" the
+// first time a 124 MB run was republished, growing with the site until it would
+// have evicted a run to make room for history nobody can read.
+const GIT_DIR = ".git";
 
 const isRecord = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -240,6 +247,9 @@ const directoryBytes = async (directory) => {
   const walk = async (current) => {
     for (const entry of await readdir(current, { withFileTypes: true })) {
       const path = join(current, entry.name);
+      if (entry.name === GIT_DIR) {
+        continue;
+      }
       if (entry.isDirectory()) {
         await walk(path);
       } else if (entry.isFile()) {
@@ -260,7 +270,7 @@ const reservedSiteBytes = async (siteDir) => {
   for (const entry of await readdir(siteDir, { withFileTypes: true }).catch(
     () => [],
   )) {
-    if (entry.name === RUN_DIR) {
+    if (entry.name === RUN_DIR || entry.name === GIT_DIR) {
       continue;
     }
     const path = join(siteDir, entry.name);

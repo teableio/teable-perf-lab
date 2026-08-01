@@ -497,6 +497,39 @@ test("keeps the newest runs that fit and drops an indexless directory", async ()
   });
 });
 
+test("does not charge the budget for the site's own git checkout", async () => {
+  await withTempDir("trace-site-git-", async (root) => {
+    const siteDir = join(root, "site");
+    const runDir = join(siteDir, "r", "run-now");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      join(runDir, "index.json"),
+      JSON.stringify({
+        runId: "run-now",
+        publishedAt: "2026-07-31T00:00:00.000Z",
+      }),
+    );
+    await writeFile(join(runDir, "trace.json"), "x".repeat(400));
+    // The site is published from a checkout, so `.git` holds a packed copy of
+    // everything already on the branch. Pages never serves it.
+    await mkdir(join(siteDir, ".git", "objects", "pack"), { recursive: true });
+    await writeFile(
+      join(siteDir, ".git", "objects", "pack", "pack-1.pack"),
+      "x".repeat(50_000),
+    );
+
+    const budget = await enforceSiteBudget({
+      siteDir,
+      budgetBytes: 1_000,
+      keepRunId: "run-now",
+    });
+
+    assert.equal(budget.reservedBytes, 0);
+    assert.ok(budget.usedBytes < 1_000);
+    assert.equal(budget.overBudgetBytes, 0);
+  });
+});
+
 test("keeps the published run even when it alone busts the budget", async () => {
   await withTempDir("trace-site-overbudget-", async (root) => {
     const siteDir = join(root, "site");
