@@ -249,9 +249,55 @@ const stageArtifacts = async () => {
       fetchTimeoutMs: 10,
       fetchConcurrency: 1,
     }),
-    /were missing from shared Jaeger/,
+    /were missing from the report-local Jaeger/,
     "a reachable Jaeger losing traces is a real regression and must stay fatal",
   );
+
+  await rm(artifactDir, { recursive: true, force: true });
+}
+
+// --- end to end: Jaeger lost during the recovery publish still degrades ----
+
+{
+  const artifactDir = await stageArtifacts();
+  const outputPath = join(artifactDir, "trace-publish.json");
+  let posts = 0;
+
+  setJaegerTransport(async (url, init) => {
+    if (init?.method !== "POST") {
+      // Reachable for the probe, and the trace never lands, which is what sends
+      // the run into the recovery publish.
+      return url.includes("/api/traces/")
+        ? jsonResponse({ data: [] })
+        : jsonResponse({ data: ["teable-perf"] });
+    }
+    posts += 1;
+    // The first publish succeeds; Jaeger disappears before the recovery pass.
+    if (posts === 1) {
+      return new Response("", { status: 200 });
+    }
+    throw connectionRefused();
+  });
+
+  const summary = await publishAndReconcileSelectedTraces({
+    artifactDir,
+    endpoint: "http://jaeger.invalid:4318/v1/traces",
+    jaegerApiBaseUrl: "http://jaeger.invalid:16686",
+    outputPath,
+    intervalMs: 1,
+    settleMs: 1,
+    fetchTimeoutMs: 10,
+    fetchConcurrency: 1,
+  });
+
+  // Without this path the run falls through to "1/1 selected traces were
+  // missing" and goes red for the same outage the first publish degrades.
+  assert.equal(summary.status, "skipped-jaeger-unavailable");
+  assert.match(summary.outage, /ECONNREFUSED/);
+  const reconciled = JSON.parse(
+    await readFile(join(artifactDir, "traces", "case", "manifest.json"), "utf8"),
+  );
+  assert.equal(reconciled.traceFetchBreakerState, "hard-outage");
 
   await rm(artifactDir, { recursive: true, force: true });
 }

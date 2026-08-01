@@ -216,8 +216,10 @@ const buildReportFields = async ({
   const traceUrl = resolvePrimaryTraceUrl({
     payload,
     traceManifest,
-    traceBaseUrl:
-      env("TRACE_LINK_BASE_URL") || env("PERF_LAB_JAEGER_API_BASE_URL"),
+    traceBaseUrl: env("PERF_LAB_TRACE_VIEW_BASE_URL"),
+    // The site keys runs by GITHUB_RUN_ID alone; payload.runId carries the
+    // attempt too, and a re-run's row must not link to a path nobody published.
+    runId,
   });
 
   return buildPerformanceTrackResultRecord({

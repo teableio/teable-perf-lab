@@ -6,6 +6,7 @@ import {
   sanitizeCaseId,
   sanitizeSegment,
 } from "../framework/artifact-names.js";
+import { buildTraceViewUrl } from "../framework/trace-view-url.js";
 
 // The filename contract is shared with the writer (framework/artifacts.ts) via
 // framework/artifact-names.js. Kept exported under this module's existing names
@@ -518,28 +519,20 @@ const isPriorityTraceRef = (ref) =>
   /create.*field|formula|lookup/i.test(ref?.stepId ?? "") ||
   /\/field\//i.test(ref?.url ?? "");
 
-const buildTraceUrl = (traceId, traceBaseUrl) => {
-  if (!traceBaseUrl || !traceId) {
-    return "";
-  }
-  return `${traceBaseUrl.replace(/\/+$/, "")}/trace/${traceId}?uiEmbed=v0`;
-};
-
-export const resolvePrimaryTraceUrl = ({
-  payload,
-  traceManifest,
-  traceBaseUrl,
-}) => {
+// Which trace a result row links to. Both the Teable row and the trace-site
+// publisher have to agree on it, or a row links to a trace the site never
+// published.
+export const resolvePrimaryTraceRef = ({ payload, traceManifest }) => {
   const refs =
-    traceManifest?.refs ?? payload.details?.observability?.traces?.refs;
+    traceManifest?.refs ?? payload?.details?.observability?.traces?.refs;
   if (!Array.isArray(refs) || refs.length === 0) {
-    return "";
+    return undefined;
   }
 
   const savedTraceIds = new Set(
     (Array.isArray(traceManifest?.savedTraces)
       ? traceManifest.savedTraces
-      : (payload.details?.observability?.traces?.savedTraces ?? [])
+      : (payload?.details?.observability?.traces?.savedTraces ?? [])
     )
       .filter((trace) => trace?.status === "saved" && trace?.traceId)
       .map((trace) => trace.traceId),
@@ -548,10 +541,29 @@ export const resolvePrimaryTraceUrl = ({
     savedTraceIds.size > 0
       ? refs.filter((ref) => savedTraceIds.has(ref?.traceId))
       : refs;
-  const ref =
-    availableRefs.find(isPriorityTraceRef) ?? availableRefs[0] ?? refs[0];
+  return availableRefs.find(isPriorityTraceRef) ?? availableRefs[0] ?? refs[0];
+};
+
+export const resolvePrimaryTraceUrl = ({
+  payload,
+  traceManifest,
+  traceBaseUrl,
+  runId,
+}) => {
+  const ref = resolvePrimaryTraceRef({ payload, traceManifest });
+  if (!ref) {
+    return "";
+  }
+
+  // The engine's own `Link: <...>; rel="trace"` header used to win here. It
+  // pointed at whatever TRACE_LINK_BASE_URL the run was given, which is exactly
+  // the long-lived Jaeger host that no longer exists — so a captured link is now
+  // the least trustworthy of the two. Prefer the viewer this repo publishes and
+  // keep the captured link only as a fallback for runs that configured one.
   return (
-    stringOrUndefined(ref.traceLink) || buildTraceUrl(ref.traceId, traceBaseUrl)
+    buildTraceViewUrl(ref.traceId, runId, traceBaseUrl) ||
+    stringOrUndefined(ref.traceLink) ||
+    ""
   );
 };
 

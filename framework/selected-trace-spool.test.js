@@ -33,12 +33,47 @@ test("workflow spools execute traces locally and publishes only from report", as
     workflow.indexOf("- name: Prepare selected trace payload") <
       workflow.indexOf("- name: Upload perf artifacts"),
   );
-  assert.ok(
-    workflow.indexOf("- name: Publish selected traces to shared Jaeger") >
-      workflow.indexOf("  report:"),
-  );
   assert.match(collectorConfig, /file\/trace_spool:/);
   assert.doesNotMatch(collectorConfig, /otlp_http|UPSTREAM|4318\/v1\/traces/);
+
+  // The report job brings its own Jaeger up before it publishes and takes it
+  // down afterwards. Nothing may point at the retired always-on host again.
+  const startJaeger = workflow.indexOf("- name: Start report-local Jaeger");
+  const publish = workflow.indexOf(
+    "- name: Publish selected traces to report-local Jaeger",
+  );
+  const stopJaeger = workflow.indexOf("- name: Stop report-local Jaeger");
+  assert.ok(workflow.indexOf("  report:") < startJaeger);
+  assert.ok(startJaeger < publish);
+  assert.ok(publish < stopJaeger);
+  assert.doesNotMatch(workflow, /136\.119\.178\.56/);
+  assert.match(
+    workflow,
+    /PERF_LAB_JAEGER_API_BASE_URL: "http:\/\/127\.0\.0\.1:16686"/,
+  );
+  assert.match(
+    workflow,
+    /PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http:\/\/127\.0\.0\.1:4318\/v1\/traces"/,
+  );
+
+  // Trace payloads are the bulk of every perf artifact. Storage is free on a
+  // public repository, so these expire on an investigation window rather than a
+  // storage limit — but every upload that carries traces still has to name one.
+  const traceArtifactUploads = [
+    "name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-",
+    "name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-",
+    "name: teable-ee-e2e-perf-reconciled-results-",
+  ];
+  for (const upload of traceArtifactUploads) {
+    const start = workflow.indexOf(upload);
+    assert.ok(start > 0, `${upload} is no longer uploaded`);
+    const nextStep = workflow.indexOf("      - name:", start);
+    assert.match(
+      workflow.slice(start, nextStep === -1 ? undefined : nextStep),
+      /retention-days: 14/,
+      `${upload} must bound how long it keeps its trace payload`,
+    );
+  }
 });
 
 test("keeps every span for selected traces and writes one OTLP object per trace", async () => {

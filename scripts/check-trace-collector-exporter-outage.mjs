@@ -256,7 +256,7 @@ try {
     resetPerfTraceJobBudget();
     resetPerfTraceRefs();
     setPerfTraceFlush(async () => {
-      throw new Error("connect ECONNREFUSED 136.119.178.56:4318");
+      throw new Error("connect ECONNREFUSED 127.0.0.1:4318");
     });
 
     recordPerfTraceRefFromHeaders({

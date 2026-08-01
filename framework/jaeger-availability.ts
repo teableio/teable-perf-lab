@@ -1,4 +1,4 @@
-// Preflight reachability check for the shared Jaeger service.
+// Preflight reachability check for the trace service the report job publishes to.
 //
 // ---------------------------------------------------------------------------
 // TEMPORARY MEASURE — added 2026-07-31, while `teable-perf-jaeger` on the
@@ -18,7 +18,7 @@
 // trace *viewer* is down, not that the run regressed — so skip publication,
 // reconcile the manifests into `hard-outage`, and let the run be judged on its
 // perf results. The raw trace evidence is unaffected either way: the execute
-// jobs spool it to GitHub artifacts and never touch shared Jaeger.
+// jobs spool it to GitHub artifacts and never touch the report job's Jaeger.
 //
 // What is deliberately NOT softened: a Jaeger that answers the probe but then
 // loses traces still fails the run, because that is a real trace-capture

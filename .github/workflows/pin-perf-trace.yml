@@ -1,0 +1,74 @@
+name: Pin perf trace
+
+# Published traces are pruned 24 hours after their run. Pinning copies one into
+# `pinned/`, which the prune never touches, so a trace cited in an issue keeps
+# resolving after its run's evidence is gone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      trace_id:
+        description: Trace id to pin or unpin.
+        required: true
+        type: string
+      run_id:
+        description: Workflow run id that published the trace. Required to pin.
+        required: false
+        type: string
+      operation:
+        description: pin or unpin.
+        required: true
+        default: pin
+        type: choice
+        options:
+          - pin
+          - unpin
+
+permissions:
+  contents: write
+
+concurrency:
+  group: teable-perf-trace-site
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    name: ${{ inputs.operation }} ${{ inputs.trace_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
+        with:
+          path: perf-lab
+
+      - name: Require a run id when pinning
+        if: inputs.operation == 'pin' && inputs.run_id == ''
+        run: |
+          echo "run_id is required to pin a trace." >&2
+          exit 1
+
+      - name: Pin trace
+        if: inputs.operation == 'pin'
+        uses: ./perf-lab/.github/actions/trace-site
+        with:
+          token: ${{ github.token }}
+          message: "pin trace ${{ inputs.trace_id }} from run ${{ inputs.run_id }}"
+          run: |
+            node "${GITHUB_WORKSPACE}/perf-lab/scripts/pin-perf-trace.mjs" \
+              --site "${TRACE_SITE_DIR}" \
+              --run-id "${{ inputs.run_id }}" \
+              --trace-id "${{ inputs.trace_id }}"
+
+      - name: Unpin trace
+        if: inputs.operation == 'unpin'
+        uses: ./perf-lab/.github/actions/trace-site
+        with:
+          token: ${{ github.token }}
+          message: "unpin trace ${{ inputs.trace_id }}"
+          run: |
+            node "${GITHUB_WORKSPACE}/perf-lab/scripts/pin-perf-trace.mjs" \
+              --site "${TRACE_SITE_DIR}" \
+              --trace-id "${{ inputs.trace_id }}" \
+              --unpin
