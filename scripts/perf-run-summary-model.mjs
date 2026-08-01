@@ -407,6 +407,8 @@ const collapsiblePanel = ({ title, expanded = false, elements }) => ({
   elements,
 });
 
+const REGRESSION_PREVIEW_LIMIT = 10;
+
 export const buildPerfSummaryCard = ({
   payloads,
   timings,
@@ -444,10 +446,41 @@ export const buildPerfSummaryCard = ({
     status === "attention" ? "🔴" : status === "neutral" ? "⚪" : "🟢";
   const formatCaseLine = (row) =>
     `${dot(row.status)} **[${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)})**  ${comparisonSource(row)} → V2 ${row.v2}  **${row.comparison}**`;
-  const regressionText =
-    regressionRows.length > 0
-      ? regressionRows.map(formatCaseLine).join("\n")
-      : "无";
+  const regressionPreviewRows = regressionRows.slice(
+    0,
+    REGRESSION_PREVIEW_LIMIT,
+  );
+  const remainingRegressionRows = regressionRows.slice(
+    REGRESSION_PREVIEW_LIMIT,
+  );
+  const regressionPanelElements = [
+    {
+      tag: "div",
+      text: {
+        tag: "lark_md",
+        content:
+          regressionPreviewRows.length > 0
+            ? regressionPreviewRows.map(formatCaseLine).join("\n")
+            : "无",
+      },
+    },
+    ...(remainingRegressionRows.length > 0
+      ? [
+          collapsiblePanel({
+            title: `其余 ${remainingRegressionRows.length} 项（展开全部）`,
+            elements: [
+              {
+                tag: "div",
+                text: {
+                  tag: "lark_md",
+                  content: remainingRegressionRows.map(formatCaseLine).join("\n"),
+                },
+              },
+            ],
+          }),
+        ]
+      : []),
+  ];
   const neutralRows = rows.filter((row) => row.status === "neutral");
   const neutralText =
     neutralRows.length > 0 ? neutralRows.map(formatCaseLine).join("\n") : "无";
@@ -561,16 +594,7 @@ export const buildPerfSummaryCard = ({
         },
         collapsiblePanel({
           title: `退化 ${regressionCount}`,
-          expanded: true,
-          elements: [
-            {
-              tag: "div",
-              text: {
-                tag: "lark_md",
-                content: regressionText,
-              },
-            },
-          ],
+          elements: regressionPanelElements,
         }),
         ...(neutralRows.length > 0
           ? [

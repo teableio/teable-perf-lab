@@ -104,6 +104,27 @@ export PERF_LAB_JAEGER_API_BASE_URL=http://127.0.0.1:16686
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces
 ```
 
+## When Jaeger does not answer
+
+The report job probes `GET /api/services` before publishing. If Jaeger does not
+answer, the run does **not** fail:
+
+- trace publication is skipped,
+- every trace manifest is reconciled to `traceFetchBreakerState: "hard-outage"`,
+- the run summary carries the "Trace 服务不可用" card,
+- the perf results themselves are reported and gated as usual.
+
+A Jaeger that _answers_ the probe but then loses traces is still a hard failure,
+because that is a trace-capture regression rather than an outage.
+
+The probe was added while the shared service was down, when the publish step
+aborted on the first trace and the workflow scored that as a full-run failure —
+11 consecutive red runs over ~30 hours with perfectly good perf numbers. It
+outlived that outage on purpose: the report job now starts its own Jaeger, so
+the probe answers within seconds of the container being ready, and the
+degradation path is what keeps a container that dies mid-publish from reddening
+a run whose measurements are intact. See `framework/jaeger-availability.ts`.
+
 ## History
 
 Runs used to export to a shared Jaeger on the GCP `observability-stack` VM in

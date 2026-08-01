@@ -618,6 +618,9 @@ const fetchJaegerTrace = async (
   };
 };
 
+// framework/jaeger-availability.ts carries a copy of this predicate for the
+// report job's publish path. Keep the two in sync; that file explains why they
+// are not one function yet.
 const isTraceServiceUnavailableError = (error?: string) =>
   error != null &&
   /\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|UND_ERR_CONNECT_TIMEOUT)\b|connect timeout|fetch failed|socket hang up/i.test(
