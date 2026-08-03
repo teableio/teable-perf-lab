@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PERF_LAB="${PERF_LAB:-/Users/leo/tea/tea-project/teable-perf-lab}"
-TEABLE_EE_SANDBOX="${TEABLE_EE_SANDBOX:-/Users/leo/tea/tea-project/teable-ee-perf-local}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PERF_LAB="${PERF_LAB:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
+TEABLE_EE_SANDBOX="${TEABLE_EE_SANDBOX:-$(git -C "$PERF_LAB" config --local --get perfLab.teableEeSandbox || true)}"
+
+if [ -z "$TEABLE_EE_SANDBOX" ]; then
+  echo "Missing teable-ee sandbox path." >&2
+  echo "Set TEABLE_EE_SANDBOX or run:" >&2
+  echo "  git config --local perfLab.teableEeSandbox /path/to/teable-ee-perf-local" >&2
+  exit 1
+fi
 
 if [ ! -f "$PERF_LAB/perf-lab.e2e-spec.ts" ]; then
   echo "Missing perf-lab repo: $PERF_LAB" >&2

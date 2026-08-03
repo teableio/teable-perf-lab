@@ -11,7 +11,7 @@ here. Its entry point is `.agents/README.md`.
 
 - Keep changes inside this repository unless the user explicitly asks to edit an
   adjacent checkout.
-- Do not modify `../teable-ee` when implementing perf-lab cases. The GitHub
+- Do not modify the external `teable-ee` checkout when implementing perf-lab cases. The GitHub
   workflow copies this repo's case framework into a checked-out `teable-ee`
   workspace at runtime.
 - Case definitions live in `cases/**/*.case.ts`.
