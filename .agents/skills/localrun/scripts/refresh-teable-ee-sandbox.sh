@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEABLE_EE_MAIN="${TEABLE_EE_MAIN:-/Users/leo/tea/tea-project/teable-ee}"
-TEABLE_EE_SANDBOX="${TEABLE_EE_SANDBOX:-/Users/leo/tea/tea-project/teable-ee-perf-local}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PERF_LAB="${PERF_LAB:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
+TEABLE_EE_MAIN="${TEABLE_EE_MAIN:-$(git -C "$PERF_LAB" config --local --get perfLab.teableEeMain || true)}"
+TEABLE_EE_SANDBOX="${TEABLE_EE_SANDBOX:-$(git -C "$PERF_LAB" config --local --get perfLab.teableEeSandbox || true)}"
 TEABLE_EE_REF="${TEABLE_EE_REF:-origin/develop}"
+
+if [ -z "$TEABLE_EE_MAIN" ] || [ -z "$TEABLE_EE_SANDBOX" ]; then
+  echo "Missing local teable-ee paths." >&2
+  echo "Set TEABLE_EE_MAIN and TEABLE_EE_SANDBOX or run:" >&2
+  echo "  git config --local perfLab.teableEeMain /path/to/teable-ee" >&2
+  echo "  git config --local perfLab.teableEeSandbox /path/to/teable-ee-perf-local" >&2
+  exit 1
+fi
 
 if ! git -C "$TEABLE_EE_MAIN" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Missing teable-ee git checkout: $TEABLE_EE_MAIN" >&2

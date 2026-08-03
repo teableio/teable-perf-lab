@@ -9,3 +9,4 @@ that is not obvious from the code — especially when the surface looks like a
 defect and is not.
 
 - [0001: Full-run case cost has two sources](0001-full-run-case-cost-has-two-sources.md)
+- [0002: Keep the performance control plane separate from the runtime](0002-separate-control-plane-and-runtime.md)

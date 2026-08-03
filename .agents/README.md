@@ -52,7 +52,7 @@ first. Only inspect `framework/runners/*.runner.ts` or the product when you are
 genuinely blocked on how an operation behaves.
 
 If the user asks for "the next case" without naming an operation, look for
-v1/v2-differentiated operations in `../teable-ee`: the canary feature list is
+v1/v2-differentiated operations in the external `teable-ee` checkout: the canary feature list is
 `v2FeatureSchema` in
 `community/packages/openapi/src/admin/setting/update.ts`, and each feature is
 marked on its controller with `@UseV2Feature('<name>')`. Compare that list
