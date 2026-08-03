@@ -14,11 +14,18 @@ explicitly asks.
 
 ## Paths
 
-```text
-/Users/leo/tea/tea-project/teable-perf-lab          # this repo
-/Users/leo/tea/tea-project/teable-ee                 # main teable-ee checkout
-/Users/leo/tea/tea-project/teable-ee-perf-local      # disposable sandbox (git worktree)
+Keep machine-specific paths out of tracked files. Configure them in this
+repository's local Git config, which lives in `.git/config` and is never
+committed:
+
+```bash
+git config --local perfLab.teableEeMain /path/to/teable-ee
+git config --local perfLab.teableEeSandbox /path/to/teable-ee-perf-local
 ```
+
+The helper scripts resolve paths in this order: environment variable, local Git
+config, then a clear configuration error. `PERF_LAB` is inferred from the
+script's repository and normally needs no configuration.
 
 ## Prerequisites: Local Docker Services
 
@@ -44,7 +51,7 @@ The easiest way is `make switch-db-mode` from the `teable-ee` checkout (or
 the sandbox). It is interactive — pipe `echo "1"` when automating:
 
 ```bash
-cd /Users/leo/tea/tea-project/teable-ee-perf-local
+cd "$(git config --local --get perfLab.teableEeSandbox)"
 echo "1" | make switch-db-mode
 ```
 
@@ -55,7 +62,7 @@ runs Prisma generate + migrate deploy, and writes the correct
 If you only need to start individual containers after the first setup:
 
 ```bash
-TEABLE_EE=/Users/leo/tea/tea-project/teable-ee
+TEABLE_EE="$(git config --local --get perfLab.teableEeMain)"
 
 # Postgres
 NETWORK_MODE=teablenet-0 POSTGRES_DB=teable POSTGRES_USER=teable POSTGRES_PASSWORD=teable \
@@ -115,7 +122,7 @@ regenerates Prisma clients and runs `prisma migrate deploy` for both
 `db-main-prisma` and `db-data-prisma`:
 
 ```bash
-cd /Users/leo/tea/tea-project/teable-ee-perf-local
+cd "$(git config --local --get perfLab.teableEeSandbox)"
 pnpm install
 echo "1" | make switch-db-mode
 ```
@@ -150,7 +157,7 @@ pnpm check
 Then run a case inside the sandbox:
 
 ```bash
-cd /Users/leo/tea/tea-project/teable-ee-perf-local/enterprise/backend-ee
+cd "$(git config --local --get perfLab.teableEeSandbox)/enterprise/backend-ee"
 
 PERF_LAB_CASE_FILTER=<case-id> \
 PERF_LAB_ENGINE_LIST=v1 \
@@ -170,7 +177,7 @@ acceptance surface.
 1. Read repo rules before changing cases:
 
 ```bash
-cd /Users/leo/tea/tea-project/teable-perf-lab
+cd "$(git rev-parse --show-toplevel)"
 sed -n '1,220p' README.md
 sed -n '1,220p' .agents/README.md
 ```
@@ -194,7 +201,7 @@ pnpm check
 5. Run the case:
 
 ```bash
-cd /Users/leo/tea/tea-project/teable-ee-perf-local/enterprise/backend-ee
+cd "$(git config --local --get perfLab.teableEeSandbox)/enterprise/backend-ee"
 
 PERF_LAB_CASE_FILTER=<case-id> \
 PERF_LAB_ENGINE_LIST=v1 \

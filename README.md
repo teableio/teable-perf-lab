@@ -119,7 +119,7 @@ ready.
 ## Hard Rules
 
 - Keep changes inside this repo unless the user explicitly asks otherwise.
-- Do not edit `../teable-ee` for perf-lab case implementation.
+- Do not edit the external `teable-ee` checkout for perf-lab case implementation.
 - Every runnable case needs `cases/<group>/<name>.case.ts`, same-name `.md`, and
   both its `registry.ts` import and an entry in the registered `cases` array
   (`pnpm check:catalog` fails loud if disk, imports, and that array disagree).

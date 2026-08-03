@@ -55,7 +55,7 @@ the case contract itself is changing:
 - thresholds, primary metrics, row counts, batch sizes, and sample expectations
 - semantic artifact fields such as operation names, phase names, routing fields,
   replay setup keys, and verification details
-- adjacent checkouts such as `../teable-ee`
+- adjacent checkouts such as the external `teable-ee` runtime harness
 
 If a task only claims to improve the framework, any change to the protected
 surface is a red flag.
