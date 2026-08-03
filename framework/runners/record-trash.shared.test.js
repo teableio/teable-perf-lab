@@ -73,10 +73,17 @@ const setPages = (pages) => {
   globalThis.__trashCursors = requestedCursors = [];
 };
 
-const recordItem = (id, resourceIds) => ({
+// `resourceIds` is the server's preview slice; `totalResourceCount` is the real
+// batch size. They only coincide for batches shorter than the preview limit.
+const recordItem = (
+  id,
+  resourceIds,
+  totalResourceCount = resourceIds.length,
+) => ({
   id,
   resourceType: "record",
   resourceIds,
+  totalResourceCount,
   deletedTime: "2026-07-31T00:00:00.000Z",
 });
 
@@ -95,6 +102,41 @@ test("covers every deleted record across pages", async () => {
     [1, 2],
   );
   assert.deepEqual(requestedCursors, [null, "c1"]);
+});
+
+test("a truncated preview is sized by totalResourceCount", async () => {
+  // The server returns the first 20 ids of a 10k-record batch. Counting the
+  // preview would stall at 20/10000 until the poll times out.
+  setPages([
+    {
+      trashItems: [recordItem("t1", ids("rec", 20), 10_000)],
+      nextCursor: null,
+    },
+  ]);
+  const lookups = await findRecordTrashItems("tbl1", ids("rec", 10_000));
+  assert.equal(lookups.length, 1);
+  assert.equal(lookups[0].resourceCount, 10_000);
+});
+
+test("a repeated trash item is counted once", async () => {
+  setPages([
+    {
+      trashItems: [recordItem("t1", ids("rec", 20), 600)],
+      nextCursor: "c1",
+    },
+    {
+      trashItems: [
+        recordItem("t1", ids("rec", 20), 600),
+        recordItem("t2", ids("rec", 20, 600), 400),
+      ],
+      nextCursor: null,
+    },
+  ]);
+  const lookups = await findRecordTrashItems("tbl1", ids("rec", 1000));
+  assert.deepEqual(
+    lookups.map((lookup) => lookup.trashId),
+    ["t1", "t2"],
+  );
 });
 
 test("a short list reports no-cursor, not a page cap", async () => {
@@ -117,8 +159,8 @@ test("a short list reports no-cursor, not a page cap", async () => {
 });
 
 test("mixed batches are reported with the coverage they hide", async () => {
-  // A trash item spanning this deletion's records and someone else's is
-  // dropped whole by the every() filter. That loss used to be invisible.
+  // A trash item whose preview spans this deletion's records and someone
+  // else's is dropped whole. That loss used to be invisible.
   setPages([
     {
       trashItems: [
