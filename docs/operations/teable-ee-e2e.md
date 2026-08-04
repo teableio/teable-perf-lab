@@ -302,14 +302,28 @@ card limit; the GitHub and Performance Track builders enforce their configured
 Between the Performance Track write and the two summaries, `Resolve release
 baseline` reads the newest `teable.ai` row of the Launches table
 (`tblmGAFOHrGcy66PaUp`, `TEABLE_LAUNCHES_TOKEN` — a read-only token for a base
-the perf token does not cover), takes its `Commit ID`, finds the Performance
-Track run whose `Teable EE Ref` matches, and writes that run's per-case
-measurements to `perf-lab-artifacts/release-baseline.json`. Both summaries read
-that file, so the lookup happens once.
+the perf token does not cover), takes its `Commit ID`, then reads every
+Performance Track row carrying that `Teable EE Ref` and writes the newest run's
+per-case measurements to `perf-lab-artifacts/release-baseline.json`. Both
+summaries read that file, so the lookup happens once.
 
-Every query is bounded: the launch lookup is one record under 500 bytes, and
-the baseline page is one projected request of about 208KB. An unprojected read
-of the same table is 2.5MB per 100 rows and the API rejects it.
+Two reads, not three. `filter` cannot express "the newest run", so resolving it
+server-side costs a round trip whose only output — the run id — is already a
+column on every row of the read that follows; the rows come back and the newest
+run is picked from them. 500 of 545 measured commits have exactly one run, so
+that usually reads nothing extra, and the widest history observed is 10 runs /
+6,462 rows.
+
+Every query is bounded and projects only the columns the summaries read: the
+launch lookup is one record under 500 bytes, and one run's rows are about
+208KB. An unprojected read of the same table is 2.5MB per 100 rows and the API
+rejects it.
+
+Filters address columns by field id, and nothing is sorted server-side. Teable
+does not reject a `filter` or `orderBy` naming a field that does not exist — it
+drops the condition and answers 200, so a renamed column returns an arbitrary
+row from a lost sort, or the whole table (129,850 rows) from a lost filter.
+Field ids survive a rename; names do not.
 
 This step is `continue-on-error` and is not part of full-run acceptance. A
 missing token, a released commit nobody has measured, or a failed lookup leaves
@@ -318,8 +332,8 @@ never zero regressions, which would read as a clean run. To create a baseline
 for a release that was never measured, dispatch the workflow with
 `teable_ee_ref` set to that commit.
 
-The summaries compare V2 against the released V2 at a 20% gate, in exclusive
-`>20% / >50% / >2x` bands, and print V1's own drift beside each band as a
+The summaries compare V2 against the released V2 at a 1.2x gate, in exclusive
+`>1.2x / >1.5x / >2x` bands, and print V1's own drift beside each band as a
 control: V1's code barely moves between runs, so a case that slipped in both
 engines is environment and a case that slipped only in V2 is not. Rows that are
 slower than the release while still beating V1 are marked separately — the

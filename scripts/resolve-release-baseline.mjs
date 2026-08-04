@@ -12,15 +12,14 @@ import { dirname, join } from "node:path";
 import { env, requiredEnv } from "./env.mjs";
 import {
   BASELINE_RESULTS_PAGE_SIZE,
-  buildBaselineResultsQuery,
-  buildBaselineRunQuery,
+  buildBaselineRecordsQuery,
   buildLatestLaunchQuery,
   buildReleaseBaseline,
   DEFAULT_LAUNCH_REGION,
   LAUNCHES_TABLE_ID,
-  readBaselineRun,
   readLatestLaunch,
   RELEASE_BASELINE_FILE_NAME,
+  selectBaselineRun,
 } from "./release-baseline-model.mjs";
 
 const DEFAULT_ENDPOINT = "https://app.teable.ai";
@@ -47,14 +46,15 @@ const teableRecords = async ({ endpoint, token, tableId, params }) => {
   return data?.records ?? [];
 };
 
-const readBaselineResults = async ({ endpoint, token, tableId, run }) => {
+// Every row the released commit produced, across however many runs measured it.
+const readBaselineRecords = async ({ endpoint, token, tableId, commit }) => {
   const records = [];
   for (let skip = 0; ; skip += BASELINE_RESULTS_PAGE_SIZE) {
     const page = await teableRecords({
       endpoint,
       token,
       tableId,
-      params: buildBaselineResultsQuery({ ...run, skip }),
+      params: buildBaselineRecordsQuery({ commit, skip }),
     });
     records.push(...page);
     if (page.length < BASELINE_RESULTS_PAGE_SIZE) {
@@ -106,14 +106,14 @@ const main = async () => {
     return;
   }
 
-  const run = readBaselineRun(
-    await teableRecords({
-      endpoint,
-      token: perfToken,
-      tableId: performanceTrackTableId,
-      params: buildBaselineRunQuery(launch.commit),
-    }),
-  );
+  const records = await readBaselineRecords({
+    endpoint,
+    token: perfToken,
+    tableId: performanceTrackTableId,
+    commit: launch.commit,
+  });
+
+  const run = selectBaselineRun(records);
   if (!run) {
     console.warn(
       `Release ${launch.release ?? launch.commit} has no recorded perf run; no release baseline. Dispatch the workflow with teable_ee_ref=${launch.commit} to create one.`,
@@ -125,18 +125,13 @@ const main = async () => {
     launch,
     run,
     runUrl: buildRunUrl(run.runId),
-    records: await readBaselineResults({
-      endpoint,
-      token: perfToken,
-      tableId: performanceTrackTableId,
-      run,
-    }),
+    records,
   });
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(baseline, null, 2)}\n`);
   console.log(
-    `Release baseline: ${launch.release ?? launch.commit} (${launch.commit.slice(0, 7)}) run ${run.runId} attempt ${run.runAttempt}, ${baseline.caseCount} cases / ${baseline.valueCount} measurements${baseline.unusableCount > 0 ? `, ${baseline.unusableCount} unusable` : ""} → ${outputPath}`,
+    `Release baseline: ${launch.release ?? launch.commit} (${launch.commit.slice(0, 7)}) run ${run.runId} attempt ${run.runAttempt}, ${baseline.caseCount} cases / ${baseline.valueCount} measurements${baseline.unusableCount > 0 ? `, ${baseline.unusableCount} unusable` : ""}, ${records.length} rows read → ${outputPath}`,
   );
 };
 

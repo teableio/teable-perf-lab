@@ -12,6 +12,17 @@ const artifactDir = await mkdtemp(join(tmpdir(), "perf-report-requests-"));
 const storedRecords = [];
 const requests = [];
 
+// The rows here are keyed by field name; production filters address columns by
+// id, because Teable silently drops a filter that names a field it cannot find.
+// Resolving ids the way the real API does keeps that from being a difference
+// between this fake and the service — an unmapped id matches nothing here,
+// which is what a wrong id does there.
+const FILTER_FIELD_NAMES_BY_ID = new Map([
+  ["fldBtUJjGxgsPWsqLua", "Run Key"],
+  ["fldb344lzWE28AA2mvb", "Run ID"],
+  ["fldCIMp4dMco5zBBvJr", "Run Attempt"],
+]);
+
 const readJson = async (request) => {
   const chunks = [];
   for await (const chunk of request) {
@@ -51,7 +62,8 @@ const server = http.createServer(async (request, response) => {
       const matches = storedRecords.filter((record) =>
         (filter.filterSet ?? []).every(
           (condition) =>
-            record.fields?.[condition.fieldId] === condition.value,
+            record.fields?.[FILTER_FIELD_NAMES_BY_ID.get(condition.fieldId)] ===
+            condition.value,
         ),
       );
       respondJson(response, 200, {
