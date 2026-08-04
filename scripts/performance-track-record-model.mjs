@@ -41,6 +41,11 @@ const REQUIRED_FIELD_NAMES = [
 ];
 
 const RUN_KEY_FIELD_ID = "fldBtUJjGxgsPWsqLua";
+// Filter by id, never by name. Teable does not reject a filter naming a field
+// that does not exist — it drops the condition, so a renamed column turns this
+// paged read of one run into a paged read of the whole table.
+const RUN_ID_FIELD_ID = "fldb344lzWE28AA2mvb";
+const RUN_ATTEMPT_FIELD_ID = "fldCIMp4dMco5zBBvJr";
 const PERFORMANCE_TRACK_READ_PAGE_SIZE = 1_000;
 
 export const DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES = 512 * 1024;
@@ -229,8 +234,15 @@ export const createInMemoryPerformanceTrackAdapter = ({
     ...record,
     fields: { ...record.fields },
   }));
-  const fieldName = (fieldId) =>
-    fieldId === RUN_KEY_FIELD_ID ? "Run Key" : fieldId;
+  // Production filters address columns by id; the in-memory rows are keyed by
+  // name. Anything unmapped falls through as a name so a fixture can filter on
+  // one without registering an id for it.
+  const FIELD_NAMES_BY_ID = new Map([
+    [RUN_KEY_FIELD_ID, "Run Key"],
+    [RUN_ID_FIELD_ID, "Run ID"],
+    [RUN_ATTEMPT_FIELD_ID, "Run Attempt"],
+  ]);
+  const fieldName = (fieldId) => FIELD_NAMES_BY_ID.get(fieldId) ?? fieldId;
 
   return {
     async listFields() {
@@ -337,8 +349,8 @@ const listExistingRunRecords = async (adapter, { runId, runAttempt }) => {
       filter: {
         conjunction: "and",
         filterSet: [
-          { fieldId: "Run ID", operator: "is", value: runId },
-          { fieldId: "Run Attempt", operator: "is", value: runAttempt },
+          { fieldId: RUN_ID_FIELD_ID, operator: "is", value: runId },
+          { fieldId: RUN_ATTEMPT_FIELD_ID, operator: "is", value: runAttempt },
         ],
       },
     });

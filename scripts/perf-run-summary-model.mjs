@@ -147,38 +147,42 @@ export const DEFAULT_GITHUB_SUMMARY_MAX_BYTES = 256 * 1024;
 
 const REGRESSION_PREVIEW_LIMIT = 10;
 
-export const formatPercentDelta = (ratio) => {
-  if (!Number.isFinite(ratio)) {
-    return "";
+/**
+ * One reference and how this run compares to it.
+ *
+ * Both comparisons on a row are stated this way, in ratios and never percents:
+ * two units on one line ("+977% · 快1.1x") make the reader convert before they
+ * can weigh one against the other, and the bands are ratios too. `ratio` is
+ * always this run divided by the reference, so `快`/`慢` describe this run and
+ * the label names what it is measured against.
+ */
+export const formatComparison = (label, referenceValue, ratio) => {
+  if (referenceValue === undefined) {
+    return `${label} —`;
   }
-  const percent = Math.round((ratio - 1) * 100);
-  return `${percent >= 0 ? "+" : ""}${percent}%`;
+  const value = formatMetricSeconds(referenceValue);
+  if (!Number.isFinite(ratio)) {
+    return `${label} ${value}`;
+  }
+  const factor = ratio >= 1 ? ratio : 1 / ratio;
+  // Anything that rounds to 1.0x is a tie. "慢1.0x" claimed a direction the
+  // number does not support.
+  if (factor.toFixed(1) === "1.0") {
+    return `${label} ${value} 持平`;
+  }
+  return `${label} ${value} ${ratio > 1 ? "慢" : "快"}${factor.toFixed(1)}x`;
 };
+
+export const formatReleaseNote = (row) =>
+  formatComparison("线上", row.baselineV2, row.releaseRatio);
 
 // The engine column stays on every row because V1 is the control: its code
 // barely moves between runs, so a case that slipped in both engines is drift
 // and a case that slipped only in V2 is the engine's own doing.
-export const formatEngineNote = (row) => {
-  if (row.v1Skipped) {
-    return "V1 skip";
-  }
-  if (row.v1Value === undefined) {
-    return "V1 —";
-  }
-  const value = formatMetricSeconds(row.v1Value);
-  if (!Number.isFinite(row.engineRatio)) {
-    return `V1 ${value}`;
-  }
-  const factor = row.engineRatio >= 1 ? row.engineRatio : 1 / row.engineRatio;
-  // Anything that rounds to 1.0x is a tie. "慢1.0x" claimed a direction the
-  // number does not support.
-  if (factor.toFixed(1) === "1.0") {
-    return `V1 ${value} 持平`;
-  }
-  return row.engineRatio >= 1
-    ? `V1 ${value} 快${factor.toFixed(1)}x`
-    : `V1 ${value} 慢${factor.toFixed(1)}x`;
-};
+export const formatEngineNote = (row) =>
+  row.v1Skipped
+    ? "V1 skip"
+    : formatComparison("V1", row.v1Value, row.engineRatio);
 
 // ⚠️ marks the regressions the V1/V2 report could never show: slower than the
 // released build while still ahead of V1. ⚪ is for rows that are not
@@ -191,17 +195,11 @@ const rowIcon = (row) => {
   return row.onlyReleaseVisible ? "⚠️" : "🔴";
 };
 
-export const formatComparisonLine = (row, chartUrl) => {
-  // Without a released-build number there is no delta to state. Printing the
-  // release segment anyway rendered "线上 skip → 1.40s ****".
-  const measurement = Number.isFinite(row.releaseRatio)
-    ? `线上 ${formatMetricSeconds(row.baselineV2)} → ${formatMetricSeconds(row.v2Value)} **${formatPercentDelta(row.releaseRatio)}**`
-    : `本次 ${formatMetricSeconds(row.v2Value)}`;
-  return [
-    `${rowIcon(row)} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**`,
-    `${measurement} · ${formatEngineNote(row)}`,
-  ].join("\n");
-};
+// One line per case. The measurement leads, then each reference with this run's
+// ratio against it. Wrapping the references onto a second line cost a line of
+// card height per row for no added meaning, and the panel shows ten of them.
+export const formatComparisonLine = (row, chartUrl) =>
+  `${rowIcon(row)} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)} · ${formatEngineNote(row)}`;
 
 const tierCount = (comparison, key) =>
   comparison.rows.filter((row) => row.tier === key).length;
@@ -580,7 +578,7 @@ export const buildPerfSummaryMarkdown = ({
     const row = regressions[index];
     const candidate = [
       ...detailLines,
-      `- ${rowIcon(row)} [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) 线上 ${formatMetricSeconds(row.baselineV2)} → ${formatMetricSeconds(row.v2Value)} **${formatPercentDelta(row.releaseRatio)}** · ${formatEngineNote(row)}`,
+      `- ${rowIcon(row)} [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) 本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)} · ${formatEngineNote(row)}`,
     ];
     const truncatedCount = regressions.length - candidate.length;
     if (markdownBytes(render(candidate, truncatedCount)) > maxBytes) {

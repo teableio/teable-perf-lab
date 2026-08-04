@@ -1,15 +1,32 @@
 // Request shapes and parsing for the released-build baseline.
 //
-// Two tables, two tokens: the Launches table (`TEABLE_LAUNCHES_TOKEN`, read
-// only, a different base) names the commit currently deployed, and the
-// Performance Track table (`TEABLE_PERF_LAB_TOKEN`) holds the run that measured
-// it. Keep fetch/filesystem work in `resolve-release-baseline.mjs`.
+// Two tables, two tokens, two reads: the Launches table (`TEABLE_LAUNCHES_TOKEN`,
+// read only, a different base) names the commit currently deployed, and one
+// query against Performance Track (`TEABLE_PERF_LAB_TOKEN`) returns every row
+// that commit produced. Keep fetch/filesystem work in
+// `resolve-release-baseline.mjs`.
+//
+// There is deliberately no separate "which run measured this commit" lookup.
+// `filter` cannot express "the newest run", so resolving it server-side takes an
+// `orderBy` + `take 1` round trip whose only output — the run id — is already a
+// column on every row of the read that follows. Pulling the commit's rows and
+// picking the newest run locally drops that round trip, drops the `orderBy` (see
+// below), and keeps run identity and results from ever disagreeing. The cost is
+// the rows of any earlier run of the same commit: 500 of 545 commits have been
+// measured exactly once, and the widest observed is 10 runs / 6,462 rows.
+//
+// Nothing here sorts server-side. A `filter` or `orderBy` naming a field that
+// does not exist is not rejected — the condition is silently dropped. A renamed
+// sort field returns an arbitrary row; a renamed filter field returns the whole
+// table (129,850 rows against the 540 wanted). Filters below address columns by
+// id for that reason, as the launch query already did: an id survives a rename,
+// a name does not.
 //
 // Every query here is bounded on purpose. The Performance Track rows carry
 // Metrics/Phases/Trace-Manifest JSON and Summary Markdown, so an unprojected
-// read of 100 rows is 2.5 MB and the API rejects it outright; the projected
-// baseline page below is 540 rows in ~208 KB, and the launch lookup is one
-// record in under 500 bytes.
+// read of 100 rows is 2.5 MB and the API rejects it outright; the projections
+// below name only the columns the summary actually reads, and the launch lookup
+// is one record in under 500 bytes.
 
 // Written by the resolver into the artifact directory, read by both summaries.
 // Declared here, not in the resolver: importing it from a script whose module
@@ -32,6 +49,10 @@ export const LAUNCH_RELEASE_FIELD = "EE Lanched Release";
 // names is what is serving traffic, so the newest row wins regardless of
 // Operation Type.
 export const DEFAULT_LAUNCH_REGION = "teable.ai";
+
+// Filter by id for the same reason the launch query does. Renaming the column
+// would not fail the request, it would drop the condition and return the table.
+export const TEABLE_EE_REF_FIELD_ID = "fldu6jMFL0NmJ5GzEmU";
 
 export const BASELINE_RESULTS_PAGE_SIZE = 1000;
 
@@ -105,58 +126,30 @@ export const readLatestLaunch = (records) => {
   };
 };
 
-export const buildBaselineRunQuery = (commit) => {
-  if (!commit) {
-    throw new Error("A release commit is required to find its baseline run.");
-  }
-  return searchParams([
-    ["fieldKeyType", "name"],
-    ["take", 1],
-    ["projection", "Run ID"],
-    ["projection", "Run Attempt"],
-    ["projection", "Finished At"],
-    ["orderBy", JSON.stringify([{ fieldId: "Finished At", order: "desc" }])],
-    [
-      "filter",
-      JSON.stringify({
-        conjunction: "and",
-        filterSet: [
-          { fieldId: "Teable EE Ref", operator: "is", value: commit },
-        ],
-      }),
-    ],
-  ]);
-};
-
-export const readBaselineRun = (records) => {
-  const [record] = records ?? [];
-  const runId = String(record?.fields?.["Run ID"] ?? "").trim();
-  if (!runId) {
-    return undefined;
-  }
-  // `Number(null)` is 0, and a run attempt is never 0 — filtering on it would
-  // match nothing and report the released run as having no results.
-  const runAttempt = Number(record.fields["Run Attempt"]);
-  return {
-    runId,
-    runAttempt: Number.isFinite(runAttempt) && runAttempt >= 1 ? runAttempt : 1,
-    finishedAt: record.fields["Finished At"] ?? undefined,
-  };
-};
-
-export const buildBaselineResultsQuery = ({
-  runId,
-  runAttempt,
+/**
+ * Every Performance Track row the released commit produced, one page at a time.
+ *
+ * The projection is the summary's whole appetite and nothing else: `Run ID` and
+ * `Run Attempt` identify the run, `Case ID`/`Engine` key the value, `Result`
+ * decides whether it is usable, `Primary Metric` guards against comparing across
+ * a renamed metric, and `Primary Metric Value` is the number. `Finished At` is
+ * deliberately absent — nothing renders it, and picking the newest run reads run
+ * ids, which GitHub issues in increasing order.
+ */
+export const buildBaselineRecordsQuery = ({
+  commit,
   skip = 0,
   take = BASELINE_RESULTS_PAGE_SIZE,
 }) => {
-  if (!runId) {
-    throw new Error("A baseline run id is required to read its results.");
+  if (!commit) {
+    throw new Error("A release commit is required to read its baseline.");
   }
   return searchParams([
     ["fieldKeyType", "name"],
     ["take", take],
     ["skip", skip],
+    ["projection", "Run ID"],
+    ["projection", "Run Attempt"],
     ["projection", "Case ID"],
     ["projection", "Engine"],
     ["projection", "Result"],
@@ -167,16 +160,67 @@ export const buildBaselineResultsQuery = ({
       JSON.stringify({
         conjunction: "and",
         filterSet: [
-          { fieldId: "Run ID", operator: "is", value: runId },
-          { fieldId: "Run Attempt", operator: "is", value: runAttempt },
+          { fieldId: TEABLE_EE_REF_FIELD_ID, operator: "is", value: commit },
         ],
       }),
     ],
   ]);
 };
 
+const readRun = (record) => {
+  const runId = String(record?.fields?.["Run ID"] ?? "").trim();
+  if (!runId) {
+    return undefined;
+  }
+  // `Number(null)` is 0, and a run attempt is never 0 — treated as a distinct
+  // attempt it would split one run in two and take half its results as the
+  // baseline.
+  const runAttempt = Number(record.fields["Run Attempt"]);
+  return {
+    runId,
+    runAttempt: Number.isFinite(runAttempt) && runAttempt >= 1 ? runAttempt : 1,
+  };
+};
+
+// GitHub issues run ids in increasing order, so the larger id is the later run.
+// They arrive as text and compare as numbers; a non-numeric id (a local run)
+// falls back to string order rather than making every comparison NaN.
+const isLaterRun = (run, than) => {
+  const left = Number(run.runId);
+  const right = Number(than.runId);
+  if (Number.isFinite(left) && Number.isFinite(right) && left !== right) {
+    return left > right;
+  }
+  if (run.runId !== than.runId) {
+    return run.runId > than.runId;
+  }
+  return run.runAttempt > than.runAttempt;
+};
+
 /**
- * Fold baseline records into the artifact the summary reads.
+ * Pick the run whose results become the baseline.
+ *
+ * A commit is usually measured once and this is the only run present. When it
+ * was measured more than once — a rerun, a repeated dispatch — the latest
+ * attempt is the one that describes the released build now.
+ */
+export const selectBaselineRun = (records) => {
+  let latest;
+  for (const record of records ?? []) {
+    const run = readRun(record);
+    if (run && (!latest || isLaterRun(run, latest))) {
+      latest = run;
+    }
+  }
+  return latest;
+};
+
+/**
+ * Fold one run's records into the artifact the summary reads.
+ *
+ * `records` holds every run of the released commit, so rows from an earlier run
+ * are dropped here rather than in a query — they are neither baseline values nor
+ * unusable measurements, they belong to a different run entirely.
  *
  * Only passing measurements become baseline values. A case that failed in the
  * released run has a number, but it is the duration of a failure, not of the
@@ -191,6 +235,16 @@ export const buildReleaseBaseline = ({ launch, run, records, runUrl }) => {
     const caseId = String(fields["Case ID"] ?? "").trim();
     const engine = String(fields.Engine ?? "").trim();
     const value = Number(fields["Primary Metric Value"]);
+
+    const rowRun = readRun(record);
+    if (
+      run &&
+      (!rowRun ||
+        rowRun.runId !== run.runId ||
+        rowRun.runAttempt !== run.runAttempt)
+    ) {
+      continue;
+    }
 
     if (!caseId || !engine) {
       continue;
@@ -211,7 +265,6 @@ export const buildReleaseBaseline = ({ launch, run, records, runUrl }) => {
     release: launch?.release,
     runId: run?.runId,
     runAttempt: run?.runAttempt,
-    finishedAt: run?.finishedAt,
     runUrl,
     caseCount: new Set(
       Object.keys(values).map((key) => key.slice(0, key.lastIndexOf("::"))),

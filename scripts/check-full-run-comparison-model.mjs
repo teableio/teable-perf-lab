@@ -65,7 +65,9 @@ assert.equal(hiddenRow.tier, "severe");
 assert.equal(hiddenRow.slowerThanV1, false);
 assert.equal(hiddenRow.onlyReleaseVisible, true);
 assert.ok(Math.abs(hiddenRow.releaseRatio - 4.81) < 0.01);
-assert.ok(Math.abs(hiddenRow.engineRatio - 1.36) < 0.01);
+// Both ratios divide this run by its reference, so both read the same way:
+// 4.81 is nearly five times slower than the release, 0.74 is faster than V1.
+assert.ok(Math.abs(hiddenRow.engineRatio - 0.735) < 0.01);
 assert.equal(hidden.counts.onlyReleaseVisible, 1);
 assert.equal(hidden.counts.slower, 1);
 assert.equal(hidden.tiers.v2.severe, 1);
