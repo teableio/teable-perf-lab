@@ -297,6 +297,25 @@ when all three succeed. Feishu's webhook acknowledgement enforces the 100KB
 card limit; the GitHub and Performance Track builders enforce their configured
 1MB and per-write limits before their steps can succeed.
 
+### Two reports, not one card
+
+The run reports two comparisons and sends one card for each, because they answer
+different questions and a row carrying both stated two verdicts at once.
+
+The release card leads: this run against the currently released build, plus the
+run's own health — target, run id, pass/skip/fail, stage timings, seed cache,
+trace warnings, and failed cases. It never mentions V1.
+
+The V1 card is only V2 against V1 inside this run: compared/slower/faster/not
+compared, the cases where V2 lost to V1 worst first, and the cases V1 skipped so
+nothing could be compared. It repeats none of the run health. It is not sent at
+all when the run has no V1 leg, so it stops on its own once V1 is retired —
+`engine-comparison-model.mjs`, the marked engine section of
+`perf-run-summary-model.mjs`, and one call in each report script go with it.
+
+Both cards are attempted even if the first fails; the step fails if either did.
+The GitHub summary carries the same split as two sections of one page.
+
 ### Release baseline
 
 Between the Performance Track write and the two summaries, `Resolve release
@@ -332,13 +351,12 @@ never zero regressions, which would read as a clean run. To create a baseline
 for a release that was never measured, dispatch the workflow with
 `teable_ee_ref` set to that commit.
 
-The summaries compare V2 against the released V2 at a 1.2x gate, in exclusive
-`>1.2x / >1.5x / >2x` bands, and print V1's own drift beside each band as a
-control: V1's code barely moves between runs, so a case that slipped in both
-engines is environment and a case that slipped only in V2 is not. Rows that are
-slower than the release while still beating V1 are marked separately — the
-V1/V2 comparison cannot show them, and neither can case thresholds calibrated
-at roughly twice the worst observed value.
+The release card compares V2 against the released V2 at a 1.2x gate, in
+exclusive `>1.2x / >1.5x / >2x` bands. Read the bands against the measured
+run-to-run noise rather than case by case: the mean absolute per-case change
+between two consecutive full runs was 17.4%, and V1 — whose code barely moves
+between runs — still drifts past 20% on 42 of 263 cases. A single case just over
+the gate proves little; a `>2x` band with cases in it does.
 
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see

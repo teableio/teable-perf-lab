@@ -9,6 +9,10 @@
 // slower than the released build while still beating V1 — every one of them
 // invisible to both existing gates.
 //
+// This comparison is the one that outlives V1: it stays meaningful after the V1
+// leg of the run is retired. It therefore says nothing about V1 at all — that
+// comparison is `engine-comparison-model.mjs` and reports separately.
+//
 // Keep this file pure. Teable and GitHub I/O belong in
 // `resolve-release-baseline.mjs`; rendering belongs in
 // `perf-run-summary-model.mjs`.
@@ -17,14 +21,15 @@ import { primaryMetricValue } from "./perf-artifact-read-model.mjs";
 
 // Run-to-run noise on shared CI runners is large: across two consecutive full
 // runs the mean absolute per-case change was 17.4%, and V1 — whose code barely
-// moves between runs — still drifts past 20% on 42 of 263 cases. A ratio gate
-// alone therefore cannot separate signal from drift, which is why the summary
-// renders V1 beside V2 as a control column instead of hiding the noise.
+// moves between runs — still drifts past 20% on 42 of 263 cases. A single case
+// just over the gate is therefore not evidence on its own; the band counts are
+// what carry signal, and a >1.2x band of the same size as the drift floor says
+// environment rather than engine.
 export const DEFAULT_REGRESSION_RATIO = 1.2;
 
-// Exclusive bands, widest first. The counts carry the signal that a flat list
-// cannot: at >2x the released build V2 had 9 cases and V1 only 2, so that band
-// is real; at >20% it was 27 against 36, which is drift.
+// Exclusive bands, widest first. The counts carry the signal a flat list cannot:
+// against release 30520608995 the >2x band held 9 cases and the >1.2x band 27,
+// and only the first of those is well clear of the drift floor above.
 // Labelled as ratios, like every other number the report prints. Bands stated
 // as ">50%" beside rows stated as "1.5x" are the same fact in two units, and a
 // reader has to convert one of them to compare a row against its band.
@@ -43,7 +48,7 @@ const positiveNumber = (value) =>
 // long the failure took, which is neither a regression nor a baseline — the run
 // already reports it as a failure, and comparing it would report it twice under
 // the wrong name.
-const measuredValue = (payload) => {
+export const measuredValue = (payload) => {
   if (payload?.result !== "pass") {
     return undefined;
   }
@@ -87,14 +92,10 @@ export const tierForRatio = (
 
 const emptyTierCounts = () => ({ severe: 0, major: 0, minor: 0 });
 
-const countTier = (counts, tier) => {
-  if (tier) {
-    counts[tier] += 1;
-  }
-  return counts;
-};
-
-const groupPayloadsByCase = (payloads) => {
+// Shared with `engine-comparison-model.mjs` so both comparisons draw their cases
+// from one definition of what a case is: seed rows are bookkeeping, and a
+// payload without a case id cannot be matched to anything.
+export const groupPayloadsByCase = (payloads) => {
   const grouped = new Map();
   for (const payload of payloads ?? []) {
     if (!payload?.caseId || payload.engine === "seed") {
@@ -141,85 +142,40 @@ export const buildReleaseComparison = ({
   const hasBaseline =
     Boolean(baseline?.runId) && Object.keys(baseline?.values ?? {}).length > 0;
   const rows = [];
-  const v2Tiers = emptyTierCounts();
-  const v1Tiers = emptyTierCounts();
+  const tiers = emptyTierCounts();
   let missingBaseline = 0;
   let faster = 0;
-  let residentSlower = 0;
 
   for (const [caseId, engines] of grouped) {
-    const v1Payload = engines.v1;
     const v2Payload = engines.v2;
-    const v1Value = measuredValue(v1Payload);
     const v2Value = measuredValue(v2Payload);
     const v2Baseline = hasBaseline
       ? baselineEntry(baseline, caseId, "v2", measuredMetric(v2Payload))
-      : undefined;
-    const v1Baseline = hasBaseline
-      ? baselineEntry(baseline, caseId, "v1", measuredMetric(v1Payload))
       : undefined;
 
     const releaseRatio =
       v2Value !== undefined && v2Baseline
         ? v2Value / v2Baseline.value
         : undefined;
-    const v1ReleaseRatio =
-      v1Value !== undefined && v1Baseline
-        ? v1Value / v1Baseline.value
-        : undefined;
-    // Every ratio on a row divides this run by what it is compared against, so
-    // above 1 always means slower and the release and engine comparisons can be
-    // read the same way. This one used to be V1/V2 — inverted against
-    // `releaseRatio`, which made two adjacent numbers on one row mean opposite
-    // things.
-    const engineRatio =
-      v1Value !== undefined && v2Value !== undefined
-        ? v2Value / v1Value
-        : undefined;
     const tier = tierForRatio(releaseRatio, regressionRatio);
-    const v1Tier = tierForRatio(v1ReleaseRatio, regressionRatio);
-    const slowerThanV1 = engineRatio !== undefined && engineRatio > 1;
 
-    countTier(v2Tiers, tier);
-    countTier(v1Tiers, v1Tier);
-
+    if (tier) {
+      tiers[tier] += 1;
+    }
     if (v2Value !== undefined && !v2Baseline) {
       missingBaseline += 1;
     }
     if (releaseRatio !== undefined && releaseRatio <= 1 / regressionRatio) {
       faster += 1;
     }
-    if (!tier && slowerThanV1) {
-      residentSlower += 1;
-    }
 
     rows.push({
       caseId,
-      v1Value,
       v2Value,
-      v1Skipped: v1Payload?.result === "skipped",
-      v2Skipped: v2Payload?.result === "skipped",
       baselineV2: v2Baseline?.value,
-      baselineV1: v1Baseline?.value,
       releaseRatio,
-      v1ReleaseRatio,
-      engineRatio,
       tier,
-      v1Tier,
-      slowerThanV1,
-      // The regression the old report could not see: measurably slower than the
-      // released build, yet still ahead of V1, so neither the engine comparison
-      // nor the threshold fires.
-      onlyReleaseVisible:
-        Boolean(tier) && engineRatio !== undefined && !slowerThanV1,
       hasBaseline: Boolean(v2Baseline),
-      thresholdFailed: [v1Payload, v2Payload]
-        .filter(Boolean)
-        .some((payload) =>
-          Array.isArray(payload.thresholds) && payload.thresholds.length > 0
-            ? payload.thresholds.some((threshold) => threshold.passed === false)
-            : payload.result === "fail",
-        ),
     });
   }
 
@@ -249,10 +205,7 @@ export const buildReleaseComparison = ({
       slower: regressions.length,
       faster,
       missingBaseline,
-      residentSlower,
-      onlyReleaseVisible: regressions.filter((row) => row.onlyReleaseVisible)
-        .length,
     },
-    tiers: { v2: v2Tiers, v1: v1Tiers },
+    tiers,
   };
 };
