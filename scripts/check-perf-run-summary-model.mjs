@@ -563,6 +563,24 @@ const noBaselineMarkdown = buildPerfSummaryMarkdown({
 });
 assert.match(noBaselineMarkdown, /Baseline: none/);
 assert.doesNotMatch(noBaselineMarkdown, /Bands:/);
+assert.match(noBaselineMarkdown, /No comparison was possible/);
+
+// With nothing slower, "every regression here is also slower than V1" is a
+// claim about an empty set.
+const cleanMarkdown = buildPerfSummaryMarkdown({
+  payloads: [
+    {
+      caseId: "smoke/auth-user",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "p95Ms", actual: 8, passed: true }],
+    },
+  ],
+  baseline: releaseBaseline([["smoke/auth-user", "v2", 13, "p95Ms"]]),
+  context: {},
+});
+assert.match(cleanMarkdown, /No case is slower than the released build/);
+assert.doesNotMatch(cleanMarkdown, /Every regression here/);
 
 // A thousand cases that all match the release must not inflate the card past
 // what Feishu will render.

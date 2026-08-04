@@ -545,9 +545,15 @@ export const buildPerfSummaryMarkdown = ({
   ].filter(Boolean);
   const footer = [
     "",
-    comparison.counts.onlyReleaseVisible > 0
-      ? `${comparison.counts.onlyReleaseVisible} of these still beat V1 — invisible to the V1/V2 comparison.`
-      : "Every regression here is also slower than V1.",
+    // "Every regression here is also slower than V1" is a vacuous claim when
+    // there are no regressions to speak of.
+    regressions.length === 0
+      ? comparison.available
+        ? "No case is slower than the released build."
+        : "No comparison was possible."
+      : comparison.counts.onlyReleaseVisible > 0
+        ? `${comparison.counts.onlyReleaseVisible} of these still beat V1 — invisible to the V1/V2 comparison.`
+        : "Every regression here is also slower than V1.",
     ...(comparison.counts.residentSlower > 0
       ? [
           `${comparison.counts.residentSlower} cases are slower than V1 without regressing against the release (long-standing, not new).`,
