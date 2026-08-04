@@ -134,6 +134,10 @@ env:
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
   TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+  # Read-only token for the Launches base, which lives outside the perf base and
+  # is not covered by TEABLE_PERF_LAB_TOKEN. It names the commit currently
+  # deployed; the run that measured that commit becomes the report's baseline.
+  TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
   PERF_LAB_SEED_CACHE_ENABLED: "true"
   PERF_LAB_SEED_CACHE_DIR: ${{ github.workspace }}/perf-lab-seed-cache
   PERF_LAB_SEED_DB_DUMP: ${{ github.workspace }}/perf-lab-seed-cache/e2e_test_teable.dump
@@ -825,6 +829,21 @@ jobs:
           PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/report-teable-result.mjs
+
+      # Resolved once, read by both summaries below. Missing tokens or a
+      # released commit nobody has measured leave the file absent, and the
+      # summaries render their explicit "no baseline" state.
+      - name: Resolve release baseline
+        id: release-baseline
+        if: always() && env.TEABLE_LAUNCHES_TOKEN != '' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+        run: node scripts/resolve-release-baseline.mjs
 
       - name: Send Feishu perf summary
         id: feishu-report

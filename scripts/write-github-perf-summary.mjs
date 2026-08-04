@@ -1,10 +1,15 @@
 import { appendFile } from "node:fs/promises";
-import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
+import { join } from "node:path";
+import {
+  readArtifactPayloads,
+  readJsonFileIfExists,
+} from "./perf-artifact-read-model.mjs";
 import { env, requiredEnv } from "./env.mjs";
 import {
   buildPerfSummaryMarkdown,
   DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
 } from "./perf-run-summary-model.mjs";
+import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -51,6 +56,10 @@ const main = async () => {
   const markdown = buildPerfSummaryMarkdown({
     payloads,
     maxBytes: configuredMaxBytes,
+    // Same file the Feishu card reads, so both surfaces quote one lookup.
+    baseline: await readJsonFileIfExists(
+      join(artifactDir, RELEASE_BASELINE_FILE_NAME),
+    ),
     context: {
       chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
       executeResult: env("PERF_LAB_JOB_RESULT"),

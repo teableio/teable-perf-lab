@@ -1,44 +1,18 @@
-import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
+import { join } from "node:path";
+import {
+  readArtifactPayloads,
+  readJsonFileIfExists,
+} from "./perf-artifact-read-model.mjs";
 import { env, requiredEnv } from "./env.mjs";
 import {
   buildPerfSummaryCard,
   resolveRunTimingFromJobs,
 } from "./perf-run-summary-model.mjs";
-import {
-  createPerformanceTrackRecordModule,
-  createTeablePerformanceTrackAdapter,
-} from "./performance-track-record-model.mjs";
+import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
-const DEFAULT_ENDPOINT = "https://app.teable.ai";
-const DEFAULT_TEABLE_RESULTS_TABLE_ID = "tblwPqrcchUzvyEOqLo";
 const DEFAULT_TEABLE_RESULTS_URL =
   "https://app.teable.ai/base/bselS3I2MeVI6RJhS4g/table/tblwPqrcchUzvyEOqLo/viwobw44IRJAHgtADI0";
-
-const teableRequest = async ({
-  endpoint,
-  token,
-  method = "GET",
-  path,
-  body,
-}) => {
-  const res = await fetch(`${endpoint.replace(/\/+$/, "")}/api${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: body == null ? undefined : JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    throw new Error(
-      `Teable API ${method} ${path} failed: ${res.status} ${await res.text()}`,
-    );
-  }
-
-  return res.json();
-};
 
 const githubApi = async (path) => {
   const token = env("GITHUB_TOKEN");
@@ -98,39 +72,11 @@ const resolveRunTiming = async () => {
   }
 };
 
-const resolveComparisonBaselines = async (payloads) => {
-  const token = env("TEABLE_PERF_LAB_TOKEN") || env("TEABLE_TOKEN");
-  if (!token) {
-    return {};
-  }
-
-  const endpoint = env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT);
-  const tableId = env(
-    "TEABLE_PERF_LAB_TABLE_ID",
-    DEFAULT_TEABLE_RESULTS_TABLE_ID,
-  );
-  const performanceTrack = createPerformanceTrackRecordModule(
-    createTeablePerformanceTrackAdapter({
-      tableId,
-      request: ({ method, path, body }) =>
-        teableRequest({ endpoint, token, method, path, body }),
-    }),
-  );
-
-  try {
-    return await performanceTrack.comparisonBaselines({
-      payloads,
-      currentRunId: env("GITHUB_RUN_ID"),
-    });
-  } catch (error) {
-    console.warn(
-      `Could not resolve historical baselines for Feishu summary: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    return {};
-  }
-};
+// Written by `resolve-release-baseline.mjs` earlier in the report job. Absent
+// means that step was skipped or found no run for the released commit; the card
+// then renders its explicit "no baseline" state.
+const readReleaseBaseline = (artifactDir) =>
+  readJsonFileIfExists(join(artifactDir, RELEASE_BASELINE_FILE_NAME));
 
 const sendFeishuCard = async (webhookUrl, card) => {
   const res = await fetch(webhookUrl, {
@@ -171,11 +117,11 @@ const main = async () => {
   }
 
   const timings = await resolveRunTiming();
-  const comparisonBaselines = await resolveComparisonBaselines(payloads);
+  const baseline = await readReleaseBaseline(artifactDir);
   const card = buildPerfSummaryCard({
     payloads,
     timings,
-    comparisonBaselines,
+    baseline,
     context: {
       chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
       executeResult: env("PERF_LAB_JOB_RESULT"),

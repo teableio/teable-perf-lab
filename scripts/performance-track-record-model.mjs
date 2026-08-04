@@ -2,7 +2,6 @@ import {
   compactTraceManifest,
   jsonText,
   numberOrUndefined,
-  primaryMetricValue,
   stringOrUndefined,
 } from "./perf-artifact-read-model.mjs";
 
@@ -96,51 +95,6 @@ const compactFields = (fields) =>
   Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== undefined),
   );
-
-const parseDate = (value) => {
-  const time = Date.parse(value ?? "");
-  return Number.isFinite(time) ? time : undefined;
-};
-
-const currentRunIds = (payloads, currentRunId) => {
-  const ids = new Set();
-  const add = (value) => {
-    if (!value) {
-      return;
-    }
-    const id = String(value);
-    ids.add(id);
-    const [runId] = id.split("-");
-    if (runId) {
-      ids.add(runId);
-    }
-  };
-
-  add(currentRunId);
-  for (const payload of payloads) {
-    add(payload.runId);
-  }
-  return ids;
-};
-
-const comparisonTargets = (payloads) => {
-  const grouped = new Map();
-  for (const payload of payloads) {
-    const entry = grouped.get(payload.caseId) ?? {};
-    entry[payload.engine] = payload;
-    grouped.set(payload.caseId, entry);
-  }
-
-  return [...grouped.entries()]
-    .filter(([, engines]) => engines.v1?.result === "skipped")
-    .map(([caseId, engines]) => engines.v2 ?? { caseId })
-    .filter(
-      (payload) =>
-        payload.engine === "v2" &&
-        payload.result !== "skipped" &&
-        Number.isFinite(primaryMetricValue(payload)),
-    );
-};
 
 export const buildPerformanceTrackResultRecord = ({
   payload,
@@ -375,11 +329,7 @@ const assertDesiredRunRecords = ({ records, runId, runAttempt }) => {
 
 const listExistingRunRecords = async (adapter, { runId, runAttempt }) => {
   const records = [];
-  for (
-    let skip = 0;
-    ;
-    skip += PERFORMANCE_TRACK_READ_PAGE_SIZE
-  ) {
+  for (let skip = 0; ; skip += PERFORMANCE_TRACK_READ_PAGE_SIZE) {
     const page = await adapter.findRecords({
       take: PERFORMANCE_TRACK_READ_PAGE_SIZE,
       skip,
@@ -484,67 +434,5 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
         recordId: createdRecords[index]?.id,
       })),
     };
-  },
-
-  async comparisonBaselines({ payloads, currentRunId }) {
-    const excludedRunIds = currentRunIds(payloads, currentRunId);
-    const baselines = {};
-
-    for (const payload of comparisonTargets(payloads)) {
-      const metric = payload.thresholds?.[0]?.metric;
-      if (!metric) {
-        continue;
-      }
-      const records = await adapter.findRecords({
-        take: 20,
-        filter: {
-          conjunction: "and",
-          filterSet: [
-            { fieldId: "Case ID", operator: "is", value: payload.caseId },
-            { fieldId: "Engine", operator: "is", value: payload.engine },
-            { fieldId: "Result", operator: "is", value: "pass" },
-            {
-              fieldId: "Primary Metric",
-              operator: "is",
-              value: metric,
-            },
-          ],
-        },
-        orderBy: [{ fieldId: "Finished At", order: "desc" }],
-      });
-      const baselineRecord = [...records]
-        .sort(
-          (left, right) =>
-            (parseDate(right.fields?.["Finished At"]) ?? 0) -
-            (parseDate(left.fields?.["Finished At"]) ?? 0),
-        )
-        .find((record) => {
-          const runId = String(record.fields?.["Run ID"] ?? "");
-          const value = numberOrUndefined(
-            record.fields?.["Primary Metric Value"],
-          );
-          return (
-            runId &&
-            !excludedRunIds.has(runId) &&
-            Number.isFinite(value) &&
-            value > 0
-          );
-        });
-      const value = numberOrUndefined(
-        baselineRecord?.fields?.["Primary Metric Value"],
-      );
-      if (!Number.isFinite(value) || value <= 0) {
-        continue;
-      }
-
-      baselines[payload.caseId] = {
-        label: "Baseline",
-        metric,
-        runId: String(baselineRecord.fields?.["Run ID"] ?? ""),
-        value,
-      };
-    }
-
-    return baselines;
   },
 });
