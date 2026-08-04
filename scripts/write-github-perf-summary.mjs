@@ -6,6 +6,7 @@ import {
 } from "./perf-artifact-read-model.mjs";
 import { env, requiredEnv } from "./env.mjs";
 import {
+  buildEngineSummaryMarkdown,
   buildPerfSummaryMarkdown,
   DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
 } from "./perf-run-summary-model.mjs";
@@ -53,29 +54,40 @@ const main = async () => {
   const configuredMaxBytes = Number(
     env("PERF_LAB_GITHUB_SUMMARY_MAX_BYTES", DEFAULT_GITHUB_SUMMARY_MAX_BYTES),
   );
-  const markdown = buildPerfSummaryMarkdown({
-    payloads,
-    maxBytes: configuredMaxBytes,
-    // Same file the Feishu card reads, so both surfaces quote one lookup.
-    baseline: await readJsonFileIfExists(
-      join(artifactDir, RELEASE_BASELINE_FILE_NAME),
+  const context = {
+    chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
+    executeResult: env("PERF_LAB_JOB_RESULT"),
+    runId: env("GITHUB_RUN_ID", payloads[0]?.runId ?? ""),
+    runUrl: buildRunUrl(),
+    sha: env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7),
+    teableRef: env("PERF_LAB_TEABLE_EE_REF") || env("GITHUB_REF_NAME"),
+    teableResultsUrl: env(
+      "PERF_LAB_TEABLE_RESULTS_URL",
+      DEFAULT_TEABLE_RESULTS_URL,
     ),
-    context: {
-      chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
-      executeResult: env("PERF_LAB_JOB_RESULT"),
-      runId: env("GITHUB_RUN_ID", payloads[0]?.runId ?? ""),
-      runUrl: buildRunUrl(),
-      sha: env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7),
-      teableRef: env("PERF_LAB_TEABLE_EE_REF") || env("GITHUB_REF_NAME"),
-      teableResultsUrl: env(
-        "PERF_LAB_TEABLE_RESULTS_URL",
-        DEFAULT_TEABLE_RESULTS_URL,
+  };
+  // The same split as the two Feishu cards: the release comparison, then the
+  // V1 comparison as its own section, each within its own byte budget.
+  const sections = [
+    buildPerfSummaryMarkdown({
+      payloads,
+      maxBytes: configuredMaxBytes,
+      // Same file the Feishu card reads, so both surfaces quote one lookup.
+      baseline: await readJsonFileIfExists(
+        join(artifactDir, RELEASE_BASELINE_FILE_NAME),
       ),
-    },
-  });
+      context,
+    }),
+    buildEngineSummaryMarkdown({
+      payloads,
+      maxBytes: configuredMaxBytes,
+      context,
+    }),
+  ].filter(Boolean);
+  const markdown = sections.join("\n");
   await appendFile(summaryPath, `${markdown}\n`);
   console.log(
-    `GitHub perf summary wrote ${Buffer.byteLength(markdown, "utf8")} bytes from ${payloads.length} payloads.`,
+    `GitHub perf summary wrote ${Buffer.byteLength(markdown, "utf8")} bytes from ${payloads.length} payloads in ${sections.length} sections.`,
   );
 };
 

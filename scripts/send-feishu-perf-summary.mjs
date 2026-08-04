@@ -5,6 +5,7 @@ import {
 } from "./perf-artifact-read-model.mjs";
 import { env, requiredEnv } from "./env.mjs";
 import {
+  buildEngineSummaryCard,
   buildPerfSummaryCard,
   resolveRunTimingFromJobs,
 } from "./perf-run-summary-model.mjs";
@@ -78,7 +79,7 @@ const resolveRunTiming = async () => {
 const readReleaseBaseline = (artifactDir) =>
   readJsonFileIfExists(join(artifactDir, RELEASE_BASELINE_FILE_NAME));
 
-const sendFeishuCard = async (webhookUrl, card) => {
+const sendFeishuCard = async (webhookUrl, name, card) => {
   const res = await fetch(webhookUrl, {
     method: "POST",
     headers: { "content-type": "application/json; charset=utf-8" },
@@ -86,15 +87,36 @@ const sendFeishuCard = async (webhookUrl, card) => {
   });
 
   if (!res.ok) {
-    throw new Error(`Feishu webhook failed: ${res.status} ${await res.text()}`);
+    throw new Error(
+      `Feishu webhook failed for ${name}: ${res.status} ${await res.text()}`,
+    );
   }
 
   const data = await res.json();
   if (data?.code !== 0 && data?.StatusCode !== 0) {
-    throw new Error(`Feishu webhook rejected card: ${JSON.stringify(data)}`);
+    throw new Error(
+      `Feishu webhook rejected the ${name} card: ${JSON.stringify(data)}`,
+    );
   }
 
-  console.log("Feishu perf summary sent.");
+  console.log(`Feishu ${name} summary sent.`);
+};
+
+// Both cards are attempted even when the first one fails: they are separate
+// reports, and losing the V1 comparison is no reason to lose the release
+// comparison as well. The step still fails if either did.
+const sendFeishuCards = async (webhookUrl, cards) => {
+  const failures = [];
+  for (const [name, card] of cards) {
+    try {
+      await sendFeishuCard(webhookUrl, name, card);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n"));
+  }
 };
 
 const main = async () => {
@@ -118,25 +140,28 @@ const main = async () => {
 
   const timings = await resolveRunTiming();
   const baseline = await readReleaseBaseline(artifactDir);
-  const card = buildPerfSummaryCard({
-    payloads,
-    timings,
-    baseline,
-    context: {
-      chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
-      executeResult: env("PERF_LAB_JOB_RESULT"),
-      runId: env("GITHUB_RUN_ID", payloads[0]?.runId ?? ""),
-      runUrl: buildRunUrl(),
-      sha: env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7),
-      teableRef: env("PERF_LAB_TEABLE_EE_REF") || env("GITHUB_REF_NAME"),
-      teableResultsUrl: env(
-        "PERF_LAB_TEABLE_RESULTS_URL",
-        DEFAULT_TEABLE_RESULTS_URL,
-      ),
-    },
-  });
+  const context = {
+    chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
+    executeResult: env("PERF_LAB_JOB_RESULT"),
+    runId: env("GITHUB_RUN_ID", payloads[0]?.runId ?? ""),
+    runUrl: buildRunUrl(),
+    sha: env("PERF_LAB_TEABLE_EE_SHA") || env("GITHUB_SHA", "").slice(0, 7),
+    teableRef: env("PERF_LAB_TEABLE_EE_REF") || env("GITHUB_REF_NAME"),
+    teableResultsUrl: env(
+      "PERF_LAB_TEABLE_RESULTS_URL",
+      DEFAULT_TEABLE_RESULTS_URL,
+    ),
+  };
+  // Two reports, two cards. One card carrying both comparisons made every row
+  // state two verdicts at once, and the release comparison is the one that
+  // outlives V1 — so it leads and carries the run's own health.
+  const engineCard = buildEngineSummaryCard({ payloads, context });
+  const cards = [
+    ["release", buildPerfSummaryCard({ payloads, timings, baseline, context })],
+    ...(engineCard ? [["engine", engineCard]] : []),
+  ];
   if (env("FEISHU_PERF_DRY_RUN") === "true") {
-    console.log(JSON.stringify(card, null, 2));
+    console.log(JSON.stringify(Object.fromEntries(cards), null, 2));
     return;
   }
 
@@ -153,7 +178,7 @@ const main = async () => {
     return;
   }
 
-  await sendFeishuCard(webhookUrl, card);
+  await sendFeishuCards(webhookUrl, cards);
 };
 
 main().catch((error) => {
