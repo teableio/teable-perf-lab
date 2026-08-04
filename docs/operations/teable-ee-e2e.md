@@ -297,6 +297,35 @@ when all three succeed. Feishu's webhook acknowledgement enforces the 100KB
 card limit; the GitHub and Performance Track builders enforce their configured
 1MB and per-write limits before their steps can succeed.
 
+### Release baseline
+
+Between the Performance Track write and the two summaries, `Resolve release
+baseline` reads the newest `teable.ai` row of the Launches table
+(`tblmGAFOHrGcy66PaUp`, `TEABLE_LAUNCHES_TOKEN` — a read-only token for a base
+the perf token does not cover), takes its `Commit ID`, finds the Performance
+Track run whose `Teable EE Ref` matches, and writes that run's per-case
+measurements to `perf-lab-artifacts/release-baseline.json`. Both summaries read
+that file, so the lookup happens once.
+
+Every query is bounded: the launch lookup is one record under 500 bytes, and
+the baseline page is one projected request of about 208KB. An unprojected read
+of the same table is 2.5MB per 100 rows and the API rejects it.
+
+This step is `continue-on-error` and is not part of full-run acceptance. A
+missing token, a released commit nobody has measured, or a failed lookup leaves
+the file absent, and both summaries render an explicit "no baseline" state —
+never zero regressions, which would read as a clean run. To create a baseline
+for a release that was never measured, dispatch the workflow with
+`teable_ee_ref` set to that commit.
+
+The summaries compare V2 against the released V2 at a 20% gate, in exclusive
+`>20% / >50% / >2x` bands, and print V1's own drift beside each band as a
+control: V1's code barely moves between runs, so a case that slipped in both
+engines is environment and a case that slipped only in V2 is not. Rows that are
+slower than the release while still beating V1 are marked separately — the
+V1/V2 comparison cannot show them, and neither can case thresholds calibrated
+at roughly twice the worst observed value.
+
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see
 [../../.agents/artifact-content.md](../../.agents/artifact-content.md).

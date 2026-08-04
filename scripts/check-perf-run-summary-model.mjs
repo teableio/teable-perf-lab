@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {
-  buildCaseRows,
   buildPerfSummaryCard,
   buildPerfSummaryMarkdown,
+  formatEngineNote,
   formatDuration,
   formatMetricSeconds,
   resolveRunTimingFromJobs,
@@ -250,139 +250,33 @@ const payloads = [
 
 assert.deepEqual(resultCounts(payloads), { pass: 6, skipped: 1, fail: 1 });
 
-const rows = buildCaseRows(payloads);
-assert.deepEqual(
-  rows.map(({ caseId, status, comparison }) => ({
-    caseId,
-    status,
-    comparison,
-  })),
-  [
-    {
-      caseId: "lookup/regressed",
-      status: "attention",
-      comparison: "慢 1.4x",
-    },
-    {
-      caseId: "lookup/slightly-slower",
-      status: "attention",
-      comparison: "慢 1.1x",
-    },
-    { caseId: "field/fail", status: "attention", comparison: "无 V1 基线" },
-    { caseId: "smoke/skip", status: "neutral", comparison: "无 V1 基线" },
-    { caseId: "formula/fast", status: "ok", comparison: "快 2.0x" },
-  ],
-);
-
-const [v2OnlyRow] = buildCaseRows(
-  [
-    {
-      caseId: "import-base/v2-only",
-      engine: "v1",
-      result: "skipped",
-      durationMs: 1,
-      thresholds: [],
-    },
-    {
-      caseId: "import-base/v2-only",
-      engine: "v2",
-      result: "pass",
-      durationMs: 1500,
-      thresholds: [
-        { metric: "importBaseStreamMs", actual: 1500, passed: true },
-      ],
-    },
-  ],
-  {
-    comparisonBaselines: {
-      "import-base/v2-only": { value: 1000, label: "Baseline" },
-    },
-  },
-);
-assert.deepEqual(
-  {
-    caseId: v2OnlyRow.caseId,
-    status: v2OnlyRow.status,
-    baselineLabel: v2OnlyRow.baselineLabel,
-    baseline: v2OnlyRow.baseline,
-    v1: v2OnlyRow.v1,
-    v2: v2OnlyRow.v2,
-    comparison: v2OnlyRow.comparison,
-  },
-  {
-    caseId: "import-base/v2-only",
-    status: "attention",
-    baselineLabel: "Baseline",
-    baseline: "1.00s",
-    v1: "skip",
-    v2: "1.50s",
-    comparison: "慢 1.5x",
-  },
-);
-
-const v2OnlyCard = buildPerfSummaryCard({
-  payloads: [
-    {
-      caseId: "import-base/v2-only",
-      engine: "v1",
-      result: "skipped",
-      durationMs: 1,
-      thresholds: [],
-    },
-    {
-      caseId: "import-base/v2-only",
-      engine: "v2",
-      result: "pass",
-      durationMs: 1500,
-      thresholds: [
-        { metric: "importBaseStreamMs", actual: 1500, passed: true },
-      ],
-    },
-  ],
-  timings: {},
-  comparisonBaselines: {
-    "import-base/v2-only": { value: 1000, label: "Baseline" },
-  },
-  context: {
-    chartUrl: "https://charts.example",
-    executeResult: "success",
-  },
+const releaseBaseline = (entries) => ({
+  commit: "e0dae6da17f302d3def079b095c5151af3b3581f",
+  release: "release.2026-07-30T06-45-38Z.2429",
+  runId: "30520608995",
+  runAttempt: 1,
+  runUrl: "https://github.example/run/30520608995",
+  values: Object.fromEntries(
+    entries.map(([caseId, engine, value, metric]) => [
+      `${caseId}::${engine}`,
+      { value, metric },
+    ]),
+  ),
 });
-const v2OnlyRegressionText = v2OnlyCard.card.elements.find(
-  (element) => element.tag === "collapsible_panel",
-).elements[0].text.content;
-assert.match(
-  v2OnlyRegressionText,
-  /Baseline 1\.00s → V2 1\.50s\s+\*\*慢 1\.5x\*\*/,
-);
 
-// A measured 0 ms makes no ratio, so the row has no baseline — but both engines
-// ran it. Reporting the empty baseline as "V1 skip" claimed V1 never ran.
-const zeroBaselinePayloads = ["v1", "v2"].map((engine) => ({
-  caseId: "record-read/zero-overhead",
-  engine,
-  result: "pass",
-  durationMs: 29_512,
-  thresholds: [
-    { metric: "getRecordsQueryOverheadMs", actual: 0, passed: true },
-  ],
-}));
-const [zeroBaselineRow] = buildCaseRows(zeroBaselinePayloads);
-assert.equal(zeroBaselineRow.status, "neutral");
-assert.equal(zeroBaselineRow.v1, "0ms");
-const zeroBaselineCard = buildPerfSummaryCard({
-  payloads: zeroBaselinePayloads,
-  timings: {},
-  context: { chartUrl: "https://charts.example", executeResult: "success" },
-});
-const zeroBaselineText = zeroBaselineCard.card.elements
-  .filter((element) => element.tag === "collapsible_panel")
-  .at(-1).elements[0].text.content;
-assert.match(zeroBaselineText, /V1 0ms → V2 0ms\s+\*\*无 V1 基线\*\*/);
-assert.doesNotMatch(zeroBaselineText, /V1 skip/);
+const baseline = releaseBaseline([
+  ["formula/fast", "v1", 1000, "durationMs"],
+  ["formula/fast", "v2", 500, "durationMs"],
+  ["lookup/regressed", "v1", 1000, "readyMs"],
+  ["lookup/regressed", "v2", 700, "readyMs"],
+  ["lookup/slightly-slower", "v1", 1000, "readyMs"],
+  ["lookup/slightly-slower", "v2", 850, "readyMs"],
+  ["field/fail", "v2", 100, "durationMs"],
+]);
 
 const card = buildPerfSummaryCard({
   payloads,
+  baseline,
   timings: resolveRunTimingFromJobs(jobs),
   context: {
     chartUrl: "https://charts.example",
@@ -396,12 +290,17 @@ const card = buildPerfSummaryCard({
 });
 
 assert.equal(card.msg_type, "interactive");
+// A failed case outranks the regression colour.
 assert.equal(card.card.header.template, "red");
-assert.equal(
-  card.card.header.title.content,
-  "Teable EE 性能回归 · 用例失败 · 退化 3",
+assert.equal(card.card.header.title.content, "性能回归 · 较线上慢 2 · 严重 1");
+assert.match(card.card.elements[0].text.content, /6✓ 1⊘ 1✗/);
+// The baseline itself is on the card, so a comparison against the wrong build
+// is visible rather than inferred.
+assert.match(
+  card.card.elements[0].text.content,
+  /release\.2026-07-30T06-45-38Z\.2429 · e0dae6d/,
 );
-assert.match(card.card.elements[0].text.content, /6 通过 \/ 1 跳过 \/ 1 失败/);
+assert.match(card.card.elements[0].text.content, /run 30520608995/);
 assert.match(card.card.elements[1].text.content, /Trace 抓取浪费 40s/);
 assert.match(
   card.card.elements[2].columns[3].elements[0].content,
@@ -415,18 +314,179 @@ assert.equal(
   card.card.elements.at(-1).actions[2].url,
   "https://charts.example",
 );
+
+const statColumns = card.card.elements.filter(
+  (element) => element.tag === "column_set",
+);
+assert.deepEqual(
+  statColumns[1].columns.map((column) => column.elements[0].content),
+  ["**对比** 3", "**慢** 2", "**快** 0", "**无基线** 0"],
+);
+// V2 over V1 per band. lookup/regressed doubled while its V1 stayed flat, so
+// the severe band reads 1 against 0 — engine-side, not environmental.
+assert.deepEqual(
+  statColumns[2].columns.map((column) =>
+    column.elements.map((element) => element.content),
+  ),
+  [
+    ["**>2x** 1", "V1 0"],
+    ["**>50%** 0", "V1 0"],
+    ["**>20%** 1", "V1 0"],
+  ],
+);
+
 const panels = card.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
-assert.equal(panels[0].header.title.content, "**退化 3**");
-assert.equal(panels[0].expanded, false);
-assert.equal(panels[1].header.title.content, "**待确认 1**");
+assert.equal(panels[0].header.title.content, "**较线上慢 2**");
+assert.equal(panels[0].expanded, true);
 assert.match(
   panels[0].elements[0].text.content,
-  /🔴 \*\*\[lookup\/slightly-slower\].*慢 1\.1x/,
+  /🔴 \*\*\[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\)\*\*\n线上 0\.70s → 1\.40s \*\*\+100%\*\* · V1 1\.00s 慢1\.4x/,
 );
+assert.match(panels[0].elements[0].text.content, /lookup\/slightly-slower/);
+// A ratio that rounds to 1.0x is a tie, not a direction.
+assert.equal(
+  formatEngineNote({ v1Value: 1_010, v2Value: 1_000, engineRatio: 1.01 }),
+  "V1 1.01s 持平",
+);
+assert.equal(
+  formatEngineNote({ v1Value: 1_000, v2Value: 1_010, engineRatio: 0.99 }),
+  "V1 1.00s 持平",
+);
+// A case that matched the released build is not news.
 assert.doesNotMatch(JSON.stringify(card), /formula\/fast/);
-assert.match(JSON.stringify(card), /已省略 1 个 V2 更快或持平项/);
+// field/fail measured 200ms against a 100ms baseline, but it failed, so it
+// belongs in the failure panel rather than the regression list.
+assert.equal(panels.at(-1).header.title.content, "**失败 1**");
+assert.match(panels.at(-1).elements[0].text.content, /field\/fail \(v2\)/);
+
+// The regression the V1/V2 report could never show: slower than the released
+// build while still ahead of V1. It carries ⚠️ instead of 🔴, and the panel
+// title counts how many of them there are.
+const hiddenCard = buildPerfSummaryCard({
+  payloads: [
+    {
+      caseId: "lookup/depth5",
+      engine: "v1",
+      result: "pass",
+      thresholds: [{ metric: "readyMs", actual: 2_100, passed: true }],
+    },
+    {
+      caseId: "lookup/depth5",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "readyMs", actual: 1_544, passed: true }],
+    },
+  ],
+  timings: {},
+  baseline: releaseBaseline([
+    ["lookup/depth5", "v1", 2_000, "readyMs"],
+    ["lookup/depth5", "v2", 321, "readyMs"],
+  ]),
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+const [hiddenPanel] = hiddenCard.card.elements.filter(
+  (element) => element.tag === "collapsible_panel",
+);
+assert.equal(hiddenPanel.header.title.content, "**较线上慢 1   ⚠️1**");
+assert.match(
+  hiddenPanel.elements[0].text.content,
+  /⚠️ \*\*\[lookup\/depth5\].*\n线上 0\.32s → 1\.54s \*\*\+381%\*\* · V1 2\.10s 快1\.4x/,
+);
+assert.match(
+  buildPerfSummaryMarkdown({
+    payloads: hiddenCard ? [] : [],
+    baseline: undefined,
+    context: {},
+  }),
+  /Baseline: none/,
+);
+
+// No baseline must say so. Reporting "较线上慢 0" would read as a clean run.
+const noBaselineCard = buildPerfSummaryCard({
+  payloads,
+  timings: {},
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+assert.equal(noBaselineCard.card.header.template, "grey");
+assert.equal(noBaselineCard.card.header.title.content, "性能回归 · 无线上基线");
+assert.match(
+  noBaselineCard.card.elements[0].text.content,
+  /未找到线上版本的历史结果/,
+);
+assert.doesNotMatch(JSON.stringify(noBaselineCard), /较线上慢 0/);
+
+// A case V2 has always lost stays out of the regression count and gets its own
+// panel: it is a known gap, not something this run introduced.
+const residentCard = buildPerfSummaryCard({
+  payloads: [
+    {
+      caseId: "duplicate-table/50k-20f",
+      engine: "v1",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 20_700, passed: true }],
+    },
+    {
+      caseId: "duplicate-table/50k-20f",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 27_722, passed: true }],
+    },
+  ],
+  timings: {},
+  baseline: releaseBaseline([
+    ["duplicate-table/50k-20f", "v1", 20_000, "durationMs"],
+    ["duplicate-table/50k-20f", "v2", 27_000, "durationMs"],
+  ]),
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+assert.equal(
+  residentCard.card.header.title.content,
+  "性能回归 · 较线上慢 0 · 严重 0",
+);
+assert.equal(residentCard.card.header.template, "green");
+const residentPanels = residentCard.card.elements.filter(
+  (element) => element.tag === "collapsible_panel",
+);
+assert.equal(residentPanels[1].header.title.content, "**V2<V1 常驻 1**");
+// ⚪, not 🔴: the case is a known V2 gap, not something this run regressed. A
+// red dot here read as an alarm beside cases that had improved against the
+// release.
+assert.match(
+  residentPanels[1].elements[0].text.content,
+  /⚪ \*\*\[duplicate-table\/50k-20f\][\s\S]*V1 20\.70s 慢1\.3x/,
+);
+
+// A measured 0 ms yields no ratio in either direction. It must not be reported
+// as a regression, and it must not be counted as a missing baseline either.
+const zeroPayloads = ["v1", "v2"].map((engine) => ({
+  caseId: "record-read/zero-overhead",
+  engine,
+  result: "pass",
+  durationMs: 29_512,
+  thresholds: [
+    { metric: "getRecordsQueryOverheadMs", actual: 0, passed: true },
+  ],
+}));
+const zeroCard = buildPerfSummaryCard({
+  payloads: zeroPayloads,
+  timings: {},
+  baseline: releaseBaseline([
+    ["record-read/zero-overhead", "v2", 5, "getRecordsQueryOverheadMs"],
+  ]),
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+assert.equal(
+  zeroCard.card.header.title.content,
+  "性能回归 · 较线上慢 0 · 严重 0",
+);
+assert.deepEqual(
+  zeroCard.card.elements
+    .filter((element) => element.tag === "column_set")[1]
+    .columns.map((column) => column.elements[0].content),
+  ["**对比** 0", "**慢** 0", "**快** 0", "**无基线** 0"],
+);
 
 const manyRegressionPayloads = Array.from({ length: 12 }, (_, index) => [
   {
@@ -439,37 +499,47 @@ const manyRegressionPayloads = Array.from({ length: 12 }, (_, index) => [
     caseId: `record-read/regressed-${index}`,
     engine: "v2",
     result: "pass",
-    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
+    thresholds: [{ metric: "durationMs", actual: 2_000 + index, passed: true }],
   },
 ]).flat();
 const manyRegressionCard = buildPerfSummaryCard({
   payloads: manyRegressionPayloads,
   timings: {},
+  baseline: releaseBaseline(
+    Array.from({ length: 12 }, (_, index) => [
+      `record-read/regressed-${index}`,
+      "v2",
+      1_000,
+      "durationMs",
+    ]),
+  ),
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
 const [manyRegressionPanel] = manyRegressionCard.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
+// Worst first, so the ten expanded rows are the ten largest regressions.
 assert.match(
   manyRegressionPanel.elements[0].text.content,
-  /record-read\/regressed-7/,
+  /record-read\/regressed-11/,
 );
 assert.doesNotMatch(
   manyRegressionPanel.elements[0].text.content,
-  /record-read\/regressed-8/,
+  /record-read\/regressed-1\b/,
 );
 assert.equal(
   manyRegressionPanel.elements[1].header.title.content,
-  "**其余 2 项（展开全部）**",
+  "**其余 2**",
 );
 assert.equal(manyRegressionPanel.elements[1].expanded, false);
 assert.match(
   manyRegressionPanel.elements[1].elements[0].text.content,
-  /record-read\/regressed-8/,
+  /record-read\/regressed-1\b/,
 );
 
 const markdown = buildPerfSummaryMarkdown({
   payloads,
+  baseline,
   context: {
     chartUrl: "https://charts.example",
     executeResult: "success",
@@ -481,57 +551,85 @@ const markdown = buildPerfSummaryMarkdown({
   },
 });
 assert.match(markdown, /lookup\/regressed/);
-assert.match(markdown, /smoke\/skip/);
+assert.match(markdown, /Baseline: release\.2026-07-30T06-45-38Z\.2429/);
+assert.match(markdown, /Bands: >2x 1 \(V1 0\)/);
+assert.match(markdown, /Every regression here is also slower than V1/);
 assert.doesNotMatch(markdown, /formula\/fast/);
-assert.match(markdown, /Omitted 1 V2 faster or equal comparisons/);
 assert.match(markdown, /\[CI run\]\(https:\/\/github\.example\/run\/123\)/);
 
+const noBaselineMarkdown = buildPerfSummaryMarkdown({
+  payloads,
+  context: { chartUrl: "https://charts.example" },
+});
+assert.match(noBaselineMarkdown, /Baseline: none/);
+assert.doesNotMatch(noBaselineMarkdown, /Bands:/);
+assert.match(noBaselineMarkdown, /No comparison was possible/);
+
+// With nothing slower, "every regression here is also slower than V1" is a
+// claim about an empty set.
+const cleanMarkdown = buildPerfSummaryMarkdown({
+  payloads: [
+    {
+      caseId: "smoke/auth-user",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "p95Ms", actual: 8, passed: true }],
+    },
+  ],
+  baseline: releaseBaseline([["smoke/auth-user", "v2", 13, "p95Ms"]]),
+  context: {},
+});
+assert.match(cleanMarkdown, /No case is slower than the released build/);
+assert.doesNotMatch(cleanMarkdown, /Every regression here/);
+
+// A thousand cases that all match the release must not inflate the card past
+// what Feishu will render.
 const manyFastPayloads = Array.from({ length: 1_000 }, (_, index) => [
   {
     caseId: `record-read/fast-${index}`,
     engine: "v1",
     result: "pass",
-    durationMs: 2_000,
     thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
   },
   {
     caseId: `record-read/fast-${index}`,
     engine: "v2",
     result: "pass",
-    durationMs: 1_000,
-    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
+    thresholds: [{ metric: "durationMs", actual: 500, passed: true }],
   },
 ]).flat();
 const manyFastCard = buildPerfSummaryCard({
   payloads: manyFastPayloads,
   timings: {},
+  baseline: releaseBaseline(
+    Array.from({ length: 1_000 }, (_, index) => [
+      `record-read/fast-${index}`,
+      "v2",
+      1_000,
+      "durationMs",
+    ]),
+  ),
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
 const manyFastCardJson = JSON.stringify(manyFastCard);
 assert.ok(Buffer.byteLength(manyFastCardJson, "utf8") < 100 * 1024);
 assert.doesNotMatch(manyFastCardJson, /record-read\/fast-/);
-assert.match(manyFastCardJson, /已省略 1000 个 V2 更快或持平项/);
+assert.match(manyFastCardJson, /\*\*快\*\* 1000/);
 
-const manyAttentionPayloads = Array.from({ length: 1_000 }, (_, index) => [
-  {
-    caseId: `record-read/regressed-${index}`,
-    engine: "v1",
-    result: "pass",
-    thresholds: [{ metric: "durationMs", actual: 1_000, passed: true }],
-  },
-  {
-    caseId: `record-read/regressed-${index}`,
-    engine: "v2",
-    result: "pass",
-    thresholds: [{ metric: "durationMs", actual: 2_000, passed: true }],
-  },
-]).flat();
 const boundedMarkdown = buildPerfSummaryMarkdown({
-  payloads: manyAttentionPayloads,
-  maxBytes: 4_096,
+  payloads: manyRegressionPayloads,
+  maxBytes: 1_024,
+  baseline: releaseBaseline(
+    Array.from({ length: 12 }, (_, index) => [
+      `record-read/regressed-${index}`,
+      "v2",
+      1_000,
+      "durationMs",
+    ]),
+  ),
   context: { chartUrl: "https://charts.example" },
 });
-assert.ok(Buffer.byteLength(boundedMarkdown, "utf8") <= 4_096);
+assert.ok(Buffer.byteLength(boundedMarkdown, "utf8") <= 1_024);
 assert.match(boundedMarkdown, /Truncated \d+ detail rows/);
 
 const outageCard = buildPerfSummaryCard({
@@ -984,180 +1082,5 @@ assert.deepEqual(JSON.parse(batchQuery.searchParams.get("filter")), {
 });
 assert.equal(batchRequests[1].body.records.length, 1);
 assert.equal(batchRequests[2].body.records.length, 1);
-
-const baselineAdapter = createInMemoryPerformanceTrackAdapter({
-  records: [
-    {
-      id: "rec-current-run",
-      fields: {
-        "Case ID": "import-base/v2-only",
-        Engine: "v2",
-        Result: "pass",
-        "Primary Metric": "importBaseStreamMs",
-        "Primary Metric Value": 700,
-        "Run ID": "900",
-        "Finished At": "2026-07-14T03:00:00.000Z",
-      },
-    },
-    {
-      id: "rec-current-payload",
-      fields: {
-        "Case ID": "import-base/v2-only",
-        Engine: "v2",
-        Result: "pass",
-        "Primary Metric": "importBaseStreamMs",
-        "Primary Metric Value": 800,
-        "Run ID": "900-1-v2",
-        "Finished At": "2026-07-14T02:00:00.000Z",
-      },
-    },
-    {
-      id: "rec-older",
-      fields: {
-        "Case ID": "import-base/v2-only",
-        Engine: "v2",
-        Result: "pass",
-        "Primary Metric": "importBaseStreamMs",
-        "Primary Metric Value": 1200,
-        "Run ID": "899",
-        "Finished At": "2026-07-12T00:00:00.000Z",
-      },
-    },
-    {
-      id: "rec-latest-previous",
-      fields: {
-        "Case ID": "import-base/v2-only",
-        Engine: "v2",
-        Result: "pass",
-        "Primary Metric": "importBaseStreamMs",
-        "Primary Metric Value": 1100,
-        "Run ID": "898",
-        "Finished At": "2026-07-13T00:00:00.000Z",
-      },
-    },
-  ],
-});
-const baselineModule = createPerformanceTrackRecordModule(baselineAdapter);
-assert.deepEqual(
-  await baselineModule.comparisonBaselines({
-    currentRunId: "900",
-    payloads: [
-      {
-        caseId: "import-base/v2-only",
-        engine: "v1",
-        result: "skipped",
-        runId: "900-1-v1",
-        thresholds: [],
-      },
-      {
-        caseId: "import-base/v2-only",
-        engine: "v2",
-        result: "pass",
-        runId: "900-1-v2",
-        thresholds: [
-          {
-            metric: "importBaseStreamMs",
-            actual: 1000,
-            passed: true,
-          },
-        ],
-      },
-    ],
-  }),
-  {
-    "import-base/v2-only": {
-      label: "Baseline",
-      metric: "importBaseStreamMs",
-      runId: "898",
-      value: 1100,
-    },
-  },
-);
-
-const baselineRequests = [];
-const teableBaselineModule = createPerformanceTrackRecordModule(
-  createTeablePerformanceTrackAdapter({
-    tableId: "tbl-performance-track",
-    request: async (request) => {
-      baselineRequests.push(request);
-      return {
-        records: [
-          {
-            id: "rec-baseline",
-            fields: {
-              "Run ID": "899",
-              "Primary Metric Value": 950,
-              "Finished At": "2026-07-13T00:00:00.000Z",
-            },
-          },
-        ],
-      };
-    },
-  }),
-);
-assert.deepEqual(
-  await teableBaselineModule.comparisonBaselines({
-    currentRunId: "900",
-    payloads: [
-      {
-        caseId: "import-base/v2-only",
-        engine: "v1",
-        result: "skipped",
-        runId: "900-1-v1",
-        thresholds: [],
-      },
-      {
-        caseId: "import-base/v2-only",
-        engine: "v2",
-        result: "pass",
-        runId: "900-1-v2",
-        thresholds: [
-          {
-            metric: "importBaseStreamMs",
-            actual: 1000,
-            passed: true,
-          },
-        ],
-      },
-    ],
-  }),
-  {
-    "import-base/v2-only": {
-      label: "Baseline",
-      metric: "importBaseStreamMs",
-      runId: "899",
-      value: 950,
-    },
-  },
-);
-assert.equal(baselineRequests.length, 1);
-assert.equal(baselineRequests[0].method, "GET");
-const baselineQuery = new URL(
-  baselineRequests[0].path,
-  "https://teable.example",
-);
-assert.equal(baselineQuery.pathname, "/table/tbl-performance-track/record");
-assert.equal(baselineQuery.searchParams.get("fieldKeyType"), "name");
-assert.equal(baselineQuery.searchParams.get("take"), "20");
-assert.deepEqual(JSON.parse(baselineQuery.searchParams.get("filter")), {
-  conjunction: "and",
-  filterSet: [
-    {
-      fieldId: "Case ID",
-      operator: "is",
-      value: "import-base/v2-only",
-    },
-    { fieldId: "Engine", operator: "is", value: "v2" },
-    { fieldId: "Result", operator: "is", value: "pass" },
-    {
-      fieldId: "Primary Metric",
-      operator: "is",
-      value: "importBaseStreamMs",
-    },
-  ],
-});
-assert.deepEqual(JSON.parse(baselineQuery.searchParams.get("orderBy")), [
-  { fieldId: "Finished At", order: "desc" },
-]);
 
 console.log("Perf run summary and Performance Track record checks ok");
