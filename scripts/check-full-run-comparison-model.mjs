@@ -62,37 +62,27 @@ const hidden = buildReleaseComparison({
 const [hiddenRow] = hidden.rows;
 assert.equal(hidden.available, true);
 assert.equal(hiddenRow.tier, "severe");
-assert.equal(hiddenRow.slowerThanV1, false);
-assert.equal(hiddenRow.onlyReleaseVisible, true);
 assert.ok(Math.abs(hiddenRow.releaseRatio - 4.81) < 0.01);
-// Both ratios divide this run by its reference, so both read the same way:
-// 4.81 is nearly five times slower than the release, 0.74 is faster than V1.
-assert.ok(Math.abs(hiddenRow.engineRatio - 0.735) < 0.01);
-assert.equal(hidden.counts.onlyReleaseVisible, 1);
 assert.equal(hidden.counts.slower, 1);
-assert.equal(hidden.tiers.v2.severe, 1);
-// V1 moved 2000 → 2100, inside the gate, so the control column stays empty and
-// the regression reads as engine-side rather than environmental.
-assert.equal(hidden.tiers.v1.severe, 0);
-assert.equal(hidden.tiers.v1.minor, 0);
+assert.equal(hidden.tiers.severe, 1);
+// This comparison says nothing about V1 — that is `engine-comparison-model.mjs`
+// and its own report. A row carrying both verdicts read as two answers at once.
+assert.deepEqual(
+  Object.keys(hiddenRow).filter((key) => /v1/i.test(key)),
+  [],
+);
 
-// V1 drifting by the same amount is the environment, not the engine. Both
-// columns must count it so the reader can tell the two apart.
+// A case just inside the widest band lands in the narrowest one that fits.
 const drift = buildReleaseComparison({
   payloads: [
-    payload({ caseId: "record-read/pages", engine: "v1", actual: 1300 }),
     payload({ caseId: "record-read/pages", engine: "v2", actual: 1300 }),
   ],
-  baseline: baselineOf([
-    ["record-read/pages", "v1", 1000],
-    ["record-read/pages", "v2", 1000],
-  ]),
+  baseline: baselineOf([["record-read/pages", "v2", 1000]]),
 });
-assert.equal(drift.tiers.v2.minor, 1);
-assert.equal(drift.tiers.v1.minor, 1);
+assert.deepEqual(drift.tiers, { severe: 0, major: 0, minor: 1 });
 
-// A case V2 has always lost is not news. It must stay out of the regression
-// count and land in the resident bucket instead.
+// A case that matched the released build is not a regression, whatever V2 does
+// against V1 — 27.7s against a 27.0s release is 1.03x, inside the gate.
 const resident = buildReleaseComparison({
   payloads: [
     payload({
@@ -112,9 +102,7 @@ const resident = buildReleaseComparison({
   ]),
 });
 assert.equal(resident.counts.slower, 0);
-assert.equal(resident.counts.residentSlower, 1);
-assert.equal(resident.rows[0].slowerThanV1, true);
-assert.equal(resident.rows[0].onlyReleaseVisible, false);
+assert.equal(resident.counts.compared, 1);
 
 // Renaming a case's primary metric makes the two numbers different
 // measurements. Comparing them would invent a regression, so the case must fall
@@ -146,11 +134,6 @@ const skipped = buildReleaseComparison({
 });
 assert.equal(skipped.counts.slower, 1);
 assert.equal(skipped.counts.missingBaseline, 0);
-assert.equal(skipped.rows[0].v1Skipped, true);
-assert.equal(skipped.rows[0].engineRatio, undefined);
-// With no V1 number there is nothing to claim about V1, so the row cannot be
-// filed as "invisible to the V1/V2 comparison".
-assert.equal(skipped.rows[0].onlyReleaseVisible, false);
 
 // A failed case timed a failure, not the operation. It is already reported as a
 // failure; counting it as a regression too would double-report it under the

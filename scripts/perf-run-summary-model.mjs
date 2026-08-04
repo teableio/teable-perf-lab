@@ -4,6 +4,7 @@ import {
   buildReleaseComparison,
   REGRESSION_TIERS,
 } from "./full-run-comparison-model.mjs";
+import { buildEngineComparison } from "./engine-comparison-model.mjs";
 
 export const parseDate = (value) => {
   const time = Date.parse(value ?? "");
@@ -148,61 +149,48 @@ export const DEFAULT_GITHUB_SUMMARY_MAX_BYTES = 256 * 1024;
 const REGRESSION_PREVIEW_LIMIT = 10;
 
 /**
- * One reference and how this run compares to it.
+ * How this run compares to one reference, as a ratio and never a percent.
  *
- * Both comparisons on a row are stated this way, in ratios and never percents:
- * two units on one line ("+977% · 快1.1x") make the reader convert before they
- * can weigh one against the other, and the bands are ratios too. `ratio` is
- * always this run divided by the reference, so `快`/`慢` describe this run and
- * the label names what it is measured against.
+ * `ratio` is always this run divided by the reference, so above 1 is slower
+ * wherever it appears, and the bands are stated the same way — a row in percent
+ * beside a band in ratios makes the reader convert before they can weigh one
+ * against the other.
  */
-export const formatComparison = (label, referenceValue, ratio) => {
-  if (referenceValue === undefined) {
-    return `${label} —`;
-  }
-  const value = formatMetricSeconds(referenceValue);
+export const formatRatioFactor = (ratio) => {
   if (!Number.isFinite(ratio)) {
-    return `${label} ${value}`;
+    return undefined;
   }
   const factor = ratio >= 1 ? ratio : 1 / ratio;
   // Anything that rounds to 1.0x is a tie. "慢1.0x" claimed a direction the
   // number does not support.
   if (factor.toFixed(1) === "1.0") {
-    return `${label} ${value} 持平`;
+    return "持平";
   }
-  return `${label} ${value} ${ratio > 1 ? "慢" : "快"}${factor.toFixed(1)}x`;
+  return `${ratio > 1 ? "慢" : "快"}${factor.toFixed(1)}x`;
+};
+
+export const formatComparison = (label, referenceValue, ratio) => {
+  if (referenceValue === undefined) {
+    return `${label} —`;
+  }
+  const value = formatMetricSeconds(referenceValue);
+  const factor = formatRatioFactor(ratio);
+  return factor ? `${label} ${value} ${factor}` : `${label} ${value}`;
 };
 
 export const formatReleaseNote = (row) =>
   formatComparison("线上", row.baselineV2, row.releaseRatio);
 
-// The engine column stays on every row because V1 is the control: its code
-// barely moves between runs, so a case that slipped in both engines is drift
-// and a case that slipped only in V2 is the engine's own doing.
-export const formatEngineNote = (row) =>
-  row.v1Skipped
-    ? "V1 skip"
-    : formatComparison("V1", row.v1Value, row.engineRatio);
-
-// ⚠️ marks the regressions the V1/V2 report could never show: slower than the
-// released build while still ahead of V1. ⚪ is for rows that are not
-// regressions at all — the resident V2<V1 panel renders those, and a red dot
-// beside a case that improved 65% against the release read as an alarm.
-const rowIcon = (row) => {
-  if (!row.tier) {
-    return "⚪";
-  }
-  return row.onlyReleaseVisible ? "⚠️" : "🔴";
-};
-
-// One line per case. The measurement leads, then each reference with this run's
-// ratio against it. Wrapping the references onto a second line cost a line of
-// card height per row for no added meaning, and the panel shows ten of them.
+// One line per case, and one comparison on it. This card is only ever the
+// release comparison: V1 has its own card, and carrying both on every row is
+// what made a single row read as two verdicts at once.
+//
+// Slower than the reference is a red dot, on both cards. The panel lists only
+// regressions, so the dot is redundant with its own contents — but the two
+// cards are read side by side in the same chat, and a row that scans the same
+// way on both is worth one repeated character.
 export const formatComparisonLine = (row, chartUrl) =>
-  `${rowIcon(row)} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)} · ${formatEngineNote(row)}`;
-
-const tierCount = (comparison, key) =>
-  comparison.rows.filter((row) => row.tier === key).length;
+  `🔴 **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)}`;
 
 const baselineLabel = (baseline) => {
   if (!baseline) {
@@ -253,19 +241,6 @@ const statColumn = (label, value) => ({
   elements: [{ tag: "markdown", content: `**${label}** ${value}` }],
 });
 
-// Two lines per column: V2 over V1. The comparison is the point — at >2x the
-// released build V2 had 9 cases against V1's 2, while at >20% it was 27 against
-// 36, which is the noise floor rather than a regression.
-const tierColumn = (label, v2Count, v1Count) => ({
-  tag: "column",
-  width: "weighted",
-  weight: 1,
-  elements: [
-    { tag: "markdown", content: `**${label}** ${v2Count}` },
-    { tag: "markdown", content: `V1 ${v1Count}` },
-  ],
-});
-
 const collapsiblePanel = ({ title, expanded = false, elements }) => ({
   tag: "collapsible_panel",
   expanded,
@@ -291,6 +266,32 @@ const collapsiblePanel = ({ title, expanded = false, elements }) => ({
 const larkDiv = (content) => ({
   tag: "div",
   text: { tag: "lark_md", content },
+});
+
+// Every card carries them, because a card is forwarded on its own and the reader
+// who receives it has no other way back to the run.
+const linkButtons = (context) => ({
+  tag: "action",
+  actions: [
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "CI" },
+      type: "primary",
+      url: context.runUrl,
+    },
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "数据" },
+      type: "default",
+      url: context.teableResultsUrl,
+    },
+    {
+      tag: "button",
+      text: { tag: "plain_text", content: "图表" },
+      type: "default",
+      url: context.chartUrl,
+    },
+  ],
 });
 
 export const buildPerfSummaryCard = ({
@@ -320,7 +321,7 @@ export const buildPerfSummaryCard = ({
   const teableRef = context.teableRef ?? "";
   const sha = context.sha ?? "";
   const regressions = comparison.regressions;
-  const severeCount = tierCount(comparison, "severe");
+  const severeCount = comparison.tiers.severe;
   const failures = failedCaseIds(payloads);
 
   const headerTemplate = !comparison.available
@@ -410,22 +411,17 @@ export const buildPerfSummaryCard = ({
                 flex_mode: "none",
                 background_style: "grey",
                 columns: REGRESSION_TIERS.map((tier) =>
-                  tierColumn(
-                    tier.label,
-                    comparison.tiers.v2[tier.key],
-                    comparison.tiers.v1[tier.key],
-                  ),
+                  statColumn(tier.label, comparison.tiers[tier.key]),
                 ),
               },
             ]
           : []),
-        // Both panels are comparisons, so both are meaningless without a
-        // baseline: "较线上慢 0" would read as a clean run, and "resident"
-        // cannot be told from "new" with nothing to compare against.
+        // The panel is the comparison, so it is meaningless without a baseline:
+        // "较线上慢 0" would read as a clean run.
         ...(comparison.available
           ? [
               collapsiblePanel({
-                title: `较线上慢 ${regressions.length}${comparison.counts.onlyReleaseVisible > 0 ? `   ⚠️${comparison.counts.onlyReleaseVisible}` : ""}`,
+                title: `较线上慢 ${regressions.length}`,
                 expanded: regressions.length > 0,
                 elements: [
                   larkDiv(
@@ -443,22 +439,6 @@ export const buildPerfSummaryCard = ({
               }),
             ]
           : []),
-        ...(comparison.available && comparison.counts.residentSlower > 0
-          ? [
-              collapsiblePanel({
-                title: `V2<V1 常驻 ${comparison.counts.residentSlower}`,
-                elements: [
-                  larkDiv(
-                    renderRows(
-                      comparison.rows.filter(
-                        (row) => !row.tier && row.slowerThanV1,
-                      ),
-                    ) || "无",
-                  ),
-                ],
-              }),
-            ]
-          : []),
         ...(failures.length > 0
           ? [
               collapsiblePanel({
@@ -468,29 +448,7 @@ export const buildPerfSummaryCard = ({
             ]
           : []),
         { tag: "hr" },
-        {
-          tag: "action",
-          actions: [
-            {
-              tag: "button",
-              text: { tag: "plain_text", content: "CI" },
-              type: "primary",
-              url: context.runUrl,
-            },
-            {
-              tag: "button",
-              text: { tag: "plain_text", content: "数据" },
-              type: "default",
-              url: context.teableResultsUrl,
-            },
-            {
-              tag: "button",
-              text: { tag: "plain_text", content: "图表" },
-              type: "default",
-              url: context.chartUrl,
-            },
-          ],
-        },
+        linkButtons(context),
       ],
     },
   };
@@ -515,8 +473,7 @@ export const buildPerfSummaryMarkdown = ({
   const regressions = comparison.regressions;
   const runId = context.runId ?? payloads[0]?.runId ?? "";
   const tierLine = REGRESSION_TIERS.map(
-    (tier) =>
-      `${tier.label} ${comparison.tiers.v2[tier.key]} (V1 ${comparison.tiers.v1[tier.key]})`,
+    (tier) => `${tier.label} ${comparison.tiers[tier.key]}`,
   ).join(" · ");
 
   const heading = [
@@ -542,19 +499,14 @@ export const buildPerfSummaryMarkdown = ({
     context.chartUrl ? `[Charts](${context.chartUrl})` : "",
   ].filter(Boolean);
   const footer = [
-    "",
-    // "Every regression here is also slower than V1" is a vacuous claim when
-    // there are no regressions to speak of.
-    regressions.length === 0
-      ? comparison.available
-        ? "No case is slower than the released build."
-        : "No comparison was possible."
-      : comparison.counts.onlyReleaseVisible > 0
-        ? `${comparison.counts.onlyReleaseVisible} of these still beat V1 — invisible to the V1/V2 comparison.`
-        : "Every regression here is also slower than V1.",
-    ...(comparison.counts.residentSlower > 0
+    // "Nothing was slower" and "nothing could be compared" are different
+    // outcomes, and only one of them is a clean run.
+    ...(regressions.length === 0
       ? [
-          `${comparison.counts.residentSlower} cases are slower than V1 without regressing against the release (long-standing, not new).`,
+          "",
+          comparison.available
+            ? "No case is slower than the released build."
+            : "No comparison was possible.",
         ]
       : []),
     ...(footerLinks.length > 0 ? ["", footerLinks.join(" · ")] : []),
@@ -578,7 +530,7 @@ export const buildPerfSummaryMarkdown = ({
     const row = regressions[index];
     const candidate = [
       ...detailLines,
-      `- ${rowIcon(row)} [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) 本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)} · ${formatEngineNote(row)}`,
+      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) 本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)}`,
     ];
     const truncatedCount = regressions.length - candidate.length;
     if (markdownBytes(render(candidate, truncatedCount)) > maxBytes) {
@@ -591,6 +543,194 @@ export const buildPerfSummaryMarkdown = ({
   if (markdownBytes(markdown) > maxBytes) {
     throw new Error(
       `GitHub perf summary fixed content exceeds ${maxBytes} bytes; increase the configured budget`,
+    );
+  }
+  return markdown;
+};
+
+// ---------------------------------------------------------------------------
+// V2 against V1 — its own report, sent as its own card.
+//
+// Everything below belongs to the V1 leg of the run and goes when that leg does,
+// together with `engine-comparison-model.mjs`. It deliberately repeats none of
+// the run's health: timings, trace warnings, failures, and the pass/skip/fail
+// counts are reported once, on the release card.
+// ---------------------------------------------------------------------------
+
+// "V1 never ran this case" and "V1 ran it and failed" both leave the value
+// undefined, and they are not the same thing to the reader.
+const engineValueText = (value, result) => {
+  if (value !== undefined) {
+    return formatMetricSeconds(value);
+  }
+  if (result === undefined) {
+    return "未运行";
+  }
+  return result === "skipped" ? "skip" : "fail";
+};
+
+const engineVerdict = (row) => formatRatioFactor(row.ratio) ?? "无对比";
+
+export const formatEngineLine = (row, chartUrl) =>
+  `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**`;
+
+/**
+ * The V1/V2 card. Returns `undefined` when the run had no V1 leg — a card of
+ * "无对比" rows says nothing, and this is how the push stops on its own once V1
+ * is retired.
+ */
+export const buildEngineSummaryCard = ({ payloads, context = {} }) => {
+  const comparison = buildEngineComparison({ payloads });
+  if (!comparison.available) {
+    return undefined;
+  }
+
+  const { counts, regressions, pending } = comparison;
+  const runId = context.runId ?? payloads[0]?.runId ?? "";
+  const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
+  const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
+  const renderRows = (rows) =>
+    rows.map((row) => formatEngineLine(row, context.chartUrl)).join("\n\n");
+
+  return {
+    msg_type: "interactive",
+    card: {
+      config: { wide_screen_mode: true, enable_forward: true },
+      header: {
+        // Only this comparison colours this card. Whether the run itself failed
+        // is the release card's verdict to give.
+        template: counts.slower > 0 ? "orange" : "green",
+        title: {
+          tag: "plain_text",
+          content: `V2 vs V1 · 较 V1 慢 ${counts.slower}`,
+        },
+      },
+      elements: [
+        larkDiv(
+          [
+            `**目标** ${context.teableRef ?? ""}${context.sha ? ` @ ${context.sha}` : ""}`,
+            `**运行** ${runId}`,
+          ].join("\n"),
+        ),
+        {
+          tag: "column_set",
+          flex_mode: "none",
+          background_style: "grey",
+          columns: [
+            statColumn("对比", counts.compared),
+            statColumn("慢", counts.slower),
+            statColumn("快", counts.faster),
+            statColumn("待对比", counts.pending),
+          ],
+        },
+        collapsiblePanel({
+          title: `较 V1 慢 ${counts.slower}`,
+          expanded: counts.slower > 0,
+          elements: [
+            larkDiv(previewRows.length > 0 ? renderRows(previewRows) : "无"),
+            ...(remainingRows.length > 0
+              ? [
+                  collapsiblePanel({
+                    title: `其余 ${remainingRows.length}`,
+                    elements: [larkDiv(renderRows(remainingRows))],
+                  }),
+                ]
+              : []),
+          ],
+        }),
+        // Cases V2 won are a count, not a list: there is nothing to act on, and
+        // at 260 cases the rows would bury the ones there is.
+        ...(counts.pending > 0
+          ? [
+              collapsiblePanel({
+                title: `待对比 ${counts.pending}`,
+                elements: [
+                  larkDiv(
+                    renderRows(pending.slice(0, REGRESSION_PREVIEW_LIMIT)),
+                  ),
+                  ...(counts.pending > REGRESSION_PREVIEW_LIMIT
+                    ? [
+                        larkDiv(
+                          `其余 ${counts.pending - REGRESSION_PREVIEW_LIMIT} 项`,
+                        ),
+                      ]
+                    : []),
+                ],
+              }),
+            ]
+          : []),
+        { tag: "hr" },
+        linkButtons(context),
+      ],
+    },
+  };
+};
+
+/**
+ * The V1/V2 section of the GitHub summary. Returns `undefined` on a run with no
+ * V1 leg, for the same reason the card does.
+ */
+export const buildEngineSummaryMarkdown = ({
+  payloads,
+  context = {},
+  maxBytes = DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
+}) => {
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error(
+      `maxBytes must be a positive integer, received ${maxBytes}`,
+    );
+  }
+
+  const comparison = buildEngineComparison({ payloads });
+  if (!comparison.available) {
+    return undefined;
+  }
+
+  const { counts, regressions } = comparison;
+  const heading = [
+    "## V2 vs V1",
+    "",
+    `- Compared: ${counts.compared} · ${counts.slower} slower · ${counts.faster} faster or equal · ${counts.pending} not compared`,
+    "",
+    "### Slower than V1",
+    "",
+  ];
+  const footer = [
+    ...(counts.slower === 0 ? ["", "No case is slower than V1."] : []),
+    "",
+  ];
+  const render = (details, truncatedCount) =>
+    [
+      ...heading,
+      ...(details.length > 0 ? details : ["None."]),
+      ...(truncatedCount > 0
+        ? [
+            "",
+            `Truncated ${truncatedCount} detail rows to stay within ${maxBytes} bytes.`,
+          ]
+        : []),
+      ...footer,
+    ].join("\n");
+
+  const detailLines = [];
+  for (const row of regressions) {
+    const candidate = [
+      ...detailLines,
+      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} ${engineVerdict(row)}`,
+    ];
+    if (
+      markdownBytes(render(candidate, regressions.length - candidate.length)) >
+      maxBytes
+    ) {
+      break;
+    }
+    detailLines.push(candidate.at(-1));
+  }
+
+  const markdown = render(detailLines, regressions.length - detailLines.length);
+  if (markdownBytes(markdown) > maxBytes) {
+    throw new Error(
+      `GitHub engine summary fixed content exceeds ${maxBytes} bytes; increase the configured budget`,
     );
   }
   return markdown;

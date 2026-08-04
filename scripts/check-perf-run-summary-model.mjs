@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import {
+  buildEngineSummaryCard,
+  buildEngineSummaryMarkdown,
   buildPerfSummaryCard,
   buildPerfSummaryMarkdown,
-  formatEngineNote,
   formatDuration,
   formatMetricSeconds,
+  formatRatioFactor,
   resolveRunTimingFromJobs,
   resultCounts,
 } from "./perf-run-summary-model.mjs";
@@ -322,17 +324,13 @@ assert.deepEqual(
   statColumns[1].columns.map((column) => column.elements[0].content),
   ["**对比** 3", "**慢** 2", "**快** 0", "**无基线** 0"],
 );
-// V2 over V1 per band. lookup/regressed doubled while its V1 stayed flat, so
-// the severe band reads 1 against 0 — engine-side, not environmental.
+// One count per band, and no V1 anywhere: this card is the release comparison
+// and nothing else.
 assert.deepEqual(
   statColumns[2].columns.map((column) =>
     column.elements.map((element) => element.content),
   ),
-  [
-    ["**>2x** 1", "V1 0"],
-    ["**>1.5x** 0", "V1 0"],
-    ["**>1.2x** 1", "V1 0"],
-  ],
+  [["**>2x** 1"], ["**>1.5x** 0"], ["**>1.2x** 1"]],
 );
 
 const panels = card.card.elements.filter(
@@ -342,30 +340,29 @@ assert.equal(panels[0].header.title.content, "**较线上慢 2**");
 assert.equal(panels[0].expanded, true);
 assert.match(
   panels[0].elements[0].text.content,
-  // One line, and both comparisons in the same unit: this run, then each
-  // reference with the ratio against it.
-  /🔴 \*\*\[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\)\*\*：本次 1\.40s · 线上 0\.70s 慢2\.0x · V1 1\.00s 慢1\.4x/,
+  // One line, one comparison: this run, then the reference it is measured
+  // against. The V1 verdict that used to trail every row is its own card.
+  /🔴 \*\*\[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\)\*\*：本次 1\.40s · 线上 0\.70s 慢2\.0x$/m,
 );
 assert.match(panels[0].elements[0].text.content, /lookup\/slightly-slower/);
 // A ratio that rounds to 1.0x is a tie, not a direction.
-assert.equal(
-  formatEngineNote({ v1Value: 1_010, v2Value: 1_000, engineRatio: 1.01 }),
-  "V1 1.01s 持平",
-);
-assert.equal(
-  formatEngineNote({ v1Value: 1_000, v2Value: 1_010, engineRatio: 0.99 }),
-  "V1 1.00s 持平",
-);
+assert.equal(formatRatioFactor(1.01), "持平");
+assert.equal(formatRatioFactor(0.99), "持平");
+assert.equal(formatRatioFactor(1.4), "慢1.4x");
+assert.equal(formatRatioFactor(0.5), "快2.0x");
+assert.equal(formatRatioFactor(undefined), undefined);
 // A case that matched the released build is not news.
 assert.doesNotMatch(JSON.stringify(card), /formula\/fast/);
+// Nor is V1, on this card.
+assert.doesNotMatch(JSON.stringify(card.card.elements.slice(3)), /V1/);
 // field/fail measured 200ms against a 100ms baseline, but it failed, so it
 // belongs in the failure panel rather than the regression list.
 assert.equal(panels.at(-1).header.title.content, "**失败 1**");
 assert.match(panels.at(-1).elements[0].text.content, /field\/fail \(v2\)/);
 
 // The regression the V1/V2 report could never show: slower than the released
-// build while still ahead of V1. It carries ⚠️ instead of 🔴, and the panel
-// title counts how many of them there are.
+// build while still ahead of V1. Nothing on this card mentions V1, so the row
+// reads as what it is — 4.8x slower than what is deployed.
 const hiddenCard = buildPerfSummaryCard({
   payloads: [
     {
@@ -391,12 +388,10 @@ const hiddenCard = buildPerfSummaryCard({
 const [hiddenPanel] = hiddenCard.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
-assert.equal(hiddenPanel.header.title.content, "**较线上慢 1   ⚠️1**");
+assert.equal(hiddenPanel.header.title.content, "**较线上慢 1**");
 assert.match(
   hiddenPanel.elements[0].text.content,
-  // Slower than the release while still ahead of V1 — the two directions the
-  // old mixed units made hardest to read side by side.
-  /⚠️ \*\*\[lookup\/depth5\].*：本次 1\.54s · 线上 0\.32s 慢4\.8x · V1 2\.10s 快1\.4x/,
+  /🔴 \*\*\[lookup\/depth5\].*：本次 1\.54s · 线上 0\.32s 慢4\.8x$/m,
 );
 assert.match(
   buildPerfSummaryMarkdown({
@@ -421,23 +416,25 @@ assert.match(
 );
 assert.doesNotMatch(JSON.stringify(noBaselineCard), /较线上慢 0/);
 
-// A case V2 has always lost stays out of the regression count and gets its own
-// panel: it is a known gap, not something this run introduced.
+// A case V2 has always lost is not a release regression — it matched the
+// released build. The release card says nothing about it; the V1 card is where
+// it belongs, and now that is a separate card rather than a second panel.
+const residentPayloads = [
+  {
+    caseId: "duplicate-table/50k-20f",
+    engine: "v1",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 20_700, passed: true }],
+  },
+  {
+    caseId: "duplicate-table/50k-20f",
+    engine: "v2",
+    result: "pass",
+    thresholds: [{ metric: "durationMs", actual: 27_722, passed: true }],
+  },
+];
 const residentCard = buildPerfSummaryCard({
-  payloads: [
-    {
-      caseId: "duplicate-table/50k-20f",
-      engine: "v1",
-      result: "pass",
-      thresholds: [{ metric: "durationMs", actual: 20_700, passed: true }],
-    },
-    {
-      caseId: "duplicate-table/50k-20f",
-      engine: "v2",
-      result: "pass",
-      thresholds: [{ metric: "durationMs", actual: 27_722, passed: true }],
-    },
-  ],
+  payloads: residentPayloads,
   timings: {},
   baseline: releaseBaseline([
     ["duplicate-table/50k-20f", "v1", 20_000, "durationMs"],
@@ -450,16 +447,85 @@ assert.equal(
   "性能回归 · 较线上慢 0 · 严重 0",
 );
 assert.equal(residentCard.card.header.template, "green");
-const residentPanels = residentCard.card.elements.filter(
+assert.deepEqual(
+  residentCard.card.elements.filter(
+    (element) => element.tag === "collapsible_panel",
+  ).length,
+  1,
+);
+
+const residentEngineCard = buildEngineSummaryCard({
+  payloads: residentPayloads,
+  context: {
+    chartUrl: "https://charts.example",
+    runId: "123",
+    runUrl: "https://github.example/run/123",
+    sha: "abcdef0",
+    teableRef: "main",
+  },
+});
+assert.equal(residentEngineCard.card.header.template, "orange");
+assert.equal(
+  residentEngineCard.card.header.title.content,
+  "V2 vs V1 · 较 V1 慢 1",
+);
+const [residentEnginePanel] = residentEngineCard.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
-assert.equal(residentPanels[1].header.title.content, "**V2<V1 常驻 1**");
-// ⚪, not 🔴: the case is a known V2 gap, not something this run regressed. A
-// red dot here read as an alarm beside cases that had improved against the
-// release.
+assert.equal(residentEnginePanel.header.title.content, "**较 V1 慢 1**");
 assert.match(
-  residentPanels[1].elements[0].text.content,
-  /⚪ \*\*\[duplicate-table\/50k-20f\][\s\S]*V1 20\.70s 慢1\.3x/,
+  residentEnginePanel.elements[0].text.content,
+  /🔴 \*\*\[duplicate-table\/50k-20f\]\(https:\/\/charts\.example#duplicate-table\/50k-20f\)\*\*：V1 20\.70s → V2 27\.72s \*\*慢1\.3x\*\*/,
+);
+// The run's own health is reported once, on the release card. This one is the
+// comparison and nothing else.
+const residentEngineJson = JSON.stringify(residentEngineCard);
+assert.doesNotMatch(residentEngineJson, /线上|总耗时|Seed|失败/);
+assert.equal(
+  residentEngineCard.card.elements.at(-1).actions[0].url,
+  "https://github.example/run/123",
+);
+
+// A run with no V1 leg has nothing to compare, so no card is built and nothing
+// is sent. This is how the V1 push stops on its own once V1 is retired.
+assert.equal(
+  buildEngineSummaryCard({
+    payloads: [
+      {
+        caseId: "smoke/auth-user",
+        engine: "v2",
+        result: "pass",
+        thresholds: [{ metric: "p95Ms", actual: 8, passed: true }],
+      },
+    ],
+    context: {},
+  }),
+  undefined,
+);
+
+// V1 skipped the case, so there is nothing to compare — a pending row, printed
+// as "skip" rather than as a comparison it cannot make.
+const pendingEngineCard = buildEngineSummaryCard({
+  payloads: [
+    { caseId: "import-base/v2-only", engine: "v1", result: "skipped" },
+    {
+      caseId: "import-base/v2-only",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 12_660, passed: true }],
+    },
+  ],
+  context: { chartUrl: "https://charts.example" },
+});
+assert.equal(pendingEngineCard.card.header.template, "green");
+const pendingPanels = pendingEngineCard.card.elements.filter(
+  (element) => element.tag === "collapsible_panel",
+);
+assert.equal(pendingPanels[0].elements[0].text.content, "无");
+assert.equal(pendingPanels[1].header.title.content, "**待对比 1**");
+assert.match(
+  pendingPanels[1].elements[0].text.content,
+  /⚪ \*\*\[import-base\/v2-only\].*：V1 skip → V2 12\.66s \*\*无对比\*\*/,
 );
 
 // A measured 0 ms yields no ratio in either direction. It must not be reported
@@ -556,10 +622,41 @@ const markdown = buildPerfSummaryMarkdown({
 });
 assert.match(markdown, /lookup\/regressed/);
 assert.match(markdown, /Baseline: release\.2026-07-30T06-45-38Z\.2429/);
-assert.match(markdown, /Bands: >2x 1 \(V1 0\)/);
-assert.match(markdown, /Every regression here is also slower than V1/);
+assert.match(markdown, /Bands: >2x 1 · >1\.5x 0 · >1\.2x 1/);
+assert.doesNotMatch(markdown, /V1/);
 assert.doesNotMatch(markdown, /formula\/fast/);
 assert.match(markdown, /\[CI run\]\(https:\/\/github\.example\/run\/123\)/);
+
+// The same split as the cards: V2 against V1 is its own section, and it is
+// absent from a run with no V1 leg.
+const engineMarkdown = buildEngineSummaryMarkdown({
+  payloads,
+  context: { chartUrl: "https://charts.example" },
+});
+assert.match(engineMarkdown, /^## V2 vs V1/m);
+assert.match(
+  engineMarkdown,
+  /Compared: 3 · 2 slower · 1 faster or equal · 2 not compared/,
+);
+assert.match(
+  engineMarkdown,
+  /- \[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\) V1 1\.00s → V2 1\.40s 慢1\.4x/,
+);
+assert.doesNotMatch(engineMarkdown, /线上/);
+assert.equal(
+  buildEngineSummaryMarkdown({
+    payloads: [
+      {
+        caseId: "smoke/auth-user",
+        engine: "v2",
+        result: "pass",
+        thresholds: [{ metric: "p95Ms", actual: 8, passed: true }],
+      },
+    ],
+    context: {},
+  }),
+  undefined,
+);
 
 const noBaselineMarkdown = buildPerfSummaryMarkdown({
   payloads,
@@ -569,8 +666,7 @@ assert.match(noBaselineMarkdown, /Baseline: none/);
 assert.doesNotMatch(noBaselineMarkdown, /Bands:/);
 assert.match(noBaselineMarkdown, /No comparison was possible/);
 
-// With nothing slower, "every regression here is also slower than V1" is a
-// claim about an empty set.
+// "Nothing was slower" and "nothing could be compared" are different outcomes.
 const cleanMarkdown = buildPerfSummaryMarkdown({
   payloads: [
     {
