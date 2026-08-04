@@ -98,12 +98,19 @@ ready.
   trace-waste helpers used by report adapters.
 - `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
   keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
+- `scripts/full-run-comparison-model.mjs`: pure comparison of this run against
+  the released build — per-case ratios, exclusive `>20% / >50% / >2x` bands with
+  V1 as the drift control, and the regressions that stay ahead of V1 and so are
+  invisible to the V1/V2 comparison.
+- `scripts/release-baseline-model.mjs` and `scripts/resolve-release-baseline.mjs`:
+  bounded Launches/Performance Track queries and the report-stage resolver that
+  writes `release-baseline.json` for both summaries to read.
 - `framework/trace-evidence-policy.ts`: pure trace selection, request-shape,
   fallback, and unfetched-evidence policy; the collector owns capture, fetch,
   and filesystem I/O.
 - `scripts/performance-track-record-model.mjs`: Performance Track field
-  contract, result-record construction, upsert, and baseline selection shared
-  by Teable and in-memory adapters.
+  contract, result-record construction, and upsert shared by Teable and
+  in-memory adapters.
 - `scripts/perf-artifact-diff-model.mjs`: artifact normalization and mask profile
   for behavior-preserving artifact diffs; keep CLI file I/O in
   `scripts/diff-artifacts.mjs`.
