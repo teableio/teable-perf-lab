@@ -25,10 +25,13 @@ export const DEFAULT_REGRESSION_RATIO = 1.2;
 // Exclusive bands, widest first. The counts carry the signal that a flat list
 // cannot: at >2x the released build V2 had 9 cases and V1 only 2, so that band
 // is real; at >20% it was 27 against 36, which is drift.
+// Labelled as ratios, like every other number the report prints. Bands stated
+// as ">50%" beside rows stated as "1.5x" are the same fact in two units, and a
+// reader has to convert one of them to compare a row against its band.
 export const REGRESSION_TIERS = [
   { key: "severe", minRatio: 2, label: ">2x" },
-  { key: "major", minRatio: 1.5, label: ">50%" },
-  { key: "minor", minRatio: 1.2, label: ">20%" },
+  { key: "major", minRatio: 1.5, label: ">1.5x" },
+  { key: "minor", minRatio: 1.2, label: ">1.2x" },
 ];
 
 export const baselineKey = (caseId, engine) => `${caseId}::${engine}`;
@@ -164,15 +167,18 @@ export const buildReleaseComparison = ({
       v1Value !== undefined && v1Baseline
         ? v1Value / v1Baseline.value
         : undefined;
-    // V2 beats V1 whenever it takes less time. Reported as "how many times
-    // faster" so the row reads the same way the V1/V2 summary always has.
+    // Every ratio on a row divides this run by what it is compared against, so
+    // above 1 always means slower and the release and engine comparisons can be
+    // read the same way. This one used to be V1/V2 — inverted against
+    // `releaseRatio`, which made two adjacent numbers on one row mean opposite
+    // things.
     const engineRatio =
       v1Value !== undefined && v2Value !== undefined
-        ? v1Value / v2Value
+        ? v2Value / v1Value
         : undefined;
     const tier = tierForRatio(releaseRatio, regressionRatio);
     const v1Tier = tierForRatio(v1ReleaseRatio, regressionRatio);
-    const slowerThanV1 = engineRatio !== undefined && engineRatio < 1;
+    const slowerThanV1 = engineRatio !== undefined && engineRatio > 1;
 
     countTier(v2Tiers, tier);
     countTier(v1Tiers, v1Tier);
@@ -230,7 +236,6 @@ export const buildReleaseComparison = ({
           runId: baseline.runId,
           runAttempt: baseline.runAttempt,
           runUrl: baseline.runUrl,
-          finishedAt: baseline.finishedAt,
         }
       : undefined,
     regressionRatio,

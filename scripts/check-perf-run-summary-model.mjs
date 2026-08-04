@@ -330,8 +330,8 @@ assert.deepEqual(
   ),
   [
     ["**>2x** 1", "V1 0"],
-    ["**>50%** 0", "V1 0"],
-    ["**>20%** 1", "V1 0"],
+    ["**>1.5x** 0", "V1 0"],
+    ["**>1.2x** 1", "V1 0"],
   ],
 );
 
@@ -342,7 +342,9 @@ assert.equal(panels[0].header.title.content, "**较线上慢 2**");
 assert.equal(panels[0].expanded, true);
 assert.match(
   panels[0].elements[0].text.content,
-  /🔴 \*\*\[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\)\*\*\n线上 0\.70s → 1\.40s \*\*\+100%\*\* · V1 1\.00s 慢1\.4x/,
+  // One line, and both comparisons in the same unit: this run, then each
+  // reference with the ratio against it.
+  /🔴 \*\*\[lookup\/regressed\]\(https:\/\/charts\.example#lookup\/regressed\)\*\*：本次 1\.40s · 线上 0\.70s 慢2\.0x · V1 1\.00s 慢1\.4x/,
 );
 assert.match(panels[0].elements[0].text.content, /lookup\/slightly-slower/);
 // A ratio that rounds to 1.0x is a tie, not a direction.
@@ -392,7 +394,9 @@ const [hiddenPanel] = hiddenCard.card.elements.filter(
 assert.equal(hiddenPanel.header.title.content, "**较线上慢 1   ⚠️1**");
 assert.match(
   hiddenPanel.elements[0].text.content,
-  /⚠️ \*\*\[lookup\/depth5\].*\n线上 0\.32s → 1\.54s \*\*\+381%\*\* · V1 2\.10s 快1\.4x/,
+  // Slower than the release while still ahead of V1 — the two directions the
+  // old mixed units made hardest to read side by side.
+  /⚠️ \*\*\[lookup\/depth5\].*：本次 1\.54s · 线上 0\.32s 慢4\.8x · V1 2\.10s 快1\.4x/,
 );
 assert.match(
   buildPerfSummaryMarkdown({
@@ -1073,11 +1077,14 @@ const batchQuery = new URL(batchRequests[0].path, "https://teable.example");
 assert.equal(batchQuery.searchParams.get("take"), "1000");
 assert.equal(batchQuery.searchParams.get("skip"), "0");
 assert.equal(batchQuery.searchParams.get("projection"), "Run Key");
+// Field ids, not names: Teable answers a filter naming a field that does not
+// exist by dropping the condition, which would turn this one-run read into a
+// paged read of the entire table.
 assert.deepEqual(JSON.parse(batchQuery.searchParams.get("filter")), {
   conjunction: "and",
   filterSet: [
-    { fieldId: "Run ID", operator: "is", value: "902" },
-    { fieldId: "Run Attempt", operator: "is", value: 1 },
+    { fieldId: "fldb344lzWE28AA2mvb", operator: "is", value: "902" },
+    { fieldId: "fldCIMp4dMco5zBBvJr", operator: "is", value: 1 },
   ],
 });
 assert.equal(batchRequests[1].body.records.length, 1);

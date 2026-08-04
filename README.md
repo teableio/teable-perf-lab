@@ -99,7 +99,7 @@ ready.
 - `scripts/perf-run-summary-model.mjs`: Feishu summary projection and card model;
   keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
 - `scripts/full-run-comparison-model.mjs`: pure comparison of this run against
-  the released build — per-case ratios, exclusive `>20% / >50% / >2x` bands with
+  the released build — per-case ratios, exclusive `>1.2x / >1.5x / >2x` bands with
   V1 as the drift control, and the regressions that stay ahead of V1 and so are
   invisible to the V1/V2 comparison.
 - `scripts/release-baseline-model.mjs` and `scripts/resolve-release-baseline.mjs`:

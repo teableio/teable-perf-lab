@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import {
-  buildBaselineResultsQuery,
-  buildBaselineRunQuery,
+  buildBaselineRecordsQuery,
   buildLatestLaunchQuery,
   buildReleaseBaseline,
   LAUNCH_COMMIT_FIELD,
   LAUNCH_REGION_FIELD_ID,
   LAUNCH_TIME_FIELD_ID,
-  readBaselineRun,
   readLatestLaunch,
+  selectBaselineRun,
+  TEABLE_EE_REF_FIELD_ID,
 } from "./release-baseline-model.mjs";
 
 const launchQuery = buildLatestLaunchQuery();
@@ -67,125 +67,170 @@ assert.throws(
   /has no "Commit ID" field/,
 );
 
-const runQuery = buildBaselineRunQuery("e0dae6da");
-assert.equal(runQuery.get("take"), "1");
-assert.deepEqual(runQuery.getAll("projection"), [
-  "Run ID",
-  "Run Attempt",
-  "Finished At",
-]);
-assert.deepEqual(JSON.parse(runQuery.get("filter")).filterSet, [
-  { fieldId: "Teable EE Ref", operator: "is", value: "e0dae6da" },
-]);
-// The run lookup must stay typed, so no cellFormat=text here: it would return
-// "Run Attempt" as a string and "Finished At" as a localised label.
-assert.equal(runQuery.get("cellFormat"), null);
-assert.throws(() => buildBaselineRunQuery(""), /release commit is required/);
-
-assert.deepEqual(
-  readBaselineRun([
-    {
-      fields: {
-        "Run ID": "30520608995",
-        "Run Attempt": 1,
-        "Finished At": "2026-07-30T07:06:12.053Z",
-      },
-    },
-  ]),
-  {
-    runId: "30520608995",
-    runAttempt: 1,
-    finishedAt: "2026-07-30T07:06:12.053Z",
-  },
-);
-assert.equal(readBaselineRun([]), undefined);
-assert.equal(readBaselineRun([{ fields: {} }]), undefined);
-assert.equal(
-  readBaselineRun([{ fields: { "Run ID": "1", "Run Attempt": null } }])
-    .runAttempt,
-  1,
-);
-
-const resultsQuery = buildBaselineResultsQuery({
-  runId: "30520608995",
-  runAttempt: 1,
+const recordsQuery = buildBaselineRecordsQuery({
+  commit: "e0dae6da",
   skip: 1000,
 });
-assert.equal(resultsQuery.get("take"), "1000");
-assert.equal(resultsQuery.get("skip"), "1000");
-assert.deepEqual(resultsQuery.getAll("projection"), [
+assert.equal(recordsQuery.get("take"), "1000");
+assert.equal(recordsQuery.get("skip"), "1000");
+// The commit's rows carry their own run identity, which is what removes the
+// separate "which run measured this commit" round trip. Everything else here is
+// what the summary reads; nothing is projected for its own sake.
+assert.deepEqual(recordsQuery.getAll("projection"), [
+  "Run ID",
+  "Run Attempt",
   "Case ID",
   "Engine",
   "Result",
   "Primary Metric",
   "Primary Metric Value",
 ]);
-assert.deepEqual(JSON.parse(resultsQuery.get("filter")).filterSet, [
-  { fieldId: "Run ID", operator: "is", value: "30520608995" },
-  { fieldId: "Run Attempt", operator: "is", value: 1 },
+// By field id, like the launch query: a renamed column does not fail this
+// request, it drops the condition and returns the whole table.
+assert.deepEqual(JSON.parse(recordsQuery.get("filter")).filterSet, [
+  { fieldId: TEABLE_EE_REF_FIELD_ID, operator: "is", value: "e0dae6da" },
 ]);
+// Nothing is sorted server-side: a renamed sort field is silently ignored, and
+// the newest run is chosen here from the complete set instead.
+assert.equal(recordsQuery.get("orderBy"), null);
+// No cellFormat=text: it would hand back "Run Attempt" and the metric value as
+// localised strings.
+assert.equal(recordsQuery.get("cellFormat"), null);
 assert.throws(
-  () => buildBaselineResultsQuery({ runId: "" }),
-  /baseline run id is required/,
+  () => buildBaselineRecordsQuery({ commit: "" }),
+  /release commit is required/,
 );
+
+// GitHub issues run ids in increasing order, so the newest run wins regardless
+// of the order rows arrive in.
+assert.deepEqual(
+  selectBaselineRun([
+    { fields: { "Run ID": "30520608995", "Run Attempt": 1 } },
+    { fields: { "Run ID": "9999999999", "Run Attempt": 1 } },
+    { fields: { "Run ID": "30890523711", "Run Attempt": 1 } },
+  ]),
+  { runId: "30890523711", runAttempt: 1 },
+);
+// A rerun of the same run is a later attempt, not a later id.
+assert.deepEqual(
+  selectBaselineRun([
+    { fields: { "Run ID": "30520608995", "Run Attempt": 2 } },
+    { fields: { "Run ID": "30520608995", "Run Attempt": 1 } },
+  ]),
+  { runId: "30520608995", runAttempt: 2 },
+);
+// `Number(null)` is 0, and attempt 0 does not exist: an unset attempt has to
+// fold into attempt 1 or one run splits into two.
+assert.equal(
+  selectBaselineRun([{ fields: { "Run ID": "1", "Run Attempt": null } }])
+    .runAttempt,
+  1,
+);
+assert.equal(selectBaselineRun([]), undefined);
+assert.equal(selectBaselineRun(undefined), undefined);
+assert.equal(selectBaselineRun([{ fields: {} }]), undefined);
+
+const chosenRun = { "Run ID": "30520608995", "Run Attempt": 1 };
+const records = [
+  {
+    fields: {
+      ...chosenRun,
+      "Case ID": "duplicate-base/10k",
+      Engine: "v1",
+      Result: "pass",
+      "Primary Metric": "duplicateBaseRequestMs",
+      "Primary Metric Value": 2230.07,
+    },
+  },
+  {
+    fields: {
+      ...chosenRun,
+      "Case ID": "duplicate-base/10k",
+      Engine: "v2",
+      Result: "pass",
+      "Primary Metric": "duplicateBaseRequestMs",
+      "Primary Metric Value": 1100,
+    },
+  },
+  // A failed run measured how long the failure took, not how the released
+  // build behaves. Using it would invent a regression or hide one.
+  {
+    fields: {
+      ...chosenRun,
+      "Case ID": "field-convert/text",
+      Engine: "v2",
+      Result: "fail",
+      "Primary Metric": "convertMs",
+      "Primary Metric Value": 90_000,
+    },
+  },
+  {
+    fields: {
+      ...chosenRun,
+      "Case ID": "import-base/v2-only",
+      Engine: "v1",
+      Result: "skipped",
+      "Primary Metric Value": null,
+    },
+  },
+  { fields: { ...chosenRun, "Case ID": "", Engine: "v2", Result: "pass" } },
+  // An earlier run of the same commit. The query filters on the commit, so
+  // these arrive too — and they are neither baseline values nor unusable
+  // measurements, they simply describe a different run.
+  {
+    fields: {
+      "Run ID": "30400000000",
+      "Run Attempt": 1,
+      "Case ID": "duplicate-base/10k",
+      Engine: "v2",
+      Result: "pass",
+      "Primary Metric": "duplicateBaseRequestMs",
+      "Primary Metric Value": 4242,
+    },
+  },
+  {
+    fields: {
+      "Run ID": "30400000000",
+      "Run Attempt": 1,
+      "Case ID": "gone-since/case",
+      Engine: "v2",
+      Result: "fail",
+      "Primary Metric Value": 7,
+    },
+  },
+];
+
+assert.deepEqual(selectBaselineRun(records), {
+  runId: "30520608995",
+  runAttempt: 1,
+});
 
 const baseline = buildReleaseBaseline({
   launch: { commit: "e0dae6da", release: "release.2429" },
-  run: { runId: "30520608995", runAttempt: 1, finishedAt: "2026-07-30" },
+  run: selectBaselineRun(records),
   runUrl:
     "https://github.com/teableio/teable-perf-lab/actions/runs/30520608995",
-  records: [
-    {
-      fields: {
-        "Case ID": "duplicate-base/10k",
-        Engine: "v1",
-        Result: "pass",
-        "Primary Metric": "duplicateBaseRequestMs",
-        "Primary Metric Value": 2230.07,
-      },
-    },
-    {
-      fields: {
-        "Case ID": "duplicate-base/10k",
-        Engine: "v2",
-        Result: "pass",
-        "Primary Metric": "duplicateBaseRequestMs",
-        "Primary Metric Value": 1100,
-      },
-    },
-    // A failed run measured how long the failure took, not how the released
-    // build behaves. Using it would invent a regression or hide one.
-    {
-      fields: {
-        "Case ID": "field-convert/text",
-        Engine: "v2",
-        Result: "fail",
-        "Primary Metric": "convertMs",
-        "Primary Metric Value": 90_000,
-      },
-    },
-    {
-      fields: {
-        "Case ID": "import-base/v2-only",
-        Engine: "v1",
-        Result: "skipped",
-        "Primary Metric Value": null,
-      },
-    },
-    { fields: { "Case ID": "", Engine: "v2", Result: "pass" } },
-  ],
+  records,
 });
 
 assert.equal(baseline.commit, "e0dae6da");
 assert.equal(baseline.release, "release.2429");
 assert.equal(baseline.runId, "30520608995");
+assert.equal(baseline.runAttempt, 1);
+// The artifact carries no `finishedAt`: nothing renders it, so nothing projects
+// the column that would supply it.
+assert.equal("finishedAt" in baseline, false);
 assert.equal(baseline.valueCount, 2);
 assert.equal(baseline.caseCount, 1);
 assert.equal(baseline.unusableCount, 2);
+// The chosen run's value, not the earlier run's 4242.
 assert.deepEqual(baseline.values["duplicate-base/10k::v2"], {
   value: 1100,
   metric: "duplicateBaseRequestMs",
 });
 assert.equal(baseline.values["field-convert/text::v2"], undefined);
+// A case only the earlier run measured is absent rather than backfilled: the
+// baseline describes one run, and the summary reports it as missing.
+assert.equal(baseline.values["gone-since/case::v2"], undefined);
 
 console.log("release baseline model checks passed.");
