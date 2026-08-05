@@ -338,7 +338,7 @@ export const buildPerfSummaryCard = ({
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
-    rows.map((row) => formatComparisonLine(row, context.chartUrl)).join("\n\n");
+    rows.map((row) => formatComparisonLine(row, context.chartUrl)).join("\n");
 
   const v2TimingColumns =
     Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
@@ -590,7 +590,7 @@ export const buildEngineSummaryCard = ({ payloads, context = {} }) => {
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
-    rows.map((row) => formatEngineLine(row, context.chartUrl)).join("\n\n");
+    rows.map((row) => formatEngineLine(row, context.chartUrl)).join("\n");
 
   return {
     msg_type: "interactive",
