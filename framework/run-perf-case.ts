@@ -1,5 +1,11 @@
 import { performance } from "node:perf_hooks";
 import { writePerfArtifacts, type PerfArtifactPayload } from "./artifacts";
+import {
+  closeComputeWindow,
+  detachedComputeMetrics,
+  openComputeWindow,
+  toComputeMetrics,
+} from "./compute-span-sink";
 import { roundMetric } from "./metrics";
 import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { executeRegisteredRunner } from "./runner-registry";
@@ -39,6 +45,36 @@ export const runPerfCase = async (
     artifactDir: process.env.PERF_LAB_ARTIFACT_DIR,
   };
 
+  // Opened around the runner so every case carries a compute number without
+  // its runner having to opt in. This window covers fixture preparation as
+  // well as the measured operation, so it is a coarse health signal — not a
+  // comparable per-operation measurement. Narrowing it to the measured region
+  // is a later phase; see docs/compute-time-observation-spec.md.
+  const computeWindow = openComputeWindow();
+  let computeMetrics: Record<string, number> | undefined;
+  // Closing is idempotent and must happen before artifact work, so the window
+  // does not absorb trace deferral time on either the success or failure path.
+  const takeComputeMetrics = () => {
+    if (!computeMetrics) {
+      const summary = closeComputeWindow(computeWindow);
+      computeMetrics = summary
+        ? toComputeMetrics(summary)
+        : detachedComputeMetrics();
+    }
+    return computeMetrics;
+  };
+  const withComputeDetails = (details?: Record<string, unknown>) => {
+    const existing = details?.observability;
+    const observability =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? (existing as Record<string, unknown>)
+        : {};
+    return {
+      ...details,
+      observability: { ...observability, compute: takeComputeMetrics() },
+    };
+  };
+
   try {
     const result = perfCase.watchdogMs
       ? await runWithWatchdog(
@@ -51,10 +87,8 @@ export const runPerfCase = async (
           () => executeRegisteredRunner(perfCase, context),
         )
       : await executeRegisteredRunner(perfCase, context);
-    const thresholdResults = evaluateThresholds(
-      result.metrics,
-      result.thresholds,
-    );
+    const metrics = { ...result.metrics, ...takeComputeMetrics() };
+    const thresholdResults = evaluateThresholds(metrics, result.thresholds);
     const skipped = result.result === "skipped";
     const passed =
       skipped || thresholdResults.every((threshold) => threshold.passed);
@@ -68,13 +102,13 @@ export const runPerfCase = async (
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       durationMs: roundMetric(performance.now() - started),
-      metrics: result.metrics,
+      metrics,
       thresholds: thresholdResults,
       phases: result.phases,
       details: await deferPerfTraceDetails({
         context,
         perfCase,
-        details: result.details,
+        details: withComputeDetails(result.details),
       }),
     };
 
@@ -95,8 +129,9 @@ export const runPerfCase = async (
     }
 
     if (error instanceof PerfRunDiagnosticError) {
+      const metrics = { ...error.result.metrics, ...takeComputeMetrics() };
       const thresholdResults = evaluateThresholds(
-        error.result.metrics,
+        metrics,
         error.result.thresholds,
       );
       const payload: PerfArtifactPayload = {
@@ -109,13 +144,13 @@ export const runPerfCase = async (
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
         durationMs: roundMetric(performance.now() - started),
-        metrics: error.result.metrics,
+        metrics,
         thresholds: thresholdResults,
         phases: error.result.phases,
         details: await deferPerfTraceDetails({
           context,
           perfCase,
-          details: error.result.details,
+          details: withComputeDetails(error.result.details),
         }),
         error: normalizePerfError(error),
       };
@@ -134,9 +169,13 @@ export const runPerfCase = async (
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       durationMs: roundMetric(performance.now() - started),
-      metrics: {},
+      metrics: { ...takeComputeMetrics() },
       thresholds: [],
-      details: await deferPerfTraceDetails({ context, perfCase }),
+      details: await deferPerfTraceDetails({
+        context,
+        perfCase,
+        details: withComputeDetails(),
+      }),
       error: normalizePerfError(error),
     };
 
