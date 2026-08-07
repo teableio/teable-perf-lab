@@ -5,6 +5,7 @@ import {
   REGRESSION_TIERS,
 } from "./full-run-comparison-model.mjs";
 import { buildEngineComparison } from "./engine-comparison-model.mjs";
+import { buildComputeComparison } from "./compute-comparison-model.mjs";
 
 export const parseDate = (value) => {
   const time = Date.parse(value ?? "");
@@ -181,6 +182,32 @@ export const formatComparison = (label, referenceValue, ratio) => {
 export const formatReleaseNote = (row) =>
   formatComparison("线上", row.baselineV2, row.releaseRatio);
 
+// Wording for the compute verdicts. The keys are the model's; the sentences are
+// the only place a reader is told what the pair of ratios means, so they state
+// the conclusion rather than the arithmetic.
+// The GitHub summary lists at most this many compute rows. Small because the
+// block is fixed content weighed against the byte budget before regression
+// detail; the count of everything else is always printed.
+export const COMPUTE_HIGHLIGHT_LIMIT = 5;
+
+export const COMPUTE_VERDICT_LABELS = {
+  deferred: "计算量没降，只是挪走了",
+  regression: "计算真的变慢了",
+  "hidden-cost": "墙钟持平但多烧了计算",
+  scheduling: "计算持平，是调度变慢",
+  "hidden-gain": "墙钟持平但计算变快了",
+  optimized: "计算真的变快了",
+  flat: "持平",
+};
+
+export const formatComputeLine = (row, chartUrl) => {
+  const label = COMPUTE_VERDICT_LABELS[row.verdict] ?? "无法比较";
+  const note = row.shapeChanged
+    ? `计算形态从 ${row.baselineShape} 变成 ${row.shape}，不可比`
+    : formatComparison("线上", row.baselineComputeMs, row.computeRatio);
+  return `- [${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)}) 计算 ${formatMetricSeconds(row.computeMs)} · ${note} · **${label}**`;
+};
+
 // One line per case, and one comparison on it. This card is only ever the
 // release comparison: V1 has its own card, and carrying both on every row is
 // what made a single row read as two verdicts at once.
@@ -335,6 +362,17 @@ export const buildPerfSummaryCard = ({
     ? `性能回归 · 较线上慢 ${regressions.length} · 严重 ${severeCount}`
     : "性能回归 · 无线上基线";
 
+  const compute = buildComputeComparison({
+    payloads,
+    baseline,
+    releaseComparison: comparison,
+  });
+  const computeHighlights = [
+    ...compute.deferred,
+    ...compute.regressions,
+    ...compute.hiddenCost,
+  ];
+
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
@@ -439,6 +477,34 @@ export const buildPerfSummaryCard = ({
               }),
             ]
           : []),
+        // Compute time answers what the panel above cannot: whether a case that
+        // got faster actually got cheaper. Its own panel rather than a column on
+        // the rows above, because the two comparisons disagree by design — a run
+        // can be "较线上慢 0" and still have burned more machine, and putting
+        // both on one row is what made a single row read as two verdicts.
+        ...(compute.available && computeHighlights.length > 0
+          ? [
+              collapsiblePanel({
+                title: `计算时间 · 只是挪走 ${compute.counts.deferred} · 变慢 ${compute.counts.computeSlower}`,
+                expanded: compute.counts.deferred > 0,
+                elements: [
+                  larkDiv(
+                    computeHighlights
+                      .slice(0, COMPUTE_HIGHLIGHT_LIMIT)
+                      .map((row) => formatComputeLine(row, context.chartUrl))
+                      .join("\n"),
+                  ),
+                  ...(computeHighlights.length > COMPUTE_HIGHLIGHT_LIMIT
+                    ? [
+                        larkDiv(
+                          `其余 ${computeHighlights.length - COMPUTE_HIGHLIGHT_LIMIT} 个见 Performance Track`,
+                        ),
+                      ]
+                    : []),
+                ],
+              }),
+            ]
+          : []),
         ...(failures.length > 0
           ? [
               collapsiblePanel({
@@ -470,6 +536,11 @@ export const buildPerfSummaryMarkdown = ({
 
   const counts = resultCounts(payloads);
   const comparison = buildReleaseComparison({ payloads, baseline });
+  const compute = buildComputeComparison({
+    payloads,
+    baseline,
+    releaseComparison: comparison,
+  });
   const regressions = comparison.regressions;
   const runId = context.runId ?? payloads[0]?.runId ?? "";
   const tierLine = REGRESSION_TIERS.map(
@@ -486,6 +557,10 @@ export const buildPerfSummaryMarkdown = ({
     `- Run: ${runId || "unknown"} · Job: ${context.executeResult || "unknown"}`,
     `- Results: ${counts.pass} passed · ${counts.skipped} skipped · ${counts.fail} failed`,
     `- Vs release: ${comparison.counts.compared} compared · ${comparison.counts.slower} slower · ${comparison.counts.faster} faster · ${comparison.counts.missingBaseline} without baseline`,
+    // Compute time answers the question the line above cannot: whether a faster
+    // wall clock is work saved or work relocated. Reported, never gated — the
+    // band is inherited rather than calibrated, see compute-comparison-model.mjs.
+    `- Compute vs release: ${compute.counts.compared} compared · ${compute.counts.computeSlower} slower · ${compute.counts.computeFaster} faster · ${compute.counts.deferred} moved not saved · ${compute.counts.shapeChanged} shape changed · ${compute.counts.missingBaseline} without baseline`,
     ...(comparison.available ? [`- Bands: ${tierLine}`] : []),
     "",
     "### Slower than the released build",
@@ -498,6 +573,32 @@ export const buildPerfSummaryMarkdown = ({
       : "",
     context.chartUrl ? `[Charts](${context.chartUrl})` : "",
   ].filter(Boolean);
+  // Bounded on purpose: this block is fixed content, so it is measured against
+  // the byte budget before any regression detail is allowed in, and an unbounded
+  // list would starve the section above it. The omitted count is printed rather
+  // than dropped — a truncated list that does not say so reads as a complete one.
+  const computeHighlights = [
+    ...compute.deferred,
+    ...compute.regressions,
+    ...compute.hiddenCost,
+  ];
+  const shownComputeRows = computeHighlights.slice(0, COMPUTE_HIGHLIGHT_LIMIT);
+  const computeSection =
+    compute.available && computeHighlights.length > 0
+      ? [
+          "",
+          "### Compute time",
+          "",
+          ...shownComputeRows.map((row) =>
+            formatComputeLine(row, context.chartUrl),
+          ),
+          ...(computeHighlights.length > shownComputeRows.length
+            ? [
+                `- …and ${computeHighlights.length - shownComputeRows.length} more; full numbers in Performance Track.`,
+              ]
+            : []),
+        ]
+      : [];
   const footer = [
     // "Nothing was slower" and "nothing could be compared" are different
     // outcomes, and only one of them is a clean run.
@@ -509,6 +610,7 @@ export const buildPerfSummaryMarkdown = ({
             : "No comparison was possible.",
         ]
       : []),
+    ...computeSection,
     ...(footerLinks.length > 0 ? ["", footerLinks.join(" · ")] : []),
     "",
   ];
