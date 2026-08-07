@@ -200,23 +200,47 @@ carry which engine moved**, so nobody has to work it out by hand. The second is
 not built; it needs both medians on each side attached to every change point,
 which the detector already has and simply does not report.
 
+## The commit named is sometimes the one next to the culprit
+
+Acceptance section B counts a detection as correct if it names the commit within
+±1, and that tolerance is real rather than theoretical. On
+`record-read/50k-50fields-group-number-low-cardinality` the measurements go
+2802ms at mainline position 2599 and 6796ms at 2600, so the commit that did it
+is the one at 2600 — `a7c04bf9`. The change point reports position 2601, and
+therefore names `736df78f`, an innocent neighbour.
+
+The likely reason is visible in the same window: V1 at 2599 reads 6938ms against
+about 5200ms either side, and the detector works on `log(v2) − log(v1)`, so one
+noisy control point moves where the split lands.
+
+Nothing is wrong by the stated criteria — this is inside the tolerance that was
+signed off. But a SHA in an alert does not read as "this or its neighbour", and
+whoever triages will open exactly the commit named. Two things follow: **the
+triage list has to say the boundary is ±1**, and the output should carry the
+neighbouring commit explicitly rather than leaving the reader to know. Neither
+is done.
+
 ## Findings this produced along the way
 
-Two unfixed production regressions, both found while validating rather than
-while looking:
+Two production regressions, both found while validating rather than while
+looking:
 
-- `a7c04bf9` — record-read, filed as an internal issue (`receeJXDRNoh7qQcy3o`)
-  claiming 2.16x and 2.76x. **The 2026-08-07 run contradicts this and the issue
-  has not been corrected yet.** On the full corpus, the only confirmed change
-  point at `a7c04bf9` is `record-read/50k-50fields-sort-text-ascending`, and it
-  is an improvement, not a regression: V2 goes 6301ms to 1593ms at mainline
-  position 2600, while V1 stays near 8000ms. The large V2 regression on that
-  case is a different commit, `a4c04008`, at position 2698 — 1680ms to 7562ms.
-  Needs a decision on what to write back to the issue; this would be its second
-  correction, after the retracted 3.59x headline below.
+- `a7c04bf9` — record-read, filed as an internal issue (`receeJXDRNoh7qQcy3o`),
+  was 8 days old when found. **Since fixed**, by `a4c04008`. On
+  `record-read/50k-50fields-group-number-low-cardinality` V2 goes 2802ms to
+  6796ms at mainline position 2600, holds there for about a hundred commits,
+  and returns to 3094ms at position 2698 — 2452ms to 2768ms since, which is
+  where it was before. The report is closed by the data, not by inspection.
 - `b636d744b4` — five foreign-key fanout cases, 1.4x to 2.5x, attribution exact
   to the single commit, was two days old when found. Heads the triage list; not
   filed separately yet.
+
+One commit is rarely one story. The same `a7c04bf9` that cost the grouping case
+2.4x made `record-read/50k-50fields-sort-text-ascending` four times faster
+(6301ms to 1593ms), and the `a4c04008` that fixed the grouping case regressed
+the sorting one (1680ms to 7562ms, ~3286ms and falling since). Reading one case
+and generalising gets the direction exactly backwards — which happened here,
+during this write-up, before the second case was pulled.
 
 The first issue was filed with a claim that had to be retracted afterwards: a
 "3.59x" headline drawn from the noisiest series in the whole corpus, which moves
