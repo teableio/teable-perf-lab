@@ -76,6 +76,9 @@ assert.equal(recordsQuery.get("skip"), "1000");
 // The commit's rows carry their own run identity, which is what removes the
 // separate "which run measured this commit" round trip. Everything else here is
 // what the summary reads; nothing is projected for its own sake.
+// `Metrics JSON` is the exception to "nothing for its own sake": compute time
+// has no column of its own and rides inside that blob, at 689 bytes per row
+// against the ~25 KB/row that made an unprojected read fail outright.
 assert.deepEqual(recordsQuery.getAll("projection"), [
   "Run ID",
   "Run Attempt",
@@ -84,6 +87,7 @@ assert.deepEqual(recordsQuery.getAll("projection"), [
   "Result",
   "Primary Metric",
   "Primary Metric Value",
+  "Metrics JSON",
 ]);
 // By field id, like the launch query: a renamed column does not fail this
 // request, it drops the condition and returns the whole table.
@@ -232,5 +236,64 @@ assert.equal(baseline.values["field-convert/text::v2"], undefined);
 // A case only the earlier run measured is absent rather than backfilled: the
 // baseline describes one run, and the summary reports it as missing.
 assert.equal(baseline.values["gone-since/case::v2"], undefined);
+// Rows measured before compute collection shipped carry no compute key at all,
+// which the comparison reads as "no baseline" rather than as zero.
+assert.equal("compute" in baseline.values["duplicate-base/10k::v2"], false);
+
+// Compute time rides inside `Metrics JSON`, which arrives as text.
+const computeBaseline = buildReleaseBaseline({
+  launch: { commit: "e0dae6da" },
+  run: { runId: "30520608995", runAttempt: 1 },
+  records: [
+    {
+      fields: {
+        ...chosenRun,
+        "Case ID": "lookup/flip",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "opMs",
+        "Primary Metric Value": 1100,
+        "Metrics JSON": JSON.stringify({
+          opMs: 1100,
+          computeMs: 836.29,
+          computeAsyncMs: 836.29,
+          computeTaskCount: 16,
+        }),
+      },
+    },
+    // Anything can be in a text column: an older schema, a truncated write. One
+    // unreadable blob costs the compute half of one case, never the run.
+    {
+      fields: {
+        ...chosenRun,
+        "Case ID": "lookup/torn",
+        Engine: "v2",
+        Result: "pass",
+        "Primary Metric": "opMs",
+        "Primary Metric Value": 900,
+        "Metrics JSON": '{"computeMs": 83',
+      },
+    },
+  ],
+});
+
+assert.deepEqual(computeBaseline.values["lookup/flip::v2"].compute, {
+  value: 836.29,
+  shape: "outbox",
+});
+assert.equal("compute" in computeBaseline.values["lookup/torn::v2"], false);
+assert.equal(computeBaseline.values["lookup/torn::v2"].value, 900);
+assert.equal(computeBaseline.computeCount, 1);
+// The torn blob is unreadable, not merely compute-free. Counting them the same
+// way would make a column this code can no longer read look identical to the
+// legitimate "no compute measured yet" state.
+assert.equal(computeBaseline.metricsReadable, 1);
+assert.equal(computeBaseline.metricsUnreadable, 1);
+
+// Rows written before compute collection shipped: readable, just no compute.
+// This is the state that must NOT look like a broken column.
+assert.equal(baseline.computeCount, 0);
+assert.equal(baseline.metricsReadable, 0);
+assert.equal(baseline.metricsUnreadable, 0);
 
 console.log("release baseline model checks passed.");

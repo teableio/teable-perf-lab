@@ -133,6 +133,19 @@ const main = async () => {
   console.log(
     `Release baseline: ${launch.release ?? launch.commit} (${launch.commit.slice(0, 7)}) run ${run.runId} attempt ${run.runAttempt}, ${baseline.caseCount} cases / ${baseline.valueCount} measurements${baseline.unusableCount > 0 ? `, ${baseline.unusableCount} unusable` : ""}, ${records.length} rows read → ${outputPath}`,
   );
+  console.log(
+    `Compute baseline: ${baseline.computeCount} values, metrics ${baseline.metricsReadable} readable / ${baseline.metricsUnreadable} unreadable`,
+  );
+  // Zero compute is expected until a released commit has been measured since
+  // compute collection shipped. Zero *readable* metrics is not: it means this
+  // code can no longer read the column it reads compute out of, which otherwise
+  // looks exactly the same from here.
+  if (records.length > 0 && baseline.metricsReadable === 0) {
+    console.warn(
+      `[perf-lab] read ${records.length} baseline rows and could not parse Metrics JSON on any of them. ` +
+        `The column's name or cell format changed; compute comparison is silently disabled until this is fixed.`,
+    );
+  }
 };
 
 main().catch((error) => {
