@@ -21,12 +21,11 @@
 // depends on today, and a shadow that cannot compute is a shadow that reports
 // nothing — not a reason to lose a run's results.
 
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { promisify } from "node:util";
 import { env } from "./env.mjs";
 import {
   benjaminiHochberg,
@@ -37,8 +36,6 @@ import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
 import { separateFresh } from "./change-point-identity-model.mjs";
-
-const execFileAsync = promisify(execFile);
 
 export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
 
@@ -78,31 +75,92 @@ const longestSegment = (entry) =>
     [],
   );
 
-const run = async (command, args, options = {}) => {
-  const { stdout } = await execFileAsync(command, args, {
-    maxBuffer: 256 * 1024 * 1024,
-    ...options,
+/**
+ * Spawn a child, hand it `input` on stdin, and give back its stdout.
+ *
+ * stdin is closed every time, with or without input to send. Asynchronous
+ * `execFile` has no `input` option — that belongs to `execFileSync` — and
+ * silently ignores it, so the child is left holding a pipe that never reaches
+ * end-of-input. Both ordering resolvers read stdin to EOF before they do
+ * anything, and waited for a close that was never coming: 34 minutes of no
+ * output in CI, killed by SIGTERM when the report job hit its own 30-minute
+ * limit, taking that job's remaining steps down with it.
+ *
+ * stderr is inherited rather than collected. A child that is retrying a page or
+ * about to fail should say so while it is happening; collecting it means the
+ * log stays empty until the process ends, which is exactly the case where
+ * nobody can see what is wrong.
+ */
+const run = (command, args, { input = "", capture = true, ...options } = {}) =>
+  new Promise((settle, fail) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ["pipe", capture ? "pipe" : "inherit", "inherit"],
+    });
+
+    let stdout = "";
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+
+    child.once("error", fail);
+    child.once("close", (code) => {
+      if (code === 0) {
+        settle(stdout);
+        return;
+      }
+      fail(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
+    });
+
+    // Three of the five stages never read stdin and can exit before the close
+    // lands, which arrives as EPIPE on a stream with no listener — an unhandled
+    // error event, which is fatal. The child's own exit code is the answer that
+    // matters here, so this one is discarded rather than reported.
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
   });
-  return stdout;
-};
+
+const countLines = (text) => text.split("\n").filter(Boolean).length;
 
 /**
  * Rebuild the ordering and digest inputs, then the corpus, into the workspace.
  *
  * Every path is under `workDir`, which CI discards when the run ends. Nothing
  * is written into the repository.
+ *
+ * Each stage announces itself first. The stages are minutes long and three of
+ * them talk to the network, so a log that only prints on success cannot tell a
+ * slow stage from a stuck one — which is how the stdin hang above went 34
+ * minutes without anyone being able to say where it was.
  */
-const refreshCorpus = async ({ workDir, teableEeRepo }) => {
+export const refreshCorpus = async ({ workDir, teableEeRepo }) => {
   const orderPath = resolve(workDir, "commit-order.json");
   const digestPath = resolve(workDir, "case-digests.json");
   const corpusPath = resolve(workDir, "perf-corpus.json");
 
+  // Checked before the refs query rather than after, so that a missing clone
+  // reads as a missing clone. Left to git it arrives as `cannot change to
+  // 'teable-ee-revision'` from a step that already ran two minutes of network
+  // work for nothing.
+  try {
+    await access(resolve(teableEeRepo, ".git"));
+  } catch {
+    throw new Error(
+      `No teable-ee clone at ${teableEeRepo}. Commit ordering needs the mainline first-parent chain; check out teableio/teable-ee to that path before this runs.`,
+    );
+  }
+
+  console.log("Shadow: listing teable-ee refs…");
   const refs = await run("node", [
     resolve("scripts/list-corpus-refs.mjs"),
     "--teable-ee",
   ]);
+
+  console.log(`Shadow: positioning ${countLines(refs)} teable-ee refs…`);
   await run("node", [resolve("scripts/resolve-commit-order.mjs")], {
     input: refs,
+    capture: false,
     env: {
       ...process.env,
       TEABLE_EE_REPO: teableEeRepo,
@@ -110,16 +168,22 @@ const refreshCorpus = async ({ workDir, teableEeRepo }) => {
     },
   });
 
+  console.log("Shadow: listing perf-lab refs…");
   const perfRefs = await run("node", [
     resolve("scripts/list-corpus-refs.mjs"),
     "--perf-lab",
   ]);
+
+  console.log(`Shadow: digesting ${countLines(perfRefs)} perf-lab commits…`);
   await run("node", [resolve("scripts/resolve-case-digests.mjs")], {
     input: perfRefs,
+    capture: false,
     env: { ...process.env, CASE_DIGESTS_PATH: digestPath },
   });
 
+  console.log("Shadow: building corpus…");
   await run("node", [resolve("scripts/build-perf-corpus.mjs")], {
+    capture: false,
     env: {
       ...process.env,
       COMMIT_ORDER_PATH: orderPath,
@@ -256,6 +320,9 @@ const main = async () => {
       ordinal,
       sha,
     ]),
+  );
+  console.log(
+    `Shadow: detecting over ${Object.keys(corpus.series ?? {}).length} series…`,
   );
   const analysis = analyse(corpus, {
     commitAt: (ordinal) => commitOf.get(ordinal),
