@@ -56,7 +56,8 @@ or whether a weekly script suffices. This is the longest lead item and the only
 one that can run in parallel with everything else.
 
 **2. Merging.** The work is on `perf/shadow-analysis-ci`, pushed, with `main`
-untouched. It merges once a CI run reports a corpus it actually read.
+untouched. The condition for merging is met: run 31192079501 read the whole
+history and 31193504224 confirmed the seen-set carries between runs.
 
 **3. Ledger shape**, once the triage number is in.
 
@@ -137,7 +138,37 @@ What that last one changed, beyond the fix:
   written as if the `resolve_inputs` checkout carried over into a second job's
   workspace; it does not, and `continue-on-error` hid the exit 128.
 
-### 2. The corpus is refetched in full every run — 325 requests, ~4 minutes
+### 2. The same-run layer judges the newest point in the corpus, not this run's
+
+Verified on runs 31192079501 and 31193504224: both flagged the same six cases at
+byte-identical ratios — 4.23x, 2.061x, 1.801x, 1.536x, 1.475x, 1.402x — and both
+reported `judged: 283`.
+
+That is not stability, it is the same data twice. Both were single-case
+dispatches of `smoke/auth-user`, so each added exactly two rows to the corpus
+(one per engine) and left the other 282 cases untouched. `analyse` builds
+`fastCases` from every measurable V2 series and takes `values[values.length - 1]`
+as the point under test, so for any case this run did not measure that point
+comes from whenever it was last measured — here, days-old rows from the previous
+full run, re-judged and re-flagged as if they were new.
+
+The real cadence is full runs, where every case is measured and the newest point
+really is this run's, so this is mostly an artefact of cheap verification. Two
+things still follow:
+
+- **The ten reconciliation runs have to be full runs.** Ten single-case runs
+  would re-report the same six flags ten times and the reconciliation would mean
+  nothing.
+- **A case the run did not measure should not be judged at all.** The fix is to
+  pass the run's own measurements in rather than reading the tail of the corpus,
+  which also removes the last reason for the fast layer to depend on the corpus
+  being rebuilt first. Not done.
+
+The confirmed layer does not have this problem — it is deduplicated by
+`[[change-point-identity-model]]` and was clean across the pair: 68 new and 0
+repeated on the first run, 0 new and 68 repeated on the second.
+
+### 3. The corpus is refetched in full every run — 325 requests, ~4 minutes
 
 Measured in CI: **5m56s** for the whole step, of which **3m52s** is the corpus.
 The same work is 21m37s on a developer machine — the difference is the `teable`
@@ -170,7 +201,7 @@ neither done:
 
 Worth settling before ten shadow runs turn six minutes a run into a standing cost.
 
-### 3. Ten shadow runs
+### 4. Ten shadow runs
 
 Calendar time, roughly a week at the current cadence. Needs one clean run first.
 
@@ -182,7 +213,7 @@ sighting only because nothing had been recorded before. The second run is the
 first whose confirmed count means "new". Two runs are needed before the output
 says what it appears to say.
 
-### 4. Ledger, card, retirement
+### 5. Ledger, card, retirement
 
 All gated on the triage number and the shadow data. Section G of the acceptance
 criteria will not accept retiring the old comparison until ten runs have been
