@@ -89,9 +89,15 @@ the detection:
   well-formed artifact, and put `0 flagged, 0 confirmed` in the job summary —
   which is exactly what a quiet, healthy run looks like.
 
-  Fixed with `fetch-depth: 0` plus `filter` on both clones — `tree:0` for
-  teable-ee, which only needs commit objects, `blob:none` for perf-lab, which
-  reads the case files. And `assertUsable` in `run-shadow-analysis.mjs` now
+  teable-ee takes `fetch-depth: 0` with `filter: tree:0` on the checkout, since
+  it only ever reads commit objects. perf-lab is unshallowed in a step of its
+  own with `--filter=blob:none`, so the case files come down and the rest of the
+  history's contents stay on the server, and only the shadow pays for it. Test
+  for the shallow state with `rev-parse --is-shallow-repository`, not by looking
+  for a `shallow` file — `rev-parse --git-dir` answers relative to the
+  repository, so that test reads the wrong directory and silently skips.
+
+  And `assertUsable` in `run-shadow-analysis.mjs` now
   refuses to write a result at all when under half the refs position or the
   median series is shorter than the 30 points the confirmed layer needs. A zero
   is a claim; it should only be made about a history that was actually read.
