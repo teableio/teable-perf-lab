@@ -6,6 +6,10 @@ import { getPerfCase, resolvePerfCaseIdsWithExclusions } from "./registry";
 import { runPerfCase } from "./framework/run-perf-case";
 import { seedPerfCase } from "./framework/run-perf-seed";
 import { updatePerfArtifactTraceSummary } from "./framework/artifacts";
+import {
+  getComputeSinkDiagnostics,
+  installComputeSpanSink,
+} from "./framework/compute-span-sink";
 import { applyCaseRuntimeEnv } from "./framework/perf-runtime-env";
 import type { PerfCase } from "./framework/types";
 import {
@@ -204,6 +208,29 @@ describe("perf-lab serial case runner (e2e)", () => {
   beforeAll(() => {
     setPerfTraceFlush(getOtelForceFlush());
     installPerfTraceCollector();
+    // Installed once per process, and deliberately not part of
+    // resetAxiosInterceptors(): the span processor is attached to the OTel
+    // provider, which outlives each engine's Nest app.
+    logPhase("compute-span-sink", {
+      attached: installComputeSpanSink(otelSDK),
+    });
+  });
+
+  afterAll(() => {
+    // The sink attaches through an OpenTelemetry private field, so an OTel
+    // upgrade can detach it silently — and a detached sink looks exactly like
+    // a suite that did no computing. Seeing zero spans of ANY name is the one
+    // signal that tells those apart. Warn rather than fail: a perf run must
+    // not go red because observability moved.
+    const diagnostics = getComputeSinkDiagnostics();
+    logPhase("compute-span-sink:done", diagnostics);
+    if (diagnostics.attached && diagnostics.spansSeen === 0) {
+      console.warn(
+        "[perf-lab] compute span sink attached but observed no spans at all. " +
+          "This is an attachment break, not a quiet suite — check whether the " +
+          "OpenTelemetry SDK layout changed.",
+      );
+    }
   });
 
   const runEngines: Array<Engine | "seed"> =
