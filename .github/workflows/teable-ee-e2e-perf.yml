@@ -944,6 +944,16 @@ jobs:
       # — a different job, so a different workspace — and the deepen step below
       # was written as if it carried over. It did not: `cannot change to
       # 'teable-ee-revision'`, exit 128, swallowed by `continue-on-error`.
+      # `fetch-depth: 0` is load-bearing and `filter` is what makes it cheap.
+      # Checkout clones shallow by default, and a later `git fetch --filter=tree:0`
+      # does not undo that — it fetches to the shallow boundary and stops. That
+      # is what shipped: the mainline read one commit long, 572 of 573 refs came
+      # back `offMainline`, and the analysis reported zeroes off a history it did
+      # not have.
+      #
+      # Positioning needs commit objects only — `rev-list --first-parent` and
+      # `cat-file --batch-check` never look at a tree — so `tree:0` fetches the
+      # whole graph without a byte of source.
       - name: Checkout teable-ee for commit ordering
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
@@ -953,12 +963,12 @@ jobs:
           ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           path: teable-ee-revision
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+          fetch-depth: 0
+          filter: tree:0
 
-      # That checkout is shallow — it pins one revision, it does not carry
-      # history — but positioning a change point on the mainline needs the
-      # first-parent chain. `--filter=tree:0` fetches commit metadata and
-      # nothing else, so this costs a list of commits rather than a second clone
-      # of the source.
+      # `ref` above is a SHA, so name the branch explicitly rather than trusting
+      # a remote-tracking ref to have been set up. The count is the signal worth
+      # having in the log: one means shallow, thousands means this worked.
       - name: Deepen teable-ee history for commit ordering
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
@@ -966,6 +976,24 @@ jobs:
           git -C teable-ee-revision fetch --filter=tree:0 --no-tags --prune \
             origin +refs/heads/develop:refs/remotes/origin/develop
           git -C teable-ee-revision rev-list --count --first-parent origin/develop
+
+      # Same shallow trap, other repository. Case digests read `ls-tree` and the
+      # case-file blobs at each perf-lab commit that produced measurements — 278
+      # of them — and a depth-1 clone has exactly one. Every series was cut to a
+      # single point.
+      #
+      # Deepened here rather than on the job's own `Checkout perf lab` so only
+      # the shadow pays for it, and `blob:none` rather than `tree:0` because this
+      # one does read blobs; the case files come down in a single batched fetch
+      # while the rest of the history's contents stay on the server.
+      - name: Deepen perf-lab history for case digests
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        run: |
+          if [ -f "$(git -C perf-lab rev-parse --git-dir)/shallow" ]; then
+            git -C perf-lab fetch --unshallow --filter=blob:none --no-tags origin
+          fi
+          git -C perf-lab rev-list --count HEAD
 
       # Carries the set of already-reported change points between runs. Cache
       # keys are immutable, so each run saves under its own key and restores by
@@ -996,24 +1024,26 @@ jobs:
       # thirty minutes and took the run's two acceptance gates and two artifact
       # uploads with it. Hence both this bound and the move to last place.
       #
-      # Twenty minutes against a measured 21m37s end to end on a developer
-      # machine, of which roughly eight is the `teable` CLI starting a process
-      # per page — overhead CI does not pay, since with a token it calls the API
-      # directly. The real CI figure is not known yet; the stage lines above
-      # print it, and this comes down once a run has reported one.
+      # Twelve minutes against a measured 5m56s in CI, of which 3m52s is the
+      # corpus. Roughly double, which leaves room for a slow day without leaving
+      # room for another silent hang.
       #
-      # The corpus dominates: the response cap is 50,000 characters, which puts
-      # 136,653 aggregated rows into 325 pages at about two seconds each. That
-      # two seconds is a fixed per-request cost, not the aggregation — measured,
-      # `OFFSET 120000` costs the same as `OFFSET 0` (2.02s against 2.24s) and
-      # narrowing to eight cases costs the same again. So paging differently
-      # cannot help; only asking fewer times can, and that is the follow-up in
+      # The same work takes 21m37s on a developer machine; the difference is the
+      # `teable` CLI starting a process per page, which CI does not pay because
+      # with a token it calls the API directly.
+      #
+      # The corpus dominates either way: the response cap is 50,000 characters,
+      # which puts 136,655 aggregated rows into 325 pages. That per-page cost is
+      # per-request overhead rather than the aggregation — measured, `OFFSET
+      # 120000` costs the same as `OFFSET 0` (2.02s against 2.24s) and narrowing
+      # to eight cases costs the same again. So paging differently cannot help;
+      # only asking fewer times can, and that is the follow-up in
       # docs/perf-alerting-todo.md rather than a change made here.
       - name: Shadow perf analysis
         id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 12
         working-directory: perf-lab
         env:
           TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision

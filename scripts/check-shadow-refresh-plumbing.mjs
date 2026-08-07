@@ -21,7 +21,60 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { refreshCorpus } from "./run-shadow-analysis.mjs";
+import { assertUsable, refreshCorpus } from "./run-shadow-analysis.mjs";
+
+// --- a corpus that cannot carry an answer is refused ------------------------
+
+// These run first and need no fixture. A zero from the detector means "nothing
+// changed"; a zero from a broken clone looks identical in the artifact, in the
+// job summary and in the log, and one CI run reported the second as the first.
+const healthyOrder = {
+  branch: "origin/develop",
+  refCount: 571,
+  positionedCount: 494,
+  mainlineLength: 2704,
+};
+const seriesOfLength = (count, length) =>
+  Object.fromEntries(
+    Array.from({ length: count }, (_, index) => [
+      `case-${index}`,
+      { segments: [Array.from({ length }, (_, point) => [point, 100, 1])] },
+    ]),
+  );
+
+// The shape a shallow teable-ee clone produces: the mainline is one commit long
+// so nothing can be positioned against it.
+assert.throws(
+  () =>
+    assertUsable({
+      order: {
+        branch: "origin/develop",
+        refCount: 573,
+        positionedCount: 1,
+        mainlineLength: 1,
+      },
+      corpus: { series: seriesOfLength(40, 150) },
+    }),
+  /not the history these measurements came from/,
+);
+
+// The shape a shallow perf-lab clone produces: ordering is fine, but no commit
+// has a digest, so segmentation cuts every series down to single points.
+assert.throws(
+  () =>
+    assertUsable({
+      order: healthyOrder,
+      corpus: { series: seriesOfLength(40, 1) },
+    }),
+  /median series carries/,
+);
+
+assert.doesNotThrow(() =>
+  assertUsable({
+    order: healthyOrder,
+    corpus: { series: seriesOfLength(40, 150) },
+  }),
+);
 
 const execFileAsync = promisify(execFile);
 
