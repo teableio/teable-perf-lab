@@ -873,6 +873,49 @@ jobs:
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/write-github-perf-summary.mjs
 
+      # Shadow mode: the new detection running beside the existing report, never
+      # replacing it. Section G of docs/change-point-alerting-acceptance.md will
+      # not accept a switch until ten runs of this have been reconciled by hand.
+      #
+      # The teable-ee checkout is shallow — it exists to build one revision, not
+      # to carry history — but positioning a change point on the mainline needs
+      # the first-parent chain. `--filter=tree:0` fetches commit metadata and
+      # nothing else, so this costs a list of commits rather than a second clone
+      # of the source.
+      - name: Deepen teable-ee history for commit ordering
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        run: |
+          git -C teable-ee-revision fetch --filter=tree:0 --no-tags --prune \
+            origin +refs/heads/develop:refs/remotes/origin/develop
+          git -C teable-ee-revision rev-list --count --first-parent origin/develop
+
+      - name: Shadow perf analysis
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision
+          TEABLE_EE_MAINLINE: origin/develop
+          SHADOW_WORK_DIR: ${{ runner.temp }}/shadow-work
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
+          RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-baseline.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/run-shadow-analysis.mjs
+
+      - name: Upload shadow analysis
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-shadow-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            shadow-analysis.json
+            shadow-seen.json
+          if-no-files-found: ignore
+          retention-days: 90
+
       - name: Upload current-run stage observation
         if: always()
         uses: actions/upload-artifact@v6
