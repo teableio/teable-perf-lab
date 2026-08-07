@@ -72,9 +72,20 @@ const unwrap = (data) => {
  */
 const sqlQuery = async ({ endpoint, token, baseId, sql }) => {
   if (token) {
+    // POST with the statement in the body, not GET with it in the query
+    // string. The GET form does not exist and answers 404 — which only ever
+    // showed up in CI, because a developer machine has no service token and
+    // takes the CLI path below instead. The API path had never once run.
     const res = await fetch(
-      `${endpoint.replace(/\/+$/, "")}/api/base/${baseId}/query?${new URLSearchParams({ query: sql })}`,
-      { headers: { authorization: `Bearer ${token}` } },
+      `${endpoint.replace(/\/+$/, "")}/api/base/${baseId}/sql-query`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ sql }),
+      },
     );
     const text = await res.text();
     if (!res.ok) {
