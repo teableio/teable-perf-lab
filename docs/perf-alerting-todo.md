@@ -63,28 +63,27 @@ one that can run in parallel with everything else.
 
 ## Blocked on me, in order
 
-### 1. Report only what is new — start here
+### 1. The perf token needs `base|query_data` — blocked on someone with rights
 
-`scripts/run-shadow-analysis.mjs` runs the full 349 series in **35 seconds**
-and produces sane output: 3 cases flagged by the same-run layer against a
-predicted ~4, 282 judged, 67 skipped for insufficient history, 32 not
-measurable.
+The shadow analysis is wired into the workflow and runs, but every SQL query it
+makes is refused:
 
-It reports **101 confirmed change points**, which is not a per-run alert list —
-it is every change point in the last 80 points of every series, re-derived from
-scratch each time. Almost all of them were reported last run too. Before this
-can drive anything it needs to diff against what has already been reported and
-emit only the new ones, which means the ledger's identity scheme has to exist
-first (a change point is the same one if it names the same case and the same
-commit boundary).
+```
+403 not allowed to operate base|query_data on bselS3I2MeVI6RJhS4g
+```
 
-An earlier version of this document claimed the analysis was too slow to finish
-and blamed the detection algorithm. That was wrong. The module called `main()`
-at module scope, so importing `analyse` for a test fired a full corpus rebuild
-over the network — the hang was one HTTP paging loop, not arithmetic. Measured
-since: plain detection is 34 seconds over 349 series, the windowed pass takes it
-to 44, and the whole entry point is 35. The 30-second budget in section F is
-about right after all.
+`TEABLE_PERF_LAB_TOKEN` can write to Performance Track — it has been recording
+measurements all along — but cannot run a SQL query against the base. The new
+analysis reads its corpus through `sql-query`, so it cannot start until that
+scope is added to the token.
+
+Nothing else about the wiring is outstanding. Two CI runs found and fixed a
+wrong endpoint (`GET .../query` against the real `POST .../sql-query`); this is
+what is left.
+
+Until then every run records that it produced nothing, in the job summary and
+as a workflow warning, so the shadow does not accumulate ten empty runs that
+look like ten quiet ones.
 
 ### 2. Wire it into the workflow
 
