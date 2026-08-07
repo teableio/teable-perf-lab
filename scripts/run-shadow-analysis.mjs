@@ -36,10 +36,18 @@ import { pairedSeries } from "./control-channel-model.mjs";
 import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
+import { separateFresh } from "./change-point-identity-model.mjs";
 
 const execFileAsync = promisify(execFile);
 
 export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
+
+// Change point keys already reported, carried between runs.
+//
+// Without it every run re-announces every change point in recent history — 101
+// of them, almost all seen before. The file is the difference between an alert
+// and a standing inventory.
+export const SHADOW_SEEN_FILE_NAME = "shadow-seen.json";
 
 const median = (values) => {
   const sorted = [...values].sort((left, right) => left - right);
@@ -146,7 +154,15 @@ export const DEFAULT_ANALYSIS_WINDOW = 80;
  */
 export const analyse = (
   corpus,
-  { analysisWindow = DEFAULT_ANALYSIS_WINDOW } = {},
+  {
+    analysisWindow = DEFAULT_ANALYSIS_WINDOW,
+    // Mainline ordinal to commit SHA. The corpus stores ordinals to keep the
+    // artifact small, but a change point's identity has to be the commit — an
+    // ordinal indexes a corpus that grows and gets re-segmented, and an
+    // identity that shifts underneath the ledger cannot accumulate. Without
+    // this map the key falls back to the ordinal and says so with a `#`.
+    commitAt = () => undefined,
+  } = {},
 ) => {
   const series = corpus.series ?? {};
   const fastCases = {};
@@ -191,10 +207,14 @@ export const analyse = (
     });
     tested += found.tested;
     for (const point of found.points) {
+      const beforeOrdinal = recent[point.index - 1]?.[0];
+      const afterOrdinal = recent[point.index]?.[0];
       points.push({
         caseId: entry.caseId,
-        beforeCommit: recent[point.index - 1]?.[0],
-        afterCommit: recent[point.index]?.[0],
+        beforeCommit: commitAt(beforeOrdinal) ?? `#${beforeOrdinal}`,
+        afterCommit: commitAt(afterOrdinal) ?? `#${afterOrdinal}`,
+        beforeOrdinal,
+        afterOrdinal,
         ratio: Math.exp(point.shift),
         pValue: point.pValue,
         paired: Boolean(control),
@@ -228,7 +248,18 @@ const main = async () => {
 
   await mkdir(workDir, { recursive: true });
   const corpus = await refreshCorpus({ workDir, teableEeRepo });
-  const analysis = analyse(corpus);
+  const order = JSON.parse(
+    await readFile(resolve(workDir, "commit-order.json"), "utf8"),
+  );
+  const commitOf = new Map(
+    Object.entries(order.ordinals ?? {}).map(([sha, ordinal]) => [
+      ordinal,
+      sha,
+    ]),
+  );
+  const analysis = analyse(corpus, {
+    commitAt: (ordinal) => commitOf.get(ordinal),
+  });
 
   // What the existing gate flagged this run, so the two can be reconciled. Read
   // from the artifact the current report already writes; absent, the shadow
@@ -246,10 +277,23 @@ const main = async () => {
     oldFlagged = [];
   }
 
+  // Only change points not reported before. The seen-set is persisted beside
+  // the result and grows monotonically: a change point that stops being
+  // detected because a fix landed has not been un-detected, and the fix is its
+  // own change point.
+  const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
+  let seen = [];
+  try {
+    seen = JSON.parse(await readFile(seenPath, "utf8")).known ?? [];
+  } catch {
+    seen = [];
+  }
+  const separated = separateFresh(analysis.confirmed, seen);
+
   const reconciliation = reconcileRun({
     oldFlagged,
     newFlagged: analysis.fast.flagged.map((entry) => entry.key),
-    confirmed: analysis.confirmed,
+    confirmed: separated.fresh,
     unjudged: analysis.unjudged,
   });
 
@@ -265,16 +309,23 @@ const main = async () => {
       judged: analysis.fast.judged,
       skipped: analysis.fast.skipped,
     },
-    confirmed: analysis.confirmed,
+    confirmed: separated.fresh,
+    confirmedRepeated: separated.counts.repeated,
     reconciliation,
     coverage: { tested: analysis.tested, unjudged: analysis.unjudged.length },
   };
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
+  await mkdir(dirname(seenPath), { recursive: true });
+  await writeFile(
+    seenPath,
+    `${JSON.stringify({ known: separated.known }, null, 2)}\n`,
+  );
   console.log(
     `Shadow analysis: ${result.fast.flagged.length} flagged this run, ` +
-      `${analysis.confirmed.length} confirmed change points, ` +
+      `${separated.counts.fresh} new confirmed change points ` +
+      `(${separated.counts.repeated} already reported), ` +
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
       `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}) → ${outputPath}`,
