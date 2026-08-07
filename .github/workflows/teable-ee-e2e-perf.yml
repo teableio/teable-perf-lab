@@ -1028,9 +1028,13 @@ jobs:
       # thirty minutes and took the run's two acceptance gates and two artifact
       # uploads with it. Hence both this bound and the move to last place.
       #
-      # Twelve minutes against a measured 5m56s in CI, of which 3m52s is the
-      # corpus. Roughly double, which leaves room for a slow day without leaving
-      # room for another silent hang.
+      # Fifteen minutes against a measured 8m30s in CI on a run that read the
+      # whole history: 1m24s positioning refs, 2m46s digesting 280 perf-lab
+      # commits, 3m33s building the corpus, 45s detecting. Roughly double, which
+      # leaves room for a slow day without leaving room for another silent hang.
+      #
+      # An earlier 5m56s is not the number to size against — that run was
+      # shallow-cloned and skipped most of the work it appeared to do.
       #
       # The same work takes 21m37s on a developer machine; the difference is the
       # `teable` CLI starting a process per page, which CI does not pay because
@@ -1047,7 +1051,7 @@ jobs:
         id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 15
         working-directory: perf-lab
         env:
           TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision

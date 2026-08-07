@@ -64,11 +64,22 @@ untouched. It merges once a CI run reports a corpus it actually read.
 
 ## Blocked on me, in order
 
-### 1. Confirm one clean shadow run in CI
+### 1. One clean shadow run in CI — done
 
-Wiring, endpoint and token are all done. Three CI runs were needed to get here
-and each found a different fault, all of them in the plumbing rather than in
-the detection:
+Run 31192079501 on `perf/shadow-analysis-ci`, 8m30s, reading the whole history:
+
+|                    |                                                                |
+| ------------------ | -------------------------------------------------------------- |
+| teable-ee mainline | 2707 commits, 518 of 573 refs positioned                       |
+| perf-lab digests   | 280 of 280 commits, 402 cases, 157 changed workload            |
+| corpus             | 136,659 rows → 755 series, median 152 comparable points        |
+| result             | 6 same-run flags, 68 confirmed change points, 31 not judgeable |
+
+Close to the local run of the same day (11 / 75 / 32); the difference is two
+days of new rows and a different newest run under the fast layer's nose.
+
+Five CI runs were needed to get here and each found a different fault, every
+one of them in the plumbing rather than in the detection:
 
 - `GET /api/base/{id}/query` — does not exist, answers 404. The real endpoint is
   `POST /api/base/{id}/sql-query` with the statement in the body.
@@ -81,8 +92,8 @@ the detection:
   option, silently ignores it, and leaves the child waiting on a pipe that never
   closes. Both ordering resolvers read stdin before doing anything.
 - **The run after that succeeded and reported nothing, and the two are hard to
-  tell apart.** `actions/checkout` clones shallow, and `git fetch
---filter=tree:0` fetches to the shallow boundary rather than deepening past
+  tell apart.** `actions/checkout` clones shallow, and a later fetch with
+  `--filter=tree:0` stops at the shallow boundary rather than deepening past
   it. So the teable-ee mainline read one commit long, 572 of 573 refs came back
   `offMainline`, 277 of 278 perf-lab commits had no tree to digest, and every
   series was cut to a single point. The step exited 0 in 5m56s, wrote a
@@ -107,10 +118,16 @@ What that last one changed, beyond the fix:
 - **The shadow block now runs last in the job**, after both artifact uploads and
   both acceptance gates. That is the fix that matters: nothing the run depends
   on is queued behind a passenger any more.
-- The step also carries `timeout-minutes: 12`, against a measured 5m56s, and the
+- The step also carries `timeout-minutes: 15`, against a measured 8m30s, and the
   job's own budget went from 30 to 40 so that the job timeout is not what bounds
   the step. `continue-on-error` covers a step that fails and does nothing about
   one that never returns, and a job timeout cancels rather than skips.
+- **The script exits non-zero when it fails**, which it used to swallow. Now
+  that the step carries `continue-on-error` and runs last, a non-zero exit
+  cannot cost the run anything — and the seen-set save is gated on this step's
+  `outcome`, so swallowing the error held that gate permanently open. A run that
+  refused to produce a result was still writing state back and still reading as
+  successful in the Actions UI.
 - Each stage announces itself before starting, so a stuck run says where.
 - `check:shadow-refresh-plumbing` runs the five stages end to end against two
   temporary git repositories and a stand-in Teable, under a watchdog. Nothing
