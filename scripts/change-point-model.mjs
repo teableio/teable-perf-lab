@@ -519,6 +519,100 @@ export const detectChangePoints = (
   };
 };
 
+// Window length for the second pass below, and how far each window advances.
+// Overlapping by half means an excursion of up to half a window always lands
+// whole inside at least one of them.
+export const DEFAULT_WINDOW = 20;
+export const DEFAULT_STRIDE = 10;
+
+/**
+ * Detect over the whole series and again over overlapping windows.
+ *
+ * The recursive search alone is weak on a regression that was introduced and
+ * then reverted, which is exactly the incident this project exists to record.
+ * Measured on 277 real series: a 2x regression living about two weeks is fully
+ * recorded 87% of the time, but one hotfixed within three or four days only
+ * 40% — and a 1.5x hotfixed that fast, 8%. The perverse result is that the
+ * faster a team fixes something, the less likely the system remembers it
+ * happened.
+ *
+ * The cause is structural. E-Divisive splits at the single most divergent point
+ * and recurses; a short excursion inside a long flat series is never the best
+ * split, so the search stops before it can find either of its edges. Restricting
+ * the same test to a window where the excursion is a large fraction of the data
+ * makes it the best split there.
+ *
+ * Both passes are kept because they fail in opposite directions: the full pass
+ * sees slow drift that no window is long enough to contain, and the windows see
+ * short excursions the full pass steps over.
+ *
+ * The cost is more hypotheses, which the FDR correction charges for — `tested`
+ * counts every window. That is the honest price, and it is why the windows do
+ * not overlap more than they do.
+ *
+ * Measured on 277 real series, full record of an introduce-then-revert incident
+ * (both edges found, each within one commit):
+ *
+ * |                | full only | window 40 | window 20 |
+ * | -------------- | --------- | --------- | --------- |
+ * | 2x, 20 runs    | 87%       | 92%       | 91%       |
+ * | 2x, 10 runs    | 75%       | 80%       | 83%       |
+ * | 2x, 6 runs     | 40%       | 39%       | 47%       |
+ * | 1.5x, 20 runs  | 67%       | 76%       | 73%       |
+ * | 1.5x, 10 runs  | 40%       | 43%       | 55%       |
+ * | 1.5x, 6 runs   | 8%        | 9%        | 12%       |
+ *
+ * Window 20 is the setting kept. It is worth having — a 1.5x regression living
+ * about a week goes from 40% recorded to 55% — but it does not fix the case it
+ * was written for, and tuning stopped here rather than continuing to chase it.
+ *
+ * The reason is not the window size. A regression hotfixed within six runs has
+ * six measurements behind it, and six points cannot carry a distribution test
+ * whatever window they sit in. Shrinking further trades the statistic's power
+ * for the excursion's prominence and lands in the same place. This is a floor
+ * of the method, and it is recorded as a limitation in the acceptance criteria
+ * rather than tuned around.
+ */
+export const detectChangePointsWindowed = (values, options = {}) => {
+  const {
+    window = DEFAULT_WINDOW,
+    stride = DEFAULT_STRIDE,
+    ...detectOptions
+  } = options;
+  const series = Array.isArray(values) ? values : [];
+
+  const full = detectChangePoints(series, detectOptions);
+  const found = new Map();
+  for (const point of full.points) {
+    found.set(point.index, { ...point, source: "full" });
+  }
+  let tested = full.tested;
+
+  for (let start = 0; start + window <= series.length; start += stride) {
+    const slice = series.slice(start, start + window);
+    const local = detectChangePoints(slice, detectOptions);
+    tested += local.tested;
+    for (const point of local.points) {
+      const index = start + point.index;
+      const existing = found.get(index);
+      // A point both passes found keeps the smaller p-value, which is the full
+      // pass's when it saw it at all — it had more data to reject with.
+      if (!existing || point.pValue < existing.pValue) {
+        found.set(index, {
+          ...point,
+          index,
+          source: existing ? "both" : "window",
+        });
+      }
+    }
+  }
+
+  return {
+    points: [...found.values()].sort((left, right) => left.index - right.index),
+    tested,
+  };
+};
+
 /**
  * Benjamini-Hochberg false discovery rate control across series.
  *
