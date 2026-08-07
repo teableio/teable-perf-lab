@@ -125,6 +125,39 @@ measurement, and the card must not imply otherwise. The live example is
 #2670 — one point, which the confirmed layer correctly refuses to call a fix and
 the fast layer correctly flags as worth a look.
 
+## B4. Known limitation: fast fixes are poorly recorded
+
+Sections A and B measure a regression that was introduced and left in place.
+Measured separately, on 277 real series, for one that was introduced and later
+reverted — where recording the incident means finding **both** edges:
+
+| Regression | Lived ~2 weeks | ~1 week | ~3-4 days |
+| ---------- | -------------- | ------- | --------- |
+| 2x         | 91%            | 83%     | 47%       |
+| 1.5x       | 73%            | 55%     | 12%       |
+
+So the promise that a hotfix cannot erase the history holds for incidents that
+lasted, and weakens sharply for ones fixed within a few days. The perverse
+consequence is worth stating plainly: **the faster a team fixes something, the
+less likely this system remembers it happened**, which flatters the record of
+exactly the teams that respond well.
+
+A windowed second detection pass was added and tuned for this and recovered
+part of it (1.5x at one week went from 40% to 55%); tuning stopped there. Six
+measurements cannot carry a distribution test at any window size, so this is a
+floor of the method rather than a setting.
+
+Two consequences, both accepted rather than solved:
+
+- The ledger needs a manual entry path. What the detector cannot see, a person
+  who was there can record.
+- No count drawn from the ledger may be presented as a complete incident
+  history. It is a lower bound, and reports must say so.
+
+This does not touch anything found so far — the `record-read` incident had run
+8 days, the foreign-key one is still open, and all 44 entries on the first
+triage list are unclosed.
+
 ## C. Ledger completeness
 
 **C1.** Replaying the entire history end to end produces a ledger where every
