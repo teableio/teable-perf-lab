@@ -22,6 +22,8 @@
 // nothing — not a reason to lose a run's results.
 
 import { execFile } from "node:child_process";
+import { argv } from "node:process";
+import { fileURLToPath } from "node:url";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -279,9 +281,18 @@ const main = async () => {
   );
 };
 
-main().catch((error) => {
-  // Never fail the run. The existing report is what the team depends on today.
-  console.error(
-    `Shadow analysis failed, continuing: ${error instanceof Error ? error.stack || error.message : error}`,
-  );
-});
+// Only when run as a script. Importing this module must not fire a Teable
+// fetch — `analyse` is exported so it can be tested and reused, and a bare
+// `main()` at module scope turns `import { analyse }` into a full corpus
+// rebuild over the network. `release-baseline-model.mjs` carries the same
+// warning; it was written after someone hit this, and it was ignored here once
+// already, which cost an afternoon and produced a confidently wrong diagnosis
+// blaming the detection algorithm.
+if (argv[1] && fileURLToPath(import.meta.url) === argv[1]) {
+  main().catch((error) => {
+    // Never fail the run. The existing report is what the team depends on.
+    console.error(
+      `Shadow analysis failed, continuing: ${error instanceof Error ? error.stack || error.message : error}`,
+    );
+  });
+}
