@@ -109,8 +109,9 @@ localises the known `record-read` regression to the adjacent mainline pair
 #2599 -> #2600 on two independent cases (`50k-50fields-sort-three-fields` 4.25s
 -> 9.14s, `50k-50fields-group-number-low-cardinality` 2.69s -> 7.28s), both at
 p = 1e-4. Both endpoints are measured, so the attribution is exact to a single
-teable-ee commit, which is recorded in the internal triage list rather than
-here — this repository is public and teable-ee is not.
+teable-ee commit, `a7c04bf9`. What that commit changed is not recorded here:
+this repository is public and teable-ee is not, so findings name a commit and
+stop there. The description belongs in the internal issue.
 
 ## B. Timeliness
 
