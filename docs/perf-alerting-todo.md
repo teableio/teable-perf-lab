@@ -3,6 +3,19 @@
 Written 2026-08-07 to be picked up cold. Everything needed to resume is here or
 linked from here.
 
+**Where it stands:** the shadow analysis is merged and runs on every dispatch,
+verified end to end in CI. Nothing it finds is shown to anyone yet. The next
+step is calendar time — ten full runs — and it is the owner who starts those, by
+dispatching full runs as normal. Then sections 1 and 2 below, then the ledger.
+
+**If you are the next agent on this:** section 1 is history, kept because the
+five faults in it are the ones this wiring keeps producing. Section 2 is the one
+that changes what the output means, and section 4 will not be honest without it.
+Section 3 is a known cost with a decision attached, not a defect. Everything
+numbered below was measured — if you change a number, measure it again rather
+than reasoning about it. Most of those five faults looked correct right up until
+someone read the raw values, and two of them produced a green tick.
+
 ## What this project is
 
 Replacing the release-baseline perf comparison. The old one compares each run
@@ -55,13 +68,14 @@ and that number decides whether the ledger is worth building as a Teable table
 or whether a weekly script suffices. This is the longest lead item and the only
 one that can run in parallel with everything else.
 
-**2. Merging.** The work is on `perf/shadow-analysis-ci`, pushed, with `main`
-untouched. The condition for merging is met: run 31192079501 read the whole
-history and 31193504224 confirmed the seen-set carries between runs.
+**2. Ledger shape**, once the triage number is in.
 
-**3. Ledger shape**, once the triage number is in.
+**3. Card mock**, to be reviewed before it is built.
 
-**4. Card mock**, to be reviewed before it is built.
+Merged to `main` at `fab8642b` on 2026-08-07, after run 31192079501 read the
+whole history and 31193504224 confirmed the seen-set carries between runs. The
+shadow now runs on every dispatch and reports into the job summary; nothing it
+produces reaches the Feishu card.
 
 ## Blocked on me, in order
 
