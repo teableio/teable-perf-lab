@@ -19,7 +19,10 @@
 //
 // Failure here must never fail the run. The existing report is what the team
 // depends on today, and a shadow that cannot compute is a shadow that reports
-// nothing — not a reason to lose a run's results.
+// nothing — not a reason to lose a run's results. That is arranged in the
+// workflow, not by hiding errors here: the step carries `continue-on-error` and
+// runs after every step the run depends on, which leaves this free to exit
+// non-zero and be seen doing it.
 
 import { spawn } from "node:child_process";
 import { argv } from "node:process";
@@ -460,9 +463,19 @@ const main = async () => {
 // blaming the detection algorithm.
 if (argv[1] && fileURLToPath(import.meta.url) === argv[1]) {
   main().catch((error) => {
-    // Never fail the run. The existing report is what the team depends on.
     console.error(
-      `Shadow analysis failed, continuing: ${error instanceof Error ? error.stack || error.message : error}`,
+      `Shadow analysis failed: ${error instanceof Error ? error.stack || error.message : error}`,
     );
+    // Exiting non-zero, which this used to avoid. It cannot fail the run any
+    // more: the step carries `continue-on-error` and sits after everything the
+    // run depends on, so the only thing a non-zero exit changes is that the
+    // failure is legible.
+    //
+    // And it has to be legible, because the seen-set save is gated on this
+    // step's `outcome`. Swallowing the error made that gate always open — a run
+    // whose analysis refused to produce anything still wrote state back and
+    // still read as successful in the Actions UI. The gate was written for a
+    // reason; this is what makes it work.
+    process.exitCode = 1;
   });
 }
