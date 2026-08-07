@@ -303,6 +303,56 @@ export const analyse = (
   };
 };
 
+// Half the refs the history measured should sit on the mainline. Measured on a
+// good clone it is 86% (494 of 571); the rest are force-pushed or off-mainline
+// branches and always will be.
+const MIN_POSITIONED_FRACTION = 0.5;
+
+// The confirmed layer skips any series with fewer than 30 points, so a corpus
+// whose typical series is shorter than that cannot answer the question no
+// matter what the detector does.
+const MIN_MEDIAN_SEGMENT = 30;
+
+/**
+ * Refuse to analyse inputs that cannot carry an answer.
+ *
+ * A zero is a claim. "No regressions this run" and "no history to look at" come
+ * out of the detector as the same number, and only one of them is worth
+ * reporting — so the difference has to be established here, before the result
+ * is written, rather than left for a reader to notice.
+ *
+ * It went wrong exactly this way in CI: `actions/checkout` clones shallow, and
+ * `git fetch --filter=tree:0` does not undo that, so the mainline was one commit
+ * long. 572 of 573 refs came back `offMainline`, 277 of 278 perf-lab commits had
+ * no tree to digest, every series was cut to a single point — and the step
+ * succeeded, wrote a well-formed file, and reported zero findings across the
+ * board. Nothing in the run said otherwise.
+ */
+export const assertUsable = ({ order, corpus }) => {
+  const positioned = order.positionedCount / Math.max(1, order.refCount);
+  if (positioned < MIN_POSITIONED_FRACTION) {
+    throw new Error(
+      `Only ${order.positionedCount} of ${order.refCount} refs are on ${order.branch} and the mainline reads ${order.mainlineLength} commits long. ` +
+        `The clone is not the history these measurements came from — a shallow checkout does this, and --filter=tree:0 does not deepen one. ` +
+        `Refusing to report findings computed against it.`,
+    );
+  }
+
+  const lengths = Object.values(corpus.series ?? {})
+    .map((entry) =>
+      entry.segments.reduce((longest, segment) => Math.max(longest, segment.length), 0),
+    )
+    .sort((left, right) => left - right);
+  const median = lengths[lengths.length >> 1] ?? 0;
+  if (median < MIN_MEDIAN_SEGMENT) {
+    throw new Error(
+      `The median series carries ${median} comparable points, under the ${MIN_MEDIAN_SEGMENT} the confirmed layer needs. ` +
+        `Segments are cut where a case's workload changed or its digest is unknown, so this usually means the perf-lab clone is missing the commits that took the measurements. ` +
+        `Refusing to report findings computed against it.`,
+    );
+  }
+};
+
 const main = async () => {
   const workDir = resolve(env("SHADOW_WORK_DIR", "shadow-work"));
   const outputPath = resolve(
@@ -321,6 +371,8 @@ const main = async () => {
       sha,
     ]),
   );
+  assertUsable({ order, corpus });
+
   console.log(
     `Shadow: detecting over ${Object.keys(corpus.series ?? {}).length} series…`,
   );

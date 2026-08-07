@@ -55,7 +55,8 @@ and that number decides whether the ledger is worth building as a Teable table
 or whether a weekly script suffices. This is the longest lead item and the only
 one that can run in parallel with everything else.
 
-**2. Pushing.** Local `main` is ahead of `origin/main`. Nothing has been pushed.
+**2. Merging.** The work is on `perf/shadow-analysis-ci`, pushed, with `main`
+untouched. It merges once a CI run reports a corpus it actually read.
 
 **3. Ledger shape**, once the triage number is in.
 
@@ -79,16 +80,31 @@ the detection:
   gates and two artifact uploads. Cause: asynchronous `execFile` has no `input`
   option, silently ignores it, and leaves the child waiting on a pipe that never
   closes. Both ordering resolvers read stdin before doing anything.
+- **The run after that succeeded and reported nothing, and the two are hard to
+  tell apart.** `actions/checkout` clones shallow, and `git fetch
+--filter=tree:0` fetches to the shallow boundary rather than deepening past
+  it. So the teable-ee mainline read one commit long, 572 of 573 refs came back
+  `offMainline`, 277 of 278 perf-lab commits had no tree to digest, and every
+  series was cut to a single point. The step exited 0 in 5m56s, wrote a
+  well-formed artifact, and put `0 flagged, 0 confirmed` in the job summary —
+  which is exactly what a quiet, healthy run looks like.
+
+  Fixed with `fetch-depth: 0` plus `filter` on both clones — `tree:0` for
+  teable-ee, which only needs commit objects, `blob:none` for perf-lab, which
+  reads the case files. And `assertUsable` in `run-shadow-analysis.mjs` now
+  refuses to write a result at all when under half the refs position or the
+  median series is shorter than the 30 points the confirmed layer needs. A zero
+  is a claim; it should only be made about a history that was actually read.
 
 What that last one changed, beyond the fix:
 
 - **The shadow block now runs last in the job**, after both artifact uploads and
   both acceptance gates. That is the fix that matters: nothing the run depends
   on is queued behind a passenger any more.
-- The step also carries `timeout-minutes: 20`, and the job's own budget went
-  from 30 to 40 so that the job timeout is not what bounds the step.
-  `continue-on-error` covers a step that fails and does nothing about one that
-  never returns, and a job timeout cancels rather than skips.
+- The step also carries `timeout-minutes: 12`, against a measured 5m56s, and the
+  job's own budget went from 30 to 40 so that the job timeout is not what bounds
+  the step. `continue-on-error` covers a step that fails and does nothing about
+  one that never returns, and a job timeout cancels rather than skips.
 - Each stage announces itself before starting, so a stuck run says where.
 - `check:shadow-refresh-plumbing` runs the five stages end to end against two
   temporary git repositories and a stand-in Teable, under a watchdog. Nothing
@@ -98,14 +114,17 @@ What that last one changed, beyond the fix:
   written as if the `resolve_inputs` checkout carried over into a second job's
   workspace; it does not, and `continue-on-error` hid the exit 128.
 
-### 2. The corpus is refetched in full every run — 325 requests, ~20 minutes
+### 2. The corpus is refetched in full every run — 325 requests, ~4 minutes
 
-Measured end to end on a developer machine: **21m37s**, almost all of it the
-corpus. The response cap is 50,000 characters, which turns 136,653 aggregated
-rows into 325 pages at roughly two seconds each.
+Measured in CI: **5m56s** for the whole step, of which **3m52s** is the corpus.
+The same work is 21m37s on a developer machine — the difference is the `teable`
+CLI starting a process per page, which CI does not pay because with a token it
+calls the API directly. The step's bound is set at 12 minutes against that 5m56s.
 
-That two seconds is a fixed per-request cost, and this was measured rather than
-assumed, because the obvious guess was wrong:
+The response cap is 50,000 characters, which turns 136,655 aggregated rows into
+325 pages. What each of those costs is per-request overhead rather than the
+aggregation, and that was measured rather than assumed, because the obvious
+guess was wrong:
 
 |                            |       |
 | -------------------------- | ----- |
@@ -115,14 +134,8 @@ assumed, because the obvious guess was wrong:
 | `SELECT 1` through the CLI | 1.41s |
 
 So deep pages are not expensive, and neither is the aggregation — paging
-differently cannot help. Roughly 1.4s of each request is the `teable` CLI
-starting a process, which CI does not pay: with a token it calls the API
-directly, so the CI figure should be materially lower. **It has not been
-measured yet.** The stage lines now printed by `run-shadow-analysis.mjs` give it
-from the next successful run's log, and the step's 20-minute bound should come
-down once they do.
-
-The only real lever is asking fewer times. Two options, neither done:
+differently cannot help. The only real lever is asking fewer times. Two options,
+neither done:
 
 - **Cache the corpus between runs**, the way the seen-set already is, and fetch
   only the newest rows. The history is append-only, so all but the last run's
@@ -132,7 +145,7 @@ The only real lever is asking fewer times. Two options, neither done:
   run time. Cheap to do, but it narrows what the system can see, and the ledger
   may want the full span — so this is a decision about scope, not a tidy-up.
 
-Worth settling before ten shadow runs turn 20 minutes into a standing cost.
+Worth settling before ten shadow runs turn six minutes a run into a standing cost.
 
 ### 3. Ten shadow runs
 
