@@ -890,7 +890,30 @@ jobs:
             origin +refs/heads/develop:refs/remotes/origin/develop
           git -C teable-ee-revision rev-list --count --first-parent origin/develop
 
+      # Carries the set of already-reported change points between runs. Cache
+      # keys are immutable, so each run saves under its own key and restores by
+      # prefix, picking up the most recent — the same rolling pattern the seed
+      # cache above uses.
+      #
+      # Without this the confirmed layer re-announces every change point in
+      # recent history each run: 101 of them, almost all seen before. That is a
+      # standing inventory, and nobody reads an alert that repeats itself.
+      - name: Restore shadow change point state
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          # Spelled the same way as SHADOW_SEEN_PATH below. Both resolve to the
+          # same file today only because the job's default directory happens to
+          # be the workspace; writing it out means a change to either one cannot
+          # silently disconnect the cache from the file it is meant to carry.
+          path: ${{ github.workspace }}/shadow-seen.json
+          key: perf-shadow-seen-${{ github.run_id }}
+          restore-keys: |
+            perf-shadow-seen-
+
       - name: Shadow perf analysis
+        id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         working-directory: perf-lab
@@ -903,6 +926,19 @@ jobs:
           RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-baseline.json
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/run-shadow-analysis.mjs
+
+      # Only after the analysis actually succeeded. A failed run that saved its
+      # state would write back whatever was restored — or nothing at all — and
+      # a lost seen-set means the next run re-announces the entire history as
+      # new. `continue-on-error` makes `conclusion` success either way, so the
+      # real result is read from `outcome`.
+      - name: Save shadow change point state
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}/shadow-seen.json
+          key: perf-shadow-seen-${{ github.run_id }}
 
       - name: Upload shadow analysis
         if: always()
