@@ -30,8 +30,8 @@ Occupancy is invariant to serialization. Two tasks that each take 1s sum to 2s
 whether they run in parallel or one after the other. That is the property the
 metric exists for.
 
-Occupancy is **not** CPU time, and it is **not** perfectly invariant. Two honest
-limits, both of which must stay in the case docs:
+Occupancy is **not** CPU time, and it is **not** perfectly invariant. Three
+honest limits, all of which must stay in the case docs:
 
 - Parallelizing contended work inflates each task's wall clock (lock waits,
   event-loop sharing), so occupancy rises even when the work is unchanged. It
@@ -39,6 +39,19 @@ limits, both of which must stay in the case docs:
 - Occupancy says nothing about whether the _amount_ of work changed. It is only
   interpretable next to a work-volume control (step counts, estimated
   complexity), which this spec also captures.
+- **Occupancy is comparable only within one computed-update mode.** Invariance
+  covers rescheduling the same units of work; it does not cover re-cutting the
+  work into different units. Splitting one run into N outbox tasks makes each
+  task repeat its own setup — load tables, seed dirty records, propagate — so
+  the same logical change genuinely burns more machine. Measured on
+  `lookup/foreign-select-flip-1of40-fanout100-4k` against `develop`: sync spends
+  375.95ms over 4 execute spans, hybrid spends 836.29ms over 16, while
+  `computeStepsExecuted` stays flat at 18 vs 16. That 2.2x is a real cost, not
+  an artifact — but it means a baseline captured in one mode must never be
+  compared against a run in the other. Any stored compute baseline has to carry
+  its mode the way `full-run-comparison-model.mjs` already carries the primary
+  metric name, and reject the comparison on mismatch rather than report a
+  fabricated 2.2x regression.
 
 ## Signal: exactly one span name per sum
 
@@ -198,7 +211,7 @@ Edits to existing files:
 - `package.json` — add `check:compute-span-model` to the `check` chain.
 
 `measureAsyncWithCompute` is **not** part of Phase 1. It would ship unused —
-nothing calls it until the per-step conversion in Phase 3, which is where it
+nothing calls it until the per-step conversion in Phase 5, which is where it
 belongs.
 
 ## Metric surface
@@ -242,18 +255,45 @@ is still the right acceptance gate.
 behind `PERF_LAB_COMPUTE_SPANS` (default on; the flag exists to disable it
 without a revert if it destabilizes a run).
 
-**Phase 2 — measure the noise.** Run the full suite unchanged for a week.
-Compute per-case run-to-run variance of `computeMs` and compare it against the
-measured ~17.4% mean per-case variance of the existing wall-clock metrics. A
-compute metric noisier than the wall clock it is meant to explain is not worth
-reporting, and Phase 3 does not start until this number exists.
+**Phase 2 — report, without a gate.** Shipped ahead of the noise measurement
+below, which reverses the original order. Reporting a ratio carries no
+false-alarm cost — a mislabelled row is not a red run — and the report is what
+makes Phase 3's data legible in the first place: per-case compute ratios are
+easier to read off a rendered summary each run than to reconstruct from
+`Metrics JSON` afterwards.
 
-**Phase 3 — precise windows.** Convert the ~20 `HYBRID_COMPUTED_CASES`
+`compute-comparison-model.mjs` pairs this run's `computeMs` against the released
+build's and reads the two ratios together, since neither alone separates work
+saved from work relocated. Baseline compute rides inside the `Metrics JSON`
+already written per row — no new Performance Track column, at 689 bytes per row
+against the ~25 KB/row that makes an unprojected read fail.
+
+Two constraints the model enforces and the report states:
+
+- **V2 only.** V1 does not use the V2 computed updater and emits none of these
+  spans, so a V1 row would report zero compute for a case that computes plenty.
+  That is the instrument's blind spot, not a measurement.
+- **Same shape only.** Comparison is refused across an inline/outbox boundary,
+  because the same work costs 2.2x through the outbox (above). Shape is derived
+  from the counters rather than read from `V2_COMPUTED_UPDATE_MODE`: the flag
+  records what was requested, the counters record what ran.
+
+**Phase 3 — measure the noise.** Run the full suite for a week. Compute per-case
+run-to-run variance of `computeMs` against the measured ~17.4% mean per-case
+variance of the wall-clock metrics. The expectation is that compute time is
+markedly quieter, since it excludes queueing and runner contention — but it is
+an expectation, not a result, and until it is one the band in
+`compute-comparison-model.mjs` stays inherited from the wall-clock comparison
+and stays ungated.
+
+**Phase 4 — gate, or do not.** Only after Phase 3 yields a number. The existing
+1.2x wall-clock gate fires on 42 of 263 V1 cases whose code did not change
+between runs; a compute gate picked by the same guesswork would earn the same
+distrust. If the noise floor does not support a gate, the report stays a report.
+
+**Phase 5 — precise windows.** Convert the ~20 `HYBRID_COMPUTED_CASES`
 (`scripts/run-plan.mjs:27`) and the computed-heavy sync cases to
 `measureAsyncWithCompute` on their measured region. Update each case's `*.md`.
-
-**Phase 4 — report.** Add a `Compute Ms` column to Performance Track and a
-second comparison leg. Decide the band from the Phase 2 numbers.
 
 ## Failure modes and guards
 
