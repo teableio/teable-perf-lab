@@ -362,6 +362,17 @@ export const buildPerfSummaryCard = ({
     ? `性能回归 · 较线上慢 ${regressions.length} · 严重 ${severeCount}`
     : "性能回归 · 无线上基线";
 
+  const compute = buildComputeComparison({
+    payloads,
+    baseline,
+    releaseComparison: comparison,
+  });
+  const computeHighlights = [
+    ...compute.deferred,
+    ...compute.regressions,
+    ...compute.hiddenCost,
+  ];
+
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
@@ -460,6 +471,34 @@ export const buildPerfSummaryCard = ({
                           title: `其余 ${remainingRows.length}`,
                           elements: [larkDiv(renderRows(remainingRows))],
                         }),
+                      ]
+                    : []),
+                ],
+              }),
+            ]
+          : []),
+        // Compute time answers what the panel above cannot: whether a case that
+        // got faster actually got cheaper. Its own panel rather than a column on
+        // the rows above, because the two comparisons disagree by design — a run
+        // can be "较线上慢 0" and still have burned more machine, and putting
+        // both on one row is what made a single row read as two verdicts.
+        ...(compute.available && computeHighlights.length > 0
+          ? [
+              collapsiblePanel({
+                title: `计算时间 · 只是挪走 ${compute.counts.deferred} · 变慢 ${compute.counts.computeSlower}`,
+                expanded: compute.counts.deferred > 0,
+                elements: [
+                  larkDiv(
+                    computeHighlights
+                      .slice(0, COMPUTE_HIGHLIGHT_LIMIT)
+                      .map((row) => formatComputeLine(row, context.chartUrl))
+                      .join("\n"),
+                  ),
+                  ...(computeHighlights.length > COMPUTE_HIGHLIGHT_LIMIT
+                    ? [
+                        larkDiv(
+                          `其余 ${computeHighlights.length - COMPUTE_HIGHLIGHT_LIMIT} 个见 Performance Track`,
+                        ),
                       ]
                     : []),
                 ],
