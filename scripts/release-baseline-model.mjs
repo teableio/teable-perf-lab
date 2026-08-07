@@ -258,6 +258,14 @@ export const selectBaselineRun = (records) => {
 export const buildReleaseBaseline = ({ launch, run, records, runUrl }) => {
   const values = {};
   let skipped = 0;
+  // Two ways to get zero compute baselines, and they need telling apart: rows
+  // written before compute collection shipped parse fine and simply have no
+  // `computeMs`, while a `Metrics JSON` this code cannot read at all — a changed
+  // cell format, a renamed column returning nothing — produces the identical
+  // zero. Without this counter the second failure is invisible, and "no compute
+  // baseline yet" is a legitimate state that would hide it indefinitely.
+  let metricsReadable = 0;
+  let metricsUnreadable = 0;
 
   for (const record of records ?? []) {
     const fields = record?.fields ?? {};
@@ -293,7 +301,15 @@ export const buildReleaseBaseline = ({ launch, run, records, runUrl }) => {
     // keeps the in-memory entry and the file on disk the same shape. Every row
     // measured before compute collection shipped lands here, and the comparison
     // reads a missing key as "no baseline" rather than as zero.
-    const compute = readComputeBaseline(parseMetrics(fields["Metrics JSON"]));
+    const rawMetrics = fields["Metrics JSON"];
+    const metrics = parseMetrics(rawMetrics);
+    if (metrics) {
+      metricsReadable += 1;
+    } else if (rawMetrics !== undefined && rawMetrics !== null) {
+      metricsUnreadable += 1;
+    }
+
+    const compute = readComputeBaseline(metrics);
     if (compute) {
       entry.compute = compute;
     }
@@ -312,6 +328,9 @@ export const buildReleaseBaseline = ({ launch, run, records, runUrl }) => {
     ).size,
     valueCount: Object.keys(values).length,
     unusableCount: skipped,
+    computeCount: Object.values(values).filter((entry) => entry.compute).length,
+    metricsReadable,
+    metricsUnreadable,
     values,
   };
 };

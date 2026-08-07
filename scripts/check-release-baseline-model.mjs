@@ -283,5 +283,17 @@ assert.deepEqual(computeBaseline.values["lookup/flip::v2"].compute, {
 });
 assert.equal("compute" in computeBaseline.values["lookup/torn::v2"], false);
 assert.equal(computeBaseline.values["lookup/torn::v2"].value, 900);
+assert.equal(computeBaseline.computeCount, 1);
+// The torn blob is unreadable, not merely compute-free. Counting them the same
+// way would make a column this code can no longer read look identical to the
+// legitimate "no compute measured yet" state.
+assert.equal(computeBaseline.metricsReadable, 1);
+assert.equal(computeBaseline.metricsUnreadable, 1);
+
+// Rows written before compute collection shipped: readable, just no compute.
+// This is the state that must NOT look like a broken column.
+assert.equal(baseline.computeCount, 0);
+assert.equal(baseline.metricsReadable, 0);
+assert.equal(baseline.metricsUnreadable, 0);
 
 console.log("release baseline model checks passed.");
