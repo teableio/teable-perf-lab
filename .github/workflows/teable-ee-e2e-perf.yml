@@ -628,8 +628,13 @@ jobs:
       - seed
       - execute
     if: always()
+    # Was 30, which the report's own work clears in about a minute. The extra
+    # ten are headroom for the shadow analysis that now runs after everything
+    # else — it is bounded at 20 on its own step, and this keeps the job budget
+    # from becoming the thing that bounds it, since hitting a job timeout
+    # cancels rather than skips.
+    timeout-minutes: 40
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     permissions:
       # Keeps the workflow-level actions scope and adds the one this job needs
       # on its own: pushing the published trace site.
@@ -873,13 +878,85 @@ jobs:
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/write-github-perf-summary.mjs
 
+      - name: Upload current-run stage observation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-plan-observation
+          if-no-files-found: ignore
+
+      - name: Upload reconciled lightweight perf results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-reconciled-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            perf-lab-artifacts
+            !perf-lab-artifacts/**/selected-traces.otlp.jsonl
+          if-no-files-found: warn
+          # Carries the Jaeger-format snapshots written by the publish step:
+          # download it, `docker run jaegertracing/all-in-one`, and drop any
+          # traces/<case>-<engine>/<step>-<traceId>.json into the Jaeger UI.
+          retention-days: 14
+
+      - name: Enforce full-run result and report acceptance
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
+          (
+            steps.run-verdict.outputs.status != 'success' ||
+            steps.trace-publish.outcome != 'success' ||
+            steps.trace-site.outcome != 'success' ||
+            steps.teable-report.outcome != 'success' ||
+            steps.feishu-report.outcome != 'success' ||
+            steps.github-summary.outcome != 'success'
+          )
+        run: |
+          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, traceSite=${{ steps.trace-site.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          exit 1
+
+      - name: Enforce targeted report delivery failures
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
+          (
+            steps.trace-publish.outcome == 'failure' ||
+            steps.trace-site.outcome == 'failure' ||
+            steps.teable-report.outcome == 'failure' ||
+            steps.feishu-report.outcome == 'failure' ||
+            steps.github-summary.outcome == 'failure'
+          )
+        run: exit 1
+
       # Shadow mode: the new detection running beside the existing report, never
       # replacing it. Section G of docs/change-point-alerting-acceptance.md will
       # not accept a switch until ten runs of this have been reconciled by hand.
       #
-      # The teable-ee checkout is shallow — it exists to build one revision, not
-      # to carry history — but positioning a change point on the mainline needs
-      # the first-parent chain. `--filter=tree:0` fetches commit metadata and
+      # Last in the job, deliberately. Everything the run itself depends on —
+      # the artifact uploads and both acceptance gates — has already happened by
+      # the time these steps start, so a shadow that is slow, stuck or broken
+      # costs the run nothing. It sat above them once and a hang cost the run
+      # all four.
+      #
+      # Commit ordering needs a teable-ee clone, and this job did not have one.
+      # The checkout that resolves the pinned revision lives in `resolve_inputs`
+      # — a different job, so a different workspace — and the deepen step below
+      # was written as if it carried over. It did not: `cannot change to
+      # 'teable-ee-revision'`, exit 128, swallowed by `continue-on-error`.
+      - name: Checkout teable-ee for commit ordering
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          path: teable-ee-revision
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      # That checkout is shallow — it pins one revision, it does not carry
+      # history — but positioning a change point on the mainline needs the
+      # first-parent chain. `--filter=tree:0` fetches commit metadata and
       # nothing else, so this costs a list of commits rather than a second clone
       # of the source.
       - name: Deepen teable-ee history for commit ordering
@@ -912,10 +989,31 @@ jobs:
           restore-keys: |
             perf-shadow-seen-
 
+      # A bound of its own. `continue-on-error` covers a step that fails and does
+      # nothing about a step that never returns, and the job timeout is not a
+      # backstop — reaching it cancels the job and every step queued behind.
+      # Which is what happened: an analysis stuck on a pipe ran out the job's
+      # thirty minutes and took the run's two acceptance gates and two artifact
+      # uploads with it. Hence both this bound and the move to last place.
+      #
+      # Twenty minutes against a measured 21m37s end to end on a developer
+      # machine, of which roughly eight is the `teable` CLI starting a process
+      # per page — overhead CI does not pay, since with a token it calls the API
+      # directly. The real CI figure is not known yet; the stage lines above
+      # print it, and this comes down once a run has reported one.
+      #
+      # The corpus dominates: the response cap is 50,000 characters, which puts
+      # 136,653 aggregated rows into 325 pages at about two seconds each. That
+      # two seconds is a fixed per-request cost, not the aggregation — measured,
+      # `OFFSET 120000` costs the same as `OFFSET 0` (2.02s against 2.24s) and
+      # narrowing to eight cases costs the same again. So paging differently
+      # cannot help; only asking fewer times can, and that is the follow-up in
+      # docs/perf-alerting-todo.md rather than a change made here.
       - name: Shadow perf analysis
         id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
+        timeout-minutes: 20
         working-directory: perf-lab
         env:
           TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision
@@ -987,54 +1085,3 @@ jobs:
           # successful while having produced a 404.
           if-no-files-found: warn
           retention-days: 90
-
-      - name: Upload current-run stage observation
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: perf-plan-observation
-          if-no-files-found: ignore
-
-      - name: Upload reconciled lightweight perf results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: teable-ee-e2e-perf-reconciled-results-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            perf-lab-artifacts
-            !perf-lab-artifacts/**/selected-traces.otlp.jsonl
-          if-no-files-found: warn
-          # Carries the Jaeger-format snapshots written by the publish step:
-          # download it, `docker run jaegertracing/all-in-one`, and drop any
-          # traces/<case>-<engine>/<step>-<traceId>.json into the Jaeger UI.
-          retention-days: 14
-
-      - name: Enforce full-run result and report acceptance
-        if: >-
-          always() &&
-          needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
-          (
-            steps.run-verdict.outputs.status != 'success' ||
-            steps.trace-publish.outcome != 'success' ||
-            steps.trace-site.outcome != 'success' ||
-            steps.teable-report.outcome != 'success' ||
-            steps.feishu-report.outcome != 'success' ||
-            steps.github-summary.outcome != 'success'
-          )
-        run: |
-          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, traceSite=${{ steps.trace-site.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
-          exit 1
-
-      - name: Enforce targeted report delivery failures
-        if: >-
-          always() &&
-          needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
-          (
-            steps.trace-publish.outcome == 'failure' ||
-            steps.trace-site.outcome == 'failure' ||
-            steps.teable-report.outcome == 'failure' ||
-            steps.feishu-report.outcome == 'failure' ||
-            steps.github-summary.outcome == 'failure'
-          )
-        run: exit 1
