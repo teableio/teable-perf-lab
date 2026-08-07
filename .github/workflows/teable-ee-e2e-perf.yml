@@ -990,7 +990,11 @@ jobs:
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         run: |
-          if [ -f "$(git -C perf-lab rev-parse --git-dir)/shallow" ]; then
+          # `rev-parse --git-dir` answers relative to the repository, so testing
+          # for `$(...)/shallow` from here looked for `.git/shallow` in the
+          # workspace root, found nothing, and skipped the fetch. This flag
+          # answers the question being asked.
+          if [ "$(git -C perf-lab rev-parse --is-shallow-repository)" = "true" ]; then
             git -C perf-lab fetch --unshallow --filter=blob:none --no-tags origin
           fi
           git -C perf-lab rev-list --count HEAD
