@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Perf trace</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1b1f24;
+        --muted: #5b6572;
+        --line: #d8dee6;
+        --panel: #f6f8fa;
+        --bar: #3f7fd6;
+        --slow: #d1622b;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1216;
+          --fg: #e6edf3;
+          --muted: #9aa7b4;
+          --line: #263038;
+          --panel: #161b22;
+          --bar: #58a6ff;
+          --slow: #f0883e;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        align-items: baseline;
+      }
+      header h1 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 600;
+      }
+      header .meta {
+        color: var(--muted);
+      }
+      header a {
+        color: var(--bar);
+      }
+      .toolbar {
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      input[type="search"] {
+        flex: 1 1 240px;
+        min-width: 180px;
+        padding: 5px 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+      }
+      label {
+        color: var(--muted);
+        display: flex;
+        gap: 5px;
+        align-items: center;
+      }
+      main {
+        padding: 0 18px 40px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      tbody tr {
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+      }
+      tbody tr.dim {
+        opacity: 0.32;
+      }
+      td {
+        padding: 3px 6px;
+        vertical-align: top;
+      }
+      td.name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 46vw;
+      }
+      td.dur {
+        text-align: right;
+        white-space: nowrap;
+        color: var(--muted);
+        width: 88px;
+      }
+      td.track {
+        width: 45%;
+        min-width: 220px;
+      }
+      .svc {
+        color: var(--muted);
+      }
+      .lane {
+        position: relative;
+        height: 13px;
+        background: var(--panel);
+        border-radius: 3px;
+      }
+      .bar {
+        position: absolute;
+        top: 0;
+        height: 13px;
+        min-width: 2px;
+        background: var(--bar);
+        border-radius: 3px;
+      }
+      .bar.slow {
+        background: var(--slow);
+      }
+      tr.tags td {
+        background: var(--panel);
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: var(--muted);
+        cursor: text;
+      }
+      .empty {
+        padding: 40px 0;
+        color: var(--muted);
+      }
+      ul.runs {
+        list-style: none;
+        padding: 0;
+      }
+      ul.runs li {
+        padding: 5px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      ul.runs a {
+        color: var(--bar);
+        text-decoration: none;
+      }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0 7px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="title">Perf trace</h1>
+      <span class="meta" id="subtitle"></span>
+      <span class="meta" id="links"></span>
+    </header>
+    <div class="toolbar" id="toolbar" hidden>
+      <input type="search" id="filter" placeholder="filter spans by name, service or tag value" />
+      <label><input type="checkbox" id="slowOnly" /> slowest 10 only</label>
+      <span class="meta" id="counts"></span>
+    </div>
+    <main id="main"><p class="empty">Loading…</p></main>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const runId = params.get("run") || "";
+      const traceId = params.get("trace") || "";
+      const pinned = params.get("pinned") || "";
+      const el = (id) => document.getElementById(id);
+      const main = el("main");
+
+      const text = (value) => document.createTextNode(String(value));
+      const node = (tag, className, content) => {
+        const created = document.createElement(tag);
+        if (className) created.className = className;
+        if (content != null) created.append(text(content));
+        return created;
+      };
+      const ms = (us) =>
+        us >= 1000000
+          ? `${(us / 1000000).toFixed(2)} s`
+          : `${(us / 1000).toFixed(1)} ms`;
+
+      const fail = (message) => {
+        main.replaceChildren(node("p", "empty", message));
+      };
+
+      const loadJson = async (path) => {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (!response.ok) {
+          throw new Error(`${path} → HTTP ${response.status}`);
+        }
+        return response.json();
+      };
+
+      // A run is evicted once the site runs out of budget. Say so plainly
+      // instead of leaving a bare 404 that reads like the viewer is broken.
+      const missingTraceMessage = (path) =>
+        `${path} is not available. The site keeps the newest runs that fit its byte budget, and this one has been evicted; pin a trace to keep it.`;
+
+      const orderSpans = (spans) => {
+        const byId = new Map(spans.map((span) => [span.id, span]));
+        const children = new Map();
+        const roots = [];
+        for (const span of spans) {
+          if (span.parentId && byId.has(span.parentId)) {
+            const bucket = children.get(span.parentId) ?? [];
+            bucket.push(span);
+            children.set(span.parentId, bucket);
+          } else {
+            roots.push(span);
+          }
+        }
+        const byStart = (left, right) =>
+          left.startUs - right.startUs || left.durationUs - right.durationUs;
+        const ordered = [];
+        const walk = (span, depth) => {
+          ordered.push({ span, depth });
+          for (const child of (children.get(span.id) ?? []).sort(byStart)) {
+            walk(child, depth + 1);
+          }
+        };
+        for (const root of roots.sort(byStart)) {
+          walk(root, 0);
+        }
+        // Cycles or a parent pruned by the span cap would otherwise vanish.
+        if (ordered.length < spans.length) {
+          const seen = new Set(ordered.map((entry) => entry.span.id));
+          for (const span of spans) {
+            if (!seen.has(span.id)) ordered.push({ span, depth: 0 });
+          }
+        }
+        return ordered;
+      };
+
+      const renderTrace = (trace) => {
+        const spans = trace.spans ?? [];
+        if (spans.length === 0) {
+          fail("This trace has no spans.");
+          return;
+        }
+        const origin = Math.min(...spans.map((span) => span.startUs));
+        const end = Math.max(
+          ...spans.map((span) => span.startUs + span.durationUs),
+        );
+        const total = Math.max(1, end - origin);
+        // Highlighting "the slowest 10" in a trace that only has 10 spans marks
+        // everything and says nothing.
+        const slowCut =
+          spans.length > 10
+            ? [...spans]
+                .sort((left, right) => right.durationUs - left.durationUs)
+                .slice(0, 10)
+                .reduce(
+                  (min, span) => Math.min(min, span.durationUs),
+                  Number.POSITIVE_INFINITY,
+                )
+            : Number.POSITIVE_INFINITY;
+
+        const table = document.createElement("table");
+        const body = document.createElement("tbody");
+        const rows = [];
+
+        for (const { span, depth } of orderSpans(spans)) {
+          const row = document.createElement("tr");
+          const name = node("td", "name");
+          name.style.paddingLeft = `${6 + depth * 12}px`;
+          name.append(text(span.name));
+          if (span.service) {
+            name.append(text(" "), node("span", "svc", span.service));
+          }
+          name.title = `${span.name} · ${span.service ?? ""}`;
+
+          const track = node("td", "track");
+          const lane = node("div", "lane");
+          const bar = node("div", "bar");
+          bar.style.left = `${((span.startUs - origin) / total) * 100}%`;
+          bar.style.width = `${Math.max(0.4, (span.durationUs / total) * 100)}%`;
+          if (span.durationUs >= slowCut) bar.classList.add("slow");
+          lane.append(bar);
+          track.append(lane);
+
+          row.append(name, track, node("td", "dur", ms(span.durationUs)));
+          body.append(row);
+
+          const haystack = [
+            span.name,
+            span.service ?? "",
+            ...Object.entries(span.tags ?? {}).map(
+              ([key, value]) => `${key}=${value}`,
+            ),
+          ]
+            .join(" ")
+            .toLowerCase();
+          rows.push({ row, span, haystack, expanded: null });
+
+          row.addEventListener("click", () => {
+            const entry = rows.find((candidate) => candidate.row === row);
+            if (entry.expanded) {
+              entry.expanded.remove();
+              entry.expanded = null;
+              return;
+            }
+            const detail = document.createElement("tr");
+            detail.className = "tags";
+            const cell = document.createElement("td");
+            cell.colSpan = 3;
+            const tags = Object.entries(span.tags ?? {});
+            cell.append(
+              text(
+                [
+                  `span ${span.id}${span.parentId ? ` · parent ${span.parentId}` : ""}`,
+                  `start +${ms(span.startUs - origin)} · duration ${ms(span.durationUs)}`,
+                  ...tags.map(([key, value]) => `${key} = ${value}`),
+                ].join("\n"),
+              ),
+            );
+            detail.append(cell);
+            row.after(detail);
+            entry.expanded = detail;
+          });
+        }
+
+        table.append(body);
+        main.replaceChildren(table);
+
+        el("slowOnly").disabled = !Number.isFinite(slowCut);
+        const apply = () => {
+          const needle = el("filter").value.trim().toLowerCase();
+          const slowOnly = el("slowOnly").checked && Number.isFinite(slowCut);
+          let shown = 0;
+          for (const entry of rows) {
+            const matched =
+              (!needle || entry.haystack.includes(needle)) &&
+              (!slowOnly || entry.span.durationUs >= slowCut);
+            entry.row.classList.toggle("dim", !matched);
+            if (matched) shown += 1;
+          }
+          el("counts").textContent =
+            `${shown}/${spans.length} spans · span tree ${ms(total)}` +
+            (trace.droppedSpanCount
+              ? ` · ${trace.droppedSpanCount} spans dropped by the publish cap`
+              : "");
+        };
+        el("toolbar").hidden = false;
+        el("filter").addEventListener("input", apply);
+        el("slowOnly").addEventListener("change", apply);
+        apply();
+      };
+
+      const renderRunIndex = (index) => {
+        const list = node("ul", "runs");
+        for (const entry of index.traces ?? []) {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          link.href = `trace.html?run=${encodeURIComponent(index.runId)}&trace=${encodeURIComponent(entry.traceId)}`;
+          link.append(text(`${entry.caseId} · ${entry.engine}`));
+          item.append(
+            link,
+            text(" "),
+            node("span", "pill", entry.result ?? "?"),
+            text(` ${entry.durationMs ?? "?"} ms · ${entry.stepId ?? ""}`),
+          );
+          list.append(item);
+        }
+        main.replaceChildren(
+          list.childElementCount
+            ? list
+            : node("p", "empty", "This run published no traces."),
+        );
+      };
+
+      const start = async () => {
+        try {
+          if (pinned) {
+            el("title").textContent = "Pinned trace";
+            const trace = await loadJson(
+              `pinned/${encodeURIComponent(pinned)}.json`,
+            ).catch(() => {
+              throw new Error(`pinned/${pinned}.json is not available.`);
+            });
+            describe(trace);
+            renderTrace(trace);
+            return;
+          }
+          if (!runId) {
+            fail("Missing ?run=<runId> (add &trace=<traceId> for one trace).");
+            return;
+          }
+          if (!traceId) {
+            const index = await loadJson(
+              `r/${encodeURIComponent(runId)}/index.json`,
+            ).catch(() => {
+              throw new Error(missingTraceMessage(`r/${runId}/index.json`));
+            });
+            el("title").textContent = `Run ${index.runId}`;
+            el("subtitle").textContent =
+              `${(index.traces ?? []).length} traces · published ${index.publishedAt ?? "?"}`;
+            if (index.runUrl) {
+              const link = document.createElement("a");
+              link.href = index.runUrl;
+              link.append(text("workflow run"));
+              el("links").replaceChildren(link);
+            }
+            renderRunIndex(index);
+            return;
+          }
+          const trace = await loadJson(
+            `r/${encodeURIComponent(runId)}/${encodeURIComponent(traceId)}.json`,
+          ).catch(() => {
+            throw new Error(missingTraceMessage(`r/${runId}/${traceId}.json`));
+          });
+          describe(trace);
+          renderTrace(trace);
+        } catch (error) {
+          fail(error instanceof Error ? error.message : String(error));
+        }
+      };
+
+      const describe = (trace) => {
+        const info = trace.case ?? {};
+        el("title").textContent = `${info.caseId ?? "trace"} · ${info.engine ?? ""}`;
+        el("subtitle").textContent = [
+          info.result ? `result ${info.result}` : "",
+          info.durationMs != null ? `${info.durationMs} ms` : "",
+          info.stepId ? `step ${info.stepId}` : "",
+          `trace ${trace.traceId}`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const links = [];
+        if (trace.runId) {
+          const back = document.createElement("a");
+          back.href = `trace.html?run=${encodeURIComponent(trace.runId)}`;
+          back.append(text("all traces in this run"));
+          links.push(back);
+        }
+        if (info.runUrl) {
+          const run = document.createElement("a");
+          run.href = info.runUrl;
+          run.append(text("workflow run"));
+          links.push(run);
+        }
+        el("links").replaceChildren(
+          ...links.flatMap((link, index) => (index ? [text(" · "), link] : [link])),
+        );
+        document.title = `${info.caseId ?? "trace"} · perf trace`;
+      };
+
+      start();
+    </script>
+  </body>
+</html>
