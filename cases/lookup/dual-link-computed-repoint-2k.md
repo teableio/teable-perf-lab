@@ -79,6 +79,15 @@ Mirrors a bounded version of the customer schema across four tables:
 
 ## Primary Metric
 
+- `lookupReadyTotalMs`: elapsed time from the first measured link write until
+  every sampled lookup, formula, and rollup value converged. This is the
+  user-visible completion time and compares the engines fairly: V1 recomputes
+  synchronously inside the write phase while V2 converges asynchronously after
+  responding, so a propagation-only metric structurally penalizes V2 for work
+  V1 hides in its write.
+
+## Secondary Metrics
+
 - `lookupPropagationMs`: elapsed time after the link write response until the
   entire dependency graph (orders lookups + formulas + purchase rollups) reflects
   the re-pointed links. This isolates the read-after-write computed readiness
@@ -109,9 +118,11 @@ and `lookupReadyTotalMs` 22.1s, with 2,000 orders and 200 purchases fully
 scanned. 10k remains a recorded non-convergence finding (run 27679497968), not a
 target metric for this green CI standard.
 
-`maxMs` (40,000) is calibrated 2026-06-22 from CI history of the current
-`lookupPropagationMs` metric (53 v1+v2 runs; v2 worst ~15.7s, v1 worst ~0.6s),
-set to ~2.5x the v2 worst for async-window margin - 7.5x tighter than the old
-300,000.
+`maxMs` (90,000) is calibrated 2026-08-08 against the `lookupReadyTotalMs`
+primary metric (runs 31241408467-31258824683: v1 total ~35-36s, v2 total
+~13-20s), set to ~2.5x the v1 tail. It is a coarse non-convergence / blow-up
+guardrail in the `first-link-4k` style, not a tight SLA; the retired
+propagation-only calibration (2026-06-22, 53 runs, maxMs 40,000) structurally
+penalized V2 for recompute work V1 performs inside its write phase.
 For a fast local smoke, set `PERF_LAB_LCP_ROWS` / `PERF_LAB_LCP_FOREIGN_ROWS` to
 shrink the workload without editing this config.
