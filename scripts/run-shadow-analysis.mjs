@@ -523,6 +523,77 @@ const readRunMeasurements = async () => {
   }
 };
 
+/**
+ * What the existing 20% gate flagged this run — and, when it flagged nothing,
+ * which kind of nothing.
+ *
+ * This is the half of shadow mode that makes it shadow mode, and it was never
+ * connected. `RELEASE_COMPARISON_PATH` pointed at `release-baseline.json`, the
+ * released build's per-case values, which carries no verdict and no
+ * `regressions` key. `comparison.regressions ?? []` read that as an empty list,
+ * the file parsed fine so nothing was caught, and twenty-three runs recorded
+ * `old: 0, agreed: 0` — a reconciliation between the new system and silence.
+ *
+ * So the three states are separated and reported. `no-comparison-file` and
+ * `not-a-comparison-file` are plumbing failures. `no-release-baseline` is a
+ * real state — the released commit can predate every measurement — in which the
+ * old gate genuinely has nothing to say, and which still cannot be reconciled
+ * against. Only `available` produces evidence, and the run ledger counts only
+ * those.
+ */
+export const readOldGate = async () => {
+  const path = resolve(
+    env("RELEASE_COMPARISON_PATH", "release-comparison.json"),
+  );
+  let comparison;
+  try {
+    comparison = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    const reason =
+      error?.code === "ENOENT" ? "no-comparison-file" : "unreadable-comparison";
+    console.warn(
+      `Shadow: no old-gate verdict at ${path} (${reason}). This run cannot be reconciled and will not count toward acceptance G1.`,
+    );
+    return { flagged: [], available: false, reason, path };
+  }
+
+  if (!Array.isArray(comparison.regressions)) {
+    // The shape says this is not the file it was meant to read. Named
+    // separately from a missing file because this is the failure that already
+    // happened: a real file, valid JSON, wrong file, silently answering "no
+    // regressions".
+    console.warn(
+      `Shadow: ${path} carries no \`regressions\` list, so it is not a release comparison — it is probably the baseline file. This run cannot be reconciled and will not count toward acceptance G1.`,
+    );
+    return {
+      flagged: [],
+      available: false,
+      reason: "not-a-comparison-file",
+      path,
+    };
+  }
+
+  if (comparison.available === false) {
+    console.warn(
+      `Shadow: the old gate had no release baseline this run, so it flagged nothing by construction. Recorded as unreconcilable rather than as agreement.`,
+    );
+    return {
+      flagged: [],
+      available: false,
+      reason: "no-release-baseline",
+      path,
+    };
+  }
+
+  return {
+    flagged: comparison.regressions.map((row) => row.caseId),
+    available: true,
+    reason: undefined,
+    path,
+    compared: comparison.counts?.compared,
+  };
+};
+
 const main = async () => {
   const workDir = resolve(env("SHADOW_WORK_DIR", "shadow-work"));
   const outputPath = resolve(
@@ -563,21 +634,8 @@ const main = async () => {
     runOrdinal,
   });
 
-  // What the existing gate flagged this run, so the two can be reconciled. Read
-  // from the artifact the current report already writes; absent, the shadow
-  // still records its own findings and the reconciliation is simply empty.
-  let oldFlagged = [];
-  try {
-    const comparison = JSON.parse(
-      await readFile(
-        resolve(env("RELEASE_COMPARISON_PATH", "release-comparison.json")),
-        "utf8",
-      ),
-    );
-    oldFlagged = (comparison.regressions ?? []).map((row) => row.caseId);
-  } catch {
-    oldFlagged = [];
-  }
+  const oldGate = await readOldGate();
+  const oldFlagged = oldGate.flagged;
 
   // Only change points not reported before. The seen-set is persisted beside
   // the result and grows monotonically: a change point that stops being
@@ -626,6 +684,16 @@ const main = async () => {
     // which is a different kind of run and must not be averaged in with the
     // others when the confirmed layer's rate is quoted.
     seenBefore: seen.length,
+    // Whether the old gate's verdict was actually read this run. Without it
+    // every reconciliation count is zero and reads exactly like a run where the
+    // old gate was quiet — which is how twenty-three runs of empty
+    // reconciliation passed for data.
+    oldGate: {
+      available: oldGate.available,
+      reason: oldGate.reason,
+      flagged: oldGate.flagged.length,
+      compared: oldGate.compared,
+    },
     reconciliation,
     coverage: { tested: analysis.tested, unjudged: analysis.unjudged.length },
   };

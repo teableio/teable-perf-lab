@@ -240,6 +240,28 @@ Worth settling before ten shadow runs turn six minutes a run into a standing cos
 
 ### 4. Ten shadow runs
 
+**The volume is already there and none of it counts.** Between 2026-08-08 and
+2026-08-09, 25 full runs carried the shadow step and 23 produced a usable
+artifact — all dispatched by hand, more than twice the ten G1 asks for. Every
+one of those 23 recorded `reconciliation.counts.old: 0`, and not because the old
+gate was quiet: `RELEASE_COMPARISON_PATH` pointed at `release-baseline.json`,
+which carries the released build's per-case values and no `regressions` key at
+all. `comparison.regressions ?? []` read that as an empty list, the file parsed
+so nothing threw, and 23 runs reconciled the new system against silence. Fixed
+by writing the old gate's verdict to `release-comparison.json` in a step of its
+own (`resolve-release-comparison.mjs`) — but the 23 cannot be recovered, so the
+ten start from the first run that carries the fix.
+
+Two things this cost, worth keeping:
+
+- **`continue-on-error` rewrites a step's `conclusion` to success.** Whether a
+  shadow run happened can only be read from whether its artifact exists; the
+  jobs API will say success for a run that was killed at 30 minutes with no
+  output. Two runs on 08-07 look exactly like the other 23 through that lens.
+- **A zero from an unasked question looks like agreement.** The same shape as
+  the shallow clone, a third time. The run ledger now refuses to count a run
+  whose `oldGate.available` is not true, with the reason attached.
+
 Calendar time, roughly a week at the current cadence. Needs one clean run first.
 
 Note the cold start: the seen-set cache is empty, so the first successful run
@@ -268,6 +290,26 @@ What counts toward G1, and what does not:
   and reported as `judged-the-corpus-tail`, not counted.
 - **The analysis has to have succeeded.** The step is gated on the shadow step's
   `outcome`, like the seen-set save.
+
+**Two readings from the 23 dead runs that do not match the backtest**, both
+worth having in hand before the ten start, neither verified here:
+
+- The same-run layer averaged 4.5 flags per run against the backtest's 3.8 —
+  inside the band — but `record-delete/delete-stream-1k` and
+  `record-create/mixed-1k-20fields-bulk-create` flagged in **23 runs out of 23**
+  between them, close to half the average. A case that flags every single run is
+  not a detection; either the measurability screen should be rejecting it or its
+  threshold is being read off a history it does not belong to.
+- The confirmed layer produced **7.7 fresh change points per run** across the 22
+  post-cold-start runs (169 total, 122 distinct cases), against a backtest that
+  measured 0.0 false alarms per run. A run advances the mainline by about one
+  commit and cannot generate that many genuine change points. The unverified
+  hypothesis is the ±1 boundary jitter recorded further down this document: the
+  corpus grows, the split lands one commit over, `changePointKey` changes with
+  it, and the seen-set reports the same change point again as new. If that is
+  it, the identity needs to tolerate a one-position move — which is a change to
+  the ledger's identity scheme and has to be made before the ledger exists, not
+  after.
 
 **Dispatch the ten from `main`.** Actions caches are scoped to the branch that
 wrote them plus the default branch, so a run on a feature branch cannot read a
