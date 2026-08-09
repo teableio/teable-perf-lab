@@ -305,6 +305,15 @@ that reading — the noisiest entries are the smallest.
 57.8% run to run, while every case above ~1s sits in single digits or low teens.
 Small denominators, not a broken instrument.
 
+These numbers exist twice on purpose. The Feishu card's compute panel states the
+18.1% / 12.0% pair to its reader — the 1.2x band it sorts by sits on that floor,
+so a "计算变慢 8" count means nothing without it — and carries its own copy as
+`COMPUTE_NOISE_NOTE` in `scripts/perf-run-summary-model.mjs`. Deliberately not
+sourced from here: a threshold and a sentence age differently, and making the
+renderer import the spec is the worse coupling. The cost is that a re-measurement
+has to land in both places, and the report copy is the one nobody re-reads. If
+this table changes, change that constant in the same edit.
+
 **Phase 4 — do not gate.** Phase 3 yielded its number and the number refuses.
 The 1.2x band is a 20% threshold, and 29% of unchanged-work pairs cross it on
 their own; a gate there would report nothing happening, most of the time it

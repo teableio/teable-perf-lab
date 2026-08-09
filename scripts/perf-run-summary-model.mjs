@@ -234,6 +234,10 @@ export const COMPUTE_VERDICT_GLOSSARY = {
 // is a threshold and this is a sentence — but they have to move together. If
 // `DEFAULT_COMPUTE_BAND` is ever recalibrated against a per-case noise model,
 // this line is wrong the same day.
+//
+// This is a copy. It is measured in docs/compute-time-observation-spec.md Phase
+// 3, which points back here for the same reason: re-measuring changes two places
+// and this is the one nobody re-reads.
 export const COMPUTE_NOISE_NOTE =
   "注意 相邻两轮之间，同样的活 computeMs 平均就动 18.1%（墙钟 12.0%），1.2x 这道线正压在噪声上：单个刚过线的 case 说明不了什么，成片出现、或者本身量级大的 case 才是信号 —— 越小的 case 越吵。";
 
