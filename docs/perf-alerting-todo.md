@@ -238,6 +238,19 @@ neither done:
 
 Worth settling before ten shadow runs turn six minutes a run into a standing cost.
 
+**Decided 2026-08-10: neither, for now — and it is now a nightly cost.** With
+the run scheduled every night, the corpus rebuild is about four minutes a night
+rather than four minutes whenever someone remembers to dispatch. That is
+accepted rather than fixed, because the shadow step runs last and behind
+`continue-on-error`, so those four minutes cost the run nothing that it needs.
+
+What settles it is the incremental read in acceptance F3, which asks for it by
+name — "a run fetches only its own rows, one page, one query". Do that before
+the ledger, not in the same change as the reconciliation fix: the watermark has
+to survive a commit being re-measured by a later run, which is a correctness
+question of its own and does not belong in a change whose point is that a zero
+must not be able to lie.
+
 ### 4. Ten shadow runs
 
 **The volume is already there and none of it counts.** Between 2026-08-08 and
@@ -311,7 +324,18 @@ worth having in hand before the ten start, neither verified here:
   the ledger's identity scheme and has to be made before the ledger exists, not
   after.
 
-**Dispatch the ten from `main`.** Actions caches are scoped to the branch that
+**The ten now run themselves.** A nightly schedule at 18:00 UTC — 02:00 Beijing,
+after the working day's commits — dispatches a full run on the default branch.
+Twenty-five hand-dispatched runs produced the last round of evidence and two of
+them died on a timeout with nobody watching; a validation that depends on
+someone pressing a button is not a validation. `inputs` is null on a scheduled
+run, so every input the workflow reads carries its dispatch default explicitly
+for that path, including the concurrency key — without it a scheduled full run
+would take the per-ref single-case key, which is the one arrangement that lets
+two full runs overlap and measure each other's noise. The cadence is sized for
+the validation window and should be reconsidered the moment G1 is met.
+
+**Dispatch anything manual from `main` too.** Actions caches are scoped to the branch that
 wrote them plus the default branch, so a run on a feature branch cannot read a
 ledger — or a seen-set — written by a run on another one. Ten runs spread across
 branches would each start from an empty ledger and report one qualifying run
