@@ -1016,7 +1016,13 @@ jobs:
           # same file today only because the job's default directory happens to
           # be the workspace; writing it out means a change to either one cannot
           # silently disconnect the cache from the file it is meant to carry.
-          path: ${{ github.workspace }}/shadow-seen.json
+          # The run ledger travels in the same entry. Both are state that only
+          # means something accumulated, and a lost ledger beside a kept
+          # seen-set would leave a run count that disagrees with the change
+          # points it is counting.
+          path: |
+            ${{ github.workspace }}/shadow-seen.json
+            ${{ github.workspace }}/shadow-runs.json
           key: perf-shadow-seen-${{ github.run_id }}
           restore-keys: |
             perf-shadow-seen-
@@ -1119,6 +1125,31 @@ jobs:
             echo "::warning title=Shadow analysis produced no result::Shadow mode recorded nothing for this run; the ten-run reconciliation in acceptance section G cannot count it."
           fi
 
+      # Acceptance G1 and G2 are the only two of section G that can be settled
+      # by counting, and nothing was counting. Each run wrote its own artifact
+      # and stopped, so ten runs would have left ten artifacts on a 90-day
+      # retention and a person with a spreadsheet — and "are we at run 3 or run
+      # 7" would have had no answer inside the system producing the evidence.
+      #
+      # Gated on the analysis having succeeded, for the same reason the seen-set
+      # save is: a run whose analysis refused to produce anything did not run
+      # the new system alongside the old one, and counting it would make the ten
+      # arrive sooner and mean less.
+      - name: Accumulate shadow validation progress
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_LEDGER_PATH: ${{ github.workspace }}/shadow-runs.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          # G1 asks for ten *full* runs. Taken from the dispatch rather than
+          # inferred from how many cases were measured, so a full run with a
+          # dead shard reads as a full run that failed rather than as a
+          # single-case dispatch.
+          PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+        run: node scripts/accumulate-shadow-runs.mjs
+
       # Only after the analysis actually succeeded. A failed run that saved its
       # state would write back whatever was restored — or nothing at all — and
       # a lost seen-set means the next run re-announces the entire history as
@@ -1129,7 +1160,9 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@v5
         with:
-          path: ${{ github.workspace }}/shadow-seen.json
+          path: |
+            ${{ github.workspace }}/shadow-seen.json
+            ${{ github.workspace }}/shadow-runs.json
           key: perf-shadow-seen-${{ github.run_id }}
 
       - name: Upload shadow analysis
@@ -1138,9 +1171,15 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-shadow-${{ github.run_id }}-${{ github.run_attempt }}
+          # `shadow-runs.json` is uploaded as well as cached. The cache is what
+          # carries it between runs; the artifact is what survives a cache
+          # eviction, and the ten runs G1 counts are a week of calendar time.
+          # (Comments cannot go inside the block below — it is a literal scalar,
+          # so a `#` line would be read as a path pattern.)
           path: |
             shadow-analysis.json
             shadow-seen.json
+            shadow-runs.json
           # Not `ignore`. A missing result is the thing worth knowing about, and
           # silently uploading nothing is how the first run of this looked
           # successful while having produced a 404.
