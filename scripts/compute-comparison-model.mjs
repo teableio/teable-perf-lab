@@ -20,20 +20,24 @@
 // `resolve-release-baseline.mjs`; rendering belongs in
 // `perf-run-summary-model.mjs`. See docs/compute-time-observation-spec.md.
 //
-// Nothing here gates a run, and that is deliberate rather than unfinished. The
-// band below is inherited from the wall-clock comparison, not calibrated: the
-// run-to-run noise of compute time has never been measured, and the 1.2x gate it
-// borrows already fires on 42 of 263 V1 cases whose code did not change between
-// runs. A verdict here is a label on a report. Once the noise floor is known — it
-// should be well under the wall-clock floor, since compute time excludes queueing
-// and runner contention — a gate can be added, and only then.
+// Nothing here gates a run, and as of 2026-08-09 that is settled rather than
+// pending. The noise was measured over 29 full runs: between consecutive runs of
+// the same case, at unchanged shape and unchanged step count, `computeMs` moves
+// 18.1% on average against the wall clock's 12.0%, and crosses 20% on its own in
+// 29% of pairs. Compute time is noisier than wall clock, not quieter — the
+// opposite of what this file used to predict. A 1.2x band on that would speak
+// mostly when nothing happened, which is already why the wall-clock gate it
+// borrows from gets ignored. So a verdict here stays a label on a report.
+// Alerting on compute would need a per-case noise model, not a shared constant:
+// per-case noise runs from 4.8% to 57.8%, and no single band fits that spread.
+// See the Phase 3/4 tables in docs/compute-time-observation-spec.md.
 
 export const COMPUTE_METRIC = "computeMs";
 
-// Borrowed from `full-run-comparison-model.mjs` rather than imported: these two
-// bands are the same number today by coincidence of ignorance, not by design, and
-// they will diverge the moment compute noise is measured. Importing would make a
-// later change to one silently change the other.
+// Borrowed from `full-run-comparison-model.mjs` rather than imported: the two
+// bands are the same number by accident, over populations whose measured noise
+// differs by half again. Importing would make a later change to one silently
+// change the other.
 export const DEFAULT_COMPUTE_BAND = 1.2;
 
 const positiveNumber = (value) =>
