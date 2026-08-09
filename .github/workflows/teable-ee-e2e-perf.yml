@@ -1061,6 +1061,13 @@ jobs:
           SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
           RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-baseline.json
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          # This run's own measurements, so the same-run layer judges what this
+          # run measured rather than the newest point of every series. Without
+          # it a partial dispatch re-judges 282 cases on whenever they were last
+          # measured: two single-case runs flagged the same six cases at
+          # byte-identical ratios, which reads as stability and is days-old data
+          # twice. Cases this run did not measure go unjudged and are counted.
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
         run: node scripts/run-shadow-analysis.mjs
 
       # A step that computed nothing must not read as a step that found nothing.
@@ -1080,11 +1087,27 @@ jobs:
             node -e '
               const r = require("./shadow-analysis.json");
               const c = r.reconciliation?.counts ?? {};
+              const confirmed = r.confirmed ?? [];
+              // Which engine moved, counted. A change point on the paired
+              // series says V2 moved relative to V1, and about one in ten of
+              // the ones large enough to classify is the control channel — so a
+              // summary that only counts change points invites four wasted
+              // triages per seventy-five.
+              const movers = confirmed.reduce((tally, point) => {
+                tally[point.mover ?? "unknown"] =
+                  (tally[point.mover ?? "unknown"] ?? 0) + 1;
+                return tally;
+              }, {});
+              const moverText = Object.entries(movers)
+                .map(([mover, count]) => `${count} ${mover}`)
+                .join(", ");
               console.log(
                 `- same-run flagged: ${r.fast?.flagged?.length ?? 0}` +
-                ` (judged ${r.fast?.judged ?? 0})\n` +
-                `- new confirmed change points: ${r.confirmed?.length ?? 0}` +
-                ` (${r.confirmedRepeated ?? 0} already reported)\n` +
+                ` (judged ${r.fast?.judged ?? 0} of ${r.fast?.measured ?? "?"}` +
+                ` measured this run; source ${r.fast?.source ?? "?"})\n` +
+                `- new confirmed change points: ${confirmed.length}` +
+                ` (${r.confirmedRepeated ?? 0} already reported)` +
+                (moverText ? ` — ${moverText}` : "") + `\n` +
                 `- old gate ${c.old ?? 0}, agreed ${c.agreed ?? 0},` +
                 ` old only ${c.oldOnly ?? 0}, new only ${c.newOnly ?? 0}`
               );
