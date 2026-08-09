@@ -183,6 +183,11 @@ const emptyCounts = () => ({
   flat: 0,
   noCompute: 0,
   shapeChanged: 0,
+  // Compute got more expensive and the wall clock had no comparable baseline, so
+  // no verdict could be formed. Counted separately because these rows would
+  // otherwise land in `computeSlower` and nowhere else — a number in the header
+  // with no row under it. See `unpaired` below.
+  unpaired: 0,
   missingBaseline: 0,
 });
 
@@ -315,6 +320,9 @@ export const buildComputeComparison = ({
       const computeDirection = direction(computeRatio, band);
       if (computeDirection === "slower") {
         counts.computeSlower += 1;
+        if (!verdict) {
+          counts.unpaired += 1;
+        }
       } else if (computeDirection === "faster") {
         counts.computeFaster += 1;
       }
@@ -349,6 +357,17 @@ export const buildComputeComparison = ({
     deferred: rows.filter((row) => row.verdict === "deferred"),
     regressions: rows.filter((row) => row.verdict === "regression"),
     hiddenCost: rows.filter((row) => row.verdict === "hidden-cost"),
+    // Compute got more expensive but the wall half had no comparable baseline —
+    // most realistically because the case's primary metric was renamed, which
+    // the wall comparison rejects and this one does not. Every other row that
+    // burned more machine reaches the report through one of the three lists
+    // above; without this one these reach only the header count, and a count
+    // with no row under it is a number nobody can check. Named for what is
+    // actually known — the pair could not be formed — rather than given a
+    // verdict the data does not support.
+    unpaired: rows.filter(
+      (row) => !row.verdict && direction(row.computeRatio, band) === "slower",
+    ),
     counts,
   };
 };
