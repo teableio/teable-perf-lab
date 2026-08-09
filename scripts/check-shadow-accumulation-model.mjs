@@ -16,6 +16,7 @@ const resultOf = ({
   seenBefore = 5,
   source = "run",
   measured = 283,
+  oldGate = { available: true, flagged: 117 },
 } = {}) => ({
   runId,
   fast: {
@@ -28,6 +29,7 @@ const resultOf = ({
   },
   confirmed: Array.from({ length: confirmed }, () => ({})),
   seenBefore,
+  oldGate,
   reconciliation: { counts: { old: 117, agreed: 2 }, oldOnly: ["x"] },
 });
 
@@ -180,5 +182,51 @@ assert.equal(BACKTEST_NEW_PER_RUN, 3.8);
   assert.match(text, /not counted: 1 not-a-full-run/);
   assert.match(text, /G2: .*not-enough-runs/);
 }
+
+// --- the reconciliation has to have happened ---------------------------------
+
+// The fault this guard exists for. `RELEASE_COMPARISON_PATH` pointed at the
+// baseline file, which has no `regressions` key, so `old: 0, agreed: 0` came out
+// of every run between 2026-08-08 and 2026-08-09 — the shape of perfect
+// agreement, produced by never asking. G1 is ten runs *alongside the old
+// report*; a run that never read its verdict is not one of them.
+{
+  const ledger = Array.from({ length: 12 }, (_, index) =>
+    fullRun({
+      runId: `r${index}`,
+      oldGate: { available: false, reason: "not-a-comparison-file" },
+    }),
+  );
+  const assessment = assessShadow(ledger);
+  assert.equal(assessment.g1.runs, 0);
+  assert.equal(assessment.g1.met, false);
+  assert.equal(assessment.g2.met, false);
+  assert.match(assessment.g1.rejected[0].reason, /no-old-gate-verdict/);
+}
+
+// A result written before the field existed reads as "not recorded", which is
+// the correct verdict for those runs rather than a benefit of the doubt.
+assert.equal(
+  qualifyingRuns([
+    runRecord({
+      result: { fast: { source: "run" }, reconciliation: {} },
+      fullRun: true,
+      at: "x",
+    }),
+  ]).rejected[0].reason,
+  "no-old-gate-verdict (not-recorded)",
+);
+
+// A run where the old gate genuinely had no baseline is a real state and still
+// cannot be reconciled — recorded as unreconcilable, never as agreement.
+assert.match(
+  qualifyingRuns([
+    fullRun({
+      runId: "r0",
+      oldGate: { available: false, reason: "no-release-baseline" },
+    }),
+  ]).rejected[0].reason,
+  /no-release-baseline/,
+);
 
 console.log("shadow accumulation model checks passed");
