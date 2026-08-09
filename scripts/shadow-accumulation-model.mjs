@@ -78,6 +78,14 @@ export const runRecord = ({
   // The seen-set was empty, so every change point this run reported is a first
   // sighting only because nothing had been recorded before.
   coldStart: (result.seenBefore ?? 0) === 0,
+  // Whether the old gate's verdict was read at all. A run without it produces a
+  // reconciliation of zeroes that is indistinguishable from a run where the old
+  // gate was quiet, and G1 exists to produce reconciliations.
+  //
+  // Absent on every result written before the field existed, which is the
+  // correct reading for those: the twenty-three runs between 2026-08-08 and
+  // 2026-08-09 were pointed at the baseline file and reconciled nothing.
+  oldGate: result.oldGate ?? { available: false, reason: "not-recorded" },
   counts: result.reconciliation?.counts,
   oldOnly: result.reconciliation?.oldOnly ?? [],
 });
@@ -113,6 +121,16 @@ export const qualifyingRuns = (ledger = []) => {
       rejected.push({ runId: run.runId, reason: "not-a-full-run" });
     } else if (run.source !== "run") {
       rejected.push({ runId: run.runId, reason: "judged-the-corpus-tail" });
+    } else if (!run.oldGate?.available) {
+      // G1 is not "ten runs of the new system". It is ten runs *alongside the
+      // old report*, and the output that matters is where the two disagree. A
+      // run that never read the old gate's verdict produces `old: 0, agreed: 0,
+      // oldOnly: 0` — the shape of perfect agreement, from an empty input. It
+      // is the one failure this criterion cannot be allowed to absorb.
+      rejected.push({
+        runId: run.runId,
+        reason: `no-old-gate-verdict (${run.oldGate?.reason ?? "unknown"})`,
+      });
     } else {
       qualifying.push(run);
     }
