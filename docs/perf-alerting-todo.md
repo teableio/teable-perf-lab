@@ -250,6 +250,36 @@ sighting only because nothing had been recorded before. The second run is the
 first whose confirmed count means "new". Two runs are needed before the output
 says what it appears to say.
 
+**The runs now accumulate on their own.** `accumulate-shadow-runs.mjs` appends
+each run to `shadow-runs.json`, carried between runs in the same cache entry as
+the seen-set and uploaded as an artifact so a cache eviction over a week of
+calendar time does not lose the count. Each run prints where G1 and G2 stand
+into the job summary, so "are we at run 3 or run 7" is answered by the system
+rather than by someone collecting artifacts. Before this, `accumulate()` in
+`shadow-comparison-model.mjs` was called by nothing but its own check.
+
+What counts toward G1, and what does not:
+
+- **A full run only.** Taken from the dispatch (`case_filter_is_all`), not
+  inferred from how many cases were measured, so a full run with a dead shard
+  reads as a full run that failed rather than as a single-case dispatch.
+- **Judging this run's own measurements only.** A run that fell back to the
+  corpus tail is reconciling the old gate against days-old data. It is recorded
+  and reported as `judged-the-corpus-tail`, not counted.
+- **The analysis has to have succeeded.** The step is gated on the shadow step's
+  `outcome`, like the seen-set save.
+
+G2 is computed as flags per run against the backtest's 3.8, pinned as a constant
+rather than recalled from this document, with the 2x band read in both
+directions. One honest limit is built into the verdicts: what is measured is the
+_flag_ rate, and a flag is not a known false alarm until someone looks. Inside
+the band that bounds the false-alarm rate from above and settles G2; above the
+band it does not fail G2 by itself, because the excess may be real findings —
+that verdict is `above-band-needs-triage` and hands the question to G3. Below
+the band is `below-band-check-inputs`: a well-formed artifact reporting almost
+nothing is what the shallow clone produced twice, and it must never read as
+"quieter than promised".
+
 ### 5. Ledger, card, retirement
 
 All gated on the triage number and the shadow data. Section G of the acceptance

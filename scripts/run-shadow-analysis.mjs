@@ -620,6 +620,12 @@ const main = async () => {
     },
     confirmed: separated.fresh,
     confirmedRepeated: separated.counts.repeated,
+    // How many change points were already on the record when this run started.
+    // Zero means the seen-set was empty and every change point below is a first
+    // sighting only because nothing had been recorded before — the cold start,
+    // which is a different kind of run and must not be averaged in with the
+    // others when the confirmed layer's rate is quoted.
+    seenBefore: seen.length,
     reconciliation,
     coverage: { tested: analysis.tested, unjudged: analysis.unjudged.length },
   };
