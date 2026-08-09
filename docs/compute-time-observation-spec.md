@@ -278,18 +278,54 @@ Two constraints the model enforces and the report states:
   from the counters rather than read from `V2_COMPUTED_UPDATE_MODE`: the flag
   records what was requested, the counters record what ran.
 
-**Phase 3 — measure the noise.** Run the full suite for a week. Compute per-case
-run-to-run variance of `computeMs` against the measured ~17.4% mean per-case
-variance of the wall-clock metrics. The expectation is that compute time is
-markedly quieter, since it excludes queueing and runner contention — but it is
-an expectation, not a result, and until it is one the band in
-`compute-comparison-model.mjs` stays inherited from the wall-clock comparison
-and stays ungated.
+**Phase 3 — measure the noise. Done 2026-08-09, and the expectation was wrong.**
+Compute time is not quieter than wall clock. It is noisier.
 
-**Phase 4 — gate, or do not.** Only after Phase 3 yields a number. The existing
-1.2x wall-clock gate fires on 42 of 263 V1 cases whose code did not change
-between runs; a compute gate picked by the same guesswork would earn the same
-distrust. If the noise floor does not support a gate, the report stays a report.
+Measured over the 29 full runs between 2026-08-07 and 2026-08-09 — 15,809 rows
+carrying compute metrics, of which 37 cases per run compute anything at all.
+Pairs are consecutive full runs of the same case, restricted to an unchanged
+shape and an unchanged `computeStepsExecuted`, so both sides did the same work
+cut the same way:
+
+| per-case \|Δ\| between consecutive runs |      mean | median |   p90 | over 20% |
+| --------------------------------------- | --------: | -----: | ----: | -------: |
+| `computeMs`                             | **18.1%** |   8.2% | 41.7% |      29% |
+| wall clock, same cases and runs         |     12.0% |   7.1% | 28.8% |      20% |
+
+The seven true repeat pairs in the window — one teable-ee commit measured by two
+runs — say the same thing with a smaller sample and a wider gap: 24.4% compute
+against 18.4% wall.
+
+Why it goes the other way is inference, not measurement: wall clock carries
+network round trips and seeding, near-fixed costs that dilute the variable part,
+and `computeMs` strips exactly those away and leaves the CPU-bound remainder
+that a shared runner contends hardest for. The per-case table is consistent with
+that reading — the noisiest entries are the smallest.
+`lookup/dual-link-computed-first-link-1of4k-get-record`, 222ms median, moves
+57.8% run to run, while every case above ~1s sits in single digits or low teens.
+Small denominators, not a broken instrument.
+
+**Phase 4 — do not gate.** Phase 3 yielded its number and the number refuses.
+The 1.2x band is a 20% threshold, and 29% of unchanged-work pairs cross it on
+their own; a gate there would report nothing happening, most of the time it
+spoke. That is already the wall-clock gate's failure — it fires on 42 of 263 V1
+cases whose code did not change between runs, and people have learned to skip
+it. A second, noisier one teaches the same lesson faster.
+
+So `DEFAULT_COMPUTE_BAND` labels rows on a report and gates nothing, and that is
+now a result rather than a placeholder. If compute time ever needs to raise an
+alarm, it needs the shape the read path uses — a per-case noise model, each case
+judged against its own history — not a constant shared across 37 cases whose
+noise spans 4.8% to 57.8%. A fixed band cannot be picked for that spread; there
+is no value that is neither deaf on the quiet cases nor screaming on the loud
+ones.
+
+What compute time is good for is unchanged, and is not a threshold question:
+deciding whether one specific wall-clock movement was work saved or work
+relocated. Relocation shows up as 2-3x — `foreign-select-flip-1of40-fanout100-4k`
+moved 836.29ms off the request path — which is far clear of an 18% floor. Read
+it when a wall-clock number changes and you want to know why. Do not ask it to
+watch 37 cases unattended.
 
 **Phase 5 — precise windows.** Convert the ~20 `HYBRID_COMPUTED_CASES`
 (`scripts/run-plan.mjs:27`) and the computed-heavy sync cases to
