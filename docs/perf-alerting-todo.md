@@ -8,13 +8,16 @@ verified end to end in CI. Nothing it finds is shown to anyone yet. The next
 step is calendar time — ten full runs — and it is the owner who starts those, by
 dispatching full runs as normal. Then sections 1 and 2 below, then the ledger.
 
-**If you are the next agent on this:** section 1 is history, kept because the
-five faults in it are the ones this wiring keeps producing. Section 2 is the one
-that changes what the output means, and section 4 will not be honest without it.
-Section 3 is a known cost with a decision attached, not a defect. Everything
-numbered below was measured — if you change a number, measure it again rather
-than reasoning about it. Most of those five faults looked correct right up until
-someone read the raw values, and two of them produced a green tick.
+**If you are the next agent on this:** sections 1 and 2 are history, kept
+because the faults in them are the ones this wiring keeps producing. Section 2's
+fix is in — the same-run layer now judges this run's own measurements, so
+section 4's ten runs mean what they say. Section 3 is the one thing still open
+on this side, and it is a known cost with a decision attached rather than a
+defect — though acceptance F3 asks for the incremental read by name, so it is
+not indefinitely deferrable either. Everything numbered below was measured — if
+you change a number, measure it again rather than reasoning about it. Most of
+those five faults looked correct right up until someone read the raw values, and
+two of them produced a green tick.
 
 ## What this project is
 
@@ -152,7 +155,7 @@ What that last one changed, beyond the fix:
   written as if the `resolve_inputs` checkout carried over into a second job's
   workspace; it does not, and `continue-on-error` hid the exit 128.
 
-### 2. The same-run layer judges the newest point in the corpus, not this run's
+### 2. The same-run layer judges the newest point in the corpus, not this run's — fixed
 
 Verified on runs 31192079501 and 31193504224: both flagged the same six cases at
 byte-identical ratios — 4.23x, 2.061x, 1.801x, 1.536x, 1.475x, 1.402x — and both
@@ -173,10 +176,30 @@ things still follow:
 - **The ten reconciliation runs have to be full runs.** Ten single-case runs
   would re-report the same six flags ten times and the reconciliation would mean
   nothing.
-- **A case the run did not measure should not be judged at all.** The fix is to
-  pass the run's own measurements in rather than reading the tail of the corpus,
-  which also removes the last reason for the fast layer to depend on the corpus
-  being rebuilt first. Not done.
+- **A case the run did not measure should not be judged at all.** Done. The
+  shadow step reads this run's payloads from `PERF_LAB_ARTIFACT_DIR` — v2,
+  passing, positive, median across shards, the same three filters the corpus
+  query applies — and `analyse` takes them as `measured`. A case not in that map
+  is not judged; it is counted under `not-measured-this-run` in `fast.skipped`,
+  and `fast.source` says which point was judged (`run` or `corpus-tail`) so the
+  reconciliation counts cannot be read as the wrong thing later.
+
+  The same change fixed a second fault that was not visible from the pair of
+  runs above. The shadow runs _after_ the report has written this run's rows
+  into Performance Track, so the corpus it rebuilds already contains the point
+  being judged — and `checkLatest` reads its threshold off the history it is
+  given. A large enough spike raises its own bar and comes back clean. History
+  is now cut at the run's own mainline ordinal, so this run's rows are out of
+  the distribution its threshold comes from. `check:shadow-analysis` holds both
+  behaviours; the contamination case flags at 4x with the trim and reports
+  nothing without it.
+
+  Without `PERF_LAB_ARTIFACT_DIR` — a local analysis over the history, which has
+  no run of its own — the old behaviour stands and the log says so.
+
+  What this does not do is remove the fast layer's dependency on the corpus
+  being rebuilt first. It still needs each case's history to have a threshold at
+  all; only the point under test now comes from the run.
 
 The confirmed layer does not have this problem — it is deduplicated by
 `[[change-point-identity-model]]` and was clean across the pair: 68 new and 0
@@ -277,9 +300,17 @@ channel moving, not V2. `record-read/50k-50fields-sort-text-ascending` at
 
 Two consequences. **Triage has to be told this**, or four of the items on the
 list get chased into V2 and nothing is found there. And **the output should
-carry which engine moved**, so nobody has to work it out by hand. The second is
-not built; it needs both medians on each side attached to every change point,
-which the detector already has and simply does not report.
+carry which engine moved**, so nobody has to work it out by hand.
+
+The second is now built. Every change point carries `mover` — `v2`, `v1`,
+`both`, `below-bar`, `no-control` or `unknown` — with `v2Ratio`, `v1Ratio` and
+both medians either side, taken over the same eight points and the same 1.25x
+bar the table above was measured with. The job summary counts the movers beside
+the change point count, so a run whose findings are mostly control-channel says
+so without anyone opening the artifact.
+`change-point-attribution-model.mjs` holds it; the classifier deliberately
+answers `below-bar` rather than naming an engine when neither moved 1.25x, which
+is a third of them.
 
 ## The commit named is sometimes the one next to the culprit
 
@@ -298,8 +329,16 @@ Nothing is wrong by the stated criteria — this is inside the tolerance that wa
 signed off. But a SHA in an alert does not read as "this or its neighbour", and
 whoever triages will open exactly the commit named. Two things follow: **the
 triage list has to say the boundary is ±1**, and the output should carry the
-neighbouring commit explicitly rather than leaving the reader to know. Neither
-is done.
+neighbouring commit explicitly rather than leaving the reader to know.
+
+The second is now built: every change point carries `alsoPossible`, the measured
+commits sitting one mainline position either side of the one it names, and
+`unmeasuredBetween`, the count of mainline commits between the last measurement
+before the boundary and the one after. The second number is the one to read when
+it is large — a hundred unmeasured commits in the gap means the named commit
+ends a range rather than answering the question, and no ±1 phrasing covers that.
+Telling triage about the tolerance is still owed, and belongs with the 44-item
+list rather than in code.
 
 ## Findings this produced along the way
 
