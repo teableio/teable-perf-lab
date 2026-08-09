@@ -185,3 +185,64 @@ const LONG = 60;
 }
 
 console.log("shadow analysis checks passed");
+
+// --- reading the old gate's verdict -------------------------------------------
+
+// The plumbing failure that cost twenty-three runs. Every state is separated,
+// because "the old gate flagged nothing" and "nobody asked the old gate" are
+// the same zero, and only one of them is evidence.
+{
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readOldGate } = await import("./run-shadow-analysis.mjs");
+
+  const dir = await mkdtemp(join(tmpdir(), "old-gate-"));
+  const at = async (name, body) => {
+    const path = join(dir, name);
+    await writeFile(path, JSON.stringify(body));
+    process.env.RELEASE_COMPARISON_PATH = path;
+    return readOldGate();
+  };
+
+  // Pointed at the baseline file: real file, valid JSON, no verdict in it. This
+  // is what shipped, and it answered "no regressions" to a question it was
+  // never asked.
+  const baseline = await at("release-baseline.json", {
+    commit: "abc",
+    release: "2519",
+    runId: "1",
+    values: { "a::v2": { value: 100 } },
+  });
+  assert.equal(baseline.available, false);
+  assert.equal(baseline.reason, "not-a-comparison-file");
+  assert.deepEqual(baseline.flagged, []);
+
+  // The real comparison.
+  const comparison = await at("release-comparison.json", {
+    available: true,
+    regressions: [{ caseId: "a" }, { caseId: "b" }],
+    counts: { compared: 300, slower: 2 },
+  });
+  assert.equal(comparison.available, true);
+  assert.deepEqual(comparison.flagged, ["a", "b"]);
+  assert.equal(comparison.compared, 300);
+
+  // A run with no release baseline. The old gate genuinely said nothing, which
+  // still cannot be reconciled against — recorded as its own state rather than
+  // as agreement.
+  const noBaseline = await at("empty.json", {
+    available: false,
+    regressions: [],
+  });
+  assert.equal(noBaseline.available, false);
+  assert.equal(noBaseline.reason, "no-release-baseline");
+
+  process.env.RELEASE_COMPARISON_PATH = join(dir, "missing.json");
+  const missing = await readOldGate();
+  assert.equal(missing.available, false);
+  assert.equal(missing.reason, "no-comparison-file");
+  delete process.env.RELEASE_COMPARISON_PATH;
+}
+
+console.log("shadow analysis old-gate checks passed");

@@ -850,6 +850,25 @@ jobs:
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
         run: node scripts/resolve-release-baseline.mjs
 
+      # The old gate's verdict, written down instead of being computed inside
+      # the card and thrown away with it. Shadow mode exists to reconcile
+      # against this list, and until now it was reading `release-baseline.json`
+      # — the released build's per-case values, which has no `regressions` key.
+      # The file existed and parsed, so nothing failed, and twenty-three runs
+      # recorded `old: 0, agreed: 0`: the shape of perfect agreement, produced
+      # by never asking. Runs from before this step cannot be recovered.
+      #
+      # Same function the card uses, not a second implementation of the 20%
+      # rule — two implementations would drift and the reconciliation would be
+      # between two different gates.
+      - name: Resolve release comparison
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+        run: node scripts/resolve-release-comparison.mjs
+
       - name: Send Feishu perf summary
         id: feishu-report
         if: always()
@@ -1065,7 +1084,10 @@ jobs:
           SHADOW_WORK_DIR: ${{ runner.temp }}/shadow-work
           SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
           SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
-          RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-baseline.json
+          # The comparison, not the baseline. These are two different files and
+          # pointing at the wrong one is silent: the baseline parses fine and
+          # answers "no regressions" to a question it was never asked.
+          RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-comparison.json
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           # This run's own measurements, so the same-run layer judges what this
           # run measured rather than the newest point of every series. Without
