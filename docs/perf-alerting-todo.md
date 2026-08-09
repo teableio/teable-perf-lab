@@ -64,14 +64,23 @@ history.
 
 ## Blocked on the owner
 
-**1. Triage of the 44-item list.** Delivered outside the repo (it names
-teable-ee commits, see the disclosure rule below). Until the team marks which
-are real and which are false positives there is no true false-positive rate,
-and that number decides whether the ledger is worth building as a Teable table
-or whether a weekly script suffices. This is the longest lead item and the only
-one that can run in parallel with everything else.
+**1. ~~Triage of the 44-item list.~~ Dropped 2026-08-10 — do not go looking for
+it.** The list was delivered outside the repo (it names teable-ee commits, see
+the disclosure rule below), that document was not kept, and the owner chose to
+judge what the nightly runs surface from now on rather than reconstruct a
+backfill nobody has read. Nothing is blocked by this: the false-positive rate it
+was meant to produce now comes from live runs instead, later and on better
+evidence.
 
-**2. Ledger shape**, once the triage number is in.
+One thing to know before anyone tries to revive it. The seen-set grows
+monotonically and already holds the cold-start batch plus everything found on
+2026-08-08 and 08-09, so none of those change points will resurface on their
+own — what the nightly runs report is what is _new_. Reviving the historical
+list means clearing the seen-set deliberately, which also costs the next run its
+meaning, since a cleared set reports the whole recent history as fresh again.
+
+**2. Ledger shape**, once enough nightly runs have been judged to give a
+false-positive rate.
 
 **3. Card mock**, to be reviewed before it is built.
 
@@ -355,9 +364,11 @@ nothing is what the shallow clone produced twice, and it must never read as
 
 ### 5. Ledger, card, retirement
 
-All gated on the triage number and the shadow data. Section G of the acceptance
-criteria will not accept retiring the old comparison until ten runs have been
-reconciled and every case the new system dropped has been reviewed by hand.
+All gated on the shadow data, and on a false-positive rate now drawn from the
+nightly runs rather than from the dropped 44-item list. Section G of the
+acceptance criteria will not accept retiring the old comparison until ten runs
+have been reconciled and every case the new system dropped has been reviewed by
+hand.
 
 ## Disclosure rule — read before committing anything
 
@@ -440,8 +451,9 @@ commits sitting one mainline position either side of the one it names, and
 before the boundary and the one after. The second number is the one to read when
 it is large — a hundred unmeasured commits in the gap means the named commit
 ends a range rather than answering the question, and no ±1 phrasing covers that.
-Telling triage about the tolerance is still owed, and belongs with the 44-item
-list rather than in code.
+Telling triage about the tolerance is still owed. With the 44-item list dropped
+it now belongs wherever the nightly output is read — the card, or the ledger
+once it exists — rather than in code.
 
 ## Findings this produced along the way
 
