@@ -39,6 +39,14 @@ import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
 import { separateFresh } from "./change-point-identity-model.mjs";
+import {
+  attributeMovement,
+  attributionCandidates,
+} from "./change-point-attribution-model.mjs";
+import {
+  primaryMetricValue,
+  readArtifactPayloads,
+} from "./perf-artifact-read-model.mjs";
 
 export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
 
@@ -214,10 +222,27 @@ export const DEFAULT_ANALYSIS_WINDOW = 80;
 /**
  * Both layers over the corpus.
  *
- * The fast layer judges the newest point of each series against that case's own
- * history. The confirmed layer looks at the whole series, on the V1-paired
- * values where a control exists, and applies one FDR correction across every
- * hypothesis tested.
+ * The fast layer judges this run's own measurement of each case against that
+ * case's history. The confirmed layer looks at the whole series, on the
+ * V1-paired values where a control exists, and applies one FDR correction
+ * across every hypothesis tested.
+ *
+ * `measured` is what this run actually measured, as `caseId -> value`. Without
+ * it the fast layer falls back to the last point in the corpus, which is only
+ * this run's measurement for the cases this run measured — on a partial
+ * dispatch every other case gets judged on whenever it was last measured, and
+ * re-flagged as if it were new. That is exactly what runs 31192079501 and
+ * 31193504224 did: both single-case dispatches of `smoke/auth-user`, both
+ * reporting the same six flags at byte-identical ratios, which reads as
+ * stability and is the same days-old data twice. A case this run did not
+ * measure is not judged at all; it is counted under `not-measured-this-run`,
+ * because a case nobody looked at is not a case that looked fine.
+ *
+ * `runOrdinal` is the mainline position of the commit under test, used to keep
+ * this run's own rows out of the history it is judged against. Calibrating a
+ * threshold on a sample containing the observation being tested is the one
+ * mistake `checkLatest` is written to make impossible, and reading the corpus
+ * after this run has already reported into it puts it right back.
  */
 export const analyse = (
   corpus,
@@ -229,12 +254,15 @@ export const analyse = (
     // identity that shifts underneath the ledger cannot accumulate. Without
     // this map the key falls back to the ordinal and says so with a `#`.
     commitAt = () => undefined,
+    measured,
+    runOrdinal,
   } = {},
 ) => {
   const series = corpus.series ?? {};
   const fastCases = {};
   const unjudged = [];
   const points = [];
+  let notMeasured = 0;
   let tested = 0;
 
   for (const [key, entry] of Object.entries(series)) {
@@ -248,10 +276,30 @@ export const analyse = (
       continue;
     }
 
-    fastCases[entry.caseId] = {
-      history: values.slice(0, -1),
-      latest: values[values.length - 1],
-    };
+    if (!measured) {
+      fastCases[entry.caseId] = {
+        history: values.slice(0, -1),
+        latest: values[values.length - 1],
+      };
+    } else if (measured.has(entry.caseId)) {
+      // Everything the corpus holds from before this run. Where the commit
+      // under test is positioned, that is every point at a lower ordinal —
+      // which also drops the point this run just contributed, and any earlier
+      // run of the same commit that it was merged with. Where it is not
+      // positioned, this run put nothing in the corpus and the whole series is
+      // history.
+      const history = Number.isInteger(runOrdinal)
+        ? segment
+            .filter(([ordinal]) => ordinal < runOrdinal)
+            .map(([, value]) => value)
+        : values;
+      fastCases[entry.caseId] = {
+        history,
+        latest: measured.get(entry.caseId),
+      };
+    } else {
+      notMeasured += 1;
+    }
 
     const control = series[`${entry.caseId}::v1`];
     const analysed = control
@@ -273,9 +321,36 @@ export const analyse = (
       seed: 7,
     });
     tested += found.tested;
+    const controlSegment = control
+      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
+      : [];
+
     for (const point of found.points) {
       const beforeOrdinal = recent[point.index - 1]?.[0];
       const afterOrdinal = recent[point.index]?.[0];
+
+      // Which engine actually moved, on the raw values rather than the paired
+      // ones. The reported ratio is the ratio of `v2/v1`, so a control that
+      // moved reads identically to a V2 regression until someone pulls both
+      // series by hand — which is four wasted triages per seventy-five change
+      // points, measured.
+      const movement = attributeMovement({
+        v2: segment.map(([ordinal, value]) => [ordinal, value]),
+        v1: controlSegment,
+        boundaryOrdinal: afterOrdinal,
+      });
+
+      // The named commit, plus the ones the ±1 tolerance covers. A SHA in an
+      // alert reads as an answer, and whoever triages opens exactly the commit
+      // named — so its neighbours are named too, rather than left to a reader
+      // who knows how the tolerance works.
+      const candidates = attributionCandidates({
+        afterOrdinal,
+        beforeOrdinal,
+        previous: [afterOrdinal - 1, commitAt(afterOrdinal - 1)],
+        next: [afterOrdinal + 1, commitAt(afterOrdinal + 1)],
+      });
+
       points.push({
         caseId: entry.caseId,
         beforeCommit: commitAt(beforeOrdinal) ?? `#${beforeOrdinal}`,
@@ -285,6 +360,17 @@ export const analyse = (
         ratio: Math.exp(point.shift),
         pValue: point.pValue,
         paired: Boolean(control),
+        mover: movement.mover,
+        v2Ratio: movement.v2 ? Number(movement.v2.ratio.toFixed(3)) : undefined,
+        v1Ratio: movement.v1 ? Number(movement.v1.ratio.toFixed(3)) : undefined,
+        v2Level: movement.v2
+          ? { before: movement.v2.before, after: movement.v2.after }
+          : undefined,
+        v1Level: movement.v1
+          ? { before: movement.v1.before, after: movement.v1.after }
+          : undefined,
+        alsoPossible: candidates.alsoPossible,
+        unmeasuredBetween: candidates.unmeasuredBetween,
       });
     }
   }
@@ -297,6 +383,9 @@ export const analyse = (
   const confirmed = points.filter((_, index) => correction.significant[index]);
 
   const fast = checkRun(fastCases);
+  if (notMeasured > 0) {
+    fast.skipped = { ...fast.skipped, "not-measured-this-run": notMeasured };
+  }
   return {
     fast,
     confirmed,
@@ -343,7 +432,10 @@ export const assertUsable = ({ order, corpus }) => {
 
   const lengths = Object.values(corpus.series ?? {})
     .map((entry) =>
-      entry.segments.reduce((longest, segment) => Math.max(longest, segment.length), 0),
+      entry.segments.reduce(
+        (longest, segment) => Math.max(longest, segment.length),
+        0,
+      ),
     )
     .sort((left, right) => left - right);
   const median = lengths[lengths.length >> 1] ?? 0;
@@ -353,6 +445,81 @@ export const assertUsable = ({ order, corpus }) => {
         `Segments are cut where a case's workload changed or its digest is unknown, so this usually means the perf-lab clone is missing the commits that took the measurements. ` +
         `Refusing to report findings computed against it.`,
     );
+  }
+};
+
+/**
+ * What this run measured, as `caseId -> value`, from its own artifacts.
+ *
+ * V2 only, passing only, positive only — the same three filters the corpus
+ * query applies, so the value judged is the value that will land in the
+ * history. A failure has a duration, but it is the duration of a failure.
+ *
+ * Sharded runs write one payload per case per shard, and a case measured twice
+ * collapses to the median, which is what the corpus does with rows sharing a
+ * commit.
+ */
+export const runMeasurements = (payloadEntries = []) => {
+  const byCase = new Map();
+  for (const entry of payloadEntries) {
+    const payload = entry?.payload ?? entry;
+    if (payload?.engine !== "v2" || payload?.result !== "pass") continue;
+    const caseId = String(payload.caseId ?? "").trim();
+    const value = primaryMetricValue(payload);
+    if (!caseId || !(value > 0)) continue;
+    if (!byCase.has(caseId)) byCase.set(caseId, []);
+    byCase.get(caseId).push(value);
+  }
+  return new Map(
+    [...byCase].map(([caseId, values]) => [caseId, median(values)]),
+  );
+};
+
+/**
+ * Read them off disk, or answer `undefined` if there is nothing to read.
+ *
+ * `undefined` is not the same as an empty map: an empty map says this run
+ * measured nothing and every case should go unjudged, while `undefined` says
+ * the artifacts were not available and the corpus tail is all there is. A local
+ * analysis over the history has no run of its own and takes the second path.
+ */
+const readRunMeasurements = async () => {
+  const artifactDir = env("PERF_LAB_ARTIFACT_DIR");
+  if (!artifactDir) {
+    console.log(
+      "Shadow: PERF_LAB_ARTIFACT_DIR is not set; the fast layer will judge the newest point of every series instead of this run's own measurements.",
+    );
+    return undefined;
+  }
+  try {
+    const payloads = await readArtifactPayloads({
+      artifactDir: resolve(artifactDir),
+      includeSeed: false,
+      allowEmpty: true,
+    });
+    const measured = runMeasurements(payloads);
+    console.log(
+      `Shadow: this run measured ${measured.size} cases on v2, from ${payloads.length} payloads in ${artifactDir}.`,
+    );
+    if (measured.size === 0) {
+      // Every case will go unjudged and the fast layer will report nothing —
+      // which is the correct answer to "what did this run measure" and looks
+      // identical to a clean run in a count. Said out loud here, and `judged 0
+      // of 0` in the job summary says it again, because a zero from an empty
+      // input is the failure mode this whole step has hit before.
+      console.warn(
+        `Shadow: no usable v2 measurements in ${artifactDir}. The same-run layer will judge nothing this run; that is an empty input, not a quiet run.`,
+      );
+    }
+    return measured;
+  } catch (error) {
+    // Not fatal, and not silent. Falling back to the corpus tail judges cases
+    // this run never touched, which is a weaker result rather than a wrong one
+    // — but it is a different result, and the log has to say which one this is.
+    console.warn(
+      `Shadow: could not read this run's measurements from ${artifactDir} (${error instanceof Error ? error.message : error}); falling back to the newest point of each series.`,
+    );
+    return undefined;
   }
 };
 
@@ -376,11 +543,24 @@ const main = async () => {
   );
   assertUsable({ order, corpus });
 
+  const measured = await readRunMeasurements();
+  const runOrdinal = order.ordinals?.[env("PERF_LAB_TEABLE_EE_REF", "")];
+  if (measured && !Number.isInteger(runOrdinal)) {
+    // The history is still judged against — it just cannot be trimmed by
+    // position. An unpositioned ref contributes nothing to the corpus either,
+    // so the whole series is genuinely prior history; this says so rather than
+    // leaving a reader to assume the trim happened.
+    console.log(
+      "Shadow: the commit under test is not positioned on the mainline, so this run contributed no corpus point and the whole series is history.",
+    );
+  }
   console.log(
     `Shadow: detecting over ${Object.keys(corpus.series ?? {}).length} series…`,
   );
   const analysis = analyse(corpus, {
     commitAt: (ordinal) => commitOf.get(ordinal),
+    measured,
+    runOrdinal,
   });
 
   // What the existing gate flagged this run, so the two can be reconciled. Read
@@ -430,6 +610,13 @@ const main = async () => {
       })),
       judged: analysis.fast.judged,
       skipped: analysis.fast.skipped,
+      // Which point the fast layer judged. `run` means this run's own
+      // measurements; `corpus-tail` means the newest point of each series,
+      // which for a case this run did not measure is days old. The
+      // reconciliation counts mean different things in the two modes, so the
+      // mode travels with them.
+      source: measured ? "run" : "corpus-tail",
+      measured: measured ? measured.size : undefined,
     },
     confirmed: separated.fresh,
     confirmedRepeated: separated.counts.repeated,
@@ -444,9 +631,19 @@ const main = async () => {
     seenPath,
     `${JSON.stringify({ known: separated.known }, null, 2)}\n`,
   );
+  const movers = separated.fresh.reduce((tally, point) => {
+    tally[point.mover] = (tally[point.mover] ?? 0) + 1;
+    return tally;
+  }, {});
   console.log(
-    `Shadow analysis: ${result.fast.flagged.length} flagged this run, ` +
+    `Shadow analysis: ${result.fast.flagged.length} flagged this run ` +
+      `(judging ${result.fast.source === "run" ? `this run's ${measured.size} measurements` : "the newest point of each series"}), ` +
       `${separated.counts.fresh} new confirmed change points ` +
+      `[${
+        Object.entries(movers)
+          .map(([mover, count]) => `${count} ${mover}`)
+          .join(", ") || "none"
+      }] ` +
       `(${separated.counts.repeated} already reported), ` +
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
