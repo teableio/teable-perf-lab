@@ -334,7 +334,16 @@ assert.equal(
 const resolveTeableCheckout = workflow.jobs.resolve_inputs.steps.find(
   (step) => step.name === "Checkout teable-ee revision",
 );
-assert.equal(resolveTeableCheckout.with.ref, "${{ inputs.teable_ee_ref }}");
+// `inputs` is null on a scheduled run, so the dispatch default is spelled out
+// for that path. Written as `schedule && <default> || inputs.x` rather than
+// `inputs.x || <default>`, so a dispatch that deliberately clears the box
+// behaves exactly as it did before the nightly trigger existed — an empty ref
+// checks out teable-ee's own default branch, which is not necessarily the
+// mainline this project measures.
+assert.equal(
+  resolveTeableCheckout.with.ref,
+  "${{ github.event_name == 'schedule' && 'develop' || inputs.teable_ee_ref }}",
+);
 const resolveTeableRevision = workflow.jobs.resolve_inputs.steps.find(
   (step) => step.id === "teable-ee-revision",
 );

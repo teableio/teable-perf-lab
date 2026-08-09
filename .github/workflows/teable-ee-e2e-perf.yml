@@ -1,6 +1,29 @@
 name: Teable EE e2e perf
 
 on:
+  # A nightly full run, for the ten-run shadow validation in
+  # docs/change-point-alerting-acceptance.md section G. Twenty-five full runs
+  # were dispatched by hand over two days to get the last set of evidence, two
+  # of which died on a timeout without anyone noticing — a validation that
+  # depends on someone remembering to press a button is not a validation.
+  #
+  # 18:00 UTC is 02:00 the next day in Beijing, after the working day's commits
+  # have landed. Every night rather than weekdays only: a weekend run re-measures
+  # Friday's commit, which adds nothing to the mainline coverage but is still a
+  # valid paired observation of the old gate against the new system, and G1 is
+  # counted in runs. Ten qualifying runs therefore take ten nights instead of a
+  # fortnight.
+  #
+  # Worth revisiting the moment G1 is met — this cadence is sized for a
+  # validation window, not for steady state, and a full run is 25-45 minutes of
+  # active wall across 8-12 shards.
+  #
+  # Scheduled runs execute on the default branch, which is also what the shadow
+  # state needs: Actions caches are scoped to the writing branch plus the
+  # default branch, so the seen-set and the run ledger only chain when the runs
+  # share a branch.
+  schedule:
+    - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       teable_ee_ref:
@@ -76,9 +99,16 @@ concurrency:
   #
   # Single-case runs stay keyed per ref: they publish few traces and are meant
   # to be runnable in parallel while iterating.
+  #
+  # A scheduled run is always a full run, so it takes the full-run key. Left to
+  # `inputs.case_filter` it would read as empty here — `inputs` is null on
+  # `schedule` — and land on the per-ref single-case key, which is the one
+  # arrangement that lets two full runs overlap and measure each other's noise.
   group: >-
     ${{
-      (inputs.case_filter == 'all' || contains(inputs.case_filter, ','))
+      (github.event_name == 'schedule'
+        || inputs.case_filter == 'all'
+        || contains(inputs.case_filter, ','))
         && 'teable-ee-e2e-perf-full-run-shared-observability'
         || format('teable-ee-e2e-perf-{0}-{1}', github.ref, inputs.case_filter)
     }}
@@ -168,7 +198,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: teableio/teable-ee
-          ref: ${{ inputs.teable_ee_ref }}
+          # `inputs` is null on a scheduled run, so every input this workflow
+          # reads needs the dispatch default spelled out for that path. Written
+          # as `schedule && <default> || inputs.x` rather than `inputs.x ||
+          # <default>` so a dispatch that deliberately clears a box keeps
+          # behaving exactly as it did before this trigger existed.
+          ref: ${{ github.event_name == 'schedule' && 'develop' || inputs.teable_ee_ref }}
           path: teable-ee-revision
           ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
 
@@ -192,8 +227,10 @@ jobs:
       - name: Resolve engine matrix
         id: engines
         env:
-          ENGINE_FILTER: ${{ inputs.engine_filter }}
-          CASE_FILTER: ${{ inputs.case_filter }}
+          ENGINE_FILTER: ${{ github.event_name == 'schedule' && 'v1,v2' || inputs.engine_filter }}
+          # The nightly run is the ten-run validation, and G1 counts full runs
+          # only. An empty filter here would plan something else entirely.
+          CASE_FILTER: ${{ github.event_name == 'schedule' && 'all' || inputs.case_filter }}
           COMPUTED_UPDATE_MODE: ${{ inputs.computed_update_mode }}
           SEED_CACHE_NAMESPACE: ${{ inputs.seed_cache_namespace }}
         run: |
@@ -323,7 +360,7 @@ jobs:
           export PERF_LAB_MODE="seed"
           export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
           export PERF_LAB_ENGINE_LIST="v1"
-          export PERF_LAB_SAMPLES="${{ inputs.samples }}"
+          export PERF_LAB_SAMPLES="${{ github.event_name == 'schedule' && '10' || inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed-${{ matrix.plan.artifactSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
@@ -500,7 +537,7 @@ jobs:
           export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
           export PERF_LAB_EXCLUDE_CASE_FILTER="${{ matrix.plan.excludeCaseFilter }}"
           export PERF_LAB_ENGINE_LIST="${{ matrix.plan.engine }}"
-          export PERF_LAB_SAMPLES="${{ inputs.samples }}"
+          export PERF_LAB_SAMPLES="${{ github.event_name == 'schedule' && '10' || inputs.samples }}"
           export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
           export PERF_LAB_COMPUTED_UPDATE_MODE="${{ matrix.plan.computedUpdateMode }}"
           export PERF_LAB_EXECUTE_DB_ISOLATED="true"
