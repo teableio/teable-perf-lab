@@ -269,6 +269,13 @@ What counts toward G1, and what does not:
 - **The analysis has to have succeeded.** The step is gated on the shadow step's
   `outcome`, like the seen-set save.
 
+**Dispatch the ten from `main`.** Actions caches are scoped to the branch that
+wrote them plus the default branch, so a run on a feature branch cannot read a
+ledger — or a seen-set — written by a run on another one. Ten runs spread across
+branches would each start from an empty ledger and report one qualifying run
+apiece, and the seen-set would re-announce the whole recent history every time.
+This is not new behaviour and it has never been said out loud anywhere.
+
 G2 is computed as flags per run against the backtest's 3.8, pinned as a constant
 rather than recalled from this document, with the 2x band read in both
 directions. One honest limit is built into the verdicts: what is measured is the
