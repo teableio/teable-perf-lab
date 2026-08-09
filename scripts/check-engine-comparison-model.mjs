@@ -74,7 +74,7 @@ assert.equal(skipped.pending[0].v1Result, "skipped");
 assert.equal(skipped.pending[0].v1Value, undefined);
 
 // A failure timed a failure, not the operation. The run reports it as a failure
-// on the release card; here it is simply not comparable.
+// in the release panel; here it is simply not comparable.
 const failed = buildEngineComparison({
   payloads: [
     payload({ caseId: "field/fail", engine: "v1", actual: 100 }),

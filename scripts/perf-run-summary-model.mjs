@@ -182,40 +182,121 @@ export const formatComparison = (label, referenceValue, ratio) => {
 export const formatReleaseNote = (row) =>
   formatComparison("线上", row.baselineV2, row.releaseRatio);
 
-// Wording for the compute verdicts. The keys are the model's; the sentences are
-// the only place a reader is told what the pair of ratios means, so they state
-// the conclusion rather than the arithmetic.
 // The GitHub summary lists at most this many compute rows. Small because the
 // block is fixed content weighed against the byte budget before regression
 // detail; the count of everything else is always printed.
 export const COMPUTE_HIGHLIGHT_LIMIT = 5;
 
+// Names for the compute verdicts, and the definition each name needs.
+//
+// These were sentences once — "计算量没降，只是挪走了" — on the theory that a
+// sentence explains itself. It does not: it explains itself once per row, in
+// place of the numbers, and a reader still could not say what separates it from
+// the row above. A term plus one definition of it, stated once at the foot of
+// the panel, is shorter and actually teachable.
+// `unpaired` is not one of the model's verdicts and never will be: it is the
+// name for a row whose verdict could not be formed. It is labelled here rather
+// than left to the fallback because it has a specific, checkable cause.
 export const COMPUTE_VERDICT_LABELS = {
-  deferred: "计算量没降，只是挪走了",
-  regression: "计算真的变慢了",
-  "hidden-cost": "墙钟持平但多烧了计算",
-  scheduling: "计算持平，是调度变慢",
-  "hidden-gain": "墙钟持平但计算变快了",
-  optimized: "计算真的变快了",
+  deferred: "异步转移",
+  regression: "计算退化",
+  "hidden-cost": "隐性计算成本",
+  scheduling: "调度退化",
+  "hidden-gain": "隐性计算收益",
+  optimized: "计算优化",
   flat: "持平",
+  unpaired: "无墙钟基线",
+};
+
+// Every verdict is a pair of directions, so its definition states both. Without
+// this the labels above are jargon a reader has to take on faith.
+export const COMPUTE_VERDICT_GLOSSARY = {
+  deferred: "墙钟变快、计算没少 —— 工作被挪到后台，不是省下来了",
+  regression: "墙钟变慢、计算也变多 —— 这次是真的更贵",
+  "hidden-cost": "墙钟持平、计算变多 —— 只看墙钟看不见",
+  scheduling: "墙钟变慢、计算没变 —— 慢在排队，不在算法",
+  "hidden-gain": "墙钟持平、计算变少",
+  optimized: "墙钟变快、计算也变少 —— 真正省下来的工作",
+  flat: "两边都没动",
+  unpaired: "计算变多，但墙钟这半没有可比的基线 —— 通常是这个 case 的主指标改过名，定不了性",
+};
+
+// Measured, not assumed. Across 29 full runs (2026-08-07 → 08-09), restricted to
+// consecutive pairs with identical shape and identical `computeStepsExecuted` —
+// the same work done twice — per-case `computeMs` moved 18.1% on average against
+// the wall clock's 12.0%, and 29% of those pairs crossed 20% on their own. So the
+// 1.2x band every row on this panel is sorted by sits *on* the noise floor rather
+// than above it, and a reader counting "计算变慢 8" has to know that before the
+// count means anything. The wall-clock bands next door already carry the same
+// caveat in docs/operations/teable-ee-e2e.md; this panel had no equivalent.
+//
+// The number lives here rather than beside the band it qualifies because the band
+// is a threshold and this is a sentence — but they have to move together. If
+// `DEFAULT_COMPUTE_BAND` is ever recalibrated against a per-case noise model,
+// this line is wrong the same day.
+export const COMPUTE_NOISE_NOTE =
+  "注意 相邻两轮之间，同样的活 computeMs 平均就动 18.1%（墙钟 12.0%），1.2x 这道线正压在噪声上：单个刚过线的 case 说明不了什么，成片出现、或者本身量级大的 case 才是信号 —— 越小的 case 越吵。";
+
+/**
+ * Which entry of the key a row is filed under: its verdict, or `unpaired` when
+ * the pair could not be formed. Not a verdict — the model returns none for
+ * these on purpose, and this names the absence rather than filling it in.
+ */
+const computeRowKey = (row) =>
+  row?.verdict ??
+  (Number.isFinite(row?.computeRatio) && !Number.isFinite(row?.wallRatio)
+    ? "unpaired"
+    : undefined);
+
+/**
+ * The reading key for a set of compute rows, or `undefined` when none of them
+ * is filed under an entry.
+ *
+ * Only the entries actually on screen are defined: a glossary of terms the
+ * reader cannot see beside it is noise, and it costs bytes the row list needs.
+ */
+export const formatComputeGlossary = (rows = []) => {
+  const shown = [];
+  for (const row of rows) {
+    const key = computeRowKey(row);
+    if (COMPUTE_VERDICT_GLOSSARY[key] && !shown.includes(key)) {
+      shown.push(key);
+    }
+  }
+  if (shown.length === 0) {
+    return undefined;
+  }
+  return [
+    "墙钟＝用户等待的时间，计算＝引擎为此烧掉的机器时间。两者各自与线上比，同按 1.2x 分档，配对成结论：",
+    ...shown.map(
+      (verdict) =>
+        `· **${COMPUTE_VERDICT_LABELS[verdict]}** ${COMPUTE_VERDICT_GLOSSARY[verdict]}`,
+    ),
+    COMPUTE_NOISE_NOTE,
+  ].join("\n");
 };
 
 export const formatComputeLine = (row, chartUrl) => {
-  const label = COMPUTE_VERDICT_LABELS[row.verdict] ?? "无法比较";
+  const label = COMPUTE_VERDICT_LABELS[computeRowKey(row)] ?? "无法比较";
   const note = row.shapeChanged
     ? `计算形态从 ${row.baselineShape} 变成 ${row.shape}，不可比`
     : formatComparison("线上", row.baselineComputeMs, row.computeRatio);
-  return `- [${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)}) 计算 ${formatMetricSeconds(row.computeMs)} · ${note} · **${label}**`;
+  // The verdict is made of two directions and the row printed only one of them,
+  // so the label could not be checked against the numbers standing next to it —
+  // two rows both reading "慢1.4x" landed on different verdicts for a reason the
+  // card kept to itself.
+  const wall = formatRatioFactor(row.wallRatio);
+  return `- [${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)}) 计算 ${formatMetricSeconds(row.computeMs)} · ${note}${wall ? ` · 墙钟 ${wall}` : ""} · **${label}**`;
 };
 
-// One line per case, and one comparison on it. This card is only ever the
-// release comparison: V1 has its own card, and carrying both on every row is
+// One line per case, and one comparison on it. This row is only ever the
+// release comparison: V1 has its own panel, and carrying both on every row is
 // what made a single row read as two verdicts at once.
 //
-// Slower than the reference is a red dot, on both cards. The panel lists only
+// Slower than the reference is a red dot, in both panels. A panel lists only
 // regressions, so the dot is redundant with its own contents — but the two
-// cards are read side by side in the same chat, and a row that scans the same
-// way on both is worth one repeated character.
+// panels are read one under the other, and a row that scans the same way in
+// both is worth one repeated character.
 export const formatComparisonLine = (row, chartUrl) =>
   `🔴 **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)}`;
 
@@ -266,6 +347,18 @@ const statColumn = (label, value) => ({
   width: "weighted",
   weight: 1,
   elements: [{ tag: "markdown", content: `**${label}** ${value}` }],
+});
+
+const releaseStatColumns = (comparison) => ({
+  tag: "column_set",
+  flex_mode: "none",
+  background_style: "grey",
+  columns: [
+    statColumn("对比", comparison.counts.compared),
+    statColumn("慢", comparison.counts.slower),
+    statColumn("快", comparison.counts.faster),
+    statColumn("无基线", comparison.counts.missingBaseline),
+  ],
 });
 
 const collapsiblePanel = ({ title, expanded = false, elements }) => ({
@@ -367,16 +460,22 @@ export const buildPerfSummaryCard = ({
     baseline,
     releaseComparison: comparison,
   });
+  // Last of the four: a row with no verdict is a caveat, not a finding, and the
+  // three that carry one should not be pushed off the list by it.
   const computeHighlights = [
     ...compute.deferred,
     ...compute.regressions,
     ...compute.hiddenCost,
+    ...compute.unpaired,
   ];
+  const shownComputeRows = computeHighlights.slice(0, COMPUTE_HIGHLIGHT_LIMIT);
+  const computeGlossary = formatComputeGlossary(shownComputeRows);
 
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
     rows.map((row) => formatComparisonLine(row, context.chartUrl)).join("\n");
+  const enginePanel = buildEngineSummaryPanel({ payloads, context });
 
   const v2TimingColumns =
     Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
@@ -431,37 +530,28 @@ export const buildPerfSummaryCard = ({
           ],
         },
         { tag: "hr" },
-        {
-          tag: "column_set",
-          flex_mode: "none",
-          background_style: "grey",
-          columns: [
-            statColumn("对比", comparison.counts.compared),
-            statColumn("慢", comparison.counts.slower),
-            statColumn("快", comparison.counts.faster),
-            statColumn("无基线", comparison.counts.missingBaseline),
-          ],
-        },
-        ...(comparison.available
-          ? [
-              {
-                tag: "column_set",
-                flex_mode: "none",
-                background_style: "grey",
-                columns: REGRESSION_TIERS.map((tier) =>
-                  statColumn(tier.label, comparison.tiers[tier.key]),
-                ),
-              },
-            ]
-          : []),
-        // The panel is the comparison, so it is meaningless without a baseline:
-        // "较线上慢 0" would read as a clean run.
+        // The two comparisons, one panel each. They answer different questions
+        // against different references, so they stay in separate boxes — what
+        // never worked was putting both verdicts on a single row.
+        //
+        // Without a baseline there is nothing to fold open: a panel reading
+        // "较线上慢 0" would look like a clean run rather than an absent one, so
+        // the counts are shown bare and the header above says why.
         ...(comparison.available
           ? [
               collapsiblePanel({
-                title: `较线上慢 ${regressions.length}`,
+                title: `与线上对比 · 慢 ${regressions.length} · 严重 ${severeCount}`,
                 expanded: regressions.length > 0,
                 elements: [
+                  releaseStatColumns(comparison),
+                  {
+                    tag: "column_set",
+                    flex_mode: "none",
+                    background_style: "grey",
+                    columns: REGRESSION_TIERS.map((tier) =>
+                      statColumn(tier.label, comparison.tiers[tier.key]),
+                    ),
+                  },
                   larkDiv(
                     previewRows.length > 0 ? renderRows(previewRows) : "无",
                   ),
@@ -473,38 +563,48 @@ export const buildPerfSummaryCard = ({
                         }),
                       ]
                     : []),
-                ],
-              }),
-            ]
-          : []),
-        // Compute time answers what the panel above cannot: whether a case that
-        // got faster actually got cheaper. Its own panel rather than a column on
-        // the rows above, because the two comparisons disagree by design — a run
-        // can be "较线上慢 0" and still have burned more machine, and putting
-        // both on one row is what made a single row read as two verdicts.
-        ...(compute.available && computeHighlights.length > 0
-          ? [
-              collapsiblePanel({
-                title: `计算时间 · 只是挪走 ${compute.counts.deferred} · 变慢 ${compute.counts.computeSlower}`,
-                expanded: compute.counts.deferred > 0,
-                elements: [
-                  larkDiv(
-                    computeHighlights
-                      .slice(0, COMPUTE_HIGHLIGHT_LIMIT)
-                      .map((row) => formatComputeLine(row, context.chartUrl))
-                      .join("\n"),
-                  ),
-                  ...(computeHighlights.length > COMPUTE_HIGHLIGHT_LIMIT
+                  // Compute time answers what the rows above cannot: whether a
+                  // case that got faster actually got cheaper. Its own panel
+                  // rather than a column on those rows, because the two
+                  // measurements disagree by design — a run can be "慢 0" and
+                  // still have burned more machine.
+                  ...(compute.available && computeHighlights.length > 0
                     ? [
-                        larkDiv(
-                          `其余 ${computeHighlights.length - COMPUTE_HIGHLIGHT_LIMIT} 个见 Performance Track`,
-                        ),
+                        collapsiblePanel({
+                          title: `计算时间 · 异步转移 ${compute.counts.deferred} · 计算变慢 ${compute.counts.computeSlower}`,
+                          expanded: compute.counts.deferred > 0,
+                          elements: [
+                            // First, not last. The panel is folded shut until
+                            // someone opens it, and what they open it for is a
+                            // term they cannot read — so the definitions meet
+                            // them at the top rather than under the rows.
+                            ...(computeGlossary
+                              ? [larkDiv(computeGlossary)]
+                              : []),
+                            larkDiv(
+                              shownComputeRows
+                                .map((row) =>
+                                  formatComputeLine(row, context.chartUrl),
+                                )
+                                .join("\n"),
+                            ),
+                            ...(computeHighlights.length >
+                            shownComputeRows.length
+                              ? [
+                                  larkDiv(
+                                    `其余 ${computeHighlights.length - shownComputeRows.length} 个见 Performance Track`,
+                                  ),
+                                ]
+                              : []),
+                          ],
+                        }),
                       ]
                     : []),
                 ],
               }),
             ]
-          : []),
+          : [releaseStatColumns(comparison)]),
+        ...(enginePanel ? [enginePanel] : []),
         ...(failures.length > 0
           ? [
               collapsiblePanel({
@@ -581,6 +681,7 @@ export const buildPerfSummaryMarkdown = ({
     ...compute.deferred,
     ...compute.regressions,
     ...compute.hiddenCost,
+    ...compute.unpaired,
   ];
   const shownComputeRows = computeHighlights.slice(0, COMPUTE_HIGHLIGHT_LIMIT);
   const computeSection =
@@ -589,6 +690,12 @@ export const buildPerfSummaryMarkdown = ({
           "",
           "### Compute time",
           "",
+          // The same reading key the card carries, in the same place: the labels
+          // are terms, and a term is only worth the space if its definition
+          // arrives before the rows that use it.
+          ...(formatComputeGlossary(shownComputeRows)
+            ? [formatComputeGlossary(shownComputeRows), ""]
+            : []),
           ...shownComputeRows.map((row) =>
             formatComputeLine(row, context.chartUrl),
           ),
@@ -651,12 +758,12 @@ export const buildPerfSummaryMarkdown = ({
 };
 
 // ---------------------------------------------------------------------------
-// V2 against V1 — its own report, sent as its own card.
+// V2 against V1 — its own panel on the run's one card.
 //
 // Everything below belongs to the V1 leg of the run and goes when that leg does,
 // together with `engine-comparison-model.mjs`. It deliberately repeats none of
 // the run's health: timings, trace warnings, failures, and the pass/skip/fail
-// counts are reported once, on the release card.
+// counts are stated once, above both panels.
 // ---------------------------------------------------------------------------
 
 // "V1 never ran this case" and "V1 ran it and failed" both leave the value
@@ -677,95 +784,69 @@ export const formatEngineLine = (row, chartUrl) =>
   `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**`;
 
 /**
- * The V1/V2 card. Returns `undefined` when the run had no V1 leg — a card of
- * "无对比" rows says nothing, and this is how the push stops on its own once V1
- * is retired.
+ * The V1/V2 panel. Returns `undefined` when the run had no V1 leg — a panel of
+ * "无对比" rows says nothing, and this is how the V1 half of the card drops off
+ * on its own once V1 is retired.
  */
-export const buildEngineSummaryCard = ({ payloads, context = {} }) => {
+export const buildEngineSummaryPanel = ({ payloads, context = {} }) => {
   const comparison = buildEngineComparison({ payloads });
   if (!comparison.available) {
     return undefined;
   }
 
   const { counts, regressions, pending } = comparison;
-  const runId = context.runId ?? payloads[0]?.runId ?? "";
   const previewRows = regressions.slice(0, REGRESSION_PREVIEW_LIMIT);
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
     rows.map((row) => formatEngineLine(row, context.chartUrl)).join("\n");
 
-  return {
-    msg_type: "interactive",
-    card: {
-      config: { wide_screen_mode: true, enable_forward: true },
-      header: {
-        // Only this comparison colours this card. Whether the run itself failed
-        // is the release card's verdict to give.
-        template: counts.slower > 0 ? "orange" : "green",
-        title: {
-          tag: "plain_text",
-          content: `V2 vs V1 · 较 V1 慢 ${counts.slower}`,
-        },
+  return collapsiblePanel({
+    title: `与 V1 对比 · 慢 ${counts.slower}`,
+    // Folded open only on its own bad news. The card leads with the release
+    // comparison, and two panels open at once is a card nobody reads.
+    expanded: counts.slower > 0,
+    elements: [
+      {
+        tag: "column_set",
+        flex_mode: "none",
+        background_style: "grey",
+        columns: [
+          statColumn("对比", counts.compared),
+          statColumn("慢", counts.slower),
+          statColumn("快", counts.faster),
+          statColumn("待对比", counts.pending),
+        ],
       },
-      elements: [
-        larkDiv(
-          [
-            `**目标** ${context.teableRef ?? ""}${context.sha ? ` @ ${context.sha}` : ""}`,
-            `**运行** ${runId}`,
-          ].join("\n"),
-        ),
-        {
-          tag: "column_set",
-          flex_mode: "none",
-          background_style: "grey",
-          columns: [
-            statColumn("对比", counts.compared),
-            statColumn("慢", counts.slower),
-            statColumn("快", counts.faster),
-            statColumn("待对比", counts.pending),
-          ],
-        },
-        collapsiblePanel({
-          title: `较 V1 慢 ${counts.slower}`,
-          expanded: counts.slower > 0,
-          elements: [
-            larkDiv(previewRows.length > 0 ? renderRows(previewRows) : "无"),
-            ...(remainingRows.length > 0
-              ? [
-                  collapsiblePanel({
-                    title: `其余 ${remainingRows.length}`,
-                    elements: [larkDiv(renderRows(remainingRows))],
-                  }),
-                ]
-              : []),
-          ],
-        }),
-        // Cases V2 won are a count, not a list: there is nothing to act on, and
-        // at 260 cases the rows would bury the ones there is.
-        ...(counts.pending > 0
-          ? [
-              collapsiblePanel({
-                title: `待对比 ${counts.pending}`,
-                elements: [
-                  larkDiv(
-                    renderRows(pending.slice(0, REGRESSION_PREVIEW_LIMIT)),
-                  ),
-                  ...(counts.pending > REGRESSION_PREVIEW_LIMIT
-                    ? [
-                        larkDiv(
-                          `其余 ${counts.pending - REGRESSION_PREVIEW_LIMIT} 项`,
-                        ),
-                      ]
-                    : []),
-                ],
-              }),
-            ]
-          : []),
-        { tag: "hr" },
-        linkButtons(context),
-      ],
-    },
-  };
+      larkDiv(previewRows.length > 0 ? renderRows(previewRows) : "无"),
+      ...(remainingRows.length > 0
+        ? [
+            collapsiblePanel({
+              title: `其余 ${remainingRows.length}`,
+              elements: [larkDiv(renderRows(remainingRows))],
+            }),
+          ]
+        : []),
+      // Cases V2 won are a count, not a list: there is nothing to act on, and
+      // at 260 cases the rows would bury the ones there is.
+      ...(counts.pending > 0
+        ? [
+            collapsiblePanel({
+              title: `待对比 ${counts.pending}`,
+              elements: [
+                larkDiv(renderRows(pending.slice(0, REGRESSION_PREVIEW_LIMIT))),
+                ...(counts.pending > REGRESSION_PREVIEW_LIMIT
+                  ? [
+                      larkDiv(
+                        `其余 ${counts.pending - REGRESSION_PREVIEW_LIMIT} 项`,
+                      ),
+                    ]
+                  : []),
+              ],
+            }),
+          ]
+        : []),
+    ],
+  });
 };
 
 /**

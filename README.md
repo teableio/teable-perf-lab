@@ -96,14 +96,14 @@ ready.
 - `scripts/perf-artifact-read-model.mjs`: read-side artifact file discovery,
   payload/trace-manifest/seed-status projection, primary metric, trace URL, and
   trace-waste helpers used by report adapters.
-- `scripts/perf-run-summary-model.mjs`: Feishu summary projection and both card
-  models — the release card and the V1 card; keep webhook/GitHub I/O in
-  `scripts/send-feishu-perf-summary.mjs`.
+- `scripts/perf-run-summary-model.mjs`: Feishu summary projection and the one
+  card model — run health, then a collapsible panel per comparison (线上 and
+  V1); keep webhook/GitHub I/O in `scripts/send-feishu-perf-summary.mjs`.
 - `scripts/full-run-comparison-model.mjs`: pure comparison of this run against
   the released build — per-case ratios and exclusive `>1.2x / >1.5x / >2x` bands.
   Says nothing about V1.
 - `scripts/engine-comparison-model.mjs`: pure comparison of V2 against V1 inside
-  one run, reported as its own card. Retired with the V1 leg of the run.
+  one run, reported as its own panel. Retired with the V1 leg of the run.
 - `scripts/release-baseline-model.mjs` and `scripts/resolve-release-baseline.mjs`:
   bounded Launches/Performance Track queries and the report-stage resolver that
   writes `release-baseline.json` for both summaries to read.

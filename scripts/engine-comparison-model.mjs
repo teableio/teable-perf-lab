@@ -78,7 +78,7 @@ export const buildEngineComparison = ({ payloads = [] } = {}) => {
       ratio,
       // A case with no ratio is pending, not passing: nothing was compared. A
       // case that failed lands here too — it timed a failure, and the run
-      // reports it as a failure on the release card rather than twice.
+      // reports it as a failure in the release panel rather than twice.
       status: isSlower(ratio)
         ? "attention"
         : ratio === undefined
