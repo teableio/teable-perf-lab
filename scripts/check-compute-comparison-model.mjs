@@ -257,6 +257,48 @@ const releaseOf = (entries) => ({
 }
 
 {
+  // Compute got 1.5x worse and the wall half has no comparable baseline — the
+  // shape a renamed primary metric produces, since the wall comparison rejects
+  // the rename and this one does not. No verdict can be formed, and before
+  // `unpaired` existed the row reached `computeSlower` and no list, so the
+  // header counted a case the reader could never see.
+  const result = buildComputeComparison({
+    payloads: [payloadOf({ caseId: "lookup/renamed", computeMs: 1_500 })],
+    baseline: baselineOf([["lookup/renamed", 1_000]]),
+    releaseComparison: releaseOf([["lookup/renamed", undefined]]),
+  });
+
+  assert.equal(result.rows[0].verdict, undefined);
+  assert.equal(result.counts.computeSlower, 1);
+  assert.equal(result.counts.unpaired, 1);
+  assert.equal(result.unpaired.length, 1);
+  assert.equal(result.unpaired[0].caseId, "lookup/renamed");
+  // Every compute-slower row now reaches one of the four lists, so the header
+  // count and the rows under it can be reconciled.
+  assert.equal(
+    result.counts.computeSlower <=
+      result.deferred.length +
+        result.regressions.length +
+        result.hiddenCost.length +
+        result.unpaired.length,
+    true,
+  );
+}
+
+{
+  // Compute got *faster* with no wall half. Nothing to act on and nothing a
+  // wall-clock-only report loses, so it stays out of the lists.
+  const result = buildComputeComparison({
+    payloads: [payloadOf({ caseId: "lookup/renamed-fast", computeMs: 500 })],
+    baseline: baselineOf([["lookup/renamed-fast", 1_000]]),
+    releaseComparison: releaseOf([["lookup/renamed-fast", undefined]]),
+  });
+
+  assert.equal(result.counts.unpaired, 0);
+  assert.equal(result.unpaired.length, 0);
+}
+
+{
   // A shape change contributes to no direction count: there is no ratio to have
   // a direction, and counting it as either invents a measurement.
   const result = buildComputeComparison({
