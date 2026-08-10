@@ -134,6 +134,49 @@ assert.equal(selectBaselineRun([]), undefined);
 assert.equal(selectBaselineRun(undefined), undefined);
 assert.equal(selectBaselineRun([{ fields: {} }]), undefined);
 
+// The run being reported is never its own baseline. Its rows are already in
+// Performance Track when the baseline is resolved, so without this a run that
+// measures the released commit compares against a copy of itself and reports
+// every ratio as exactly 1.0 — `0 slower · 0 faster · 0 without baseline`,
+// which is indistinguishable from a release nothing regressed against. This is
+// what run 31328413335 did on 2026-08-09.
+assert.deepEqual(
+  selectBaselineRun(
+    [
+      { fields: { "Run ID": "31319492585", "Run Attempt": 1 } },
+      { fields: { "Run ID": "31328413335", "Run Attempt": 1 } },
+    ],
+    { excludeRunId: "31328413335" },
+  ),
+  { runId: "31319492585", runAttempt: 1 },
+);
+// Excluded by id alone: a rerun of this run is still this run, and its earlier
+// attempt measured the same build on the same machine.
+assert.equal(
+  selectBaselineRun(
+    [
+      { fields: { "Run ID": "31328413335", "Run Attempt": 1 } },
+      { fields: { "Run ID": "31328413335", "Run Attempt": 2 } },
+    ],
+    { excludeRunId: "31328413335" },
+  ),
+  undefined,
+);
+// Run ids arrive as text from Teable and as a number from the environment.
+assert.deepEqual(
+  selectBaselineRun([{ fields: { "Run ID": "42", "Run Attempt": 1 } }], {
+    excludeRunId: 42,
+  }),
+  undefined,
+);
+// No exclusion asked for, or an empty one, leaves the old behaviour alone.
+assert.deepEqual(
+  selectBaselineRun([{ fields: { "Run ID": "42", "Run Attempt": 1 } }], {
+    excludeRunId: "",
+  }),
+  { runId: "42", runAttempt: 1 },
+);
+
 const chosenRun = { "Run ID": "30520608995", "Run Attempt": 1 };
 const records = [
   {
