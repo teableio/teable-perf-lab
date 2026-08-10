@@ -885,6 +885,10 @@ jobs:
           TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
           TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
           PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          # The resolved SHA, not the dispatched ref: `develop` is what gets
+          # asked for, and comparing a branch name against the released commit
+          # would never match even when they are the same build.
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
         run: node scripts/resolve-release-baseline.mjs
 
       # The old gate's verdict, written down instead of being computed inside

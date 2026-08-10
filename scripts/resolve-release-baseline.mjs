@@ -106,6 +106,46 @@ const main = async () => {
     return;
   }
 
+  // This run is testing the build that is already released, so there is no
+  // comparison to make. An earlier run of the same commit differs from this one
+  // by run-to-run noise and by nothing else, and that noise — 12.0% mean
+  // per-case on the wall clock, against a 20% band — lands cases in the `>1.2x`
+  // column for no reason anyone can act on.
+  //
+  // An artifact is still written, carrying `sameCommit` and no values. Three
+  // states have to stay distinguishable and only one of them is a problem:
+  // "this run is the release", "nobody has measured the release", and "the file
+  // was never written at all". Skipping the write would merge the first two
+  // into the third. It also skips the 540-row read below, which nothing would
+  // have used.
+  const currentRef = env("PERF_LAB_TEABLE_EE_REF");
+  if (currentRef && currentRef === launch.commit) {
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(
+      outputPath,
+      `${JSON.stringify(
+        {
+          commit: launch.commit,
+          release: launch.release,
+          sameCommit: true,
+          caseCount: 0,
+          valueCount: 0,
+          unusableCount: 0,
+          computeCount: 0,
+          metricsReadable: 0,
+          metricsUnreadable: 0,
+          values: {},
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    console.log(
+      `Release baseline: this run measures the released commit itself (${launch.release ?? launch.commit}, ${launch.commit.slice(0, 7)}); no release comparison → ${outputPath}`,
+    );
+    return;
+  }
+
   const records = await readBaselineRecords({
     endpoint,
     token: perfToken,
@@ -115,7 +155,9 @@ const main = async () => {
 
   // This run's own rows are already in Performance Track — they were written a
   // step ago — so a run measuring the released commit would otherwise pick
-  // itself and compare against a copy of itself.
+  // itself and compare against a copy of itself. The `sameCommit` check above
+  // catches that case first when the ref is known; this stays as the guard for
+  // when it is not.
   const currentRunId = env("GITHUB_RUN_ID");
   const run = selectBaselineRun(records, { excludeRunId: currentRunId });
   if (!run) {

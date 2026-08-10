@@ -322,12 +322,12 @@ assert.equal(
 // One card, two comparison panels: 与线上对比 leads, 与 V1 对比 follows, and the
 // run's health above them is stated once for both.
 const panelsOf = (element) =>
-  (element.elements ?? []).filter(
-    (child) => child.tag === "collapsible_panel",
-  );
+  (element.elements ?? []).filter((child) => child.tag === "collapsible_panel");
 const panels = panelsOf(card.card);
 const panelByTitle = (element, title) =>
-  panelsOf(element).find((panel) => panel.header.title.content === `**${title}**`);
+  panelsOf(element).find(
+    (panel) => panel.header.title.content === `**${title}**`,
+  );
 const columnSetsOf = (element) =>
   (element.elements ?? []).filter((child) => child.tag === "column_set");
 
@@ -418,7 +418,10 @@ const hiddenCard = buildPerfSummaryCard({
 const [hiddenPanel] = hiddenCard.card.elements.filter(
   (element) => element.tag === "collapsible_panel",
 );
-assert.equal(hiddenPanel.header.title.content, "**与线上对比 · 慢 1 · 严重 1**");
+assert.equal(
+  hiddenPanel.header.title.content,
+  "**与线上对比 · 慢 1 · 严重 1**",
+);
 assert.match(
   hiddenPanel.elements[2].text.content,
   /🔴 \*\*\[lookup\/depth5\].*：本次 1\.54s · 线上 0\.32s 慢4\.8x$/m,
@@ -459,6 +462,43 @@ assert.deepEqual(
 // The V1 comparison does not depend on a release baseline, so it is still there.
 assert.ok(panelByTitle(noBaselineCard.card, "与 V1 对比 · 慢 2"));
 
+// A run whose target IS the released commit has no comparison to make, and that
+// is not the same as a missing baseline: nothing is absent, the baseline is this
+// build. Comparing anyway could only dress run-to-run noise — 12.0% mean on the
+// wall clock, against a 20% band — as verdicts.
+const sameCommitBaseline = {
+  commit: "87ef752d8fd4532d86ce08a42bc699fc7994a81b",
+  release: "release.2026-08-09T14-50-08Z.2564",
+  sameCommit: true,
+  values: {},
+};
+const sameCommitCard = buildPerfSummaryCard({
+  payloads,
+  timings: {},
+  baseline: sameCommitBaseline,
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+});
+assert.equal(
+  sameCommitCard.card.header.title.content,
+  "本次即线上版本 · 不做线上对比",
+);
+assert.match(
+  sameCommitCard.card.elements[0].text.content,
+  /本次测的就是线上版本 release\.2026-08-09T14-50-08Z\.2564/,
+);
+// Never the wording for an absent baseline: it would send someone hunting for
+// something that is not missing.
+assert.doesNotMatch(JSON.stringify(sameCommitCard), /未找到线上版本的历史结果/);
+assert.doesNotMatch(JSON.stringify(sameCommitCard), /与线上对比/);
+assert.match(
+  buildPerfSummaryMarkdown({
+    payloads,
+    baseline: sameCommitBaseline,
+    context: {},
+  }),
+  /this run measures the released commit itself/,
+);
+
 // A case V2 has always lost is not a release regression — it matched the
 // released build. The release panel says nothing about it; the V1 panel on the
 // same card is where it belongs.
@@ -493,7 +533,10 @@ assert.equal(
 // while matching what is deployed is not a regression against production, and
 // the V1 panel's own header carries that count.
 assert.equal(residentCard.card.header.template, "green");
-const residentEnginePanel = panelByTitle(residentCard.card, "与 V1 对比 · 慢 1");
+const residentEnginePanel = panelByTitle(
+  residentCard.card,
+  "与 V1 对比 · 慢 1",
+);
 assert.ok(residentEnginePanel);
 assert.equal(residentEnginePanel.expanded, true);
 assert.match(
@@ -597,7 +640,11 @@ const computeBaseline = {
       ["compute/quiet", 1_000, 110],
     ].map(([caseId, value, compute]) => [
       `${caseId}::v2`,
-      { value, metric: "durationMs", compute: { value: compute, shape: "inline" } },
+      {
+        value,
+        metric: "durationMs",
+        compute: { value: compute, shape: "inline" },
+      },
     ]),
   ),
 };
