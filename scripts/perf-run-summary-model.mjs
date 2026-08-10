@@ -218,7 +218,8 @@ export const COMPUTE_VERDICT_GLOSSARY = {
   "hidden-gain": "墙钟持平、计算变少",
   optimized: "墙钟变快、计算也变少 —— 真正省下来的工作",
   flat: "两边都没动",
-  unpaired: "计算变多，但墙钟这半没有可比的基线 —— 通常是这个 case 的主指标改过名，定不了性",
+  unpaired:
+    "计算变多，但墙钟这半没有可比的基线 —— 通常是这个 case 的主指标改过名，定不了性",
 };
 
 // Measured, not assumed. Across 29 full runs (2026-08-07 → 08-09), restricted to
@@ -455,9 +456,15 @@ export const buildPerfSummaryCard = ({
       : severeCount > 0 || regressions.length > 0
         ? "orange"
         : "green";
+  // Two ways to have no comparison, and only one of them is missing something.
+  // A run whose target is the released commit has nothing to compare against by
+  // construction; saying "无线上基线" there would send someone looking for a
+  // baseline that is not absent, it is this run.
   const headerTitle = comparison.available
     ? `性能回归 · 较线上慢 ${regressions.length} · 严重 ${severeCount}`
-    : "性能回归 · 无线上基线";
+    : baseline?.sameCommit
+      ? "本次即线上版本 · 不做线上对比"
+      : "性能回归 · 无线上基线";
 
   const compute = buildComputeComparison({
     payloads,
@@ -500,7 +507,9 @@ export const buildPerfSummaryCard = ({
             `**目标** ${teableRef}${sha ? ` @ ${sha}` : ""}`,
             comparison.available
               ? `**基线** ${baselineLabel(comparison.baseline)}${comparison.baseline?.runUrl ? ` · [run ${comparison.baseline.runId}](${comparison.baseline.runUrl})` : ""}`
-              : `**基线** 未找到线上版本的历史结果，本轮无对比`,
+              : baseline?.sameCommit
+                ? `**基线** 本次测的就是线上版本 ${baselineLabel(baseline)}，同版本相比只有跑间波动，不做对比`
+                : `**基线** 未找到线上版本的历史结果，本轮无对比`,
             `**运行** ${runId} · ${counts.pass}✓ ${counts.skipped}⊘ ${counts.fail}✗`,
           ].join("\n"),
         ),
@@ -657,7 +666,9 @@ export const buildPerfSummaryMarkdown = ({
     `- Target: \`${context.teableRef || "unknown"}\`${context.sha ? ` @ \`${context.sha}\`` : ""}`,
     comparison.available
       ? `- Baseline: ${baselineLabel(comparison.baseline)} · run ${comparison.baseline?.runId}`
-      : "- Baseline: none — no recorded run for the released commit",
+      : baseline?.sameCommit
+        ? `- Baseline: none — this run measures the released commit itself (${baselineLabel(baseline)}), so a comparison could only report run-to-run noise`
+        : "- Baseline: none — no recorded run for the released commit",
     `- Run: ${runId || "unknown"} · Job: ${context.executeResult || "unknown"}`,
     `- Results: ${counts.pass} passed · ${counts.skipped} skipped · ${counts.fail} failed`,
     `- Vs release: ${comparison.counts.compared} compared · ${comparison.counts.slower} slower · ${comparison.counts.faster} faster · ${comparison.counts.missingBaseline} without baseline`,
