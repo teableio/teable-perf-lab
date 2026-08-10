@@ -113,10 +113,20 @@ const main = async () => {
     commit: launch.commit,
   });
 
-  const run = selectBaselineRun(records);
+  // This run's own rows are already in Performance Track — they were written a
+  // step ago — so a run measuring the released commit would otherwise pick
+  // itself and compare against a copy of itself.
+  const currentRunId = env("GITHUB_RUN_ID");
+  const run = selectBaselineRun(records, { excludeRunId: currentRunId });
   if (!run) {
+    // "Nobody has measured it" and "only this run has" want different answers:
+    // the first is fixed by dispatching, the second fixes itself on the next
+    // run and dispatching again would only add a second self.
+    const measuredOnlyByThisRun = records.length > 0;
     console.warn(
-      `Release ${launch.release ?? launch.commit} has no recorded perf run; no release baseline. Dispatch the workflow with teable_ee_ref=${launch.commit} to create one.`,
+      measuredOnlyByThisRun
+        ? `Release ${launch.release ?? launch.commit} has been measured only by this run (${currentRunId}); no release baseline. This run is testing the released commit, so there is nothing earlier to compare against — the next run against a newer commit will have one.`
+        : `Release ${launch.release ?? launch.commit} has no recorded perf run; no release baseline. Dispatch the workflow with teable_ee_ref=${launch.commit} to create one.`,
     );
     return;
   }

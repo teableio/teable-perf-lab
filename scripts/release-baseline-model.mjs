@@ -232,12 +232,32 @@ const isLaterRun = (run, than) => {
  * A commit is usually measured once and this is the only run present. When it
  * was measured more than once — a rerun, a repeated dispatch — the latest
  * attempt is the one that describes the released build now.
+ *
+ * `excludeRunId` is the run being reported, and it has to be excluded rather
+ * than merely tie-broken. Its own rows are already in Performance Track by the
+ * time the baseline is resolved — `report-teable-result.mjs` writes them one
+ * step earlier — so whenever a run measures the commit that is currently
+ * released, the newest run for that commit is itself. Run 31328413335 did
+ * exactly that on 2026-08-09 and reported `269 compared · 0 slower · 0 faster ·
+ * 0 without baseline`, which is not a clean run but a run compared against a
+ * copy of itself: every ratio was exactly 1.0. That reads identically to a
+ * release nothing regressed against, which is the whole reason it has to be
+ * impossible rather than unlikely.
+ *
+ * Excluded by run id alone, not by id and attempt. A rerun of this run is still
+ * this run, and its earlier attempt measured the same build on the same
+ * machine — comparing against it would answer a different question than "how
+ * does this build compare with the released one".
  */
-export const selectBaselineRun = (records) => {
+export const selectBaselineRun = (records, { excludeRunId } = {}) => {
+  const excluded = String(excludeRunId ?? "").trim();
   let latest;
   for (const record of records ?? []) {
     const run = readRun(record);
-    if (run && (!latest || isLaterRun(run, latest))) {
+    if (!run || (excluded && run.runId === excluded)) {
+      continue;
+    }
+    if (!latest || isLaterRun(run, latest)) {
       latest = run;
     }
   }
