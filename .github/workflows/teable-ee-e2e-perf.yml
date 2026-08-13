@@ -1124,30 +1124,62 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p "$RECOVERY_DIR"
+          looked=0
+          named=0
           found=0
+          failed=0
+          last_error=""
           # This workflow's recent runs, newest first. Filtered by name because
           # the repository-wide endpoint returns every workflow's runs.
-          runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=40" \
+          if ! runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=40" \
             --jq '.workflow_runs[] | select(.name == env.GITHUB_WORKFLOW) | .id' \
-            2>/dev/null | head -20)
+            2>"$RUNNER_TEMP/shadow-recovery-list.err"); then
+            echo "::warning title=Shadow recovery could not list runs::$(head -c 300 "$RUNNER_TEMP/shadow-recovery-list.err")"
+            runs=""
+          fi
+          runs=$(printf '%s\n' "$runs" | head -20)
           for rid in $runs; do
             if [ "$rid" = "$GITHUB_RUN_ID" ]; then
               continue
             fi
+            looked=$((looked + 1))
             # Named per run and per attempt, so it is looked up rather than
             # constructed.
-            name=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$rid/artifacts" \
+            if ! name=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$rid/artifacts" \
               --jq '.artifacts[] | select(.expired == false)
                     | select(.name | startswith("teable-ee-e2e-perf-shadow-")) | .name' \
-              2>/dev/null | head -1)
+              2>/dev/null | head -1); then
+              name=""
+            fi
             if [ -z "$name" ]; then
               continue
             fi
-            if gh run download "$rid" -n "$name" -D "$RECOVERY_DIR/$rid" >/dev/null 2>&1; then
+            named=$((named + 1))
+            # `-R` is not optional. Without it `gh` resolves the repository from
+            # the working directory's git remote, and this step runs at the
+            # workspace root where perf-lab is a subdirectory — so every download
+            # failed with "not a git repository", the step printed `Recovered 0`,
+            # and stayed green. Found on run 31688601389, which is the run that
+            # existed to test this.
+            if err=$(gh run download "$rid" -R "$GITHUB_REPOSITORY" -n "$name" \
+              -D "$RECOVERY_DIR/$rid" 2>&1); then
               found=$((found + 1))
+            else
+              failed=$((failed + 1))
+              last_error="$err"
             fi
           done
-          echo "Recovered $found shadow state copies into $RECOVERY_DIR"
+          echo "Shadow recovery: $looked runs examined, $named carried an artifact, $found downloaded, $failed failed → $RECOVERY_DIR"
+          # The counts above are the point. `found=0` has three causes that read
+          # identically in a log that only prints the total — nothing to recover,
+          # nothing reachable, and nothing downloadable — and the last two are
+          # faults. Each gets its own line.
+          if [ "$failed" -gt 0 ]; then
+            echo "::warning title=Shadow recovery could not download $failed copies::${last_error}"
+          fi
+          if [ "$named" -gt 0 ] && [ "$found" -eq 0 ]; then
+            echo "::warning title=Shadow recovery downloaded nothing::$named recent runs carry a shadow artifact and none could be fetched. The seen-set and the run ledger rest on the cache alone for this run."
+          fi
 
       # A bound of its own. `continue-on-error` covers a step that fails and does
       # nothing about a step that never returns, and the job timeout is not a
