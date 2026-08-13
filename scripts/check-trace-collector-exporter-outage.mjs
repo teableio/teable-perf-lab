@@ -208,7 +208,14 @@ try {
     PERF_LAB_JAEGER_API_BASE_URL: process.env.PERF_LAB_JAEGER_API_BASE_URL,
   };
   let fetchCount = 0;
+  // When the reconciler was last entered. `finalizePerfTraceJobTailLifecycle`
+  // stamps the elapsed time onto the evidence case and then immediately calls
+  // the reconciler, so this is the clock reading at that stamp — which is the
+  // only way from out here to compare a stamp against real time without also
+  // counting the write that happens after it.
+  let lastTailReconcileStartedAt = 0;
   const reconcileTailArtifact = async (result) => {
+    lastTailReconcileStartedAt = Date.now();
     await new Promise((resolve) => setTimeout(resolve, 1));
     if (result.artifactDir && result.summary.manifestPath) {
       await writeFile(
@@ -968,9 +975,45 @@ try {
       pendingFetchTail.at(-1).summary.traceFetchBreakerReason,
       /job budget 100ms/,
     );
+    // The manifest must not under-report how long the tail took: an operator
+    // reading a case that burned the job budget has to see the budget in the
+    // number, not a fetch wait that stopped early.
+    //
+    // Compared against the last reconcile rather than against the elapsed time
+    // of the whole call, which is what this used to do and why it failed under
+    // load. `withTraceJobTailElapsed` stamps the evidence case and the reconciler
+    // runs straight after, so everything between that stamp and the return — a
+    // `setTimeout(1)` and a manifest write — is time the stamp cannot contain
+    // and the old comparison charged it for anyway. Five milliseconds of slack
+    // covered that on an idle machine and nothing more.
+    //
+    // All that is left in the slack now is the gap between the outer clock
+    // reading and `jobTailStartedAt` inside the lifecycle: one `Date.now()` and
+    // one env read, which measured 0ms across 14 runs under an eight-way load.
+    // One millisecond is for the granularity of the clock, not for the work.
+    //
+    // What this does and does not catch, measured rather than assumed. Deleting
+    // the second stamp fails it 8 runs in 10, against roughly 3 in 10 for the
+    // version this replaces. It is not 10 in 10 because the signal is the
+    // duration of the 30-case reconcile round, and at a 1ms sleep apiece that
+    // round is 1-6ms — sometimes inside the slack. Making it deterministic means
+    // a reconciler slow enough to push the lifecycle past its budget, which is
+    // the condition the second stamp exists for and which no scenario here
+    // currently creates; that is worth building, and it is not this fix.
     assert.ok(
       pendingFetchTail.at(-1).summary.traceFetchJobWaitMs >=
-        pendingFetchTailElapsedMs - 5,
+        lastTailReconcileStartedAt - pendingFetchTailStartedAt - 1,
+      `evidence case reported ${pendingFetchTail.at(-1).summary.traceFetchJobWaitMs}ms ` +
+        `against ${lastTailReconcileStartedAt - pendingFetchTailStartedAt}ms elapsed at the final stamp`,
+    );
+    // And it cannot claim more than the tail actually took. Both share
+    // `jobTailStartedAt` as their origin, so this catches a stamp measured from
+    // the wrong one.
+    assert.ok(
+      pendingFetchTail.at(-1).summary.traceFetchJobWaitMs <=
+        pendingFetchTailLifecycle.elapsedMs,
+      `evidence case reported ${pendingFetchTail.at(-1).summary.traceFetchJobWaitMs}ms ` +
+        `against a ${pendingFetchTailLifecycle.elapsedMs}ms lifecycle`,
     );
   } finally {
     resetJaegerTransport();
