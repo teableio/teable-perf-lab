@@ -82,12 +82,31 @@ meaning, since a cleared set reports the whole recent history as fresh again.
 **2. Ledger shape**, once enough nightly runs have been judged to give a
 false-positive rate.
 
-**3. Card mock**, to be reviewed before it is built.
+**3. ~~Card mock.~~ Decided 2026-08-13 and built.** The owner chose a second
+card over a panel on the run summary, carrying the confirmed layer only. Both
+halves of that are recorded where the code is, in
+`scripts/change-point-card-model.mjs`; the short form:
+
+- **A second card, not a panel.** The run summary is sent at step 17 of the
+  report job and the shadow analysis finishes at step 30, nine and a half
+  minutes later on a run that takes thirty. One card means holding the report
+  everyone reads behind the step that is allowed to fail.
+- **Confirmed layer only.** The same-run layer contradicts the release
+  comparison already on the first card, and not by a little: on 2026-08-11 the
+  old gate flagged 32 and the same-run layer flagged 5, agreeing on 4. Which of
+  them is right is what G3 settles, and two counts for one question in the same
+  chat is not something to ship while that is open.
+- **Silent when there is nothing to say.** No card on a night with no new V2
+  slowdown, and none on a cold start — the 2026-08-09 cache miss would have
+  pushed 25 red rows that had all been reported days earlier. The job summary
+  and the artifact are written either way, so the audit trail does not go quiet
+  with the card.
 
 Merged to `main` at `fab8642b` on 2026-08-07, after run 31192079501 read the
 whole history and 31193504224 confirmed the seen-set carries between runs. The
-shadow now runs on every dispatch and reports into the job summary; nothing it
-produces reaches the Feishu card.
+shadow runs on every dispatch and reports into the job summary. Since
+2026-08-13 the confirmed layer also reaches Feishu, on the terms above; the
+same-run layer still does not.
 
 ## Blocked on me, in order
 
@@ -537,9 +556,14 @@ commits sitting one mainline position either side of the one it names, and
 before the boundary and the one after. The second number is the one to read when
 it is large — a hundred unmeasured commits in the gap means the named commit
 ends a range rather than answering the question, and no ±1 phrasing covers that.
-Telling triage about the tolerance is still owed. With the 44-item list dropped
-it now belongs wherever the nightly output is read — the card, or the ledger
-once it exists — rather than in code.
+Telling triage about the tolerance was owed from the day it was signed off and
+is now paid, on 2026-08-13. `ATTRIBUTION_NOTE` in
+`scripts/change-point-card-model.mjs` sits under the rows on every change point
+card: the named commit may be the neighbour, both are worth opening, and a row
+carrying "区间内 N 个未测" names a range rather than a culprit. The rows
+themselves print `alsoPossible` when it holds a commit the row has not already
+named, and `unmeasuredBetween` only when it is non-zero — a "0 个未测" on every
+row is a number nobody would keep reading.
 
 ## Findings this produced along the way
 

@@ -1311,6 +1311,30 @@ jobs:
           PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
         run: node scripts/accumulate-shadow-runs.mjs
 
+      # The night's second card. The first one went out at `Send Feishu perf
+      # summary`, about nine and a half minutes ago — the shadow analysis is the
+      # slow part of this job, and holding the run summary back for it would put
+      # the report everyone reads behind the step that is allowed to fail.
+      #
+      # Only the confirmed layer is pushed, and only when it found a V2 slowdown
+      # nobody has been told about. `change-point-card-model.mjs` holds that
+      # rule and the reasons; the short version is that a card which speaks
+      # every night is a card nobody opens on the night it matters.
+      #
+      # Gated on the analysis having succeeded, like the two steps around it: a
+      # run that produced no result has nothing to say, and the sender would
+      # otherwise report "nothing to push" for a step that failed.
+      - name: Send Feishu change point card
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+        run: node scripts/send-feishu-change-point-summary.mjs
+
       # Only after the analysis actually succeeded. A failed run that saved its
       # state would write back whatever was restored — or nothing at all — and
       # a lost seen-set means the next run re-announces the entire history as
