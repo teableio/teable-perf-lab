@@ -10,11 +10,18 @@
 // louder than the thing it delivers turns one broken shadow run into a red
 // report job. What it will not do is fail quietly — every path prints why.
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { env } from "./env.mjs";
-import { buildChangePointCard, describeDelivery } from "./change-point-card-model.mjs";
-import { SHADOW_RESULT_FILE_NAME } from "./run-shadow-analysis.mjs";
+import {
+  buildChangePointCard,
+  describeDelivery,
+  standingKey,
+} from "./change-point-card-model.mjs";
+import {
+  SHADOW_RESULT_FILE_NAME,
+  SHADOW_SEEN_FILE_NAME,
+} from "./run-shadow-analysis.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -64,7 +71,23 @@ const main = async () => {
     return;
   }
 
-  const decision = describeDelivery({ result });
+  // The same seen-set the analysis writes. Read rather than passed, so the two
+  // steps cannot disagree about what has been announced; absent means nothing
+  // has, which is the correct reading on a first run.
+  const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
+  let seen = [];
+  let seenWindow;
+  try {
+    const parsed = JSON.parse(await readFile(seenPath, "utf8"));
+    seen = parsed.known ?? [];
+    // Carried through untouched. The analysis uses it to notice a window
+    // change, and dropping it here would make the next run re-seed.
+    seenWindow = parsed.window;
+  } catch {
+    seen = [];
+  }
+
+  const decision = describeDelivery({ result, seen });
   console.log(`Change point card: ${decision.reason}`);
   if (isColdStartWarningWanted(result, decision)) {
     console.log(
@@ -74,6 +97,7 @@ const main = async () => {
 
   const card = buildChangePointCard({
     result,
+    seen,
     context: {
       chartUrl: env("PERF_LAB_CHART_URL", DEFAULT_CHART_URL),
       runUrl: buildRunUrl(),
@@ -102,7 +126,29 @@ const main = async () => {
   }
 
   await sendFeishuCard(webhookUrl, card);
-  console.log("Change point card sent.");
+
+  // Record the standing cases this card carried, so tomorrow's "新增" means what
+  // it says. Written only after the send succeeded — marking them announced
+  // when the webhook rejected the card would lose them silently. The analysis
+  // owns this file; this appends to it rather than rewriting, and a failure
+  // here is reported without failing the step, because the card did go out.
+  const announced = (result.standing ?? []).map((row) => standingKey(row));
+  const merged = [...new Set([...seen, ...announced])];
+  try {
+    await writeFile(
+      seenPath,
+      `${JSON.stringify({ known: merged, window: seenWindow }, null, 2)}\n`,
+    );
+  } catch (error) {
+    console.warn(
+      `Change point card sent, but the seen-set at ${seenPath} could not be updated: ` +
+        `${error instanceof Error ? error.message : error}. ` +
+        "The standing cases will read as new again next run.",
+    );
+  }
+  console.log(
+    `Change point card sent; ${announced.length} standing case(s) recorded as announced.`,
+  );
 };
 
 // A quiet night needs no annotation; a lost seen-set does. The distinction is
