@@ -3,6 +3,7 @@ import {
   appendRun,
   assessShadow,
   BACKTEST_NEW_PER_RUN,
+  mergeLedgers,
   qualifyingRuns,
   renderShadowProgress,
   runRecord,
@@ -228,5 +229,109 @@ assert.match(
   ]).rejected[0].reason,
   /no-release-baseline/,
 );
+
+// --- the cache forks, and merging repairs it ----------------------------------
+
+const dated = (runId, at, options = {}) =>
+  runRecord({ result: resultOf({ runId, ...options }), fullRun: true, at });
+
+// Two runs whose report jobs overlapped. Both forked from the same restored
+// snapshot and neither saved the other, so whichever the next run happens to
+// restore is missing a run for good. This is the shape that walked G1 from 30
+// down to 25 over seven full runs on 2026-08-13.
+{
+  const shared = [
+    dated("a", "2026-08-12T01:00Z"),
+    dated("b", "2026-08-12T02:00Z"),
+  ];
+  const lineageC = [...shared, dated("c", "2026-08-12T03:00Z")];
+  const lineageD = [...shared, dated("d", "2026-08-12T03:30Z")];
+
+  assert.deepEqual(
+    lineageD.map((run) => run.runId),
+    ["a", "b", "d"],
+  );
+  assert.deepEqual(
+    mergeLedgers([lineageC, lineageD]).map((run) => run.runId),
+    ["a", "b", "c", "d"],
+  );
+}
+
+// And the repair has to show up in G1, which is the entire point of it.
+{
+  const lineageC = [
+    dated("a", "2026-08-12T01:00Z"),
+    dated("c", "2026-08-12T03:00Z"),
+  ];
+  const lineageD = [
+    dated("a", "2026-08-12T01:00Z"),
+    dated("d", "2026-08-12T03:30Z"),
+  ];
+  assert.equal(assessShadow(lineageD, { required: 3 }).g1.runs, 2);
+  assert.equal(
+    assessShadow(mergeLedgers([lineageC, lineageD]), { required: 3 }).g1.runs,
+    3,
+  );
+}
+
+// Idempotent. The recovery directory holds copies built from each other, and the
+// cached ledger is merged in alongside them, so the same run arrives many times
+// over. Counting it many times would make the ten arrive sooner and mean less —
+// the failure the full-run rule exists to prevent, from the other side.
+{
+  const ledger = [
+    dated("a", "2026-08-12T01:00Z"),
+    dated("b", "2026-08-12T02:00Z"),
+  ];
+  assert.deepEqual(
+    mergeLedgers([ledger, ledger, ledger]).map((run) => run.runId),
+    ["a", "b"],
+  );
+}
+
+// Attempt 2 supersedes attempt 1 rather than counting twice — the rule
+// `appendRun` already applies, decided here by `at` because both carry one run
+// id. The order the copies arrive in must not change the answer.
+{
+  const first = dated("a", "2026-08-12T01:00Z", { flagged: 4 });
+  const second = dated("a", "2026-08-12T05:00Z", { flagged: 9 });
+  for (const inputs of [
+    [[second], [first]],
+    [[first], [second]],
+  ]) {
+    const merged = mergeLedgers(inputs);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].flagged, 9);
+  }
+}
+
+// Ordered by `at` and bounded, so a week of recovered copies cannot grow the
+// ledger without limit, and what survives the bound is the newest.
+{
+  const ledgers = Array.from({ length: 6 }, (_, index) => [
+    dated(`r${index}`, `2026-08-12T0${index}:00Z`),
+  ]);
+  assert.deepEqual(
+    mergeLedgers(ledgers, { limit: 3 }).map((run) => run.runId),
+    ["r3", "r4", "r5"],
+  );
+}
+
+// A record with no run id matches nothing, so it is kept rather than dropped —
+// but keyed by its content, so merging the same copy twice does not clone it.
+{
+  const orphan = runRecord({
+    result: { fast: {} },
+    fullRun: true,
+    at: "2026-08-12T01:00Z",
+  });
+  assert.equal(orphan.runId, undefined);
+  assert.equal(mergeLedgers([[orphan], [orphan]]).length, 1);
+}
+
+// Nothing to merge is not an error. A run whose recovery step failed falls back
+// to the cached ledger, which is where it stood before any of this existed.
+assert.deepEqual(mergeLedgers([]), []);
+assert.deepEqual(mergeLedgers([undefined, [], [null]]), []);
 
 console.log("shadow accumulation model checks passed");
