@@ -464,7 +464,7 @@ assert.ok(panelByTitle(noBaselineCard.card, "与 V1 对比 · 慢 2"));
 
 // A run whose target IS the released commit has no comparison to make, and that
 // is not the same as a missing baseline: nothing is absent, the baseline is this
-// build. Comparing anyway could only dress run-to-run noise — 12.0% mean on the
+// build. Comparing anyway could only dress run-to-run noise — 13.6% mean on the
 // wall clock, against a 20% band — as verdicts.
 const sameCommitBaseline = {
   commit: "87ef752d8fd4532d86ce08a42bc699fc7994a81b",
@@ -684,8 +684,14 @@ assert.match(computeKey, /\*\*隐性计算成本\*\*/);
 // Terms the reader cannot see beside the key are not defined in it.
 assert.doesNotMatch(computeKey, /调度退化|计算优化|隐性计算收益|无墙钟基线/);
 // The 1.2x band this panel sorts by sits on the measured noise floor, so the
-// counts above cannot be read as "8 cases got slower" without it.
-assert.match(computeKey, /computeMs 平均就动 18\.1%（墙钟 12\.0%）/);
+// counts above cannot be read as "8 cases got slower" without it. Pinned to the
+// figures rather than to the shape of the sentence: this is the copy furthest
+// from where the noise is measured, and a re-measurement that misses it leaves
+// the card quoting a number nothing supports. Restated 2026-08-13 from
+// 18.1% / 12.0% on 931 pairs to these, on 2,678. If this assertion fails, work
+// through the copy list in docs/compute-time-observation-spec.md Phase 3 —
+// do not loosen the regex.
+assert.match(computeKey, /computeMs 平均就动 16\.0%（墙钟 13\.6%）/);
 assert.equal(computeKey.split("\n").at(-1), COMPUTE_NOISE_NOTE);
 assert.equal(formatComputeGlossary([]), undefined);
 assert.equal(formatComputeGlossary([{ verdict: undefined }]), undefined);
