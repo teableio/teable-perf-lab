@@ -108,7 +108,7 @@ const main = async () => {
 
   // This run is testing the build that is already released, so there is no
   // comparison to make. An earlier run of the same commit differs from this one
-  // by run-to-run noise and by nothing else, and that noise — 12.0% mean
+  // by run-to-run noise and by nothing else, and that noise — 13.6% mean
   // per-case on the wall clock, against a 20% band — lands cases in the `>1.2x`
   // column for no reason anyone can act on.
   //
@@ -118,6 +118,17 @@ const main = async () => {
   // was never written at all". Skipping the write would merge the first two
   // into the third. It also skips the 540-row read below, which nothing would
   // have used.
+  //
+  // The same three states have to survive into the log, and until 2026-08-13
+  // they did not. This path returns before the `Compute baseline:` line below,
+  // so a run that measured the released commit said nothing about compute at
+  // all — and grepping a full run's log for exactly that line is the documented
+  // way to check whether the compute baseline has filled in. On a night when the
+  // scheduled run lands on the released commit, common right after a release,
+  // that check silently has no answer and "absent" reads the same as "the step
+  // never ran". Hence the second line below. It cannot report counts, because
+  // nothing was read, and saying `0 readable` here would be the one reading that
+  // means the column broke.
   const currentRef = env("PERF_LAB_TEABLE_EE_REF");
   if (currentRef && currentRef === launch.commit) {
     await mkdir(dirname(outputPath), { recursive: true });
@@ -142,6 +153,10 @@ const main = async () => {
     );
     console.log(
       `Release baseline: this run measures the released commit itself (${launch.release ?? launch.commit}, ${launch.commit.slice(0, 7)}); no release comparison → ${outputPath}`,
+    );
+    console.log(
+      "Compute baseline: not evaluated — this run is the release, so no baseline rows were read. " +
+        "Not the same as 0 readable, which would mean the Metrics JSON column can no longer be parsed.",
     );
     return;
   }
