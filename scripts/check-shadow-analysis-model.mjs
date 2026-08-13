@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   analyse,
   DEFAULT_ANALYSIS_WINDOW,
+  reseedDecision,
   runMeasurements,
   seenWindowOf,
 } from "./run-shadow-analysis.mjs";
@@ -398,5 +399,47 @@ assert.equal(seenWindowOf({ known: [], window: 80 }), 80);
 // window reports a boundary at position 190 that a full scan does not report
 // at all.
 assert.notEqual(seenWindowOf({ known: [], window: 80 }), DEFAULT_ANALYSIS_WINDOW);
+
+// --- the re-seed decision -----------------------------------------------------
+
+// Exported and checked because `main` is only ever run as a script: nothing in
+// this suite executes a line of it. The first version of this logic lived
+// inline in `main` and referenced `analysisWindow`, which is a parameter of
+// `analyse` and not a binding `main` has. Everything passed. CI found it
+// fourteen minutes into a run, after the corpus had been rebuilt from 180,907
+// rows, and the three steps after it — the ledger, the card and the cache save
+// — were skipped.
+
+// No stored window: a seen-set from before the field existed, handled by
+// `seenWindowOf` rather than here.
+assert.equal(reseedDecision({ cachedWindow: undefined }).reseeding, false);
+
+// Steady state. This is the one that has to hold every night, and the one the
+// `Infinity`/`null` round trip would have broken.
+assert.equal(
+  reseedDecision({ cachedWindow: DEFAULT_ANALYSIS_WINDOW }).reseeding,
+  false,
+);
+
+// Widened. Announce nothing, and say why in both the log and an annotation.
+{
+  const decision = reseedDecision({
+    cachedWindow: 80,
+    freshCount: 117,
+    knownCount: 300,
+  });
+  assert.equal(decision.reseeding, true);
+  assert.match(decision.reason, /window changed from 80 to full-history/);
+  assert.match(decision.reason, /117 change points/);
+  assert.match(decision.reason, /300 keys/);
+  assert.match(decision.warning, /^::warning title=/);
+}
+
+// Narrowed, which is the same problem in the other direction.
+assert.equal(
+  reseedDecision({ cachedWindow: DEFAULT_ANALYSIS_WINDOW, analysisWindow: 80 })
+    .reseeding,
+  true,
+);
 
 console.log("shadow analysis old-gate and seen-set recovery checks passed");

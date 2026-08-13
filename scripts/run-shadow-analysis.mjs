@@ -279,6 +279,35 @@ const windowLabel = (window) =>
   Number.isFinite(window) ? String(window) : "full-history";
 
 /**
+ * Whether this run has to re-seed, and what to say about it.
+ *
+ * Pulled out of `main` and exported for one reason: `main` runs only as a
+ * script, so no check executes a line of it. The first version of this read
+ * `analysisWindow` — a parameter of `analyse`, not a binding `main` has — and
+ * the suite passed, because the suite never runs `main`. CI found it fourteen
+ * minutes into a run, after the whole corpus had been rebuilt.
+ */
+export const reseedDecision = ({
+  cachedWindow,
+  analysisWindow = DEFAULT_ANALYSIS_WINDOW,
+  freshCount = 0,
+  knownCount = 0,
+} = {}) => {
+  if (cachedWindow === undefined || cachedWindow === analysisWindow) {
+    return { reseeding: false };
+  }
+  return {
+    reseeding: true,
+    reason:
+      `Shadow: the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}. ` +
+      `Detection ran and found ${freshCount} change points not in the seen-set, but a window change moves boundaries — ` +
+      `these are re-detections at shifted commit pairs, not new findings. Folding all ${knownCount} keys in and announcing none. ` +
+      `The next run reports normally.`,
+    warning: `::warning title=Shadow re-seeded after an analysis window change::${freshCount} change points withheld; see the step log.`,
+  };
+};
+
+/**
  * Both layers over the corpus.
  *
  * The fast layer judges this run's own measurement of each case against that
@@ -826,20 +855,16 @@ const main = async () => {
   // shifted is a key nobody has seen and this run would announce its whole
   // history. Fold it in, announce none of it, and say so loudly enough that a
   // silent night is not mistaken for a quiet one.
-  const reseeding =
-    cachedWindow !== undefined && cachedWindow !== analysisWindow;
-  if (reseeding) {
-    console.warn(
-      `Shadow: the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}. ` +
-        `Detection ran and found ${separated.fresh.length} change points not in the seen-set, but a window change moves boundaries — ` +
-        `these are re-detections at shifted commit pairs, not new findings. Folding all ${separated.known.length} keys in and announcing none. ` +
-        `The next run reports normally.`,
-    );
-    console.log(
-      `::warning title=Shadow re-seeded after an analysis window change::${separated.fresh.length} change points withheld; see the step log.`,
-    );
+  const reseed = reseedDecision({
+    cachedWindow,
+    freshCount: separated.fresh.length,
+    knownCount: separated.known.length,
+  });
+  if (reseed.reseeding) {
+    console.warn(reseed.reason);
+    console.log(reseed.warning);
   }
-  const fresh = reseeding ? [] : separated.fresh;
+  const fresh = reseed.reseeding ? [] : separated.fresh;
 
   const reconciliation = reconcileRun({
     oldFlagged,
@@ -883,8 +908,10 @@ const main = async () => {
     confirmedRepeated: separated.counts.repeated,
     // The window this run detected under. Carried so the next run can tell a
     // widened window from an ordinary night; see `seenWindowOf`.
-    analysisWindow: Number.isFinite(analysisWindow) ? analysisWindow : null,
-    reseeded: reseeding || undefined,
+    analysisWindow: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+      ? DEFAULT_ANALYSIS_WINDOW
+      : null,
+    reseeded: reseed.reseeding || undefined,
     // How many change points were already on the record when this run started.
     // Zero means the seen-set was empty and every change point below is a first
     // sighting only because nothing had been recorded before — the cold start,
@@ -911,7 +938,12 @@ const main = async () => {
   await writeFile(
     seenPath,
     `${JSON.stringify(
-      { known: separated.known, window: Number.isFinite(analysisWindow) ? analysisWindow : null },
+      {
+        known: separated.known,
+        window: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+          ? DEFAULT_ANALYSIS_WINDOW
+          : null,
+      },
       null,
       2,
     )}\n`,
