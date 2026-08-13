@@ -54,6 +54,24 @@ export const MIN_SEGMENT = 3 * EDGE_WINDOW;
 // qualifies if it slowed relative to V1 rather than alongside it.
 export const DRIFT_BAR = 1.25;
 
+// And how many milliseconds slower, at minimum.
+//
+// A ratio alone put `smoke/auth-user` on the first card this shipped: 5ms to
+// 11ms, a genuine 2.13x against its control, and six milliseconds that nobody
+// will ever investigate. At a 5ms baseline a millisecond of timer noise is a
+// fifth of the value.
+//
+// This is a magnitude test and deliberately not the measurability screen, which
+// judges *noisiness* and is bypassed here on purpose — that is what lets
+// `record-read/10k-50fields-group-three-levels` be reported at 217ms → 848ms
+// after the screen called it `too-noisy`. Bypassing a judgement about noise is
+// not a reason to stop making a judgement about size.
+//
+// Twenty is a floor rather than a threshold anyone should tune: on the
+// nineteen cases the first card carried, `smoke/auth-user` gained 6ms and the
+// next smallest gained 22ms, so nothing else in the corpus sits near it.
+export const MIN_INCREASE_MS = 20;
+
 const median = (values) => {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = sorted.length >> 1;
@@ -101,14 +119,16 @@ export const driftOf = ({ paired = [], v2 = [], window = EDGE_WINDOW } = {}) => 
 /**
  * Does this case belong on the list?
  *
- * Both figures have to clear the bar. The paired one alone admits the cases
- * where only the control moved; the V2 one alone admits everything the runner
- * did to everybody.
+ * All three tests earn their place. The paired ratio alone admits the cases
+ * where only the control moved; V2's ratio alone admits everything the runner
+ * did to everybody; and the two ratios together still admit a case that gained
+ * six milliseconds.
  */
 export const isStanding = (drift) =>
   Boolean(drift) &&
   drift.pairedDrift > DRIFT_BAR &&
-  drift.v2Drift > DRIFT_BAR;
+  drift.v2Drift > DRIFT_BAR &&
+  drift.v2Now - drift.v2Then >= MIN_INCREASE_MS;
 
 /**
  * The standing list for a corpus, worst first.

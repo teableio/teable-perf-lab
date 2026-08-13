@@ -4,6 +4,7 @@ import {
   driftOf,
   EDGE_WINDOW,
   isStanding,
+  MIN_INCREASE_MS,
   MIN_SEGMENT,
   standingRegressions,
 } from "./standing-regression-model.mjs";
@@ -156,5 +157,48 @@ assert.deepEqual(
   }),
   [],
 );
+
+// --- small in absolute terms ---------------------------------------------------
+
+// The row that shipped on the first card and should not have: `smoke/auth-user`
+// at 5ms → 11ms. A real 2.13x against its control, six milliseconds, and a
+// smoke test rather than a perf case.
+{
+  const drift = driftOf(seriesOf({ from: 5, to: 11, points: 240 }));
+  assert.ok(drift.pairedDrift > DRIFT_BAR, "the ratio qualifies");
+  assert.ok(drift.v2Drift > DRIFT_BAR);
+  assert.equal(isStanding(drift), false, "the magnitude does not");
+}
+
+// And the case that would be lost to a floor set on the baseline instead of on
+// the increase: `duplicate-view/complex-grid-500fields-p95`, 55ms → 146ms.
+// Small in absolute terms at the start, 91ms of increase, and a real find.
+{
+  const drift = driftOf(seriesOf({ from: 55, to: 146, points: 240 }));
+  assert.ok(drift.v2Now - drift.v2Then >= MIN_INCREASE_MS);
+  assert.equal(isStanding(drift), true);
+}
+
+// Exactly at the floor counts. A step rather than a ramp, so both edge medians
+// are the exact values and the increase is exactly the floor — on a ramp they
+// are pulled inward and the fixture would not test the boundary it claims to.
+{
+  const stepAt = (then, now, points = 240) => {
+    const v2 = Array.from({ length: points }, (_, index) =>
+      index < points / 2 ? then : now,
+    );
+    return { v2, paired: v2.map((value) => Math.log(value) - Math.log(1000)) };
+  };
+  const drift = driftOf(stepAt(40, 60));
+  assert.equal(drift.v2Then, 40);
+  assert.equal(drift.v2Now, 60);
+  assert.equal(drift.v2Now - drift.v2Then, MIN_INCREASE_MS);
+  assert.equal(isStanding(drift), true);
+
+  // One millisecond under it does not.
+  const under = driftOf(stepAt(40, 59));
+  assert.ok(under.v2Now - under.v2Then < MIN_INCREASE_MS);
+  assert.equal(isStanding(under), false);
+}
 
 console.log("standing regression model checks passed");
