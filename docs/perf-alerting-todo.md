@@ -319,14 +319,42 @@ looks complete, which is this document's recurring failure in a fourth costume.
 
 Fixed by making the ledger the union of the cached copy and the ledgers recent
 runs already upload as artifacts: `mergeLedgers` in
-`shadow-accumulation-model.mjs`, fed by the `Recover shadow ledgers lost to
-concurrent runs` step. The cache stays the fast path and recovery is
+`shadow-accumulation-model.mjs`, fed by the `Recover shadow state lost to a
+forked or missed cache` step. The cache stays the fast path and recovery is
 best-effort, so a failed recovery is no worse than the old behaviour — but the
 accumulator prints how many runs the repair put back, and warns when it found
 nothing, because "recovery was not needed" and "recovery found nothing" are the
 two readings that must not merge. **The ledger from before this fix is
 permanently short**; what it holds is a lower bound, and the runs it lost cannot
 be identified from it.
+
+**The cache also misses outright, and that is the more expensive failure.**
+Found 2026-08-13 while testing whether the fork explained the change point rate.
+On 2026-08-09 the scheduled run logged `Cache not found for input keys:
+perf-shadow-seen-31328413335, perf-shadow-seen-`. Three hours earlier a run had
+saved 229 keys, both on `main`, so this is not the branch scoping recorded
+below; the repository was well under the cache size limit, and the step did not
+fail. Why it missed is not determinable from outside GitHub, and it is also not
+the interesting part.
+
+What followed is. `actions/cache/restore` reports **success** on a miss, so the
+step was green. The analysis read an empty seen-set, reported 117 historical
+change points as new with `0 already reported`, and then saved that state back
+over the good one. 229 keys became 117. Nothing detected it at the time; it was
+found four days later by reading logs.
+
+The same union repairs it, and the seen-set now takes it too — the recovery step
+moved ahead of `Shadow perf analysis` so the repair lands before the analysis
+acts on it. `reportSeenSources` in `run-shadow-analysis.mjs` names which of four
+states the seen-set arrived in, and the one that matters is the pair that used
+to be indistinguishable: **an empty seen-set at the cold start is correct; an
+empty seen-set because the cache missed is a run about to re-announce the whole
+history.** Both printed nothing before. Each of the four has a check.
+
+Worth stating plainly, because the comment beside the artifact upload has
+claimed since it was written that the artifact is what survives a cache
+eviction: until this change, nothing read it back. The protection was described
+and never wired.
 
 What counts toward G1, and what does not:
 
@@ -350,26 +378,46 @@ worth having in hand before the ten start, neither verified here:
   threshold is being read off a history it does not belong to.
 - The confirmed layer produced **7.7 fresh change points per run** across the 22
   post-cold-start runs (169 total, 122 distinct cases), against a backtest that
-  measured 0.0 false alarms per run. A run advances the mainline by about one
-  commit and cannot generate that many genuine change points. The unverified
-  hypothesis is the ±1 boundary jitter recorded further down this document: the
-  corpus grows, the split lands one commit over, `changePointKey` changes with
-  it, and the seen-set reports the same change point again as new. If that is
-  it, the identity needs to tolerate a one-position move — which is a change to
-  the ledger's identity scheme and has to be made before the ledger exists, not
-  after.
+  measured 0.0 false alarms per run. The hypothesis recorded here was the ±1
+  boundary jitter described further down: the corpus grows, the split lands one
+  commit over, `changePointKey` changes with it, and the same change point is
+  reported again as new. The remedy proposed with it was an identity that
+  tolerates a one-position move, to be built before the ledger.
 
-  **A second candidate arrived on 2026-08-13 and has not been separated from the
-  first.** The seen-set travels in the same cache entry as the run ledger, so it
-  forks the same way — and a forked seen-set re-announces change points the lost
-  lineage had already recorded, which is indistinguishable from boundary jitter
-  at the level of a count. The 22 runs in question were hand-dispatched over two
-  days and overlapped heavily, which is exactly the condition. Test before
-  rebuilding the identity scheme for a cause that may not be the one: if it is
-  the fork, re-announced change points should track which runs' report jobs
-  overlapped, and the ledger repair above should reduce the rate on its own.
-  Rebuilding `changePointKey` to tolerate a one-position move would otherwise be
-  a real change made against the wrong diagnosis.
+  **Measured 2026-08-13 from the run artifacts. The remedy is not worth
+  building, and the reasoning behind it does not hold.** 27 runs on 2026-08-08
+  and 08-09 kept a usable shadow artifact; between them 143 fresh change points,
+  5.3 per run on that denominator. Every one was classified against the seen-sets
+  the same runs uploaded:
+
+  |                                                              |        |
+  | ------------------------------------------------------------ | -----: |
+  | exact re-announcement — a key already in an earlier seen-set |  4/143 |
+  | same case, boundary within ±1 of one an earlier run reported | 19/143 |
+  | at that run's own newest boundary                            | 55/143 |
+  | at an older boundary, up to 252 mainline positions back      | 65/143 |
+
+  The jitter is real and it is 13%. What fails is the premise above it: "a run
+  advances the mainline by about one commit and cannot generate that many
+  genuine change points" assumes the fresh ones sit at the new commit, and 62%
+  of them do not. Those are older boundaries becoming confirmable as
+  measurements accumulate after them — a backlog draining, not a rate.
+
+  The drain is visible in the runs. After the cache wipe below emptied the
+  seen-set, full runs reported 117, then 4, 9, 12, 11, 15, 13, 8, 8, 5, 1, 5, 3,
+  1, 2, 4, 1, settling near 2 per full run as the set refilled. Three runs in
+  that window reported zero and are not evidence: they were single-case
+  dispatches.
+
+  **What is still open is smaller than it was.** A residual of about 2 per full
+  run sits above a backtest predicting 0.0. This measurement shows the residual
+  does not come from re-announcement. It does not show those change points are
+  real — that needs the individual records, which is G3's work and not a
+  counting question.
+
+  **So do not rebuild `changePointKey` for this, and do not hold the ledger for
+  it.** The tolerance was proposed against 7.7 per run; it addresses 13% of 5.3,
+  at the price of changing the identity scheme before anything depends on it.
 
 **The ten now run themselves.** A nightly schedule at 18:00 UTC — 02:00 Beijing,
 after the working day's commits — dispatches a full run on the default branch.
