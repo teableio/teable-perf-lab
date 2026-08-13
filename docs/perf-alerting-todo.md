@@ -494,6 +494,36 @@ This was got wrong once: a triage document carrying 22 SHAs with their subject
 lines was committed, and the history was rewritten to purge it before anything
 was pushed. Check before committing, not after.
 
+### The subjects are on the runner even though nothing reads them
+
+Asked on 2026-08-13 and worth writing down, because the answer has two halves
+and only the first is reassuring.
+
+**No source code is fetched.** The ordering checkout uses `--filter=tree:0`:
+commit objects only, no trees, no blobs. And the whole surface is four git
+commands, every one of which answers in identifiers — `rev-list` (SHAs),
+`rev-list --count` (a number), `rev-parse HEAD` (a SHA), and `cat-file
+--batch-check` (`<sha> <type> <size>`). No `log`, no `show`, no `--format`.
+`commit-order.json` holds SHAs, ordinals and counts, is written to
+`$RUNNER_TEMP`, and is not among the three files the shadow artifact uploads.
+Every upload path in the workflow names a specific directory; none of them is
+the workspace root, so the clone itself never leaves the runner.
+
+**A commit object carries its own message, and no filter removes that.** So the
+subjects are on the runner's disk regardless. Nothing reads them today. The
+exposure is one debugging line away: a `git log --oneline` added while chasing
+an ordering bug prints into a public log, exits zero, and looks like every
+other green step.
+
+`scripts/check-private-repo-git-reads.mjs` is the guard, added the same day. It
+holds the shape of the access — an allowlist of subcommands whose output is
+identifiers, a denylist of the flags that turn one of those into a printer of
+prose, and a rule that a file cannot start running git against the clone
+without being named. It scans the whole source tree rather than a list of files,
+because the first version listed files and a new file would not have been on it.
+It is a static read of source text: it catches the accident it was built for,
+not a command assembled at runtime or anyone determined to get around it.
+
 ## A confirmed change point does not always mean V2 moved
 
 The confirmed layer detects on the paired series, `log(v2) − log(v1)`, which is
