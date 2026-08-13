@@ -281,41 +281,67 @@ Two constraints the model enforces and the report states:
 **Phase 3 — measure the noise. Done 2026-08-09, and the expectation was wrong.**
 Compute time is not quieter than wall clock. It is noisier.
 
-Measured over the 29 full runs between 2026-08-07 and 2026-08-09 — 15,809 rows
-carrying compute metrics, of which 37 cases per run compute anything at all.
-Pairs are consecutive full runs of the same case, restricted to an unchanged
-shape and an unchanged `computeStepsExecuted`, so both sides did the same work
-cut the same way:
+Restated 2026-08-13, over the 91 full runs between 2026-08-07 and 2026-08-13 —
+45,296 rows carrying compute metrics, of which 37 cases per run compute anything
+at all. Pairs are consecutive full runs of the same case, restricted to an
+unchanged shape and an unchanged `computeStepsExecuted`, so both sides did the
+same work cut the same way:
 
 | per-case \|Δ\| between consecutive runs |      mean | median |   p90 | over 20% |
 | --------------------------------------- | --------: | -----: | ----: | -------: |
-| `computeMs`                             | **18.1%** |   8.2% | 41.7% |      29% |
-| wall clock, same cases and runs         |     12.0% |   7.1% | 28.8% |      20% |
+| `computeMs`                             | **16.0%** |   8.6% | 37.2% |      28% |
+| wall clock, same cases and runs         |     13.6% |   8.1% | 28.8% |      20% |
 
-The seven true repeat pairs in the window — one teable-ee commit measured by two
-runs — say the same thing with a smaller sample and a wider gap: 24.4% compute
-against 18.4% wall.
+n = 2,678 pairs. The first measurement ran the same query over the 931 pairs
+that existed on 2026-08-09 and read 18.2% / 12.0%, so the difference is data and
+not method. **The two columns have converged — the gap went from 6.2 points to
+2.4 — and that changes nothing in Phase 4**, which rests on the last column
+rather than on the comparison: 28% of unchanged-work pairs still cross the 1.2x
+band. Read as an argument that a compute gate is becoming viable, this table has
+been read down the wrong column.
+
+The 97 true repeat pairs in the window — one teable-ee commit measured by two
+full runs, three such commits — say the same thing with a wider gap: 20.9%
+compute against 12.5% wall.
 
 Why it goes the other way is inference, not measurement: wall clock carries
 network round trips and seeding, near-fixed costs that dilute the variable part,
 and `computeMs` strips exactly those away and leaves the CPU-bound remainder
-that a shared runner contends hardest for. The per-case table is consistent with
-that reading — the noisiest entries are the smallest.
-`lookup/dual-link-computed-first-link-1of4k-get-record`, 222ms median, moves
-57.8% run to run, while every case above ~1s sits in single digits or low teens.
-Small denominators, not a broken instrument.
+that a shared runner contends hardest for.
 
-These numbers exist twice on purpose. The Feishu card's compute panel states the
-18.1% / 12.0% pair to its reader — the 1.2x band it sorts by sits on that floor,
-so a "计算变慢 8" count means nothing without it — and carries its own copy as
-`COMPUTE_NOISE_NOTE` in `scripts/perf-run-summary-model.mjs`. Deliberately not
-sourced from here: a threshold and a sentence age differently, and making the
-renderer import the spec is the worse coupling. The cost is that a re-measurement
-has to land in both places, and the report copy is the one nobody re-reads. If
-this table changes, change that constant in the same edit.
+Small denominators explain the extremes and not the spread, which is a
+correction to what this document claimed at three times less data. The two
+noisiest cases are still the two smallest —
+`lookup/dual-link-computed-first-link-1of4k-get-record`, 237ms median, moves
+36.7% run to run — but "every case above ~1s sits in single digits or low teens"
+is false on the fuller sample: 18 of the 37 cases sit at or above 1s, and the
+noisiest of those, `lookup/customer-update-user-create-order-4k-depth5` at
+1597ms, moves 23.1%. Being large is not protection.
+
+These numbers are copied rather than imported, deliberately: a threshold and a
+sentence age differently, and making the renderer import the spec is the worse
+coupling. The cost is that a re-measurement has to land everywhere, and the
+copies are the ones nobody re-reads. The 2026-08-13 restatement found **six**,
+where this paragraph previously claimed two — so the list is now written out,
+and anything added to it belongs here on the same day:
+
+| copy                                       | carries                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `scripts/perf-run-summary-model.mjs`       | `COMPUTE_NOISE_NOTE`, the sentence on the Feishu card, plus the comment above it |
+| `scripts/check-perf-run-summary-model.mjs` | an assertion pinning the card's figures, and a wall-clock figure in a comment    |
+| `scripts/compute-comparison-model.mjs`     | the header argument for why nothing here gates                                   |
+| `docs/operations/teable-ee-e2e.md`         | the operator-facing version of the same caveat                                   |
+| `scripts/resolve-release-baseline.mjs`     | the wall-clock figure only, justifying the same-commit skip                      |
+
+Only five of the six had to be found by hand. The assertion in
+`check-perf-run-summary-model.mjs` failed on the first `pnpm check` after the
+card constant moved, which is what a copy that matters should do — and is why
+that one is pinned to the figures rather than to the shape of the sentence. The
+card's copy is the one that matters most: the 1.2x band it sorts by sits on this
+floor, so a "计算变慢 8" count means nothing without it.
 
 **Phase 4 — do not gate.** Phase 3 yielded its number and the number refuses.
-The 1.2x band is a 20% threshold, and 29% of unchanged-work pairs cross it on
+The 1.2x band is a 20% threshold, and 28% of unchanged-work pairs cross it on
 their own; a gate there would report nothing happening, most of the time it
 spoke. That is already the wall-clock gate's failure — it fires on 42 of 263 V1
 cases whose code did not change between runs, and people have learned to skip
@@ -325,7 +351,7 @@ So `DEFAULT_COMPUTE_BAND` labels rows on a report and gates nothing, and that is
 now a result rather than a placeholder. If compute time ever needs to raise an
 alarm, it needs the shape the read path uses — a per-case noise model, each case
 judged against its own history — not a constant shared across 37 cases whose
-noise spans 4.8% to 57.8%. A fixed band cannot be picked for that spread; there
+noise spans 6.3% to 36.7%. A fixed band cannot be picked for that spread; there
 is no value that is neither deaf on the quiet cases nor screaming on the loud
 ones.
 

@@ -316,13 +316,15 @@ because the verdict is a pair of directions and a row showing one of them cannot
 be checked. The head of the panel defines only the terms actually on screen.
 
 The key ends with the panel's own noise caveat, the counterpart of the one the
-wall-clock bands carry below: across 29 full runs, restricted to consecutive
-pairs that did identical work, per-case `computeMs` moved 18.1% on average
-against the wall clock's 12.0%, and 29% of those pairs crossed 20% unprompted.
+wall-clock bands carry below: across 91 full runs, restricted to consecutive
+pairs that did identical work, per-case `computeMs` moved 16.0% on average
+against the wall clock's 13.6%, and 28% of those pairs crossed 20% unprompted.
 The 1.2x band the panel sorts by therefore sits on the noise floor, not above
-it — a single case just over the line is not evidence, and the smallest cases
-are the loudest. `COMPUTE_NOISE_NOTE` in `perf-run-summary-model.mjs` holds the
-sentence; it has to be rewritten the day `DEFAULT_COMPUTE_BAND` is recalibrated.
+it — a single case just over the line is not evidence. The smallest cases are
+the loudest, but size is not protection: 18 of the 37 cases sit above 1s and the
+noisiest of those still moves 23.1%. `COMPUTE_NOISE_NOTE` in
+`perf-run-summary-model.mjs` holds the sentence; it has to be rewritten the day
+`DEFAULT_COMPUTE_BAND` is recalibrated.
 
 A fourth label, 无墙钟基线, covers rows whose compute got more expensive while
 the wall half had no comparable baseline, so no verdict could be formed. The
