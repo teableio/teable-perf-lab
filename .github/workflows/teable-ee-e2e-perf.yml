@@ -1087,6 +1087,68 @@ jobs:
           restore-keys: |
             perf-shadow-seen-
 
+      # The cache is not a reliable carrier for either piece of state it holds.
+      # Two distinct failures, both measured on real runs:
+      #
+      #   - **It forks.** `perf-shadow-seen-<run_id>` is immutable and the
+      #     restore matches by prefix, so two runs whose report jobs overlap
+      #     fork from one snapshot and each saves a lineage the other lacks.
+      #     G1 went 30 → 29 → 27 → 26 → 25 over seven full runs on 2026-08-13.
+      #     Cost to the seen-set over 2026-08-08/09: four change points
+      #     re-announced out of 143.
+      #   - **It misses, and the miss is silent.** On 2026-08-09 the scheduled
+      #     run logged `Cache not found for input keys: perf-shadow-seen-`, and
+      #     `actions/cache/restore` reports success on a miss. The analysis read
+      #     an empty seen-set, announced 117 historical change points as new
+      #     with `0 already reported`, and then saved that state back over the
+      #     good one. 229 keys became 117, and no later run could recover them.
+      #     Far more expensive than the fork, and nothing was watching for it.
+      #
+      # Every run already uploads both files as an artifact, described where it
+      # is uploaded as the thing that survives a cache eviction. Nothing ever
+      # read it back. This is the step that does; the analysis and the
+      # accumulator each union what it finds with what the cache gave them.
+      #
+      # Before the analysis rather than beside the accumulator, because the
+      # seen-set is consumed first and a wipe has to be repaired before it is
+      # acted on. Best-effort: the cache stays the fast path, every failure here
+      # is skipped, and the worst case is the behaviour from before this step
+      # existed.
+      - name: Recover shadow state lost to a forked or missed cache
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
+        run: |
+          set -uo pipefail
+          mkdir -p "$RECOVERY_DIR"
+          found=0
+          # This workflow's recent runs, newest first. Filtered by name because
+          # the repository-wide endpoint returns every workflow's runs.
+          runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=40" \
+            --jq '.workflow_runs[] | select(.name == env.GITHUB_WORKFLOW) | .id' \
+            2>/dev/null | head -20)
+          for rid in $runs; do
+            if [ "$rid" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            # Named per run and per attempt, so it is looked up rather than
+            # constructed.
+            name=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$rid/artifacts" \
+              --jq '.artifacts[] | select(.expired == false)
+                    | select(.name | startswith("teable-ee-e2e-perf-shadow-")) | .name' \
+              2>/dev/null | head -1)
+            if [ -z "$name" ]; then
+              continue
+            fi
+            if gh run download "$rid" -n "$name" -D "$RECOVERY_DIR/$rid" >/dev/null 2>&1; then
+              found=$((found + 1))
+            fi
+          done
+          echo "Recovered $found shadow state copies into $RECOVERY_DIR"
+
       # A bound of its own. `continue-on-error` covers a step that fails and does
       # nothing about a step that never returns, and the job timeout is not a
       # backstop — reaching it cancels the job and every step queued behind.
@@ -1125,6 +1187,9 @@ jobs:
           SHADOW_WORK_DIR: ${{ runner.temp }}/shadow-work
           SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
           SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
+          # Copies of the seen-set from recent runs, unioned with the cached one
+          # so a forked or missed cache cannot make this run re-announce history.
+          SHADOW_RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
           # The comparison, not the baseline. These are two different files and
           # pointing at the wrong one is silent: the baseline parses fine and
           # answers "no regressions" to a question it was never asked.
@@ -1198,57 +1263,6 @@ jobs:
       # save is: a run whose analysis refused to produce anything did not run
       # the new system alongside the old one, and counting it would make the ten
       # arrive sooner and mean less.
-      # The cache cannot carry the ledger on its own, and this pulls back what it
-      # drops. `perf-shadow-seen-<run_id>` is immutable and the restore matches
-      # by prefix, so two runs whose report jobs overlap fork from one snapshot
-      # and each saves a lineage the other lacks; the next run restores one and
-      # the other is gone. Measured 2026-08-13: G1 went 30 → 29 → 27 → 26 → 25
-      # over seven full runs, backwards.
-      #
-      # `oldOnly` is what this protects. G1 and G2 both tolerate a dropped run —
-      # G1 is met many times over, G2 divides flags by runs and loses a term from
-      # each — but `oldOnly` is a union, and it is the whole input to G3's hand
-      # review. Short, it reads as a completed review.
-      #
-      # Best-effort throughout. The cache stays the fast path and every failure
-      # here is skipped, so the worst case is the behaviour from before this step
-      # existed. What it must not do is fail quietly: the accumulator prints how
-      # many copies it found and how many runs they put back, and warns when the
-      # directory is empty.
-      - name: Recover shadow ledgers lost to concurrent runs
-        if: always() && steps.shadow-analysis.outcome == 'success'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RECOVERY_DIR: ${{ github.workspace }}/shadow-ledger-recovery
-        run: |
-          set -uo pipefail
-          mkdir -p "$RECOVERY_DIR"
-          found=0
-          # This workflow's recent runs, newest first. Filtered by name because
-          # the repository-wide endpoint returns every workflow's runs.
-          runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=40" \
-            --jq '.workflow_runs[] | select(.name == env.GITHUB_WORKFLOW) | .id' \
-            2>/dev/null | head -20)
-          for rid in $runs; do
-            if [ "$rid" = "$GITHUB_RUN_ID" ]; then
-              continue
-            fi
-            # Named per run and per attempt, so it is looked up rather than
-            # constructed.
-            name=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$rid/artifacts" \
-              --jq '.artifacts[] | select(.expired == false)
-                    | select(.name | startswith("teable-ee-e2e-perf-shadow-")) | .name' \
-              2>/dev/null | head -1)
-            if [ -z "$name" ]; then
-              continue
-            fi
-            if gh run download "$rid" -n "$name" -D "$RECOVERY_DIR/$rid" >/dev/null 2>&1; then
-              found=$((found + 1))
-            fi
-          done
-          echo "Recovered $found shadow ledger copies into $RECOVERY_DIR"
-
       - name: Accumulate shadow validation progress
         if: always() && steps.shadow-analysis.outcome == 'success'
         continue-on-error: true
@@ -1256,7 +1270,7 @@ jobs:
         env:
           SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
           SHADOW_LEDGER_PATH: ${{ github.workspace }}/shadow-runs.json
-          SHADOW_LEDGER_RECOVERY_DIR: ${{ github.workspace }}/shadow-ledger-recovery
+          SHADOW_RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           # G1 asks for ten *full* runs. Taken from the dispatch rather than
           # inferred from how many cases were measured, so a full run with a
