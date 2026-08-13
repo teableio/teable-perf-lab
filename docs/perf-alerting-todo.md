@@ -622,3 +622,77 @@ The first issue was filed with a claim that had to be retracted afterwards: a
 1.90x between adjacent runs of identical code. That is what the measurability
 screen now exists to prevent, and it is the reason the screen runs before
 detection rather than filtering findings after.
+
+## The standing list, and how measuring it went wrong four times
+
+Added 2026-08-13. The owner's goal, stated plainly: _find the cases that are
+quietly getting slower_. The confirmed layer answers a different question —
+which commit moved something — and answers it once, at the moment the boundary
+becomes significant. A case that has been 2x slower for two months is correctly
+silent there and very much not silent to a person.
+
+`standing-regression-model.mjs` is the answer to the other half. It is two
+medians and a division, which is why it reaches a case the detector cannot:
+`record-read/10k-50fields-group-three-levels` is screened `too-noisy` before
+detection runs and has drifted 2.82x against its control.
+
+**Fifteen cases qualify across the whole history. Ten had been attributed by
+the confirmed layer; five never had.**
+
+### Four measurement faults, in the order they were made
+
+Every one of them produced a confident, wrong conclusion that survived until
+the next check. They are recorded because the next person measuring this corpus
+will have the chance to make all four again.
+
+**1. Sorting commit SHAs alphabetically and calling it time order.** A series
+pulled `ORDER BY started_at` was re-sorted in JavaScript with `.sort()` on the
+SHA keys, which shuffles it. Change point detection then ran on noise. The
+conclusion drawn — that the detector has a structural blind spot for drift —
+was the opposite of the truth: with the order restored, a full scan finds 4, 8,
+10 and 1 change points on the four cases it had "missed". The same shuffled
+data also produced a full-scan cost estimate of 23s that was wrong by a factor
+of sixteen.
+
+**2. Pairing V1 to V2 by array index.** The two engines do not measure the same
+set of commits, so index `i` in one is a different commit in the other. Every
+paired figure computed that way described nothing. Pair on the commit, always.
+
+**3. Treating a V2 drift as a regression.** The first list of "quietly slowed"
+cases had eleven entries and four of them were the runner, not the engine. On
+`field-delete/50k-delete-active-field` V2 drifted 1.70x and V1 drifted 1.54x
+over the same span. On `lookup/dual-link-computed-repoint-2k` — reported at the
+time as the worst miss in the corpus, 6.2s to 16.6s — the control moved 96x and
+the pair says V2 got relatively _faster_. This is the measurement that settled
+a question left open earlier in this document: the V1 control channel earns its
+place, and the evidence is four false alarms it removes from a list of fifteen.
+
+**4. Calibrating against a pooled null.** A shuffle-based null distribution over
+all cases had a p999 of 18, driven almost entirely by one case whose paired
+ratio swings 40x. A global bar calibrated on that is hostage to the worst-behaved
+series in the corpus. Per-case bars — the same shape the fast layer already
+uses — fixed it.
+
+### What the model refuses, and why both tests are load-bearing
+
+`isStanding` requires the paired drift _and_ V2's own drift to clear 1.25x.
+Neither test is redundant:
+
+- Paired alone admits cases where only the control moved.
+  `field-duplicate/10k-duplicate-start-date-field` reads 204ms then 206ms with
+  a control that improved 0.69x, giving a paired 1.47x that describes a case
+  which did not move.
+- V2 alone admits everything the runner did to everybody — the four above.
+
+### Deliberately not done
+
+- **The measurability screen was not touched.** It blocks one case from
+  detection, and the standing list reaches that case without it. The screen
+  exists because a "3.59x" headline drawn from the noisiest series in the corpus
+  had to be retracted; loosening it to recover one case is a bad trade made
+  under time pressure.
+- **A separate drift alert was built, calibrated, and dropped.** It worked — one
+  firing on a 173-case sample, a true positive, no false positives against the
+  known non-regressions. It was dropped because a full-history scan already
+  recovers 6 of the 7 genuine drifters and names the commit as well, so the
+  alert would have added a row to the card and no information.
