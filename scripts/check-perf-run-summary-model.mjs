@@ -677,8 +677,8 @@ assert.match(
 assert.match(computeRows[1], /慢1\.9x · 墙钟 慢2\.0x · \*\*计算退化\*\*$/);
 assert.match(computeRows[2], /慢3\.4x · 墙钟 持平 · \*\*隐性计算成本\*\*$/);
 
-assert.match(computeKey, /^墙钟＝用户等待的时间/);
-assert.match(computeKey, /\*\*异步转移\*\* 墙钟变快、计算没少/);
+assert.match(computeKey, /^墙钟为用户等待的时间/);
+assert.match(computeKey, /\*\*异步转移\*\* 墙钟变快、计算未减少/);
 assert.match(computeKey, /\*\*计算退化\*\*/);
 assert.match(computeKey, /\*\*隐性计算成本\*\*/);
 // Terms the reader cannot see beside the key are not defined in it.
@@ -691,7 +691,10 @@ assert.doesNotMatch(computeKey, /调度退化|计算优化|隐性计算收益|�
 // 18.1% / 12.0% on 931 pairs to these, on 2,678. If this assertion fails, work
 // through the copy list in docs/compute-time-observation-spec.md Phase 3 —
 // do not loosen the regex.
-assert.match(computeKey, /computeMs 平均就动 16\.0%（墙钟 13\.6%）/);
+assert.match(
+  computeKey,
+  /computeMs 的平均变化为 16\.0%，墙钟为 13\.6%/,
+);
 assert.equal(computeKey.split("\n").at(-1), COMPUTE_NOISE_NOTE);
 assert.equal(formatComputeGlossary([]), undefined);
 assert.equal(formatComputeGlossary([{ verdict: undefined }]), undefined);
@@ -730,7 +733,7 @@ assert.match(
 );
 assert.match(
   renamedPanel.elements[0].text.content,
-  /\*\*无墙钟基线\*\* 计算变多，但墙钟这半没有可比的基线/,
+  /\*\*无墙钟基线\*\* 计算增加，但墙钟一侧没有可比的基线/,
 );
 
 const manyRegressionPayloads = Array.from({ length: 12 }, (_, index) => [
