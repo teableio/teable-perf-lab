@@ -1207,11 +1207,22 @@ jobs:
       # to eight cases costs the same again. So paging differently cannot help;
       # only asking fewer times can, and that is the follow-up in
       # docs/perf-alerting-todo.md rather than a change made here.
+      # Thirty rather than fifteen, since 2026-08-13. Detection now reads each
+      # series whole instead of its last 80 points, which is 8.8x the work —
+      # measured on two independent samples, and the window-80 arm of that same
+      # measurement extrapolates to 53s against the 43s this step actually
+      # spends, so the multiplier is trustworthy even if the absolute is not.
+      # That puts the step near 890s against the 900s it used to allow.
+      #
+      # The ceiling is not what governs the cost here: this step is
+      # `continue-on-error`, runs after everything the run depends on, and the
+      # job around it allows 40 minutes. It exists to stop a hang, and 30
+      # minutes still does that.
       - name: Shadow perf analysis
         id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 30
         working-directory: perf-lab
         env:
           TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision

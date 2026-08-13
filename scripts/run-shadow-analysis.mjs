@@ -214,16 +214,65 @@ export const refreshCorpus = async ({ workDir, teableEeRepo }) => {
 
 // How much recent history the per-run confirmed pass looks at.
 //
-// Not the whole series. A change point from three months ago was reported three
-// months ago, and re-deriving it every run costs the windowed pass fourteen
-// times the work of the plain one — measured, a full-history windowed scan runs
-// past ten minutes, against a budget of thirty seconds a run.
+// The whole series, since 2026-08-13. It was 80 points, on the reasoning that a
+// change point from three months ago was reported three months ago and that a
+// full scan costs ten minutes. Both halves turned out to be wrong.
 //
-// Long enough to contain what the detector can act on: the confirmed layer
-// needs about twenty runs behind a regression to reach its stated recall, and
-// this holds four times that. Anything older is the offline periodic scan's
-// job, not this one's.
-export const DEFAULT_ANALYSIS_WINDOW = 80;
+// **The cost.** Measured against the real length distribution — 359 series long
+// enough to detect on, median 234 points, 12 of them past 550 — a full scan is
+// 23s against the window's 8.5s. Fifteen seconds, inside a step that spends 553
+// and gives 43 of them to detection; building the corpus off the 174k-row table
+// is what that step actually costs. Where the ten-minute figure came from was
+// not reproducible; if the real CI number lands far from this, it is the CI
+// number that governs and this comment should be corrected against it.
+//
+// **The claim that old change points were already reported.** Only true back to
+// 2026-08-07, when this started running. Everything before that was never
+// reported by anything: `smoke/auth-user` alone carries three boundaries at
+// positions 103, 136 and 183 of a 591-point series that no run has ever
+// announced. There was no offline periodic scan to pick them up — the comment
+// that deferred them to one described a script that does not exist.
+//
+// The reason this is safe to widen is measured too: full-scan boundaries are
+// stable as points arrive. Simulating six consecutive nights on four real
+// series, a full scan produced 0, 2, 0 and 0 boundaries it had not produced the
+// night before — against 1, 1, 0 and 1 for the 80-point window. Widening costs
+// one noisy transition, not standing churn. `RESEED_ON_WINDOW_CHANGE` below is
+// what absorbs that transition.
+export const DEFAULT_ANALYSIS_WINDOW = Infinity;
+
+/**
+ * The window this seen-set was built under.
+ *
+ * Change the window and the detector answers differently — not more, but
+ * elsewhere. On `record-read/10k-50fields-filter-sort-formula-selective` the
+ * 80-point window reports a boundary at position 190 and a full scan reports
+ * one at 102 and does not report 190 at all. A change point's identity is its
+ * commit pair, so every boundary that moves is a key the seen-set has never
+ * seen, and the first run under a new window announces its whole history as
+ * new. That is the cold start again, arriving by a different door.
+ *
+ * So the window travels with the seen-set. When it changes, the run detects as
+ * normal, folds everything it finds into the seen-set, and announces none of
+ * it — the same trade the cold start makes, for the same reason, decided here
+ * rather than by whoever happens to edit the window.
+ */
+export const seenWindowOf = (parsed) => {
+  // `null` is how a full scan survives JSON — `Infinity` does not serialise, and
+  // `JSON.stringify(Infinity)` is the string "null". Reading it back as `null`
+  // makes every full-scan run differ from the one before it, which re-seeds
+  // nightly and silences the card permanently. Caught before it shipped by
+  // round-tripping the file rather than by reading the code.
+  if (parsed?.window === null) {
+    return Infinity;
+  }
+  // Absent means a seen-set written before the window was recorded, and every
+  // one of those was built under the 80-point window.
+  return parsed?.window === undefined ? 80 : parsed.window;
+};
+
+const windowLabel = (window) =>
+  Number.isFinite(window) ? String(window) : "full-history";
 
 /**
  * Both layers over the corpus.
@@ -729,8 +778,11 @@ const main = async () => {
   // own change point.
   const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
   let cached;
+  let cachedWindow;
   try {
-    cached = JSON.parse(await readFile(seenPath, "utf8")).known ?? [];
+    const parsed = JSON.parse(await readFile(seenPath, "utf8"));
+    cached = parsed.known ?? [];
+    cachedWindow = seenWindowOf(parsed);
   } catch {
     cached = undefined;
   }
@@ -739,10 +791,29 @@ const main = async () => {
   reportSeenSources({ cached, recovered, seen });
   const separated = separateFresh(analysis.confirmed, seen);
 
+  // The window moved under an accumulated seen-set, so every boundary that
+  // shifted is a key nobody has seen and this run would announce its whole
+  // history. Fold it in, announce none of it, and say so loudly enough that a
+  // silent night is not mistaken for a quiet one.
+  const reseeding =
+    cachedWindow !== undefined && cachedWindow !== analysisWindow;
+  if (reseeding) {
+    console.warn(
+      `Shadow: the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}. ` +
+        `Detection ran and found ${separated.fresh.length} change points not in the seen-set, but a window change moves boundaries — ` +
+        `these are re-detections at shifted commit pairs, not new findings. Folding all ${separated.known.length} keys in and announcing none. ` +
+        `The next run reports normally.`,
+    );
+    console.log(
+      `::warning title=Shadow re-seeded after an analysis window change::${separated.fresh.length} change points withheld; see the step log.`,
+    );
+  }
+  const fresh = reseeding ? [] : separated.fresh;
+
   const reconciliation = reconcileRun({
     oldFlagged,
     newFlagged: analysis.fast.flagged.map((entry) => entry.key),
-    confirmed: separated.fresh,
+    confirmed: fresh,
     unjudged: analysis.unjudged,
   });
 
@@ -765,8 +836,12 @@ const main = async () => {
       source: measured ? "run" : "corpus-tail",
       measured: measured ? measured.size : undefined,
     },
-    confirmed: separated.fresh,
+    confirmed: fresh,
     confirmedRepeated: separated.counts.repeated,
+    // The window this run detected under. Carried so the next run can tell a
+    // widened window from an ordinary night; see `seenWindowOf`.
+    analysisWindow: Number.isFinite(analysisWindow) ? analysisWindow : null,
+    reseeded: reseeding || undefined,
     // How many change points were already on the record when this run started.
     // Zero means the seen-set was empty and every change point below is a first
     // sighting only because nothing had been recorded before — the cold start,
@@ -792,9 +867,13 @@ const main = async () => {
   await mkdir(dirname(seenPath), { recursive: true });
   await writeFile(
     seenPath,
-    `${JSON.stringify({ known: separated.known }, null, 2)}\n`,
+    `${JSON.stringify(
+      { known: separated.known, window: Number.isFinite(analysisWindow) ? analysisWindow : null },
+      null,
+      2,
+    )}\n`,
   );
-  const movers = separated.fresh.reduce((tally, point) => {
+  const movers = fresh.reduce((tally, point) => {
     tally[point.mover] = (tally[point.mover] ?? 0) + 1;
     return tally;
   }, {});
