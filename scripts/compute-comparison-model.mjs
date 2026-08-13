@@ -21,15 +21,16 @@
 // `perf-run-summary-model.mjs`. See docs/compute-time-observation-spec.md.
 //
 // Nothing here gates a run, and as of 2026-08-09 that is settled rather than
-// pending. The noise was measured over 29 full runs: between consecutive runs of
-// the same case, at unchanged shape and unchanged step count, `computeMs` moves
-// 18.1% on average against the wall clock's 12.0%, and crosses 20% on its own in
-// 29% of pairs. Compute time is noisier than wall clock, not quieter — the
-// opposite of what this file used to predict. A 1.2x band on that would speak
-// mostly when nothing happened, which is already why the wall-clock gate it
-// borrows from gets ignored. So a verdict here stays a label on a report.
-// Alerting on compute would need a per-case noise model, not a shared constant:
-// per-case noise runs from 4.8% to 57.8%, and no single band fits that spread.
+// pending. The noise was measured over 91 full runs (restated 2026-08-13):
+// between consecutive runs of the same case, at unchanged shape and unchanged
+// step count, `computeMs` moves 16.0% on average against the wall clock's 13.6%,
+// and crosses 20% on its own in 28% of pairs. Compute time is noisier than wall
+// clock, not quieter — the opposite of what this file used to predict. A 1.2x
+// band on that would speak mostly when nothing happened, which is already why
+// the wall-clock gate it borrows from gets ignored. So a verdict here stays a
+// label on a report. Alerting on compute would need a per-case noise model, not
+// a shared constant: per-case noise runs from 6.3% to 36.7%, and no single band
+// fits that spread.
 // See the Phase 3/4 tables in docs/compute-time-observation-spec.md.
 
 export const COMPUTE_METRIC = "computeMs";
