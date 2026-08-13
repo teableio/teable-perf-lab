@@ -222,10 +222,10 @@ export const COMPUTE_VERDICT_GLOSSARY = {
     "计算变多，但墙钟这半没有可比的基线 —— 通常是这个 case 的主指标改过名，定不了性",
 };
 
-// Measured, not assumed. Across 29 full runs (2026-08-07 → 08-09), restricted to
+// Measured, not assumed. Across 91 full runs (2026-08-07 → 08-13), restricted to
 // consecutive pairs with identical shape and identical `computeStepsExecuted` —
-// the same work done twice — per-case `computeMs` moved 18.1% on average against
-// the wall clock's 12.0%, and 29% of those pairs crossed 20% on their own. So the
+// the same work done twice — per-case `computeMs` moved 16.0% on average against
+// the wall clock's 13.6%, and 28% of those pairs crossed 20% on their own. So the
 // 1.2x band every row on this panel is sorted by sits *on* the noise floor rather
 // than above it, and a reader counting "计算变慢 8" has to know that before the
 // count means anything. The wall-clock bands next door already carry the same
@@ -240,7 +240,7 @@ export const COMPUTE_VERDICT_GLOSSARY = {
 // 3, which points back here for the same reason: re-measuring changes two places
 // and this is the one nobody re-reads.
 export const COMPUTE_NOISE_NOTE =
-  "注意 相邻两轮之间，同样的活 computeMs 平均就动 18.1%（墙钟 12.0%），1.2x 这道线正压在噪声上：单个刚过线的 case 说明不了什么，成片出现、或者本身量级大的 case 才是信号 —— 越小的 case 越吵。";
+  "注意 相邻两轮之间，同样的活 computeMs 平均就动 16.0%（墙钟 13.6%），1.2x 这道线正压在噪声上：单个刚过线的 case 说明不了什么，成片出现、或者倍数拉得很开的才是信号 —— 小 case 尤其吵，但大 case 也不保险。";
 
 /**
  * Which entry of the key a row is filed under: its verdict, or `unpaired` when
