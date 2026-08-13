@@ -47,19 +47,25 @@ export const CHANGE_POINT_HIGHLIGHT_LIMIT = 5;
 export const SEVERE_CHANGE_POINT_RATIO = 2;
 
 /**
- * What `mover` means, in the terms someone triaging needs.
+ * How much this case slowed, in its own wall-clock terms.
  *
- * The classifier answers which series moved, not which direction it moved —
- * direction is the ratio, printed beside this on the same row.
+ * Detection runs on `log(v2) − log(v1)` and `ratio` is that paired figure. The
+ * V1 control channel is what makes detection immune to a runner that was slow
+ * all night, and it stays — but it is a ruler, not a finding, and it is not on
+ * this card. A reader who is shown "0.42s → 1.01s" beside a paired "2.3x" is
+ * being asked to reconcile two numbers that do not divide into each other.
  *
- * `v1` is absent on purpose and never reaches a row; see `rankChangePoints`.
+ * So the row is judged on the pair and reported on V2. Where a record carries
+ * no levels — everything written before attribution existed — the paired ratio
+ * is all there is, and it is used rather than the row being dropped.
  */
-export const MOVER_NOTES = {
-  v2: "V2 变化，V1 对照未变",
-  both: "两个引擎一起变，通常是基础设施而非引擎",
-  "below-bar": "两个引擎各自的水平都没过 1.25x 判定线：变化真实，幅度小",
-  "no-control": "该用例没有 V1 对照，仅按 V2 单独判定",
-  unknown: "边界一侧的数据点不足以取中位数，未判定是哪一侧动的",
+export const reportedFactor = (point) => {
+  const before = point?.v2Level?.before;
+  const after = point?.v2Level?.after;
+  if (Number.isFinite(before) && Number.isFinite(after) && before > 0) {
+    return after / before;
+  }
+  return point?.ratio;
 };
 
 // Owed to triage since the ±1 tolerance was signed off, and never delivered
@@ -96,8 +102,13 @@ export const isRegression = (point) => {
   return after > before;
 };
 
-const magnitude = (point) =>
-  Number.isFinite(point?.ratio) ? Math.abs(Math.log(point.ratio)) : 0;
+// Ordered and coloured on what the row actually says, so the top row is the
+// worst slowdown a reader can see rather than the widest gap against a control
+// the card never mentions.
+const magnitude = (point) => {
+  const factor = reportedFactor(point);
+  return Number.isFinite(factor) && factor > 0 ? Math.abs(Math.log(factor)) : 0;
+};
 
 /**
  * The rows the card shows, worst first.
@@ -141,11 +152,10 @@ const levelText = (point) => {
     // record written before the levels existed.
     return undefined;
   }
-  // Named as V2's, because the ratio standing next to it is the pair's. The two
-  // are different measurements and a row that prints both unlabelled invites
-  // the reader to divide one by the other and get a third number that means
-  // nothing.
-  return `V2 ${formatMetricSeconds(before)} → ${formatMetricSeconds(after)}`;
+  // Unlabelled, because every number on this card is V2's and the header says
+  // so once. Repeating "V2" on each row only raises the question of what the
+  // other engine did, which is a question this card does not answer.
+  return `${formatMetricSeconds(before)} → ${formatMetricSeconds(after)}`;
 };
 
 export const formatChangePointLine = (point, chartUrl) => {
@@ -154,16 +164,12 @@ export const formatChangePointLine = (point, chartUrl) => {
   if (levels) {
     parts.push(levels);
   }
-  const factor = formatRatioFactor(point.ratio);
+  const factor = formatRatioFactor(reportedFactor(point));
   if (factor) {
     parts.push(factor);
   }
   if (Number.isFinite(point.pValue)) {
     parts.push(`p=${point.pValue}`);
-  }
-  const moverNote = MOVER_NOTES[point.mover];
-  if (moverNote) {
-    parts.push(moverNote);
   }
   parts.push(
     `引入于 \`${shortSha(point.beforeCommit)}\`→\`${shortSha(point.afterCommit)}\``,
@@ -182,23 +188,28 @@ export const formatChangePointLine = (point, chartUrl) => {
  * Split tonight's confirmed change points into what the card says and what it
  * only counts.
  *
- * `controlSide` is the bucket the ratio alone cannot distinguish from a
- * regression: the pair separated, V2 did not slow. Either V1 moved and V2 did
- * not, or V2 moved the other way and V1 moved further. It is counted rather
- * than listed because there is nothing in V2 to open, and counted rather than
- * dropped because "变慢 0" over a night that produced six change points is a
- * claim the reader would check against the artifact and find wrong.
+ * `unchanged` is the bucket that exists because detection and reporting use
+ * different measurements: something moved, and it was not this case getting
+ * slower. It is counted rather than listed because there is nothing here to
+ * open, and counted rather than dropped because "变慢 0" over a night that
+ * produced six change points is a claim the reader would check against the
+ * artifact and find wrong.
  *
  * The three buckets are defined to sum to `total`, so the card's own arithmetic
  * is checkable by the person reading it.
  */
 export const summariseChangePoints = (confirmed = []) => {
   const regressions = rankChangePoints(confirmed);
-  const faster = confirmed.filter((point) => point?.ratio < 1).length;
+  // Counted on what the card would report, not on the paired ratio, so the
+  // three buckets describe the same measurement the rows do.
+  const faster = confirmed.filter((point) => {
+    const factor = reportedFactor(point);
+    return Number.isFinite(factor) && factor < 1;
+  }).length;
   return {
     regressions,
     faster,
-    controlSide: confirmed.length - regressions.length - faster,
+    unchanged: confirmed.length - regressions.length - faster,
     total: confirmed.length,
   };
 };
@@ -243,8 +254,8 @@ export const describeDelivery = ({ result } = {}) => {
       reason:
         summary.total === 0
           ? "no new confirmed change points; nothing pushed."
-          : `${summary.total} new change point${summary.total === 1 ? "" : "s"}, none of them a V2 slowdown ` +
-            `(${summary.faster} faster, ${summary.controlSide} on the control side); nothing pushed.`,
+          : `${summary.total} new change point${summary.total === 1 ? "" : "s"}, none of them a slowdown ` +
+            `(${summary.faster} faster, ${summary.unchanged} unchanged); nothing pushed.`,
     };
   }
   return {
@@ -281,13 +292,12 @@ export const buildChangePointCard = ({ result, context = {} } = {}) => {
   // after the commit landed.
   const breakdown = [
     `${summary.faster} 个变快`,
-    ...(summary.controlSide > 0
-      ? [`${summary.controlSide} 个变化在 V1 对照侧`]
-      : []),
+    ...(summary.unchanged > 0 ? [`${summary.unchanged} 个耗时没变`] : []),
   ].join("、");
   const headLines = [
     `**新确认变慢 ${summary.regressions.length}**${severe > 0 ? ` · 其中 ${severe} 个达到 ${SEVERE_CHANGE_POINT_RATIO}x` : ""}`,
     `本轮共确认 ${summary.total} 个变更点，另外 ${breakdown}，不在下面`,
+    `耗时均为 V2`,
     `变更点归属于 mainline 上的某个 commit${context.teableRef ? `，可能比本轮测的 \`${shortSha(context.teableRef)}\` 早很多` : "，不一定是本轮测的版本"}`,
   ];
 

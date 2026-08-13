@@ -8,8 +8,8 @@ import {
   formatChangePointLine,
   isColdStart,
   isRegression,
-  MOVER_NOTES,
   rankChangePoints,
+  reportedFactor,
   SEVERE_CHANGE_POINT_RATIO,
   summariseChangePoints,
 } from "./change-point-card-model.mjs";
@@ -98,12 +98,14 @@ assert.equal(isRegression(undefined), false);
   );
 }
 
-// Worst first, by distance from 1 rather than by raw ratio.
+// Worst first, and "worst" is what the row says — V2's own movement — not the
+// paired ratio the row never prints. These three carry paired ratios in the
+// opposite order to their V2 levels, so a rank on `ratio` fails here.
 {
   const ranked = rankChangePoints([
-    pointOf({ caseId: "small", ratio: 1.2 }),
-    pointOf({ caseId: "big", ratio: 3.6 }),
-    pointOf({ caseId: "middle", ratio: 2.0 }),
+    pointOf({ caseId: "small", ratio: 3.6, before: 400, after: 480 }),
+    pointOf({ caseId: "big", ratio: 1.2, before: 400, after: 1600 }),
+    pointOf({ caseId: "middle", ratio: 2.0, before: 400, after: 800 }),
   ]);
   assert.deepEqual(
     ranked.map((point) => point.caseId),
@@ -125,10 +127,14 @@ assert.equal(isRegression(undefined), false);
   const summary = summariseChangePoints(confirmed);
   assert.equal(summary.total, 4);
   assert.equal(summary.regressions.length, 1);
-  assert.equal(summary.faster, 1);
-  assert.equal(summary.controlSide, 2);
+  // Two faster, because the buckets count what the card would print. Counting
+  // on the paired ratio put `v1-sped-up` — V2 went 1231ms to 627ms — in the
+  // leftover bucket, where a case that halved was reported as neither faster
+  // nor slower.
+  assert.equal(summary.faster, 2);
+  assert.equal(summary.unchanged, 1);
   assert.equal(
-    summary.regressions.length + summary.faster + summary.controlSide,
+    summary.regressions.length + summary.faster + summary.unchanged,
     summary.total,
   );
 }
@@ -150,11 +156,15 @@ assert.equal(isRegression(undefined), false);
   );
   assert.match(line, /record-read\/10k-filter/);
   assert.match(line, /https:\/\/ppm\.teable\.app#record-read\/10k-filter/);
-  // Levels carry the engine's name because the ratio beside them is the pair's.
-  assert.match(line, /V2 0\.61s → 1\.22s/);
-  assert.match(line, /慢1\.9x/);
+  assert.match(line, /0\.61s → 1\.22s/);
+  // 1216/613, not the 1.93 paired ratio. A reader who divides the two printed
+  // numbers has to land on the printed factor, or the row argues with itself.
+  assert.equal(reportedFactor(pointOf({ before: 613, after: 1216 })), 1216 / 613);
+  assert.match(line, /慢2\.0x/);
   assert.match(line, /p=0\.0008/);
-  assert.match(line, new RegExp(MOVER_NOTES.v2));
+  // Nothing about V1 reaches the reader. It is the detector's ruler and the
+  // card is not about it.
+  assert.doesNotMatch(line, /V1|对照/);
   assert.match(line, /引入于 `9aac6f6f`→`c6e24ab4`/);
 }
 
@@ -219,7 +229,7 @@ assert.doesNotMatch(
   const decision = describeDelivery({ result });
   assert.equal(decision.send, false);
   assert.match(decision.reason, /1 new change point,/);
-  assert.match(decision.reason, /none of them a V2 slowdown/);
+  assert.match(decision.reason, /none of them a slowdown/);
   assert.equal(buildChangePointCard({ result, context }), undefined);
 }
 

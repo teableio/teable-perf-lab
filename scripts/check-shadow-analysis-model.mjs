@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { analyse, runMeasurements } from "./run-shadow-analysis.mjs";
+import {
+  analyse,
+  DEFAULT_ANALYSIS_WINDOW,
+  runMeasurements,
+  seenWindowOf,
+} from "./run-shadow-analysis.mjs";
 
 // A corpus the way `build-perf-corpus.mjs` writes one: one entry per case and
 // engine, segments of `[ordinal, value, runs]`.
@@ -352,5 +357,46 @@ console.log("shadow analysis checks passed");
     assert.equal(t.lines.warn.length, 0);
   }
 }
+
+// --- the analysis window, and the re-seed that a change to it forces ----------
+
+// Whole series, since 2026-08-13. Widening it recovers 5 of the 11 cases that
+// drifted 1.3x or more across their history and had never been reported: the
+// detector found them, the 80-point window did not reach back far enough.
+assert.equal(DEFAULT_ANALYSIS_WINDOW, Infinity);
+
+// A seen-set written before the window was recorded was built under 80.
+assert.equal(seenWindowOf({ known: [] }), 80);
+assert.equal(seenWindowOf(undefined), 80);
+assert.equal(seenWindowOf({ known: [], window: 80 }), 80);
+
+// The round trip that matters. `Infinity` does not survive JSON — it comes back
+// as `null` — so reading `null` as anything but `Infinity` makes every
+// full-scan run differ from the one before it. That re-seeds nightly, and a
+// re-seed announces nothing, which silences the card permanently while every
+// step stays green.
+{
+  const written = JSON.parse(
+    JSON.stringify({
+      known: ["a"],
+      window: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+        ? DEFAULT_ANALYSIS_WINDOW
+        : null,
+    }),
+  );
+  assert.equal(written.window, null);
+  assert.equal(seenWindowOf(written), DEFAULT_ANALYSIS_WINDOW);
+  assert.equal(
+    seenWindowOf(written) !== DEFAULT_ANALYSIS_WINDOW,
+    false,
+    "a full-scan seen-set must not read as a window change on the next run",
+  );
+}
+
+// Changing it in either direction is a change: boundaries move both ways, and
+// on `record-read/10k-50fields-filter-sort-formula-selective` the 80-point
+// window reports a boundary at position 190 that a full scan does not report
+// at all.
+assert.notEqual(seenWindowOf({ known: [], window: 80 }), DEFAULT_ANALYSIS_WINDOW);
 
 console.log("shadow analysis old-gate and seen-set recovery checks passed");
