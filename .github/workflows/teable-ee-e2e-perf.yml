@@ -1335,6 +1335,11 @@ jobs:
       # Gated on the analysis having succeeded, like the two steps around it: a
       # run that produced no result has nothing to say, and the sender would
       # otherwise report "nothing to push" for a step that failed.
+      #
+      # Ahead of `Save shadow change point state` on purpose. This step marks
+      # the standing cases it announced in the seen-set, and that mark has to be
+      # in the file the cache picks up or "新增" would mean "every case, every
+      # night".
       - name: Send Feishu change point card
         if: always() && steps.shadow-analysis.outcome == 'success'
         continue-on-error: true
@@ -1342,6 +1347,7 @@ jobs:
         env:
           FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
           SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
           PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
           PERF_LAB_CHART_URL: https://ppm.teable.app
         run: node scripts/send-feishu-change-point-summary.mjs

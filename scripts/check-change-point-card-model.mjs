@@ -6,11 +6,17 @@ import {
   describeDelivery,
   extraSuspects,
   formatChangePointLine,
+  formatStandingLine,
+  freshStanding,
   isColdStart,
   isRegression,
   rankChangePoints,
   reportedFactor,
   SEVERE_CHANGE_POINT_RATIO,
+  STANDING_LIMIT,
+  STANDING_CONTRAST,
+  STANDING_NOTE,
+  standingKey,
   summariseChangePoints,
 } from "./change-point-card-model.mjs";
 
@@ -335,6 +341,120 @@ assert.doesNotMatch(
   for (const point of confirmed) {
     assert.match(text, new RegExp(point.caseId));
   }
+}
+
+// --- the standing section ------------------------------------------------------
+
+const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
+  caseId,
+  pairedDrift,
+  v2Drift: now / then,
+  v2Then: then,
+  v2Now: now,
+  points: 240,
+});
+
+// A case joining the list is news; the list repeating is not. The key is
+// namespaced so it cannot collide with a change point's `case@before..after`.
+{
+  const rows = [standingOf("a", 2.1), standingOf("b", 1.4)];
+  assert.equal(standingKey(rows[0]), "standing:a");
+  assert.deepEqual(
+    freshStanding(rows, ["standing:a"]).map((row) => row.caseId),
+    ["b"],
+  );
+  assert.equal(freshStanding(rows, ["standing:a", "standing:b"]).length, 0);
+}
+
+// No new change point, but a case has just arrived on the standing list. This
+// is the path that reaches `record-read/10k-50fields-group-three-levels`: the
+// measurability screen keeps it out of detection entirely, so no change point
+// will ever announce it, and only this can.
+{
+  const result = { ...resultOf(), standing: [standingOf("newly-slow", 2.8)] };
+  const decision = describeDelivery({ result, seen: [] });
+  assert.equal(decision.send, true);
+  assert.match(decision.reason, /newly standing/);
+  const card = buildChangePointCard({ result, context, seen: [] });
+  assert.ok(card, "a newly standing case is worth a card on its own");
+  const text = cardText(card);
+  assert.match(text, /newly-slow/);
+  // No change point section, so nothing that describes one: no empty row block,
+  // no attribution note, and no sentence pointing at "上面".
+  assert.doesNotMatch(text, /本轮共确认/);
+  assert.ok(!text.includes(ATTRIBUTION_NOTE));
+  assert.ok(!text.includes(STANDING_CONTRAST));
+  assert.match(card.card.header.title.content, /性能未恢复 1/);
+}
+
+// The same list a day later, with nothing new, is not a card.
+{
+  const result = { ...resultOf(), standing: [standingOf("newly-slow", 2.8)] };
+  const decision = describeDelivery({
+    result,
+    seen: ["standing:newly-slow"],
+  });
+  assert.equal(decision.send, false);
+  assert.equal(
+    buildChangePointCard({ result, context, seen: ["standing:newly-slow"] }),
+    undefined,
+  );
+}
+
+// When the card does go out for a change point, it carries the standing list
+// too — that is the whole reason the two share a card.
+{
+  const result = {
+    ...resultOf({ confirmed: [pointOf({ caseId: "moved", ratio: 1.9 })] }),
+    standing: [standingOf("still-slow", 2.1), standingOf("also-slow", 1.4)],
+  };
+  const card = buildChangePointCard({
+    result,
+    context,
+    seen: ["standing:still-slow", "standing:also-slow"],
+  });
+  const text = cardText(card);
+  assert.match(card.card.header.title.content, /未恢复 2/);
+  assert.match(text, /still-slow/);
+  assert.ok(text.includes(STANDING_NOTE));
+  // The contrast sentence needs a section above it to contrast with.
+  assert.ok(text.includes(STANDING_CONTRAST));
+  // Worst first, and the row prints where it was against where it is.
+  assert.match(
+    formatStandingLine(standingOf("x", 2.1, { then: 400, now: 900 }), ""),
+    /0\.40s → 0\.90s/,
+  );
+}
+
+// Past the limit the rest fold away rather than being dropped.
+{
+  const standing = Array.from({ length: STANDING_LIMIT + 4 }, (_, index) =>
+    standingOf(`case-${index}`, 2 - index * 0.05),
+  );
+  const result = {
+    ...resultOf({ confirmed: [pointOf({ caseId: "moved", ratio: 1.9 })] }),
+    standing,
+  };
+  const text = cardText(
+    buildChangePointCard({
+      result,
+      context,
+      seen: standing.map((row) => standingKey(row)),
+    }),
+  );
+  for (const row of standing) {
+    assert.match(text, new RegExp(row.caseId));
+  }
+}
+
+// A run with no standing list at all renders without the section rather than
+// with an empty one.
+{
+  const card = buildChangePointCard({
+    result: resultOf({ confirmed: [pointOf({ ratio: 1.9 })] }),
+    context,
+  });
+  assert.doesNotMatch(cardText(card), /未恢复/);
 }
 
 console.log("change point card model checks passed");

@@ -41,6 +41,10 @@ import {
   detectChangePointsWindowed,
 } from "./change-point-model.mjs";
 import { pairedSeries } from "./control-channel-model.mjs";
+import {
+  driftOf,
+  isStanding,
+} from "./standing-regression-model.mjs";
 import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
@@ -317,6 +321,7 @@ export const analyse = (
   const fastCases = {};
   const unjudged = [];
   const points = [];
+  const standing = [];
   let notMeasured = 0;
   let tested = 0;
 
@@ -324,6 +329,37 @@ export const analyse = (
     if (entry.engine !== "v2") continue;
     const segment = longestSegment(entry);
     const values = segment.map(([, value]) => value);
+
+    // Hoisted above the measurability screen on purpose. The screen decides
+    // whether a series can carry a *detector*; the standing list is two medians
+    // and a division, and needs no such thing. Left below the screen it would
+    // drop `record-read/10k-50fields-group-three-levels`, which the screen calls
+    // `too-noisy` and which has drifted 2.82x against its control — the single
+    // case a full-history scan still cannot reach.
+    const control = series[`${entry.caseId}::v1`];
+    const controlSegment = control
+      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
+      : [];
+    const pairedPoints = control
+      ? pairedSeries({
+          v2: segment.map(([ordinal, value]) => [ordinal, value]),
+          v1: controlSegment,
+        }).points
+      : [];
+    if (pairedPoints.length > 0) {
+      // Only the V2 points that found a control, in the same order, so the two
+      // series the drift compares describe the same commits.
+      const pairedOrdinals = new Set(pairedPoints.map(([ordinal]) => ordinal));
+      const drift = driftOf({
+        paired: pairedPoints.map(([, value]) => value),
+        v2: segment
+          .filter(([ordinal]) => pairedOrdinals.has(ordinal))
+          .map(([, value]) => value),
+      });
+      if (isStanding(drift)) {
+        standing.push({ caseId: entry.caseId, ...drift });
+      }
+    }
 
     const measurable = measurabilityOf(values);
     if (!measurable.measurable) {
@@ -356,15 +392,8 @@ export const analyse = (
       notMeasured += 1;
     }
 
-    const control = series[`${entry.caseId}::v1`];
     const analysed = control
-      ? pairedSeries({
-          v2: segment.map(([ordinal, value]) => [ordinal, value]),
-          v1: longestSegment(control).map(([ordinal, value]) => [
-            ordinal,
-            value,
-          ]),
-        }).points
+      ? pairedPoints
       : segment.map(([ordinal, value]) => [ordinal, Math.log(value)]);
 
     if (analysed.length < 30) continue;
@@ -376,9 +405,6 @@ export const analyse = (
       seed: 7,
     });
     tested += found.tested;
-    const controlSegment = control
-      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
-      : [];
 
     for (const point of found.points) {
       const beforeOrdinal = recent[point.index - 1]?.[0];
@@ -447,6 +473,11 @@ export const analyse = (
     unjudged,
     tested,
     candidates: points.length,
+    // Sorted here rather than at the card, so the artifact and the card agree
+    // on what "worst" means without either having to re-derive it.
+    standing: standing.sort(
+      (left, right) => right.pairedDrift - left.pairedDrift,
+    ),
   };
 };
 
@@ -837,6 +868,18 @@ const main = async () => {
       measured: measured ? measured.size : undefined,
     },
     confirmed: fresh,
+    // Which cases sit slower than they started, whoever did it and however long
+    // ago. Not filtered against the seen-set: "still slower" is true every day
+    // until someone fixes it, and suppressing repeats would empty the list
+    // while the problem stood.
+    standing: (analysis.standing ?? []).map((row) => ({
+      caseId: row.caseId,
+      pairedDrift: Number(row.pairedDrift.toFixed(3)),
+      v2Drift: Number(row.v2Drift.toFixed(3)),
+      v2Then: Number(row.v2Then.toFixed(1)),
+      v2Now: Number(row.v2Now.toFixed(1)),
+      points: row.points,
+    })),
     confirmedRepeated: separated.counts.repeated,
     // The window this run detected under. Carried so the next run can tell a
     // widened window from an ordinary night; see `seenWindowOf`.
@@ -889,7 +932,8 @@ const main = async () => {
       `(${separated.counts.repeated} already reported), ` +
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
-      `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}) → ${outputPath}`,
+      `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}); ` +
+      `${result.standing.length} cases standing slower than they started → ${outputPath}`,
   );
 };
 

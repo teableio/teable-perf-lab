@@ -26,6 +26,7 @@
 // must not go quiet — ten shadow runs cannot pass for ten empty ones — is the
 // job summary and the artifact, both of which are written either way.
 
+import { DRIFT_BAR } from "./standing-regression-model.mjs";
 import {
   chartUrlForCase,
   collapsiblePanel,
@@ -45,6 +46,11 @@ export const CHANGE_POINT_HIGHLIGHT_LIMIT = 5;
 // so far are 3x, and a 3x sitting in the same colour as a 1.2x is the reason to
 // have a second colour at all.
 export const SEVERE_CHANGE_POINT_RATIO = 2;
+
+// Rows in the standing section. Fifteen cases qualified across the whole
+// history on 2026-08-13, which is more than a card should open with and not so
+// many that the rest are unreachable — the remainder folds away.
+export const STANDING_LIMIT = 6;
 
 /**
  * How much this case slowed, in its own wall-clock terms.
@@ -74,6 +80,19 @@ export const reportedFactor = (point) => {
 // boundary landed one position late and the change point named an innocent
 // neighbour. A SHA in an alert reads as "this one", and whoever triages opens
 // exactly the commit named.
+// What the standing section is, in the two sentences a reader needs before the
+// rows make sense. It is not the change point list twice: those rows say a
+// commit moved something, these say a case has not come back. Ten of the
+// fifteen on record had been attributed; five never had.
+export const STANDING_NOTE =
+  "当前比历史起点慢的用例，不论是谁、多久以前造成的。修好了会自动消失。";
+
+// Only when a change point section sits above it. On a card pushed for a newly
+// standing case there is no "上面" to contrast with, and the sentence sends the
+// reader looking for a section that is not there.
+export const STANDING_CONTRAST =
+  "与上面的区别：上面说某个 commit 改变了什么，这里说某个用例至今没恢复。";
+
 export const ATTRIBUTION_NOTE =
   "定位精度为相邻 1 个 commit。命名的 commit 可能是真凶的邻居，两个都要看。标出「区间内 N 个未测」的，真凶在这段范围里，不止命名的这一个。";
 
@@ -131,6 +150,23 @@ export const rankChangePoints = (confirmed = []) =>
     .sort((left, right) => magnitude(right) - magnitude(left));
 
 const shortSha = (sha) => (typeof sha === "string" ? sha.slice(0, 8) : "?");
+
+/**
+ * Both ends of a range in one unit.
+ *
+ * `formatMetricSeconds` switches at 100ms, which is right for a single figure
+ * and wrong for a pair: `56ms → 0.15s` asks the reader to convert before they
+ * can see it roughly tripled. The larger end picks the unit for both.
+ */
+export const formatRange = (then, now) =>
+  Math.max(then, now) < 100
+    ? `${Math.round(then)}ms → ${Math.round(now)}ms`
+    : `${(then / 1000).toFixed(2)}s → ${(now / 1000).toFixed(2)}s`;
+
+export const formatStandingLine = (row, chartUrl) =>
+  `**[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**\n` +
+  `${formatRange(row.v2Then, row.v2Now)} · ` +
+  `${formatRatioFactor(row.pairedDrift) ?? "—"} · ${row.points} 个历史点`;
 
 /**
  * The commits `alsoPossible` names that the row does not already print.
@@ -237,8 +273,29 @@ export const isColdStart = (result) => (result?.seenBefore ?? 0) === 0;
  * delivery rule that only speaks when it fires cannot be distinguished from a
  * broken one.
  */
-export const describeDelivery = ({ result } = {}) => {
+/**
+ * Standing entries this run has not pushed before.
+ *
+ * The standing list itself repeats by design — "still slower" is true every day
+ * until someone fixes it. But a case *arriving* on it is news, and it is news
+ * the confirmed layer can miss entirely: `record-read/10k-50fields-group-three-levels`
+ * has drifted 2.82x against its control and the measurability screen keeps it
+ * out of detection, so no change point will ever announce it.
+ *
+ * Compared against the seen-set the confirmed layer already carries, under a
+ * key that cannot collide with a change point's `case@before..after`.
+ */
+export const standingKey = (row) => `standing:${row?.caseId}`;
+
+export const freshStanding = (standing = [], seen = []) => {
+  const known = new Set(seen);
+  return standing.filter((row) => !known.has(standingKey(row)));
+};
+
+export const describeDelivery = ({ result, seen = [] } = {}) => {
   const summary = summariseChangePoints(result?.confirmed ?? []);
+  const standing = result?.standing ?? [];
+  const newlyStanding = freshStanding(standing, seen);
   if (isColdStart(result)) {
     return {
       send: false,
@@ -246,6 +303,13 @@ export const describeDelivery = ({ result } = {}) => {
         `cold start: the seen-set was empty, so this run re-reported ${summary.total} change points from history ` +
         `(${summary.regressions.length} of them slowdowns). Not pushed — these are not new. ` +
         `Check why the seen-set was lost; the findings are in the artifact.`,
+    };
+  }
+  if (summary.regressions.length === 0 && newlyStanding.length > 0) {
+    return {
+      send: true,
+      reason:
+        `no new confirmed slowdowns, but ${newlyStanding.length} case(s) newly standing slower than they started; pushing a card.`,
     };
   }
   if (summary.regressions.length === 0) {
@@ -260,7 +324,9 @@ export const describeDelivery = ({ result } = {}) => {
   }
   return {
     send: true,
-    reason: `${summary.regressions.length} new confirmed slowdowns of ${summary.total} change points; pushing a card.`,
+    reason:
+      `${summary.regressions.length} new confirmed slowdowns of ${summary.total} change points; ` +
+      `${standing.length} standing (${newlyStanding.length} new); pushing a card.`,
   };
 };
 
@@ -272,8 +338,8 @@ export const describeDelivery = ({ result } = {}) => {
  * returns nothing, so "when do we stay quiet" is answered here and testable
  * without a webhook.
  */
-export const buildChangePointCard = ({ result, context = {} } = {}) => {
-  if (!describeDelivery({ result }).send) {
+export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) => {
+  if (!describeDelivery({ result, seen }).send) {
     return undefined;
   }
   const summary = summariseChangePoints(result?.confirmed ?? []);
@@ -294,11 +360,34 @@ export const buildChangePointCard = ({ result, context = {} } = {}) => {
     `${summary.faster} 个变快`,
     ...(summary.unchanged > 0 ? [`${summary.unchanged} 个耗时没变`] : []),
   ].join("、");
+  const standing = result?.standing ?? [];
+  const newlyStanding = freshStanding(standing, seen);
+  const shownStanding = standing.slice(0, STANDING_LIMIT);
+  const restStanding = standing.slice(STANDING_LIMIT);
+  const renderStanding = (rows) =>
+    rows
+      .map((row) => formatStandingLine(row, context.chartUrl))
+      .join("\n\n");
+
+  const hasChangePoints = summary.regressions.length > 0;
   const headLines = [
-    `**新确认变慢 ${summary.regressions.length}**${severe > 0 ? ` · 其中 ${severe} 个达到 ${SEVERE_CHANGE_POINT_RATIO}x` : ""}`,
-    `本轮共确认 ${summary.total} 个变更点，另外 ${breakdown}，不在下面`,
+    [
+      hasChangePoints
+        ? `**新确认变慢 ${summary.regressions.length}**${severe > 0 ? ` · 其中 ${severe} 个达到 ${SEVERE_CHANGE_POINT_RATIO}x` : ""}`
+        : "**本轮没有新确认的变更点**",
+      ...(standing.length > 0
+        ? [
+            `**目前未恢复 ${standing.length}**${newlyStanding.length > 0 ? `（${newlyStanding.length} 个新增）` : ""}`,
+          ]
+        : []),
+    ].join(" · "),
+    ...(hasChangePoints
+      ? [
+          `本轮共确认 ${summary.total} 个变更点，另外 ${breakdown}，不在下面`,
+          `变更点归属于 mainline 上的某个 commit${context.teableRef ? `，可能比本轮测的 \`${shortSha(context.teableRef)}\` 早很多` : "，不一定是本轮测的版本"}`,
+        ]
+      : []),
     `耗时均为 V2`,
-    `变更点归属于 mainline 上的某个 commit${context.teableRef ? `，可能比本轮测的 \`${shortSha(context.teableRef)}\` 早很多` : "，不一定是本轮测的版本"}`,
   ];
 
   return {
@@ -306,25 +395,67 @@ export const buildChangePointCard = ({ result, context = {} } = {}) => {
     card: {
       config: { wide_screen_mode: true, enable_forward: true },
       header: {
-        template: severe > 0 ? "red" : "orange",
+        template:
+          severe > 0 ||
+          standing.some((row) => row.pairedDrift >= SEVERE_CHANGE_POINT_RATIO)
+            ? "red"
+            : "orange",
         title: {
           tag: "plain_text",
-          content: `变更点 · 新确认变慢 ${summary.regressions.length}`,
+          content: hasChangePoints
+            ? `变更点 · 新确认变慢 ${summary.regressions.length}` +
+              (standing.length > 0 ? ` · 未恢复 ${standing.length}` : "")
+            : `性能未恢复 ${standing.length}`,
         },
       },
       elements: [
         larkDiv(headLines.join("\n")),
-        { tag: "hr" },
-        larkDiv(renderRows(shown)),
-        ...(rest.length > 0
+        // The change point section only when there is one. A card pushed for a
+        // newly standing case would otherwise open with an empty row block and
+        // a note explaining commit attribution it does not do.
+        ...(hasChangePoints
           ? [
+              { tag: "hr" },
+              larkDiv(renderRows(shown)),
+              ...(rest.length > 0
+                ? [
+                    collapsiblePanel({
+                      title: `其余 ${rest.length}`,
+                      elements: [larkDiv(renderRows(rest))],
+                    }),
+                  ]
+                : []),
+              larkDiv(ATTRIBUTION_NOTE),
+            ]
+          : []),
+        // Second section, and a different question: not who moved something,
+        // but what has not come back. Folded open when a case has just joined
+        // it, shut when the list is only yesterday's list again.
+        ...(standing.length > 0
+          ? [
+              { tag: "hr" },
               collapsiblePanel({
-                title: `其余 ${rest.length}`,
-                elements: [larkDiv(renderRows(rest))],
+                title: `目前未恢复 ${standing.length}${newlyStanding.length > 0 ? ` · 新增 ${newlyStanding.length}` : ""}`,
+                expanded: newlyStanding.length > 0,
+                elements: [
+                  larkDiv(
+                    hasChangePoints
+                      ? `${STANDING_NOTE}${STANDING_CONTRAST}`
+                      : STANDING_NOTE,
+                  ),
+                  larkDiv(renderStanding(shownStanding)),
+                  ...(restStanding.length > 0
+                    ? [
+                        collapsiblePanel({
+                          title: `其余 ${restStanding.length}`,
+                          elements: [larkDiv(renderStanding(restStanding))],
+                        }),
+                      ]
+                    : []),
+                ],
               }),
             ]
           : []),
-        larkDiv(ATTRIBUTION_NOTE),
         { tag: "hr" },
         linkButtons(context),
       ],
