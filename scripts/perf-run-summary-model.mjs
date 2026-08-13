@@ -211,15 +211,15 @@ export const COMPUTE_VERDICT_LABELS = {
 // Every verdict is a pair of directions, so its definition states both. Without
 // this the labels above are jargon a reader has to take on faith.
 export const COMPUTE_VERDICT_GLOSSARY = {
-  deferred: "墙钟变快、计算没少 —— 工作被挪到后台，不是省下来了",
-  regression: "墙钟变慢、计算也变多 —— 这次是真的更贵",
-  "hidden-cost": "墙钟持平、计算变多 —— 只看墙钟看不见",
-  scheduling: "墙钟变慢、计算没变 —— 慢在排队，不在算法",
-  "hidden-gain": "墙钟持平、计算变少",
-  optimized: "墙钟变快、计算也变少 —— 真正省下来的工作",
-  flat: "两边都没动",
+  deferred: "墙钟变快、计算未减少：工作转移到后台，总量没有下降",
+  regression: "墙钟变慢、计算也增加：成本上升，不是调度问题",
+  "hidden-cost": "墙钟持平、计算增加：只看墙钟无法发现",
+  scheduling: "墙钟变慢、计算未变：增加的耗时在调度环节，不在计算本身",
+  "hidden-gain": "墙钟持平、计算减少",
+  optimized: "墙钟变快、计算也减少：计算量下降，不是转移到后台",
+  flat: "两者均无变化",
   unpaired:
-    "计算变多，但墙钟这半没有可比的基线 —— 通常是这个 case 的主指标改过名，定不了性",
+    "计算增加，但墙钟一侧没有可比的基线：通常因该用例的主指标改过名，无法判定",
 };
 
 // Measured, not assumed. Across 91 full runs (2026-08-07 → 08-13), restricted to
@@ -240,7 +240,7 @@ export const COMPUTE_VERDICT_GLOSSARY = {
 // 3, which points back here for the same reason: re-measuring changes two places
 // and this is the one nobody re-reads.
 export const COMPUTE_NOISE_NOTE =
-  "注意 相邻两轮之间，同样的活 computeMs 平均就动 16.0%（墙钟 13.6%），1.2x 这道线正压在噪声上：单个刚过线的 case 说明不了什么，成片出现、或者倍数拉得很开的才是信号 —— 小 case 尤其吵，但大 case 也不保险。";
+  "注意 相同工作量下，相邻两轮之间 computeMs 的平均变化为 16.0%，墙钟为 13.6%。因此 1.2x 档的差异落在噪声范围内：单个用例刚超过阈值不构成证据，多个用例同时超过、或倍数明显更高的才值得排查。用例耗时越短波动越大，耗时长的用例同样会超过阈值。";
 
 /**
  * Which entry of the key a row is filed under: its verdict, or `unpaired` when
@@ -272,7 +272,7 @@ export const formatComputeGlossary = (rows = []) => {
     return undefined;
   }
   return [
-    "墙钟＝用户等待的时间，计算＝引擎为此烧掉的机器时间。两者各自与线上比，同按 1.2x 分档，配对成结论：",
+    "墙钟为用户等待的时间，计算为引擎为此消耗的机器时间。两者分别与线上比较，同按 1.2x 分档，配对得出结论：",
     ...shown.map(
       (verdict) =>
         `· **${COMPUTE_VERDICT_LABELS[verdict]}** ${COMPUTE_VERDICT_GLOSSARY[verdict]}`,
