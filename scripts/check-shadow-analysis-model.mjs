@@ -245,4 +245,112 @@ console.log("shadow analysis checks passed");
   delete process.env.RELEASE_COMPARISON_PATH;
 }
 
-console.log("shadow analysis old-gate checks passed");
+// --- recovering a seen-set the cache forked or lost --------------------------
+
+{
+  const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readRecoveredSeen } = await import("./run-shadow-analysis.mjs");
+
+  const dir = await mkdtemp(join(tmpdir(), "shadow-recovery-"));
+  const copy = async (runId, known) => {
+    await mkdir(join(dir, runId), { recursive: true });
+    await writeFile(
+      join(dir, runId, "shadow-seen.json"),
+      JSON.stringify({ known }),
+    );
+  };
+
+  // Two runs that overlapped: each saved a lineage the other does not contain.
+  // The union is what neither of them has on its own.
+  await copy("1001", ["case-a@x..y", "case-b@x..y"]);
+  await copy("1002", ["case-a@x..y", "case-c@x..y"]);
+  assert.deepEqual((await readRecoveredSeen(dir)).sort(), [
+    "case-a@x..y",
+    "case-b@x..y",
+    "case-c@x..y",
+  ]);
+
+  // A set that only grows needs no merge rule beyond taking everything, so
+  // reading the same copies twice cannot change the answer.
+  assert.equal((await readRecoveredSeen(dir)).length, 3);
+
+  // One unreadable copy is one copy, not the run. The 2026-08-09 wipe is the
+  // case this exists for, and it must not be turned into a second failure.
+  await mkdir(join(dir, "1003"), { recursive: true });
+  await writeFile(join(dir, "1003", "shadow-seen.json"), "{ not json");
+  assert.equal((await readRecoveredSeen(dir)).length, 3);
+
+  // No directory, or none configured, leaves the run where it was before any of
+  // this existed: on the cache alone.
+  assert.deepEqual(await readRecoveredSeen(join(dir, "absent")), []);
+  assert.deepEqual(await readRecoveredSeen(undefined), []);
+  assert.deepEqual(await readRecoveredSeen(""), []);
+}
+
+// --- the four states the seen-set can arrive in ------------------------------
+//
+// The whole point of the recovery is that a silent failure became loud, so the
+// branch that decides whether to shout is worth a test of its own. A reporter
+// that picks the wrong branch is the same defect again, one level up.
+
+{
+  const { reportSeenSources } = await import("./run-shadow-analysis.mjs");
+  const said = () => {
+    const lines = { warn: [], log: [] };
+    return {
+      lines,
+      log: {
+        warn: (m) => lines.warn.push(m),
+        log: (m) => lines.log.push(m),
+      },
+    };
+  };
+
+  // The 2026-08-09 wipe, with the repair in place. Must warn: the cache lost a
+  // history that demonstrably existed, and the miss wants investigating even
+  // though this run is now fine.
+  {
+    const t = said();
+    reportSeenSources({ cached: undefined, recovered: ["a", "b"], seen: ["a", "b"] }, t.log);
+    assert.equal(t.lines.warn.length, 1);
+    assert.match(t.lines.warn[0], /cache missed and 2 keys were recovered/);
+  }
+
+  // A genuine cold start. Identical input shape to the wipe apart from there
+  // being nothing to recover, and it must not warn — the two reading the same
+  // is how the wipe went unnoticed for four days, in the other direction.
+  {
+    const t = said();
+    reportSeenSources({ cached: undefined, recovered: [], seen: [] }, t.log);
+    assert.equal(t.lines.warn.length, 0);
+    assert.match(t.lines.log[0], /cold start/);
+  }
+
+  // A fork: the cache came back, short. Warns with the count it put back.
+  {
+    const t = said();
+    reportSeenSources({ cached: ["a"], recovered: ["a", "b"], seen: ["a", "b"] }, t.log);
+    assert.equal(t.lines.warn.length, 1);
+    assert.match(t.lines.warn[0], /returned 1 keys and recent run artifacts held 1 more/);
+  }
+
+  // The ordinary run. The cache had everything; recovery confirmed it and there
+  // is nothing to say beyond the count.
+  {
+    const t = said();
+    reportSeenSources({ cached: ["a", "b"], recovered: ["a"], seen: ["a", "b"] }, t.log);
+    assert.equal(t.lines.warn.length, 0);
+    assert.match(t.lines.log[0], /2 keys, cache complete/);
+  }
+
+  // Recovery unavailable and the cache intact — also ordinary, and silent.
+  {
+    const t = said();
+    reportSeenSources({ cached: ["a"], recovered: [], seen: ["a"] }, t.log);
+    assert.equal(t.lines.warn.length, 0);
+  }
+}
+
+console.log("shadow analysis old-gate and seen-set recovery checks passed");
