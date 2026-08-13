@@ -92,7 +92,7 @@ const main = async () => {
   const result = JSON.parse(await readFile(resultPath, "utf8"));
 
   const cached = (await readJsonIfExists(ledgerPath, { runs: [] })).runs ?? [];
-  const recoveryDir = env("SHADOW_LEDGER_RECOVERY_DIR");
+  const recoveryDir = env("SHADOW_RECOVERY_DIR");
   const recovered = await readRecoveredLedgers(recoveryDir);
   // Cached last, so it wins a tie on `at` against a copy of the same run.
   const ledger = mergeLedgers([...recovered, cached]);

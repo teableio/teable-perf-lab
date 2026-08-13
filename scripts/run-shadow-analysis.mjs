@@ -27,7 +27,13 @@
 import { spawn } from "node:child_process";
 import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { env } from "./env.mjs";
 import {
@@ -541,6 +547,86 @@ const readRunMeasurements = async () => {
  * against. Only `available` produces evidence, and the run ledger counts only
  * those.
  */
+/**
+ * Every seen-set recent runs uploaded, from the recovery directory.
+ *
+ * The cache the seen-set normally travels in fails two ways, and both were
+ * measured rather than imagined. It forks, because entries are immutable and
+ * the restore matches by prefix, so overlapping runs each save a lineage the
+ * other lacks. And it misses: on 2026-08-09 the scheduled run logged `Cache not
+ * found for input keys: perf-shadow-seen-`, read an empty seen-set, announced
+ * 117 historical change points as new, and saved that back over 229 good keys.
+ *
+ * A union repairs both, because the seen-set is a set that only ever grows: no
+ * merge rule is needed beyond taking everything. Tolerant of a missing or
+ * malformed directory, which leaves the run exactly where it was before this
+ * existed.
+ */
+export const readRecoveredSeen = async (dir) => {
+  if (!dir) {
+    return [];
+  }
+  let entries;
+  try {
+    entries = await readdir(dir, { recursive: true });
+  } catch {
+    return [];
+  }
+  const known = new Set();
+  for (const entry of entries) {
+    if (!entry.endsWith(SHADOW_SEEN_FILE_NAME)) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(await readFile(resolve(dir, entry), "utf8"));
+      for (const key of parsed?.known ?? []) {
+        known.add(key);
+      }
+    } catch {
+      // A copy that will not parse is one copy, not the run. Skipped.
+    }
+  }
+  return [...known];
+};
+
+/**
+ * Say where the seen-set came from, and shout when the cache lost it.
+ *
+ * The distinction this exists to make: an empty seen-set at the cold start is
+ * correct and expected, and an empty seen-set because the cache missed is a run
+ * about to re-announce the entire history as new. Both used to print the same
+ * thing, which is nothing — the wipe on 2026-08-09 passed through a green step
+ * and a well-formed artifact, and was found four days later by reading logs.
+ */
+export const reportSeenSources = ({ cached, recovered, seen }, log = console) => {
+  const repaired = seen.length - (cached?.length ?? 0);
+  if (cached === undefined && recovered.length > 0) {
+    log.warn(
+      `[perf-lab] the shadow seen-set cache missed and ${recovered.length} keys were recovered from recent run artifacts. ` +
+        `Without that this run would have reported the whole recent history as new change points. ` +
+        `The miss itself is worth investigating; the run is not affected.`,
+    );
+    return;
+  }
+  if (cached === undefined) {
+    log.log(
+      "Shadow seen-set: nothing cached and nothing recovered — treating this as the cold start. " +
+        "Every change point below is a first sighting because nothing was on the record, not because it is new.",
+    );
+    return;
+  }
+  if (repaired > 0) {
+    log.warn(
+      `[perf-lab] the shadow seen-set cache returned ${cached.length} keys and recent run artifacts held ${repaired} more. ` +
+        `Recovered; without them those ${repaired} change points would have been re-announced as new.`,
+    );
+    return;
+  }
+  log.log(
+    `Shadow seen-set: ${seen.length} keys, cache complete against ${recovered.length} recovered.`,
+  );
+};
+
 export const readOldGate = async () => {
   const path = resolve(
     env("RELEASE_COMPARISON_PATH", "release-comparison.json"),
@@ -642,12 +728,15 @@ const main = async () => {
   // detected because a fix landed has not been un-detected, and the fix is its
   // own change point.
   const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
-  let seen = [];
+  let cached;
   try {
-    seen = JSON.parse(await readFile(seenPath, "utf8")).known ?? [];
+    cached = JSON.parse(await readFile(seenPath, "utf8")).known ?? [];
   } catch {
-    seen = [];
+    cached = undefined;
   }
+  const recovered = await readRecoveredSeen(env("SHADOW_RECOVERY_DIR"));
+  const seen = [...new Set([...recovered, ...(cached ?? [])])];
+  reportSeenSources({ cached, recovered, seen });
   const separated = separateFresh(analysis.confirmed, seen);
 
   const reconciliation = reconcileRun({
