@@ -302,6 +302,32 @@ into the job summary, so "are we at run 3 or run 7" is answered by the system
 rather than by someone collecting artifacts. Before this, `accumulate()` in
 `shadow-comparison-model.mjs` was called by nothing but its own check.
 
+**And the count went backwards, until 2026-08-13.** G1 read 30 on the 08-12
+scheduled run and 25 seven full runs later, via 30 → 29 → 27 → 26 → 25. The
+cache entry is keyed `perf-shadow-seen-<run_id>` and restored by prefix, and
+Actions cache entries are immutable — so two runs whose report jobs overlap both
+fork from one snapshot and each saves a lineage the other does not contain. The
+next run restores one of them and the other's records are gone. Dispatching by
+hand while the nightly runs is enough to trigger it, which is the normal working
+pattern here.
+
+G1 and G2 both absorb this without lying: G1 is met many times over, and G2 is
+flags divided by runs, so a dropped run removes a term from each and leaves a
+subsample mean. **`oldOnly` does not.** That set is a union across recorded runs
+and it is the whole input to G3's hand review — short, it produces a review that
+looks complete, which is this document's recurring failure in a fourth costume.
+
+Fixed by making the ledger the union of the cached copy and the ledgers recent
+runs already upload as artifacts: `mergeLedgers` in
+`shadow-accumulation-model.mjs`, fed by the `Recover shadow ledgers lost to
+concurrent runs` step. The cache stays the fast path and recovery is
+best-effort, so a failed recovery is no worse than the old behaviour — but the
+accumulator prints how many runs the repair put back, and warns when it found
+nothing, because "recovery was not needed" and "recovery found nothing" are the
+two readings that must not merge. **The ledger from before this fix is
+permanently short**; what it holds is a lower bound, and the runs it lost cannot
+be identified from it.
+
 What counts toward G1, and what does not:
 
 - **A full run only.** Taken from the dispatch (`case_filter_is_all`), not
@@ -332,6 +358,18 @@ worth having in hand before the ten start, neither verified here:
   it, the identity needs to tolerate a one-position move — which is a change to
   the ledger's identity scheme and has to be made before the ledger exists, not
   after.
+
+  **A second candidate arrived on 2026-08-13 and has not been separated from the
+  first.** The seen-set travels in the same cache entry as the run ledger, so it
+  forks the same way — and a forked seen-set re-announces change points the lost
+  lineage had already recorded, which is indistinguishable from boundary jitter
+  at the level of a count. The 22 runs in question were hand-dispatched over two
+  days and overlapped heavily, which is exactly the condition. Test before
+  rebuilding the identity scheme for a cause that may not be the one: if it is
+  the fork, re-announced change points should track which runs' report jobs
+  overlapped, and the ledger repair above should reduce the rate on its own.
+  Rebuilding `changePointKey` to tolerate a one-position move would otherwise be
+  a real change made against the wrong diagnosis.
 
 **The ten now run themselves.** A nightly schedule at 18:00 UTC — 02:00 Beijing,
 after the working day's commits — dispatches a full run on the default branch.

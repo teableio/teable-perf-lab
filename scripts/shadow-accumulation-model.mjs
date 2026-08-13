@@ -105,6 +105,60 @@ export const appendRun = (ledger = [], record, { limit = 40 } = {}) => {
   return kept.slice(-limit);
 };
 
+// Identity for merging. `runId` when there is one; otherwise the record itself,
+// so an unidentifiable record is never collapsed into a different one and never
+// duplicated by merging the same file twice.
+const ledgerKey = (record) => record?.runId ?? JSON.stringify(record);
+
+/**
+ * Union of several ledgers, newest `limit` kept.
+ *
+ * The cache cannot carry this ledger on its own, and the failure is structural
+ * rather than a bug to fix in place. Actions cache entries are immutable and the
+ * restore matches `perf-shadow-seen-` by prefix, so two runs whose report jobs
+ * overlap both fork from the same snapshot and each saves a lineage that does
+ * not contain the other. Whichever the next run happens to restore, the other
+ * lineage's records are gone.
+ *
+ * It does not merely stall the count — it walks it backwards. Measured
+ * 2026-08-13: G1 read 30 on the previous night's scheduled run and 25 seven full
+ * runs later, via 30 → 29 → 27 → 26 → 25.
+ *
+ * G1 and G2 both survive that. G1 is met many times over, and G2 is flags
+ * divided by runs, so a dropped run removes a term from each and leaves a
+ * subsample mean. `oldOnly` does not survive it: that set is the union across
+ * recorded runs and it is the whole input to G3, the hand review section G
+ * requires before the old comparison can be retired. Silently short, it produces
+ * a review that looks complete — this project's recurring failure.
+ *
+ * Every run uploads its own ledger as an artifact, so a lost lineage is still on
+ * disk. Merging recovered copies back in repairs the fork without making the
+ * cache load-bearing: the cache stays the fast path, the artifacts are the
+ * repair, and a failed recovery leaves the run exactly where it was.
+ *
+ * Later `at` wins for a given `runId` — attempt 2 supersedes attempt 1, the rule
+ * `appendRun` already applies. Records with no `at` sort oldest and fall off
+ * `limit` first, an undated record being the one least able to justify its place.
+ */
+export const mergeLedgers = (ledgers = [], { limit = 40 } = {}) => {
+  const byKey = new Map();
+  for (const ledger of ledgers) {
+    for (const record of ledger ?? []) {
+      if (!record) {
+        continue;
+      }
+      const key = ledgerKey(record);
+      const existing = byKey.get(key);
+      if (!existing || (record.at ?? "") >= (existing.at ?? "")) {
+        byKey.set(key, record);
+      }
+    }
+  }
+  return [...byKey.values()]
+    .sort((left, right) => (left.at ?? "").localeCompare(right.at ?? ""))
+    .slice(-limit);
+};
+
 /**
  * The runs that count toward G1, and why the others do not.
  *
