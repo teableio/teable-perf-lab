@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   attributeStanding,
-  carriesDrift,
-  DIFFERENTIAL_METRICS,
   DRIFT_BAR,
   driftOf,
   EDGE_WINDOW,
@@ -370,31 +367,17 @@ const changePoint = ({
   assert.equal(row.unattributed, "no-step");
 }
 
-// Nothing to join against is not an error. A run whose detection produced no
-// confirmed points still has a standing list, and every row says why.
-assert.deepEqual(attributeStanding(), []);
-assert.equal(
-  attributeStanding({ standing: [{ caseId: "a" }] })[0].unattributed,
-  "no-step",
-);
-
-// --- metrics that cannot carry a drift --------------------------------------------
-
-// A difference of two measurements says nothing about a case getting slower.
-// Both cases this reached the card for grew because their *baseline* got 30%
-// faster while the query stayed flat.
-assert.equal(carriesDrift("getRecordsQueryPagedScanMs"), true);
-assert.equal(carriesDrift("duplicateSingleP95Ms"), true);
-assert.equal(carriesDrift(undefined), true, "an unknown metric is not excluded");
-assert.equal(carriesDrift("getRecordsQueryOverheadMs"), false);
-assert.equal(carriesDrift("getRecordsFilterSortGroupByOverheadMs"), false);
-
-// Excluded before the drift is computed, not filtered out of the result — the
-// row must never exist.
+// The guard reaches the list. `carriesDrift` and its evidence live in
+// `check-corpus-metric-model.mjs`; what matters here is that a refused metric
+// never produces a row, rather than producing one that is filtered later.
 assert.deepEqual(
   standingRegressions({
     series: {
-      "x::v2": { caseId: "x", engine: "v2", metric: "getRecordsQueryOverheadMs" },
+      "x::v2": {
+        caseId: "x",
+        engine: "v2",
+        metric: "getRecordsQueryOverheadMs",
+      },
     },
     pairedFor: () => seriesOf({ from: 400, to: 1200 }),
   }),
@@ -403,37 +386,23 @@ assert.deepEqual(
 assert.equal(
   standingRegressions({
     series: {
-      "x::v2": { caseId: "x", engine: "v2", metric: "getRecordsQueryPagedScanMs" },
+      "x::v2": {
+        caseId: "x",
+        engine: "v2",
+        metric: "getRecordsQueryPagedScanMs",
+      },
     },
     pairedFor: () => seriesOf({ from: 400, to: 1200 }),
   }).length,
   1,
-  "an ordinary duration metric still reports",
 );
 
-// The list here has to learn about a new clamped metric when the runner does.
-// `isClampedOverheadMetric` in the TypeScript model is the source of truth and
-// this file cannot import it, so the names are compared as text.
-{
-  const source = readFileSync(
-    new URL("../framework/runners/record-read-model.ts", import.meta.url),
-    "utf8",
-  );
-  const body = source.slice(source.indexOf("export const isClampedOverheadMetric"));
-  // Only the compared literals. The parameter's own type is
-  // `RecordReadCaseConfig["threshold"]["metric"]`, whose bracket accesses look
-  // like string literals to a looser pattern.
-  const declared = new Set(
-    [
-      ...body.slice(0, body.indexOf(";")).matchAll(/metric === "([A-Za-z]+)"/g),
-    ].map((match) => match[1]),
-  );
-  assert.ok(declared.size > 0, "could not read isClampedOverheadMetric");
-  assert.deepEqual(
-    [...declared].sort(),
-    [...DIFFERENTIAL_METRICS].sort(),
-    "framework/runners/record-read-model.ts declares a clamped overhead metric this list does not exclude",
-  );
-}
+// Nothing to join against is not an error. A run whose detection produced no
+// confirmed points still has a standing list, and every row says why.
+assert.deepEqual(attributeStanding(), []);
+assert.equal(
+  attributeStanding({ standing: [{ caseId: "a" }] })[0].unattributed,
+  "no-step",
+);
 
 console.log("standing regression model checks passed");

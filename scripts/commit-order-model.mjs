@@ -193,7 +193,25 @@ export const buildOrderedSeries = ({
         metric: point.metrics.size === 1 ? [...point.metrics][0] : undefined,
       }))
       .sort((left, right) => left.ordinal - right.ordinal);
-    series.set(key, { caseId: bucket.caseId, engine: bucket.engine, points });
+    // The series' metric, when every point agrees on one. Points disagree while
+    // a metric is being renamed, and `segmentSeries` cuts there — so a
+    // disagreement is a fact about the whole series and not about any segment,
+    // and `undefined` is the honest answer for it rather than whichever name
+    // happened to be first.
+    //
+    // Carried at this level because a reader of the corpus needs to know what
+    // number is in a series without opening its points: the standing list
+    // refuses metrics that are a clamped difference, and a refusal keyed on a
+    // field that is not there refuses nothing.
+    const metrics = new Set(
+      points.map((point) => point.metric).filter((metric) => metric),
+    );
+    series.set(key, {
+      caseId: bucket.caseId,
+      engine: bucket.engine,
+      metric: metrics.size === 1 ? [...metrics][0] : undefined,
+      points,
+    });
   }
 
   return { series, dropped };

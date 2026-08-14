@@ -25,6 +25,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { env } from "./env.mjs";
+import { SUBSTITUTED_METRICS } from "./corpus-metric-model.mjs";
 import {
   buildOrderedSeries,
   isPinnedCommit,
@@ -114,20 +115,48 @@ const sqlQuery = async ({ endpoint, token, baseId, sql }) => {
  * digest lookup keys on — a case's workload is defined by this repo, not by the
  * teable-ee commit under test. Where several perf-lab commits measured the same
  * teable-ee commit they arrive as separate rows and are reconciled below.
+ *
+ * A few cases have a primary metric that is a clamped difference of two
+ * measurements and cannot carry a history; the inner select swaps in the
+ * component `corpus-metric-model.mjs` names, and records the substituted metric
+ * so a reader can see which number is in the series. Substituting inside the
+ * subquery rather than after it puts the swap ahead of both the `> 0` filter
+ * and the median, which is the point: the readings the clamp floored at zero
+ * are usable once the difference is gone.
  */
+const substitution = (column) => {
+  const cases = [...SUBSTITUTED_METRICS].map(
+    ([from, to]) =>
+      `WHEN "Primary_Metric" = '${from}' THEN ${
+        column === "metric"
+          ? `'${to}'`
+          : `("Metrics_JSON"::jsonb->>'${to}')::numeric`
+      }`,
+  );
+  const fallback =
+    column === "metric" ? `"Primary_Metric"` : `"Primary_Metric_Value"`;
+  return cases.length === 0
+    ? fallback
+    : `CASE ${cases.join(" ")} ELSE ${fallback} END`;
+};
+
 const pageQuery = ({ table, limit, offset }) => `
-  SELECT "Case_ID" AS c,
-         "Engine" AS e,
-         LEFT("Teable_EE_Ref", 12) AS r,
-         LEFT("Commit_SHA", 12) AS p,
-         "Primary_Metric" AS m,
-         percentile_disc(0.5) WITHIN GROUP (ORDER BY "Primary_Metric_Value") AS v,
+  SELECT c, e, r, p, m,
+         percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v,
          COUNT(*) AS n
-  FROM ${table}
-  WHERE "Status" = 'pass'
-    AND "Primary_Metric_Value" > 0
-    AND "Engine" <> 'seed'
-    AND LENGTH("Teable_EE_Ref") = 40
+  FROM (
+    SELECT "Case_ID" AS c,
+           "Engine" AS e,
+           LEFT("Teable_EE_Ref", 12) AS r,
+           LEFT("Commit_SHA", 12) AS p,
+           ${substitution("metric")} AS m,
+           ${substitution("value")} AS v
+    FROM ${table}
+    WHERE "Status" = 'pass'
+      AND "Engine" <> 'seed'
+      AND LENGTH("Teable_EE_Ref") = 40
+  ) t
+  WHERE v > 0
   GROUP BY 1, 2, 3, 4, 5
   ORDER BY 1, 2, 3, 4
   LIMIT ${limit} OFFSET ${offset}`;
@@ -283,6 +312,10 @@ const main = async () => {
     out[key] = {
       caseId: entry.caseId,
       engine: entry.engine,
+      // What number is in here. Without it the standing list cannot tell a
+      // duration from a clamped difference, and the guard that refuses one
+      // reads `undefined` and passes everything.
+      metric: entry.metric,
       segments: segments.map((segment) =>
         segment.map((point) => [point.ordinal, point.value, point.runs]),
       ),

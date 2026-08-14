@@ -798,22 +798,53 @@ That reasoning is still right about detection and was wrong about this: the
 screen was also acting as a proxy for whether the metric means anything, and
 bypassing it removed a check nobody had written down as a check.
 
-**The fix** excludes any case whose primary metric is a clamped difference from
-the standing list, keyed on the metric rather than on the screen, and counts the
-exclusions in the artifact as `driftless`. Twenty cases report one of these two
-metrics. On the run above it removes exactly the two wrong rows and leaves
-fifteen, all of which name a commit.
+**The fix, first attempt, was a no-op.** It excluded these cases from the
+standing list by reading `entry.metric` off the corpus series — and the corpus
+series carried no `metric` field, so the guard read `undefined` and refused
+nothing. `pnpm check` passed because the fixtures supplied the field the corpus
+does not. Recorded because it is the same shape as the `analysisWindow` fault:
+a check that exercises a function with hand-made inputs proves nothing about the
+inputs the system actually produces.
 
-`check-standing-regression-model.mjs` compares the excluded list against
+**The fix that works** substitutes the query's own duration for the difference
+at corpus build time, and keeps the exclusion as the guard of last resort for
+anything the substitution cannot reach. `corpus-metric-model.mjs` owns the
+table.
+
+Measured across the twelve of the twenty cases with enough history to judge:
+
+|                      | before  | after   |
+| -------------------- | ------- | ------- |
+| jitter, worst        | 2.66x   | 1.14x   |
+| screened `too-noisy` | 7 of 12 | 0 of 12 |
+| points               | 2313    | 2610    |
+
+Every one of the twelve lands between 1.05x and 1.14x, against a corpus median
+of 1.09. **Seven cases go from undetectable to detectable**, so a change point
+can now name a commit for them — which was never possible on the difference.
+The extra points are the readings the clamp floored at zero: `Primary_Metric_Value > 0`
+drops 971 of the 4860 rows across these cases, and the component is present and
+positive on all 4860.
+
+And the two rows that started this now read correctly: `group-three-levels` at
+1.16x rather than 3.0x, and `filter-sort-groupby-overhead` at 0.49x — it got
+_twice as fast_, and was reported as 2.5x slower.
+
+Three consequences, all deliberate:
+
+- **Detection no longer measures what the case's threshold measures.** The
+  threshold still guards the clause overhead and should. A series is a different
+  instrument and needs a number that can carry a level.
+- **The same-run layer had to move with it.** It reads this run's artifacts
+  directly, and judging tonight's overhead against a history of query durations
+  compares two instruments. `runMeasurements` applies the same substitution.
+- **Every value in those series changed, so every boundary moved.** The seen-set
+  now carries a metric revision beside the analysis window, and `reseedDecision`
+  re-seeds on either — one quiet night, the same trade the window change made.
+
+`check-corpus-metric-model.mjs` compares the substitution table against
 `isClampedOverheadMetric` in `framework/runners/record-read-model.ts`, so a
 third clamped metric cannot be added on one side only.
-
-**Not done, and it is the better fix.** These twenty cases could be measured on
-`getRecordsQueryPagedScanMs` — the query's own duration — instead of the
-difference. That is a change to what `build-perf-corpus.mjs` selects, it makes
-detection measure something different from what the case's threshold measures,
-and it re-seeds those series. Worth doing deliberately rather than as part of
-this.
 
 ### Deliberately not done
 
