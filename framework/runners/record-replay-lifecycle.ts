@@ -133,7 +133,7 @@ export const runRecordReplayLifecycle = async (
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         buildRecordReplayResult({
           config,
           operation: spec.operation,

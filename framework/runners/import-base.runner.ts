@@ -1305,16 +1305,13 @@ const measureImportBaseReady = async ({
       durationMs: roundMetric(performance.now() - startedAt),
       result: primaryResult,
     };
-    throw new PerfRunDiagnosticError(
-      error instanceof Error ? error.message : String(error),
-      {
-        metrics: {},
-        thresholds: [],
-        details: {
-          partialPrimaryMeasurement,
-        },
+    throw new PerfRunDiagnosticError(error, {
+      metrics: {},
+      thresholds: [],
+      details: {
+        partialPrimaryMeasurement,
       },
-    );
+    });
   }
 
   return {
@@ -1680,7 +1677,7 @@ export const runImportBaseCase = async (
         primaryMeasurement = diagnosticResult;
       }
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         buildImportBaseResult({
           context,
           config,

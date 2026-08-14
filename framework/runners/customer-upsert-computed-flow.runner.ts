@@ -1828,14 +1828,11 @@ const runMeasuredOperation = async (
         roundMetric(failedAt - primaryStartedAt),
       result: currentPrimaryResult(),
     };
-    throw new PerfRunDiagnosticError(
-      error instanceof Error ? error.message : String(error),
-      {
-        metrics: {},
-        thresholds: [],
-        details: { partialPrimaryMeasurement },
-      },
-    );
+    throw new PerfRunDiagnosticError(error, {
+      metrics: {},
+      thresholds: [],
+      details: { partialPrimaryMeasurement },
+    });
   }
 
   await stopObserver();

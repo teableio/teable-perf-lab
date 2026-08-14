@@ -121,10 +121,7 @@ export const runTableSamplesLifecycle = async <TExtra extends object = object>(
         });
       }
     } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult(error),
-      );
+      throw new PerfRunDiagnosticError(error, buildResult(error));
     }
 
     return buildResult();

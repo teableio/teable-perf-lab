@@ -81,7 +81,7 @@ export const runCsvImportLifecycle = async <TFixture, TPrimary, TSeedReady>(
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         spec.buildResult({
           config,
           prepareMeasurement,
