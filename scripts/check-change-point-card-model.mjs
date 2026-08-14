@@ -426,6 +426,22 @@ const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
   );
 }
 
+// One unit for both ends, chosen by the smaller one. Seconds at two decimals
+// cannot show a move the smaller end is sensitive to: 82ms → 105ms is a real
+// 1.3x that rendered as `0.08s → 0.10s`.
+{
+  assert.match(
+    formatStandingLine(standingOf("x", 1.3, { then: 82, now: 105 }), ""),
+    /82ms → 105ms/,
+  );
+  // And the defect this rule was written for in the first place: one end in
+  // milliseconds and the other in seconds.
+  assert.match(
+    formatStandingLine(standingOf("x", 2.4, { then: 56, now: 146 }), ""),
+    /56ms → 146ms/,
+  );
+}
+
 // Past the limit the rest fold away rather than being dropped.
 {
   const standing = Array.from({ length: STANDING_LIMIT + 4 }, (_, index) =>
