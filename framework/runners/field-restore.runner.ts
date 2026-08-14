@@ -748,7 +748,7 @@ export const runFieldRestoreCase = async (
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         buildFieldRestoreResult({
           config,
           windowId,

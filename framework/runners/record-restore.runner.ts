@@ -215,20 +215,17 @@ const partialPrimaryError = (
   config: RecordRestoreCaseConfig,
   result: RestorePrimaryResult,
 ): PerfRunDiagnosticError =>
-  new PerfRunDiagnosticError(
-    error instanceof Error ? error.message : String(error),
-    {
-      metrics: {},
-      thresholds: [],
-      details: {
-        partialPrimaryMeasurement: {
-          name: config.threshold.metric,
-          durationMs: result.restoreMeasurement?.durationMs ?? 0,
-          result,
-        } satisfies Measurement<RestorePrimaryResult>,
-      },
+  new PerfRunDiagnosticError(error, {
+    metrics: {},
+    thresholds: [],
+    details: {
+      partialPrimaryMeasurement: {
+        name: config.threshold.metric,
+        durationMs: result.restoreMeasurement?.durationMs ?? 0,
+        result,
+      } satisfies Measurement<RestorePrimaryResult>,
     },
-  );
+  });
 
 const runRestoreMeasuredOperation = async (
   perfCase: PerfCase,

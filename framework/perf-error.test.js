@@ -7,6 +7,7 @@ import {
   normalizePerfError,
   toPerfTestFailure,
 } from "./perf-error.ts";
+import { PerfRunDiagnosticError } from "./types.ts";
 
 test("normalizes Error values for artifacts", () => {
   const error = new Error("seed request failed");
@@ -111,6 +112,49 @@ test("rethrows a plain Error without Axios request payload properties", () => {
   assert.deepEqual(Object.keys(failure).sort(), ["name"]);
   assert.equal("config" in failure, false);
   assert.equal("response" in failure, false);
+});
+
+test("finds the response through the wrapper a runner actually throws", () => {
+  // The path that matters, and the one the first version of this change
+  // missed. No runner throws an axios error: every one of them wraps it in a
+  // `PerfRunDiagnosticError` so the partial measurement travels with the
+  // failure. A version that read only the outermost error passed its own tests
+  // and captured nothing in CI.
+  const axiosError = new Error("Request failed with status code 500");
+  axiosError.name = "AxiosError";
+  axiosError.response = {
+    status: 500,
+    data: { statusCode: 500, message: "out of shared memory" },
+  };
+
+  const thrown = new PerfRunDiagnosticError(axiosError, { metrics: {} });
+  const normalized = normalizePerfError(thrown);
+
+  assert.equal(normalized.name, "PerfRunDiagnosticError");
+  assert.equal(normalized.message, "Request failed with status code 500");
+  assert.equal(normalized.status, 500);
+  assert.match(normalized.response, /out of shared memory/);
+});
+
+test("the wrapper keeps working when there is no error to wrap", () => {
+  // `watchdog.ts` synthesizes a message; there is no original failure.
+  const thrown = new PerfRunDiagnosticError("computed propagation timed out", {
+    metrics: {},
+  });
+  assert.equal(thrown.message, "computed propagation timed out");
+  assert.equal(thrown.cause, undefined);
+  const normalized = normalizePerfError(thrown);
+  assert.equal("status" in normalized, false);
+});
+
+test("a cause that points at itself does not spin", () => {
+  const looping = new Error("boom");
+  looping.cause = looping;
+  assert.deepEqual(normalizePerfError(looping), {
+    name: "Error",
+    message: "boom",
+    stack: looping.stack,
+  });
 });
 
 test("normalizes non-Error failures", () => {

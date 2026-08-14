@@ -133,7 +133,7 @@ export const runRecordDeleteLinkLifecycle = async <TPrimary, TVerification>(
       );
     } catch (error) {
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         spec.buildResult({
           config,
           fixture,
@@ -286,10 +286,7 @@ export const runTableLinkSamplesLifecycle = async <
         });
       }
     } catch (error) {
-      throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
-        buildResult(error),
-      );
+      throw new PerfRunDiagnosticError(error, buildResult(error));
     }
 
     return buildResult();
