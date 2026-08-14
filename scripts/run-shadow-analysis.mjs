@@ -43,6 +43,7 @@ import {
 import { pairedSeries } from "./control-channel-model.mjs";
 import {
   attributeStanding,
+  carriesDrift,
   driftOf,
   isStanding,
 } from "./standing-regression-model.mjs";
@@ -352,6 +353,7 @@ export const analyse = (
   const unjudged = [];
   const points = [];
   const standing = [];
+  let driftless = 0;
   let notMeasured = 0;
   let tested = 0;
 
@@ -376,7 +378,14 @@ export const analyse = (
           v1: controlSegment,
         }).points
       : [];
-    if (pairedPoints.length > 0) {
+    // A metric that is already a difference cannot say "the case got slower":
+    // on both cases this reached the card for, the difference grew because the
+    // baseline got 30% faster. Counted rather than dropped silently, because a
+    // list that quietly omits twenty cases is making a claim about coverage it
+    // cannot support.
+    if (!carriesDrift(entry.metric)) {
+      driftless += 1;
+    } else if (pairedPoints.length > 0) {
       // Only the V2 points that found a control, in the same order, so the two
       // series the drift compares describe the same commits.
       const pairedOrdinals = new Set(pairedPoints.map(([ordinal]) => ordinal));
@@ -511,6 +520,9 @@ export const analyse = (
     // change point is old news — filtering to tonight's new findings first
     // would leave every long-standing row unattributed, which is exactly the
     // rows a reader most wants a commit for.
+    // How many cases the standing list could not judge because their metric is
+    // a difference rather than a duration.
+    driftless,
     standing: attributeStanding({
       standing: standing.sort(
         (left, right) => right.pairedDrift - left.pairedDrift,
@@ -922,6 +934,10 @@ const main = async () => {
       otherSteps: row.otherSteps,
       unattributed: row.unattributed,
     })),
+    // Cases the standing list could not judge because their primary metric is a
+    // difference of two measurements. Stated so a reader can tell "nothing is
+    // standing here" from "this list does not cover these".
+    driftless: analysis.driftless,
     confirmedRepeated: separated.counts.repeated,
     // The window this run detected under. Carried so the next run can tell a
     // widened window from an ordinary night; see `seenWindowOf`.
@@ -983,7 +999,8 @@ const main = async () => {
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
       `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}); ` +
       `${result.standing.length} cases standing slower than they started ` +
-      `(${result.standing.filter((row) => row.introducedBy).length} with a commit named) → ${outputPath}`,
+      `(${result.standing.filter((row) => row.introducedBy).length} with a commit named, ` +
+      `${analysis.driftless} cases not judgeable on a differential metric) → ${outputPath}`,
   );
 };
 
