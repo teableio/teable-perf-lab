@@ -11,11 +11,13 @@
 // today against where it started, and it does not care whether a change point
 // was ever attributed. Three things follow from that:
 //
-//   - **It needs no detection.** It is two medians and a division. The
-//     measurability screen that gates detection does not gate this, which is
-//     how `record-read/10k-50fields-group-three-levels` gets reported at all:
-//     the screen calls it `too-noisy` and it has drifted 2.82x against its
-//     control.
+//   - **It needs no detection.** It is two medians and a division, so the
+//     measurability screen that gates detection does not gate this. That is a
+//     deliberate bypass and it has already cost something: the screen was also
+//     standing in for whether a case's metric means anything, which nobody had
+//     written down as one of its jobs, and two cases whose metric is a clamped
+//     difference reached the card reading 3.0x and 2.5x slower when neither had
+//     got slower at all. `carriesDrift` is that job, written down.
 //   - **It needs no seen-set.** "Still slower" is true every day until someone
 //     fixes it, and a status list that suppressed repeats would empty itself
 //     out while the problem stood.
@@ -25,12 +27,14 @@
 //     answer for a standing case, `attributeStanding` below carries it onto the
 //     row rather than leaving the reader to match two lists by eye.
 //
-// Measured against the full history on 2026-08-13, this reports 15 cases. Ten
-// of them the confirmed layer had already attributed; five it never had.
+// Measured on run 31765570337, this reports 15 cases and names a commit for
+// every one of them.
 //
 // `change-point-attribution-model.mjs` is a leaf and imports nothing, so the
 // join below can reach for its regression rule rather than restating it. The
-// card imports from both; nothing imports the card.
+// card imports from both; nothing imports the card. `carriesDrift` comes from
+// `corpus-metric-model.mjs`, which owns the question of what number is in a
+// series and therefore whether a ratio of two of them means anything.
 //
 // The control channel is what makes the list worth reading. Comparing V2
 // against its own past says nothing about whether the *machine* got slower, and
@@ -42,66 +46,7 @@
 // regression while the pair says V2 got relatively faster.
 
 import { survivingSteps } from "./change-point-attribution-model.mjs";
-
-/**
- * Metrics that are a clamped difference of two measurements, and cannot carry
- * a drift figure at all.
- *
- * `record-read` overhead cases report `max(query − baseline, 0)`: the price of
- * a filter/sort/group clause, measured by scanning the same rows twice. The
- * clause is the finding; the subtraction is what makes it one. It also makes
- * the result useless to this list, and the first card carrying it said so out
- * loud in the wrong direction.
- *
- * Decomposed over the segment the card reported, on the two it put at the top:
- *
- * | | reported | baseline | query |
- * | --- | --- | --- | --- |
- * | `10k-50fields-group-three-levels` | 2.0x slower | 1662→1167ms, **0.70x** | 1947→2058ms, 1.06x |
- * | `10k-50fields-filter-sort-groupby-overhead` | 2.9x slower | 1580→1106ms, **0.70x** | 1866→1844ms, 0.99x |
- *
- * Neither case got slower. The baseline scan got about 30% faster and the
- * query did not follow, so the gap between them widened — and the gap is what
- * is reported. The direction holds under every alignment tried: the whole
- * series, the card's segment, and the subset carrying a signed overhead.
- *
- * The V1 control channel cannot catch this, which is why it reached the card.
- * A control corrects for the runner, and the runner is not what moved: V1's own
- * baseline went the other way, 1.19x slower over the same span, so the paired
- * figure widens too.
- *
- * This is also the mechanism behind the noise that gets these cases screened
- * out of detection. Both components are steady — V2's baseline jitters 1.17x
- * and its query 1.14x, against a corpus median of 1.09 — and their difference
- * jitters 1.86x, because subtracting two numbers of similar size keeps the
- * noise and throws away the signal. V2 suffers more than V1 for an arithmetic
- * reason rather than a performance one: V2 is *faster* at the clause, so its
- * difference is 494ms where V1's is 1077ms, against the same ~250ms of noise.
- * The clamp then floors 5% of V2's readings at zero, which is where the 1ms and
- * 2ms readings come from. V1 never crosses zero and has none.
- *
- * Twenty cases report one of these metrics. Excluding them costs coverage and
- * keeps the list true. Measuring them properly means putting the query
- * component in the corpus instead of the difference, which is a change to what
- * the corpus holds rather than to this rule.
- *
- * Kept in step with `isClampedOverheadMetric` in
- * `framework/runners/record-read-model.ts` by `check-standing-regression-model.mjs`.
- */
-export const DIFFERENTIAL_METRICS = new Set([
-  "getRecordsQueryOverheadMs",
-  "getRecordsFilterSortGroupByOverheadMs",
-]);
-
-/**
- * Can a drift on this metric be read as the case getting slower?
- *
- * Applies to the standing list only. Detection is not affected: a change point
- * says a level moved at a commit, which is true of a difference as much as of a
- * duration, and the measurability screen already keeps the noisiest of these
- * out. This list is the one that turns a level into "the case is slower now".
- */
-export const carriesDrift = (metric) => !DIFFERENTIAL_METRICS.has(metric);
+import { carriesDrift } from "./corpus-metric-model.mjs";
 
 // Points at each end of the segment that define "then" and "now".
 //
@@ -130,10 +75,8 @@ export const DRIFT_BAR = 1.25;
 // fifth of the value.
 //
 // This is a magnitude test and deliberately not the measurability screen, which
-// judges *noisiness* and is bypassed here on purpose — that is what lets
-// `record-read/10k-50fields-group-three-levels` be reported at 217ms → 848ms
-// after the screen called it `too-noisy`. Bypassing a judgement about noise is
-// not a reason to stop making a judgement about size.
+// judges *noisiness* and is bypassed here on purpose. Bypassing a judgement
+// about noise is not a reason to stop making a judgement about size.
 //
 // Twenty is a floor rather than a threshold anyone should tune: on the
 // nineteen cases the first card carried, `smoke/auth-user` gained 6ms and the

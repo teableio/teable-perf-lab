@@ -4,8 +4,10 @@ import {
   DEFAULT_ANALYSIS_WINDOW,
   reseedDecision,
   runMeasurements,
+  seenMetricsOf,
   seenWindowOf,
 } from "./run-shadow-analysis.mjs";
+import { corpusMetricRevision } from "./corpus-metric-model.mjs";
 
 // A corpus the way `build-perf-corpus.mjs` writes one: one entry per case and
 // engine, segments of `[ordinal, value, runs]`.
@@ -440,6 +442,69 @@ assert.equal(
   reseedDecision({ cachedWindow: DEFAULT_ANALYSIS_WINDOW, analysisWindow: 80 })
     .reseeding,
   true,
+);
+
+// --- and the other thing that moves every boundary ------------------------------
+
+// A seen-set written before the corpus substituted anything records no metric
+// revision. Read as the pre-substitution state, so the first run after the swap
+// re-seeds once rather than announcing twenty cases' histories.
+assert.equal(seenMetricsOf({}), "primary-metric");
+assert.equal(seenMetricsOf(undefined), "primary-metric");
+assert.equal(seenMetricsOf({ metrics: "x>y" }), "x>y");
+
+// Round-tripped through JSON, because that is how it travels and how the window
+// field broke: `window: null` read back as `null` rather than `Infinity` and
+// would have re-seeded nightly, silencing the card for good.
+{
+  const written = JSON.parse(
+    JSON.stringify({
+      known: [],
+      window: null,
+      metrics: corpusMetricRevision(),
+    }),
+  );
+  assert.equal(
+    reseedDecision({
+      cachedWindow: seenWindowOf(written),
+      cachedMetrics: seenMetricsOf(written),
+    }).reseeding,
+    false,
+    "a seen-set this run wrote must not re-seed the next one",
+  );
+}
+
+// The substitution landing for the first time.
+{
+  const decision = reseedDecision({
+    cachedWindow: DEFAULT_ANALYSIS_WINDOW,
+    cachedMetrics: "primary-metric",
+    freshCount: 240,
+    knownCount: 577,
+  });
+  assert.equal(decision.reseeding, true);
+  assert.match(decision.reason, /changed which metric it records/);
+  assert.match(decision.reason, /primary-metric →/);
+  assert.match(decision.reason, /240 change points/);
+  assert.doesNotMatch(decision.reason, /window changed/);
+}
+
+// Both at once reads as both, rather than whichever is checked first.
+{
+  const decision = reseedDecision({
+    cachedWindow: 80,
+    cachedMetrics: "primary-metric",
+  });
+  assert.match(decision.reason, /window changed from 80 to full-history/);
+  assert.match(decision.reason, /changed which metric it records/);
+}
+
+// Nothing cached is the cold start, which has its own handling, and must not be
+// turned into a re-seed by the metric field being absent too.
+assert.equal(
+  reseedDecision({ cachedWindow: undefined, cachedMetrics: undefined })
+    .reseeding,
+  false,
 );
 
 console.log("shadow analysis old-gate and seen-set recovery checks passed");

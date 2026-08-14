@@ -43,10 +43,10 @@ import {
 import { pairedSeries } from "./control-channel-model.mjs";
 import {
   attributeStanding,
-  carriesDrift,
   driftOf,
   isStanding,
 } from "./standing-regression-model.mjs";
+import { carriesDrift } from "./corpus-metric-model.mjs";
 import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
@@ -57,8 +57,13 @@ import {
 } from "./change-point-attribution-model.mjs";
 import {
   primaryMetricValue,
+  primaryThreshold,
   readArtifactPayloads,
 } from "./perf-artifact-read-model.mjs";
+import {
+  corpusMetricRevision,
+  corpusMetricValue,
+} from "./corpus-metric-model.mjs";
 
 export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
 
@@ -281,7 +286,32 @@ const windowLabel = (window) =>
   Number.isFinite(window) ? String(window) : "full-history";
 
 /**
+ * The metric substitution the cached seen-set was built under.
+ *
+ * Absent means a seen-set written before the corpus started substituting, and
+ * every one of those was built on the raw primary metric.
+ */
+export const seenMetricsOf = (parsed) => parsed?.metrics ?? "primary-metric";
+
+/**
  * Whether this run has to re-seed, and what to say about it.
+ *
+ * Two things move every boundary in a series without anything having changed in
+ * teable-ee, and both of them make the first run after the change announce
+ * histories as findings:
+ *
+ *   - **The analysis window.** On
+ *     `record-read/10k-50fields-filter-sort-formula-selective` the 80-point
+ *     window reports a boundary at position 190 and a full scan reports one at
+ *     102 and does not report 190 at all.
+ *   - **What the corpus records.** Substituting the query component for a
+ *     clamped difference replaces every value in twenty series, and eleven of
+ *     those were screened out of detection entirely before the swap — so their
+ *     whole histories arrive at once, as keys nothing has ever seen.
+ *
+ * Both are compared, and either one re-seeds: the run detects as normal, folds
+ * everything it finds into the seen-set, and announces none of it. Same trade
+ * for the same reason, decided here rather than by whoever edits a constant.
  *
  * Pulled out of `main` and exported for one reason: `main` runs only as a
  * script, so no check executes a line of it. The first version of this read
@@ -292,20 +322,35 @@ const windowLabel = (window) =>
 export const reseedDecision = ({
   cachedWindow,
   analysisWindow = DEFAULT_ANALYSIS_WINDOW,
+  cachedMetrics,
+  metrics = corpusMetricRevision(),
   freshCount = 0,
   knownCount = 0,
 } = {}) => {
-  if (cachedWindow === undefined || cachedWindow === analysisWindow) {
+  // Nothing cached at all is the cold start, which `isColdStart` handles on its
+  // own terms. Only a seen-set that exists and disagrees re-seeds here.
+  const changed = [];
+  if (cachedWindow !== undefined && cachedWindow !== analysisWindow) {
+    changed.push(
+      `the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}`,
+    );
+  }
+  if (cachedMetrics !== undefined && cachedMetrics !== metrics) {
+    changed.push(
+      `the corpus changed which metric it records (${cachedMetrics} → ${metrics})`,
+    );
+  }
+  if (changed.length === 0) {
     return { reseeding: false };
   }
   return {
     reseeding: true,
     reason:
-      `Shadow: the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}. ` +
-      `Detection ran and found ${freshCount} change points not in the seen-set, but a window change moves boundaries — ` +
+      `Shadow: ${changed.join(", and ")}. ` +
+      `Detection ran and found ${freshCount} change points not in the seen-set, but this moves boundaries — ` +
       `these are re-detections at shifted commit pairs, not new findings. Folding all ${knownCount} keys in and announcing none. ` +
       `The next run reports normally.`,
-    warning: `::warning title=Shadow re-seeded after an analysis window change::${freshCount} change points withheld; see the step log.`,
+    warning: `::warning title=Shadow re-seeded after an analysis shape change::${freshCount} change points withheld; see the step log.`,
   };
 };
 
@@ -603,7 +648,15 @@ export const runMeasurements = (payloadEntries = []) => {
     const payload = entry?.payload ?? entry;
     if (payload?.engine !== "v2" || payload?.result !== "pass") continue;
     const caseId = String(payload.caseId ?? "").trim();
-    const value = primaryMetricValue(payload);
+    // The corpus's number, not the case's own. On the twenty cases whose
+    // primary metric is a clamped difference the corpus records the query
+    // component instead, and judging this run's overhead against a history of
+    // query durations compares two instruments and calls the gap a regression.
+    const value = corpusMetricValue({
+      metric: primaryThreshold(payload)?.metric,
+      primaryValue: primaryMetricValue(payload),
+      metrics: payload.metrics,
+    });
     if (!caseId || !(value > 0)) continue;
     if (!byCase.has(caseId)) byCase.set(caseId, []);
     byCase.get(caseId).push(value);
@@ -862,10 +915,12 @@ const main = async () => {
   const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
   let cached;
   let cachedWindow;
+  let cachedMetrics;
   try {
     const parsed = JSON.parse(await readFile(seenPath, "utf8"));
     cached = parsed.known ?? [];
     cachedWindow = seenWindowOf(parsed);
+    cachedMetrics = seenMetricsOf(parsed);
   } catch {
     cached = undefined;
   }
@@ -880,6 +935,7 @@ const main = async () => {
   // silent night is not mistaken for a quiet one.
   const reseed = reseedDecision({
     cachedWindow,
+    cachedMetrics,
     freshCount: separated.fresh.length,
     knownCount: separated.known.length,
   });
@@ -944,6 +1000,8 @@ const main = async () => {
     analysisWindow: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
       ? DEFAULT_ANALYSIS_WINDOW
       : null,
+    // And which metric the corpus recorded, for the same reason.
+    corpusMetrics: corpusMetricRevision(),
     reseeded: reseed.reseeding || undefined,
     // How many change points were already on the record when this run started.
     // Zero means the seen-set was empty and every change point below is a first
@@ -976,6 +1034,7 @@ const main = async () => {
         window: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
           ? DEFAULT_ANALYSIS_WINDOW
           : null,
+        metrics: corpusMetricRevision(),
       },
       null,
       2,
