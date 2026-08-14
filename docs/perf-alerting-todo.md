@@ -640,11 +640,13 @@ detection runs and has drifted 2.82x against its control.
 the confirmed layer; five never had.** Where an attribution exists, the row now
 carries it — see _Naming the commit on a standing row_ below.
 
-### Four measurement faults, in the order they were made
+### Five measurement faults, in the order they were made
 
 Every one of them produced a confident, wrong conclusion that survived until
 the next check. They are recorded because the next person measuring this corpus
-will have the chance to make all four again.
+will have the chance to make all five again. The fifth is below the other four,
+because it was found after the standing list shipped and it reached the team's
+chat before it was caught.
 
 **1. Sorting commit SHAs alphabetically and calling it time order.** A series
 pulled `ORDER BY started_at` was re-sorted in JavaScript with `.sort()` on the
@@ -751,6 +753,67 @@ Two smaller things fell out of rendering it against the real rows:
   `form-submit/sequential-500-multiple-select-100fields` at 82ms → 105ms
   rendered as `0.08s → 0.10s`. Two decimals of seconds cannot show a move the
   smaller end is sensitive to. The smaller end picks the unit.
+
+### Fault 5: a metric that is already a difference
+
+Added 2026-08-14. This one shipped. Run 31765570337 pushed a card whose top two
+rows were `record-read/10k-50fields-group-three-levels` at 3.0x and
+`record-read/10k-50fields-filter-sort-groupby-overhead` at 2.5x. **Neither case
+got slower.**
+
+Both report `max(query − baseline, 0)`: the price of a filter/sort/group clause,
+measured by scanning the same rows twice. Decomposed over the segment the card
+reported:
+
+|                                             | reported    | baseline               | query              |
+| ------------------------------------------- | ----------- | ---------------------- | ------------------ |
+| `10k-50fields-group-three-levels`           | 2.0x slower | 1662→1167ms, **0.70x** | 1947→2058ms, 1.06x |
+| `10k-50fields-filter-sort-groupby-overhead` | 2.9x slower | 1580→1106ms, **0.70x** | 1866→1844ms, 0.99x |
+
+The baseline scan got about 30% faster and the query did not follow, so the gap
+widened. The gap is what the card reports. The direction holds under every
+alignment tried — the whole series, the card's segment, and the subset carrying
+a signed overhead — though the exact ratio moves with the alignment, which is
+why the table above quotes the card's own segment.
+
+**The control channel cannot catch this**, and that is the part worth
+remembering. A control corrects for the runner, and the runner is not what
+moved: V1's own baseline went the _other_ way, 1.19x slower over the same span,
+so the paired figure widens too. Every safeguard that exists was aimed at a
+different failure.
+
+The same subtraction explains why these cases are screened out of detection.
+Both components are steady — V2's baseline jitters 1.17x and its query 1.14x,
+against a corpus median of 1.09 — and their difference jitters 1.86x. V2 suffers
+more than V1 for an arithmetic reason rather than a performance one: V2 is
+_faster_ at the clause, so its difference is 494ms where V1's is 1077ms, against
+the same ~250ms of component noise. The clamp then floors 5% of V2's readings at
+zero, which is where the 1ms and 2ms readings in that series come from. V1 never
+crosses zero and has none.
+
+**How it reached the card.** The measurability screen was catching both cases,
+and the standing list bypasses the screen on purpose — the reasoning recorded
+above is that the list is two medians and a division and needs no detector.
+That reasoning is still right about detection and was wrong about this: the
+screen was also acting as a proxy for whether the metric means anything, and
+bypassing it removed a check nobody had written down as a check.
+
+**The fix** excludes any case whose primary metric is a clamped difference from
+the standing list, keyed on the metric rather than on the screen, and counts the
+exclusions in the artifact as `driftless`. Twenty cases report one of these two
+metrics. On the run above it removes exactly the two wrong rows and leaves
+fifteen, all of which name a commit.
+
+`check-standing-regression-model.mjs` compares the excluded list against
+`isClampedOverheadMetric` in `framework/runners/record-read-model.ts`, so a
+third clamped metric cannot be added on one side only.
+
+**Not done, and it is the better fix.** These twenty cases could be measured on
+`getRecordsQueryPagedScanMs` — the query's own duration — instead of the
+difference. That is a change to what `build-perf-corpus.mjs` selects, it makes
+detection measure something different from what the case's threshold measures,
+and it re-seeds those series. Worth doing deliberately rather than as part of
+this.
 
 ### Deliberately not done
 

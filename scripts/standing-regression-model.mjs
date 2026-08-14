@@ -43,6 +43,66 @@
 
 import { survivingSteps } from "./change-point-attribution-model.mjs";
 
+/**
+ * Metrics that are a clamped difference of two measurements, and cannot carry
+ * a drift figure at all.
+ *
+ * `record-read` overhead cases report `max(query − baseline, 0)`: the price of
+ * a filter/sort/group clause, measured by scanning the same rows twice. The
+ * clause is the finding; the subtraction is what makes it one. It also makes
+ * the result useless to this list, and the first card carrying it said so out
+ * loud in the wrong direction.
+ *
+ * Decomposed over the segment the card reported, on the two it put at the top:
+ *
+ * | | reported | baseline | query |
+ * | --- | --- | --- | --- |
+ * | `10k-50fields-group-three-levels` | 2.0x slower | 1662→1167ms, **0.70x** | 1947→2058ms, 1.06x |
+ * | `10k-50fields-filter-sort-groupby-overhead` | 2.9x slower | 1580→1106ms, **0.70x** | 1866→1844ms, 0.99x |
+ *
+ * Neither case got slower. The baseline scan got about 30% faster and the
+ * query did not follow, so the gap between them widened — and the gap is what
+ * is reported. The direction holds under every alignment tried: the whole
+ * series, the card's segment, and the subset carrying a signed overhead.
+ *
+ * The V1 control channel cannot catch this, which is why it reached the card.
+ * A control corrects for the runner, and the runner is not what moved: V1's own
+ * baseline went the other way, 1.19x slower over the same span, so the paired
+ * figure widens too.
+ *
+ * This is also the mechanism behind the noise that gets these cases screened
+ * out of detection. Both components are steady — V2's baseline jitters 1.17x
+ * and its query 1.14x, against a corpus median of 1.09 — and their difference
+ * jitters 1.86x, because subtracting two numbers of similar size keeps the
+ * noise and throws away the signal. V2 suffers more than V1 for an arithmetic
+ * reason rather than a performance one: V2 is *faster* at the clause, so its
+ * difference is 494ms where V1's is 1077ms, against the same ~250ms of noise.
+ * The clamp then floors 5% of V2's readings at zero, which is where the 1ms and
+ * 2ms readings come from. V1 never crosses zero and has none.
+ *
+ * Twenty cases report one of these metrics. Excluding them costs coverage and
+ * keeps the list true. Measuring them properly means putting the query
+ * component in the corpus instead of the difference, which is a change to what
+ * the corpus holds rather than to this rule.
+ *
+ * Kept in step with `isClampedOverheadMetric` in
+ * `framework/runners/record-read-model.ts` by `check-standing-regression-model.mjs`.
+ */
+export const DIFFERENTIAL_METRICS = new Set([
+  "getRecordsQueryOverheadMs",
+  "getRecordsFilterSortGroupByOverheadMs",
+]);
+
+/**
+ * Can a drift on this metric be read as the case getting slower?
+ *
+ * Applies to the standing list only. Detection is not affected: a change point
+ * says a level moved at a commit, which is true of a difference as much as of a
+ * duration, and the measurability screen already keeps the noisiest of these
+ * out. This list is the one that turns a level into "the case is slower now".
+ */
+export const carriesDrift = (metric) => !DIFFERENTIAL_METRICS.has(metric);
+
 // Points at each end of the segment that define "then" and "now".
 //
 // Twenty rather than a handful: the two ends are medians, and a median of five
@@ -154,6 +214,9 @@ export const standingRegressions = ({
   const rows = [];
   for (const entry of Object.values(series)) {
     if (entry?.engine !== "v2") {
+      continue;
+    }
+    if (!carriesDrift(entry.metric)) {
       continue;
     }
     const paired = pairedFor(entry);
