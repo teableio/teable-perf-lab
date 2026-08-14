@@ -637,7 +637,8 @@ medians and a division, which is why it reaches a case the detector cannot:
 detection runs and has drifted 2.82x against its control.
 
 **Fifteen cases qualify across the whole history. Ten had been attributed by
-the confirmed layer; five never had.**
+the confirmed layer; five never had.** Where an attribution exists, the row now
+carries it — see _Naming the commit on a standing row_ below.
 
 ### Four measurement faults, in the order they were made
 
@@ -683,6 +684,68 @@ Neither test is redundant:
   a control that improved 0.69x, giving a paired 1.47x that describes a case
   which did not move.
 - V2 alone admits everything the runner did to everybody — the four above.
+
+### Naming the commit on a standing row
+
+Added 2026-08-14, on the owner's question: _can you find which commit caused the
+regression, and put it on the card?_
+
+The confirmed layer already could. The change point rows have carried
+`引入于 <before>→<after>` since the card shipped. What was missing is that the
+_standing_ rows had none — and the standing section is what a reader sees on a
+normal night, because a night with no newly confirmed change point is the normal
+night. The card said "this case is 2.5x slower" and left "since when, and by
+whom" unanswered.
+
+Nothing new is computed. Both lists come out of the same pass over the same full
+history; they were assembled separately and the commit was being thrown away.
+`attributeStanding` joins them. Measured over the cached corpus, **13 of 14
+standing cases get a commit.**
+
+Three of the thirteen land on commits identified independently before this
+existed, which is the check that matters:
+
+| case                                                 | named                 | known as                                                        |
+| ---------------------------------------------------- | --------------------- | --------------------------------------------------------------- |
+| `form-submit/sequential-500-rating-100fields`        | `c2308148`→`a7c04bf9` | `a7c04bf9`, filed as `receeJXDRNoh7qQcy3o`, fixed by `a4c04008` |
+| `form-submit/sequential-500-single-select-100fields` | `c2308148`→`a7c04bf9` | same commit, second case                                        |
+| `lookup/foreign-select-flip-1of40-fanout100-4k`      | `1dd78a15`→`b636d744` | the fanout staircase, positions 2659–2662                       |
+
+**The largest step is the wrong answer, and the corpus says so.** The first
+version ranked a case's confirmed regressions by size and named the biggest. On
+`lookup/customer-update-user-update-order-4k-depth5` that is a step from 1335ms
+to 10417ms — against a case sitting at 1616ms today, because the level came back
+down after it. A real change point, a real regression at the time, and pointing
+whoever triages at a problem that is no longer there.
+
+The fix that did _not_ work is worth recording, because it is the one that looks
+right: netting later confirmed speedups against earlier confirmed slowdowns,
+newest first. It repaired one row and left this one alone, because the recovery
+on this case was gradual and nothing confirmed it. The detector's account of how
+a level got where it is is not always complete; the level itself is. So a step
+is dropped when the case now sits more than `RECOVERY_BAR` = 1.5x below where
+that step left it. Across the fourteen, the steps that genuinely explain their
+case sit between 0.77x and 1.39x of the current level and the one that does not
+sits at 6.4x — the bar is set at the tight end of that gap, and the looseness it
+needs comes from the two levels being different estimators (an 8-point median at
+the boundary against a 20-point median at the end of the series).
+
+Two rows carry no commit, and both say why rather than going quiet:
+`screened` when the measurability screen kept the case out of detection —
+`lookup/customer-update-other-user-create-order-4k-depth5`, the worst drift in
+the list — and `no-step` when detection ran and found no boundary that survives.
+A row that simply stops after the ratio reads as a lookup that failed.
+
+`另有 N 处台阶` is on the row for the same reason the change point section names
+its neighbours: the fanout cases did not slow down once, they climbed four
+consecutive mainline commits, and a row naming one of the four as _the_ cause is
+wrong in a way the reader cannot see.
+
+One smaller thing fell out of rendering it against the real rows. The ±1
+attribution caveat used to hang under the change point section; standing rows
+carry SHAs now, so on a standing-only card it shipped SHAs with the caveat
+missing. It is rendered once, below both sections, whenever anything on the card
+names a commit.
 
 ### Deliberately not done
 

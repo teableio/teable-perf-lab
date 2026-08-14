@@ -457,4 +457,96 @@ const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
   assert.doesNotMatch(cardText(card), /未恢复/);
 }
 
+// --- the commit on a standing row -----------------------------------------------
+
+// The question the standing section was leaving open. "2.5x slower" invites
+// "since when", and the confirmed layer worked that out in the same pass.
+{
+  const row = {
+    ...standingOf("climbed", 2.5),
+    introducedBy: {
+      beforeCommit: "e5828c2f1111111111111111111111111111aaaa",
+      afterCommit: "1dd78a15222222222222222222222222222bbbb0",
+      alsoPossible: [],
+      unmeasuredBetween: 0,
+    },
+    otherSteps: 3,
+  };
+  const line = formatStandingLine(row, "");
+  assert.match(line, /最大台阶在 `e5828c2f`→`1dd78a15`/);
+  // The four-step fanout staircase is why this count is printed rather than
+  // dropped: one of four commits named alone reads as the whole cause.
+  assert.match(line, /另有 3 处台阶/);
+  // Short SHAs only. A full 40-character hash on a card is unreadable, and the
+  // repository this is pushed from is public while teable-ee is not — a SHA is
+  // carried, a commit subject never is.
+  assert.doesNotMatch(line, /e5828c2f1111/);
+}
+
+// An unmeasured range is not a ±1 neighbourhood, and the row says which it is.
+{
+  const line = formatStandingLine(
+    {
+      ...standingOf("gappy", 1.8),
+      introducedBy: {
+        beforeCommit: "aaaaaaaa",
+        afterCommit: "bbbbbbbb",
+        alsoPossible: [],
+        unmeasuredBetween: 12,
+      },
+      otherSteps: 0,
+    },
+    "",
+  );
+  assert.match(line, /区间内 12 个 commit 未测/);
+  assert.doesNotMatch(line, /另有/);
+}
+
+// Both silent cases say why they are silent. A row that stops after the ratio
+// reads as a lookup that failed.
+{
+  assert.match(
+    formatStandingLine(
+      { ...standingOf("noisy", 2.8), unattributed: "screened" },
+      "",
+    ),
+    /波动太大/,
+  );
+  assert.match(
+    formatStandingLine(
+      { ...standingOf("sloped", 1.6), unattributed: "no-step" },
+      "",
+    ),
+    /渐变/,
+  );
+}
+
+// The ±1 caveat follows the SHAs, wherever they are. A standing-only card is
+// the common one — a night with no new change point is the normal night — and
+// hanging the caveat under the change point section alone would ship SHAs
+// without it on exactly those nights.
+{
+  const attributed = {
+    ...standingOf("climbed", 2.5),
+    introducedBy: {
+      beforeCommit: "aaaaaaaa",
+      afterCommit: "bbbbbbbb",
+      alsoPossible: [],
+      unmeasuredBetween: 0,
+    },
+    otherSteps: 0,
+  };
+  const text = cardText(
+    buildChangePointCard({
+      result: { ...resultOf(), standing: [attributed] },
+      context,
+      seen: [],
+    }),
+  );
+  assert.ok(text.includes(ATTRIBUTION_NOTE));
+  // And the framing a SHA needs: that it is a mainline commit, possibly much
+  // older than the build this run measured.
+  assert.match(text, /commit 归属于 mainline/);
+}
+
 console.log("change point card model checks passed");

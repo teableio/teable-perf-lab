@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  attributeStanding,
   DRIFT_BAR,
   driftOf,
   EDGE_WINDOW,
@@ -200,5 +201,178 @@ assert.deepEqual(
   assert.ok(under.v2Now - under.v2Then < MIN_INCREASE_MS);
   assert.equal(isStanding(under), false);
 }
+
+// --- which commit did it --------------------------------------------------------
+
+const changePoint = ({
+  caseId,
+  before,
+  after,
+  v2Before,
+  v2After,
+  mover = "v2",
+  ...rest
+}) => ({
+  caseId,
+  beforeCommit: before,
+  afterCommit: after,
+  ratio: v2After / v2Before,
+  mover,
+  v2Level: { before: v2Before, after: v2After },
+  ...rest,
+});
+
+{
+  const rows = attributeStanding({
+    standing: [{ caseId: "climber" }, { caseId: "quiet" }, { caseId: "noisy" }],
+    confirmed: [
+      // Two steps on one case, out of order, so the join has to rank rather
+      // than take the first. The fanout cases climbed four consecutive
+      // mainline commits; naming the smaller of two would name the wrong one.
+      changePoint({
+        caseId: "climber",
+        before: "aaaa1111",
+        after: "bbbb2222",
+        v2Before: 400,
+        v2After: 520,
+      }),
+      changePoint({
+        caseId: "climber",
+        before: "cccc3333",
+        after: "dddd4444",
+        v2Before: 520,
+        v2After: 1200,
+        alsoPossible: ["eeee5555"],
+        unmeasuredBetween: 3,
+      }),
+      // Another case's change point must not leak onto a row.
+      changePoint({
+        caseId: "someone-else",
+        before: "ffff6666",
+        after: "99997777",
+        v2Before: 100,
+        v2After: 900,
+      }),
+    ],
+    unjudged: ["noisy"],
+  });
+
+  assert.equal(rows[0].introducedBy.beforeCommit, "cccc3333");
+  assert.equal(rows[0].introducedBy.afterCommit, "dddd4444");
+  assert.deepEqual(rows[0].introducedBy.alsoPossible, ["eeee5555"]);
+  assert.equal(rows[0].introducedBy.unmeasuredBetween, 3);
+  assert.equal(rows[0].otherSteps, 1, "the smaller step is counted, not lost");
+  assert.equal(rows[0].unattributed, undefined);
+
+  // Detected on, no boundary confirmed: a slope, and there is no commit to
+  // name. Distinguished from the next one because they are different problems.
+  assert.equal(rows[1].introducedBy, undefined);
+  assert.equal(rows[1].unattributed, "no-step");
+
+  // Never eligible for detection at all. This is the case the standing list was
+  // built to reach, so its row has to say why it carries no SHA rather than
+  // looking like a lookup that came back empty.
+  assert.equal(rows[2].unattributed, "screened");
+}
+
+// A speedup is not what made a case standing, and a `v1` mover is the control
+// channel moving. Neither may be named as the cause; a row with only these is
+// unattributed rather than attributed to the wrong thing.
+{
+  const [row] = attributeStanding({
+    standing: [{ caseId: "x" }],
+    confirmed: [
+      changePoint({
+        caseId: "x",
+        before: "1111",
+        after: "2222",
+        v2Before: 900,
+        v2After: 400,
+      }),
+      changePoint({
+        caseId: "x",
+        before: "3333",
+        after: "4444",
+        v2Before: 37,
+        v2After: 40,
+        mover: "v1",
+        ratio: 2.2,
+      }),
+    ],
+  });
+  assert.equal(row.introducedBy, undefined);
+  assert.equal(row.unattributed, "no-step");
+}
+
+// The rows come back in the order they went in, and nothing else on them is
+// disturbed — the card sorts on `pairedDrift` and prints `v2Then`/`v2Now`.
+{
+  const standing = [
+    { caseId: "a", pairedDrift: 2.5, v2Then: 100, v2Now: 250, points: 200 },
+    { caseId: "b", pairedDrift: 1.4, v2Then: 500, v2Now: 700, points: 200 },
+  ];
+  const rows = attributeStanding({ standing, confirmed: [] });
+  assert.deepEqual(
+    rows.map((row) => row.caseId),
+    ["a", "b"],
+  );
+  assert.equal(rows[0].pairedDrift, 2.5);
+  assert.equal(rows[0].v2Now, 250);
+  assert.equal(rows[1].points, 200);
+}
+
+// The row's own current level reaches the step filter, so a step the case has
+// since come down from is not named. Without `v2Now` travelling through
+// `attributeStanding`, the 10417ms spike is what the card would print.
+{
+  const [row] = attributeStanding({
+    standing: [{ caseId: "spiked", v2Then: 1035, v2Now: 1616 }],
+    confirmed: [
+      changePoint({
+        caseId: "spiked",
+        before: "aaaa1111",
+        after: "bbbb2222",
+        v2Before: 1335,
+        v2After: 10417,
+      }),
+      changePoint({
+        caseId: "spiked",
+        before: "cccc3333",
+        after: "dddd4444",
+        v2Before: 1004,
+        v2After: 1113,
+      }),
+    ],
+  });
+  assert.equal(row.introducedBy.beforeCommit, "cccc3333");
+  assert.equal(row.otherSteps, 0);
+}
+
+// And when every step is one the case has come down from, the row says there is
+// no step rather than naming the least implausible one.
+{
+  const [row] = attributeStanding({
+    standing: [{ caseId: "spiked", v2Then: 1035, v2Now: 1616 }],
+    confirmed: [
+      changePoint({
+        caseId: "spiked",
+        before: "aaaa1111",
+        after: "bbbb2222",
+        v2Before: 1335,
+        v2After: 10417,
+      }),
+    ],
+  });
+  assert.equal(row.introducedBy, undefined);
+  assert.equal(row.unattributed, "no-step");
+}
+
+// Nothing to join against is not an error. A run whose detection produced no
+// confirmed points still has a standing list, and every row says why.
+assert.deepEqual(attributeStanding(), []);
+assert.equal(
+  attributeStanding({ standing: [{ caseId: "a" }] })[0].unattributed,
+  "no-step",
+);
 
 console.log("standing regression model checks passed");

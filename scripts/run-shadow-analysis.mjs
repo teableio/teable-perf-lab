@@ -42,6 +42,7 @@ import {
 } from "./change-point-model.mjs";
 import { pairedSeries } from "./control-channel-model.mjs";
 import {
+  attributeStanding,
   driftOf,
   isStanding,
 } from "./standing-regression-model.mjs";
@@ -504,9 +505,19 @@ export const analyse = (
     candidates: points.length,
     // Sorted here rather than at the card, so the artifact and the card agree
     // on what "worst" means without either having to re-derive it.
-    standing: standing.sort(
-      (left, right) => right.pairedDrift - left.pairedDrift,
-    ),
+    //
+    // Attributed against the full confirmed set rather than against the fresh
+    // ones `main` announces. A standing case is standing precisely because its
+    // change point is old news — filtering to tonight's new findings first
+    // would leave every long-standing row unattributed, which is exactly the
+    // rows a reader most wants a commit for.
+    standing: attributeStanding({
+      standing: standing.sort(
+        (left, right) => right.pairedDrift - left.pairedDrift,
+      ),
+      confirmed,
+      unjudged,
+    }),
   };
 };
 
@@ -904,6 +915,12 @@ const main = async () => {
       v2Then: Number(row.v2Then.toFixed(1)),
       v2Now: Number(row.v2Now.toFixed(1)),
       points: row.points,
+      // Which commit stepped it up, when the confirmed layer can say — and when
+      // it cannot, why not. Carried in the artifact rather than re-derived at
+      // the card, so the audit trail and the message name the same commit.
+      introducedBy: row.introducedBy,
+      otherSteps: row.otherSteps,
+      unattributed: row.unattributed,
     })),
     confirmedRepeated: separated.counts.repeated,
     // The window this run detected under. Carried so the next run can tell a
@@ -965,7 +982,8 @@ const main = async () => {
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
       `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}); ` +
-      `${result.standing.length} cases standing slower than they started → ${outputPath}`,
+      `${result.standing.length} cases standing slower than they started ` +
+      `(${result.standing.filter((row) => row.introducedBy).length} with a commit named) → ${outputPath}`,
   );
 };
 
