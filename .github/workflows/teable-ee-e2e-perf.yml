@@ -1207,11 +1207,22 @@ jobs:
       # to eight cases costs the same again. So paging differently cannot help;
       # only asking fewer times can, and that is the follow-up in
       # docs/perf-alerting-todo.md rather than a change made here.
+      # Thirty rather than fifteen, since 2026-08-13. Detection now reads each
+      # series whole instead of its last 80 points, which is 8.8x the work —
+      # measured on two independent samples, and the window-80 arm of that same
+      # measurement extrapolates to 53s against the 43s this step actually
+      # spends, so the multiplier is trustworthy even if the absolute is not.
+      # That puts the step near 890s against the 900s it used to allow.
+      #
+      # The ceiling is not what governs the cost here: this step is
+      # `continue-on-error`, runs after everything the run depends on, and the
+      # job around it allows 40 minutes. It exists to stop a hang, and 30
+      # minutes still does that.
       - name: Shadow perf analysis
         id: shadow-analysis
         if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 30
         working-directory: perf-lab
         env:
           TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision
@@ -1310,6 +1321,36 @@ jobs:
           # single-case dispatch.
           PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
         run: node scripts/accumulate-shadow-runs.mjs
+
+      # The night's second card. The first one went out at `Send Feishu perf
+      # summary`, about nine and a half minutes ago — the shadow analysis is the
+      # slow part of this job, and holding the run summary back for it would put
+      # the report everyone reads behind the step that is allowed to fail.
+      #
+      # Only the confirmed layer is pushed, and only when it found a V2 slowdown
+      # nobody has been told about. `change-point-card-model.mjs` holds that
+      # rule and the reasons; the short version is that a card which speaks
+      # every night is a card nobody opens on the night it matters.
+      #
+      # Gated on the analysis having succeeded, like the two steps around it: a
+      # run that produced no result has nothing to say, and the sender would
+      # otherwise report "nothing to push" for a step that failed.
+      #
+      # Ahead of `Save shadow change point state` on purpose. This step marks
+      # the standing cases it announced in the seen-set, and that mark has to be
+      # in the file the cache picks up or "新增" would mean "every case, every
+      # night".
+      - name: Send Feishu change point card
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+        run: node scripts/send-feishu-change-point-summary.mjs
 
       # Only after the analysis actually succeeded. A failed run that saved its
       # state would write back whatever was restored — or nothing at all — and

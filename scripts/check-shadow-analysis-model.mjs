@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { analyse, runMeasurements } from "./run-shadow-analysis.mjs";
+import {
+  analyse,
+  DEFAULT_ANALYSIS_WINDOW,
+  reseedDecision,
+  runMeasurements,
+  seenMetricsOf,
+  seenWindowOf,
+} from "./run-shadow-analysis.mjs";
+import { corpusMetricRevision } from "./corpus-metric-model.mjs";
 
 // A corpus the way `build-perf-corpus.mjs` writes one: one entry per case and
 // engine, segments of `[ordinal, value, runs]`.
@@ -352,5 +360,151 @@ console.log("shadow analysis checks passed");
     assert.equal(t.lines.warn.length, 0);
   }
 }
+
+// --- the analysis window, and the re-seed that a change to it forces ----------
+
+// Whole series, since 2026-08-13. Widening it recovers 5 of the 11 cases that
+// drifted 1.3x or more across their history and had never been reported: the
+// detector found them, the 80-point window did not reach back far enough.
+assert.equal(DEFAULT_ANALYSIS_WINDOW, Infinity);
+
+// A seen-set written before the window was recorded was built under 80.
+assert.equal(seenWindowOf({ known: [] }), 80);
+assert.equal(seenWindowOf(undefined), 80);
+assert.equal(seenWindowOf({ known: [], window: 80 }), 80);
+
+// The round trip that matters. `Infinity` does not survive JSON — it comes back
+// as `null` — so reading `null` as anything but `Infinity` makes every
+// full-scan run differ from the one before it. That re-seeds nightly, and a
+// re-seed announces nothing, which silences the card permanently while every
+// step stays green.
+{
+  const written = JSON.parse(
+    JSON.stringify({
+      known: ["a"],
+      window: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+        ? DEFAULT_ANALYSIS_WINDOW
+        : null,
+    }),
+  );
+  assert.equal(written.window, null);
+  assert.equal(seenWindowOf(written), DEFAULT_ANALYSIS_WINDOW);
+  assert.equal(
+    seenWindowOf(written) !== DEFAULT_ANALYSIS_WINDOW,
+    false,
+    "a full-scan seen-set must not read as a window change on the next run",
+  );
+}
+
+// Changing it in either direction is a change: boundaries move both ways, and
+// on `record-read/10k-50fields-filter-sort-formula-selective` the 80-point
+// window reports a boundary at position 190 that a full scan does not report
+// at all.
+assert.notEqual(seenWindowOf({ known: [], window: 80 }), DEFAULT_ANALYSIS_WINDOW);
+
+// --- the re-seed decision -----------------------------------------------------
+
+// Exported and checked because `main` is only ever run as a script: nothing in
+// this suite executes a line of it. The first version of this logic lived
+// inline in `main` and referenced `analysisWindow`, which is a parameter of
+// `analyse` and not a binding `main` has. Everything passed. CI found it
+// fourteen minutes into a run, after the corpus had been rebuilt from 180,907
+// rows, and the three steps after it — the ledger, the card and the cache save
+// — were skipped.
+
+// No stored window: a seen-set from before the field existed, handled by
+// `seenWindowOf` rather than here.
+assert.equal(reseedDecision({ cachedWindow: undefined }).reseeding, false);
+
+// Steady state. This is the one that has to hold every night, and the one the
+// `Infinity`/`null` round trip would have broken.
+assert.equal(
+  reseedDecision({ cachedWindow: DEFAULT_ANALYSIS_WINDOW }).reseeding,
+  false,
+);
+
+// Widened. Announce nothing, and say why in both the log and an annotation.
+{
+  const decision = reseedDecision({
+    cachedWindow: 80,
+    freshCount: 117,
+    knownCount: 300,
+  });
+  assert.equal(decision.reseeding, true);
+  assert.match(decision.reason, /window changed from 80 to full-history/);
+  assert.match(decision.reason, /117 change points/);
+  assert.match(decision.reason, /300 keys/);
+  assert.match(decision.warning, /^::warning title=/);
+}
+
+// Narrowed, which is the same problem in the other direction.
+assert.equal(
+  reseedDecision({ cachedWindow: DEFAULT_ANALYSIS_WINDOW, analysisWindow: 80 })
+    .reseeding,
+  true,
+);
+
+// --- and the other thing that moves every boundary ------------------------------
+
+// A seen-set written before the corpus substituted anything records no metric
+// revision. Read as the pre-substitution state, so the first run after the swap
+// re-seeds once rather than announcing twenty cases' histories.
+assert.equal(seenMetricsOf({}), "primary-metric");
+assert.equal(seenMetricsOf(undefined), "primary-metric");
+assert.equal(seenMetricsOf({ metrics: "x>y" }), "x>y");
+
+// Round-tripped through JSON, because that is how it travels and how the window
+// field broke: `window: null` read back as `null` rather than `Infinity` and
+// would have re-seeded nightly, silencing the card for good.
+{
+  const written = JSON.parse(
+    JSON.stringify({
+      known: [],
+      window: null,
+      metrics: corpusMetricRevision(),
+    }),
+  );
+  assert.equal(
+    reseedDecision({
+      cachedWindow: seenWindowOf(written),
+      cachedMetrics: seenMetricsOf(written),
+    }).reseeding,
+    false,
+    "a seen-set this run wrote must not re-seed the next one",
+  );
+}
+
+// The substitution landing for the first time.
+{
+  const decision = reseedDecision({
+    cachedWindow: DEFAULT_ANALYSIS_WINDOW,
+    cachedMetrics: "primary-metric",
+    freshCount: 240,
+    knownCount: 577,
+  });
+  assert.equal(decision.reseeding, true);
+  assert.match(decision.reason, /changed which metric it records/);
+  assert.match(decision.reason, /primary-metric →/);
+  assert.match(decision.reason, /240 change points/);
+  assert.doesNotMatch(decision.reason, /window changed/);
+}
+
+// Both at once reads as both, rather than whichever is checked first.
+{
+  const decision = reseedDecision({
+    cachedWindow: 80,
+    cachedMetrics: "primary-metric",
+  });
+  assert.match(decision.reason, /window changed from 80 to full-history/);
+  assert.match(decision.reason, /changed which metric it records/);
+}
+
+// Nothing cached is the cold start, which has its own handling, and must not be
+// turned into a re-seed by the metric field being absent too.
+assert.equal(
+  reseedDecision({ cachedWindow: undefined, cachedMetrics: undefined })
+    .reseeding,
+  false,
+);
 
 console.log("shadow analysis old-gate and seen-set recovery checks passed");

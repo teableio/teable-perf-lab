@@ -186,3 +186,127 @@ export const attributionCandidates = ({
 
   return { alsoPossible, unmeasuredBetween };
 };
+
+/**
+ * How much this case slowed at this boundary, in its own wall-clock terms.
+ *
+ * Detection runs on `log(v2) − log(v1)` and `ratio` is that paired figure. The
+ * control channel is what makes detection immune to a runner that was slow all
+ * night, and it stays — but it is a ruler, not a finding. A reader shown
+ * "0.42s → 1.01s" beside a paired "2.3x" is being asked to reconcile two
+ * numbers that do not divide into each other.
+ *
+ * So a change point is judged on the pair and reported on V2. Where a record
+ * carries no levels — everything written before attribution existed — the
+ * paired ratio is all there is, and it is used rather than the row being
+ * dropped.
+ */
+export const reportedFactor = (point) => {
+  const before = point?.v2Level?.before;
+  const after = point?.v2Level?.after;
+  if (Number.isFinite(before) && Number.isFinite(after) && before > 0) {
+    return after / before;
+  }
+  return point?.ratio;
+};
+
+/**
+ * Did V2 itself get slower here, or did the pair separate because V1 got
+ * faster?
+ *
+ * `ratio` above 1 means the gap widened and nothing more. One of the thirteen
+ * V2-mover slowdowns on record reads 1.28x on the pair while V2 went 1231ms to
+ * 627ms — a case that got twice as fast, which a card reading the pair alone
+ * would call a regression.
+ *
+ * `v2Level` is absent on records written before attribution existed. Those are
+ * kept rather than dropped: the ratio is all there is, and silently discarding
+ * the rows that cannot be checked would shrink the list without saying so.
+ */
+export const isRegression = (point) => {
+  if (!Number.isFinite(point?.ratio) || point.ratio <= 1) {
+    return false;
+  }
+  const before = point.v2Level?.before;
+  const after = point.v2Level?.after;
+  if (!Number.isFinite(before) || !Number.isFinite(after)) {
+    return true;
+  }
+  return after > before;
+};
+
+/**
+ * The change points that say a case got slower, worst first.
+ *
+ * Speedups are excluded rather than sorted last — two thirds of all confirmed
+ * change points are speedups, 246 of 363 across the artifacts on hand, and
+ * there is no action to take on one.
+ *
+ * `mover: v1` is excluded for a stronger reason than ranking it last. The
+ * levels are V2's and the ratio is the pair's, and on a v1 row those disagree
+ * past the point of being read together: `table-delete/50k-20f` renders as
+ * "37ms → 40ms · 慢2.2x", a flat series beside a 2.2x that is entirely V1
+ * getting faster. There is nothing in V2 to open.
+ */
+export const rankRegressions = (points = []) =>
+  points
+    .filter((point) => point?.mover !== "v1" && isRegression(point))
+    .sort((left, right) => magnitude(right) - magnitude(left));
+
+// Ordered on what a row actually says, so the worst row is the worst slowdown
+// a reader can see rather than the widest gap against a control never shown.
+const magnitude = (point) => {
+  const factor = reportedFactor(point);
+  return Number.isFinite(factor) && factor > 0 ? Math.abs(Math.log(factor)) : 0;
+};
+
+// How far above where a case sits today a step's own level may stand before the
+// step stops counting as a reason the case is slow now.
+//
+// The two levels are measured differently on purpose — a step's `after` is an
+// 8-point median at the boundary, "today" is a 20-point median at the end of
+// the series — so they do not agree closely even when nothing changed between
+// them, and the bar has to be loose enough to survive that. Measured across the
+// fourteen standing cases in the corpus, the steps that genuinely explain their
+// case sit between 0.77x and 1.39x of the current level, and the one that does
+// not sits at 6.4x. Anything from about 1.5x to 5x separates them; 1.5x is
+// chosen at the tight end of that gap.
+export const RECOVERY_BAR = 1.5;
+
+/**
+ * The slowdowns that still account for where a case sits today, worst first.
+ *
+ * `rankRegressions` answers "which step was biggest", which is the wrong
+ * question to ask about a case that is *currently* slow. Measured on the real
+ * corpus, the biggest step on
+ * `lookup/customer-update-user-update-order-4k-depth5` runs 1335ms → 10417ms —
+ * and the case sits at 1616ms today, because the level came back down after it.
+ * That commit is a genuine change point and a genuinely bad one; it is not why
+ * the case is slow now, and a row naming it sends whoever triages at a problem
+ * that is no longer there.
+ *
+ * So a step is dropped when the case has since come down `RECOVERY_BAR` below
+ * the level that step left it at. Tested against the current level rather than
+ * against later change points, because the recovery does not have to be a
+ * change point: on that same case it was gradual, nothing confirmed, and
+ * netting confirmed speedups against confirmed slowdowns left the 10417ms step
+ * still standing at the top of the list. The observed level is the fact; the
+ * detector's account of how it got there is not always complete.
+ *
+ * `currentLevel` is the standing row's `v2Now`. Without one, nothing is
+ * dropped — a caller with no current level is asking a different question, and
+ * silently filtering on a level it did not supply would be worse than ranking
+ * on size alone.
+ */
+export const survivingSteps = (points = [], { currentLevel } = {}) => {
+  const ranked = rankRegressions(points);
+  if (!(currentLevel > 0)) {
+    return ranked;
+  }
+  return ranked.filter((point) => {
+    const after = point?.v2Level?.after;
+    // No levels on this record — it predates attribution and cannot be tested.
+    // Kept, rather than dropped on a test that could not run.
+    return !Number.isFinite(after) || after <= currentLevel * RECOVERY_BAR;
+  });
+};

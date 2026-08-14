@@ -143,7 +143,8 @@ export const resultCounts = (payloads) => {
   return counts;
 };
 
-const chartUrlForCase = (caseId, chartUrl) => `${chartUrl ?? ""}#${caseId}`;
+export const chartUrlForCase = (caseId, chartUrl) =>
+  `${chartUrl ?? ""}#${caseId}`;
 
 export const DEFAULT_GITHUB_SUMMARY_MAX_BYTES = 256 * 1024;
 
@@ -366,7 +367,11 @@ const releaseStatColumns = (comparison) => ({
   ],
 });
 
-const collapsiblePanel = ({ title, expanded = false, elements }) => ({
+// Exported for `change-point-card-model.mjs`, which builds the second card of
+// the night. Shared rather than copied: two cards arriving in the same chat
+// that fold, link and space differently read as two systems, and only one of
+// them would get fixed when a Feishu rendering quirk turns up.
+export const collapsiblePanel = ({ title, expanded = false, elements }) => ({
   tag: "collapsible_panel",
   expanded,
   header: {
@@ -388,14 +393,14 @@ const collapsiblePanel = ({ title, expanded = false, elements }) => ({
   elements,
 });
 
-const larkDiv = (content) => ({
+export const larkDiv = (content) => ({
   tag: "div",
   text: { tag: "lark_md", content },
 });
 
 // Every card carries them, because a card is forwarded on its own and the reader
 // who receives it has no other way back to the run.
-const linkButtons = (context) => ({
+export const linkButtons = (context) => ({
   tag: "action",
   actions: [
     {
