@@ -741,11 +741,16 @@ its neighbours: the fanout cases did not slow down once, they climbed four
 consecutive mainline commits, and a row naming one of the four as _the_ cause is
 wrong in a way the reader cannot see.
 
-One smaller thing fell out of rendering it against the real rows. The ±1
-attribution caveat used to hang under the change point section; standing rows
-carry SHAs now, so on a standing-only card it shipped SHAs with the caveat
-missing. It is rendered once, below both sections, whenever anything on the card
-names a commit.
+Two smaller things fell out of rendering it against the real rows:
+
+- The ±1 attribution caveat used to hang under the change point section.
+  Standing rows carry SHAs now, so on a standing-only card it shipped SHAs with
+  the caveat missing. It is rendered once, below both sections, whenever
+  anything on the card names a commit.
+- `formatRange` picked its unit from the larger end, so
+  `form-submit/sequential-500-multiple-select-100fields` at 82ms → 105ms
+  rendered as `0.08s → 0.10s`. Two decimals of seconds cannot show a move the
+  smaller end is sensitive to. The smaller end picks the unit.
 
 ### Deliberately not done
 

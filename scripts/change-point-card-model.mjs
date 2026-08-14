@@ -100,10 +100,14 @@ const shortSha = (sha) => (typeof sha === "string" ? sha.slice(0, 8) : "?");
  *
  * `formatMetricSeconds` switches at 100ms, which is right for a single figure
  * and wrong for a pair: `56ms → 0.15s` asks the reader to convert before they
- * can see it roughly tripled. The larger end picks the unit for both.
+ * can see it roughly tripled. So one unit covers both ends — and the *smaller*
+ * end picks it, because seconds at two decimals cannot show a move the smaller
+ * end is sensitive to. `form-submit/sequential-500-multiple-select-100fields`
+ * went 82ms to 105ms and rendered as `0.08s → 0.10s`, which reads as a rounding
+ * artifact rather than the 1.3x it is.
  */
 export const formatRange = (then, now) =>
-  Math.max(then, now) < 100
+  Math.min(then, now) < 100
     ? `${Math.round(then)}ms → ${Math.round(now)}ms`
     : `${(then / 1000).toFixed(2)}s → ${(now / 1000).toFixed(2)}s`;
 
