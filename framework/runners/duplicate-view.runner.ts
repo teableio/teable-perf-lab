@@ -586,7 +586,7 @@ export const runDuplicateViewCase = async (
     });
   } catch (error) {
     throw new PerfRunDiagnosticError(
-      error instanceof Error ? error.message : String(error),
+      error,
       buildResult({
         config: perfCase.config,
         fixture,
