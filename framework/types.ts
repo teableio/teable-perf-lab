@@ -127,11 +127,30 @@ export interface PerfRunResult {
 }
 
 export class PerfRunDiagnosticError extends Error {
-  constructor(
-    message: string,
-    public readonly result: PerfRunResult,
-  ) {
-    super(message);
+  /**
+   * `cause` is the original failure, or a message when there was no error
+   * object — a watchdog timeout has nothing to wrap.
+   *
+   * Taking the error rather than its message is what lets the server's own
+   * response survive. Every runner used to pass
+   * `error instanceof Error ? error.message : String(error)`, which discarded
+   * the axios error before anything could read `response.data`; five cases
+   * failed eleven times over two days and CI printed only
+   * `Request failed with status code 500`. `normalizePerfError` walks
+   * `cause` for that response now.
+   */
+  // A plain field rather than a parameter property. Node's strip-only
+  // TypeScript mode — how `pnpm check` runs every test in this directory —
+  // refuses a parameter property, so no test could import this class. That is
+  // why the wrapper went untested while every runner threw through it.
+  readonly result: PerfRunResult;
+
+  constructor(cause: unknown, result: PerfRunResult) {
+    super(
+      cause instanceof Error ? cause.message : String(cause),
+      cause instanceof Error ? { cause } : undefined,
+    );
+    this.result = result;
     this.name = "PerfRunDiagnosticError";
   }
 }

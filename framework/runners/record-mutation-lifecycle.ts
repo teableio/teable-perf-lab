@@ -261,7 +261,7 @@ export const runRecordMutationLifecycle = async <
     } catch (error) {
       primaryMeasurement ??= partialPrimaryMeasurementFrom<TPrimary>(error);
       throw new PerfRunDiagnosticError(
-        error instanceof Error ? error.message : String(error),
+        error,
         spec.buildResult({
           config,
           fixture,

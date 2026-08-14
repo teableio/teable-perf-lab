@@ -247,20 +247,17 @@ const runDeleteStreamMeasuredOperation = async (
       assertDeleted(fixture),
     );
   } catch (error) {
-    throw new PerfRunDiagnosticError(
-      error instanceof Error ? error.message : String(error),
-      {
-        metrics: {},
-        thresholds: [],
-        details: {
-          partialPrimaryMeasurement: {
-            name: config.threshold.metric,
-            durationMs,
-            result,
-          } satisfies Measurement<DeleteStreamPrimaryResult>,
-        },
+    throw new PerfRunDiagnosticError(error, {
+      metrics: {},
+      thresholds: [],
+      details: {
+        partialPrimaryMeasurement: {
+          name: config.threshold.metric,
+          durationMs,
+          result,
+        } satisfies Measurement<DeleteStreamPrimaryResult>,
       },
-    );
+    });
   }
   return {
     name: config.threshold.metric,
