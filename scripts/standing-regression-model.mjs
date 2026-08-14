@@ -19,12 +19,18 @@
 //   - **It needs no seen-set.** "Still slower" is true every day until someone
 //     fixes it, and a status list that suppressed repeats would empty itself
 //     out while the problem stood.
-//   - **It cannot name a commit.** It says a case is slower than it was; the
-//     confirmed layer is what says who did it. The two belong on one card
-//     precisely because neither is the whole answer.
+//   - **It does not itself name a commit.** It says a case is slower than it
+//     was; the confirmed layer is what says who did it. But the confirmed layer
+//     runs over the same full history in the same pass, so where it has an
+//     answer for a standing case, `attributeStanding` below carries it onto the
+//     row rather than leaving the reader to match two lists by eye.
 //
 // Measured against the full history on 2026-08-13, this reports 15 cases. Ten
 // of them the confirmed layer had already attributed; five it never had.
+//
+// `change-point-attribution-model.mjs` is a leaf and imports nothing, so the
+// join below can reach for its regression rule rather than restating it. The
+// card imports from both; nothing imports the card.
 //
 // The control channel is what makes the list worth reading. Comparing V2
 // against its own past says nothing about whether the *machine* got slower, and
@@ -34,6 +40,8 @@
 // mostly the runner — one of them, `lookup/dual-link-computed-repoint-2k`, has
 // a control that moved 96x, and reading V2 alone would have called its 2.25x a
 // regression while the pair says V2 got relatively faster.
+
+import { survivingSteps } from "./change-point-attribution-model.mjs";
 
 // Points at each end of the segment that define "then" and "now".
 //
@@ -165,4 +173,84 @@ export const standingRegressions = ({
   return rows
     .sort((left, right) => right.pairedDrift - left.pairedDrift)
     .slice(0, limit);
+};
+
+/**
+ * Which commit made each standing case slow.
+ *
+ * The two lists are produced by the same pass over the same full history: the
+ * standing row says a case has not come back, and the confirmed layer has
+ * already worked out, for every case it can detect on, which commit pair each
+ * step sits at. Joining them costs nothing and answers the question the card
+ * was leaving open — "it is 2.5x slower" invites "since when, and by whom", and
+ * that answer was being computed and thrown away.
+ *
+ * Eligibility is `survivingSteps`, not the case's biggest step. A standing row
+ * is about where the case sits *today*, and the biggest step in its history may
+ * have been taken back — measured on the real corpus, the biggest step on
+ * `lookup/customer-update-user-update-order-4k-depth5` runs 1335ms → 10417ms
+ * against a case now sitting at 1616ms. Naming that commit would point triage
+ * at a problem that is no longer there, which is why the current level is
+ * passed down rather than the steps being ranked on size alone.
+ *
+ * `introducedBy` is the largest surviving step and `otherSteps` counts the
+ * rest rather than hiding them: `lookup/foreign-select-flip-1of40-fanout100-4k`
+ * did not slow down once, it climbed four consecutive mainline commits, and a
+ * row naming one of the four as *the* cause would be wrong in a way the reader
+ * cannot see. The drift the row prints is the net of everything between the
+ * ends, which is why the commit is offered as where the largest step landed
+ * rather than as the whole account.
+ *
+ * `unattributed` says why a row has no commit, because a silent row reads as a
+ * failed lookup:
+ *
+ *   - `screened` — the measurability screen kept this case out of detection, so
+ *     nothing ever had the chance to attribute it. This is the reason the
+ *     standing list exists at all: `record-read/10k-50fields-group-three-levels`
+ *     is the worst drift in the corpus and no change point will ever name it.
+ *   - `no-step` — the case was detected on and nothing confirmed, or everything
+ *     that confirmed was later taken back. A slope rather than a staircase;
+ *     there is no single commit to name and saying so is the honest answer.
+ */
+export const attributeStanding = ({
+  standing = [],
+  confirmed = [],
+  unjudged = [],
+} = {}) => {
+  const byCase = new Map();
+  for (const point of confirmed) {
+    if (!point?.caseId) {
+      continue;
+    }
+    if (!byCase.has(point.caseId)) {
+      byCase.set(point.caseId, []);
+    }
+    byCase.get(point.caseId).push(point);
+  }
+  const screened = new Set(unjudged);
+
+  return standing.map((row) => {
+    const steps = survivingSteps(byCase.get(row.caseId) ?? [], {
+      currentLevel: row.v2Now,
+    });
+    if (steps.length === 0) {
+      return {
+        ...row,
+        unattributed: screened.has(row.caseId) ? "screened" : "no-step",
+      };
+    }
+    const [largest] = steps;
+    return {
+      ...row,
+      introducedBy: {
+        beforeCommit: largest.beforeCommit,
+        afterCommit: largest.afterCommit,
+        v2Before: largest.v2Level?.before,
+        v2After: largest.v2Level?.after,
+        alsoPossible: largest.alsoPossible ?? [],
+        unmeasuredBetween: largest.unmeasuredBetween,
+      },
+      otherSteps: steps.length - 1,
+    };
+  });
 };

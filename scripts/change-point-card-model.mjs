@@ -26,7 +26,11 @@
 // must not go quiet — ten shadow runs cannot pass for ten empty ones — is the
 // job summary and the artifact, both of which are written either way.
 
-import { DRIFT_BAR } from "./standing-regression-model.mjs";
+import {
+  isRegression,
+  rankRegressions,
+  reportedFactor,
+} from "./change-point-attribution-model.mjs";
 import {
   chartUrlForCase,
   collapsiblePanel,
@@ -52,27 +56,23 @@ export const SEVERE_CHANGE_POINT_RATIO = 2;
 // many that the rest are unreachable — the remainder folds away.
 export const STANDING_LIMIT = 6;
 
-/**
- * How much this case slowed, in its own wall-clock terms.
- *
- * Detection runs on `log(v2) − log(v1)` and `ratio` is that paired figure. The
- * V1 control channel is what makes detection immune to a runner that was slow
- * all night, and it stays — but it is a ruler, not a finding, and it is not on
- * this card. A reader who is shown "0.42s → 1.01s" beside a paired "2.3x" is
- * being asked to reconcile two numbers that do not divide into each other.
- *
- * So the row is judged on the pair and reported on V2. Where a record carries
- * no levels — everything written before attribution existed — the paired ratio
- * is all there is, and it is used rather than the row being dropped.
- */
-export const reportedFactor = (point) => {
-  const before = point?.v2Level?.before;
-  const after = point?.v2Level?.after;
-  if (Number.isFinite(before) && Number.isFinite(after) && before > 0) {
-    return after / before;
-  }
-  return point?.ratio;
-};
+// Re-exported rather than redefined. Both live with attribution now — the
+// standing join needs the same rule, and `standing-regression-model.mjs` cannot
+// import this file without a cycle.
+export { isRegression, reportedFactor };
+
+// What the standing section is, in the two sentences a reader needs before the
+// rows make sense. It is not the change point list twice: those rows say a
+// commit moved something *this run*, these say a case has not come back,
+// however long ago it went.
+export const STANDING_NOTE =
+  "当前比历史起点慢的用例，不论多久以前造成的。修好了会自动消失。";
+
+// Only when a change point section sits above it. On a card pushed for a newly
+// standing case there is no "上面" to contrast with, and the sentence sends the
+// reader looking for a section that is not there.
+export const STANDING_CONTRAST =
+  "与上面的区别：上面是本轮新确认的，这里是至今没恢复的，可能是几周前的事。";
 
 // Owed to triage since the ±1 tolerance was signed off, and never delivered
 // anywhere a person reads. `docs/perf-alerting-todo.md` records the case it
@@ -80,74 +80,18 @@ export const reportedFactor = (point) => {
 // boundary landed one position late and the change point named an innocent
 // neighbour. A SHA in an alert reads as "this one", and whoever triages opens
 // exactly the commit named.
-// What the standing section is, in the two sentences a reader needs before the
-// rows make sense. It is not the change point list twice: those rows say a
-// commit moved something, these say a case has not come back. Ten of the
-// fifteen on record had been attributed; five never had.
-export const STANDING_NOTE =
-  "当前比历史起点慢的用例，不论是谁、多久以前造成的。修好了会自动消失。";
-
-// Only when a change point section sits above it. On a card pushed for a newly
-// standing case there is no "上面" to contrast with, and the sentence sends the
-// reader looking for a section that is not there.
-export const STANDING_CONTRAST =
-  "与上面的区别：上面说某个 commit 改变了什么，这里说某个用例至今没恢复。";
-
+//
+// Rendered wherever a SHA is, which is both sections now that standing rows
+// carry one. Hanging it under the change point section alone would put SHAs on
+// a standing-only card with the caveat missing — and the standing-only card is
+// the common one, since a night with no new change point is the normal night.
 export const ATTRIBUTION_NOTE =
   "定位精度为相邻 1 个 commit。命名的 commit 可能是真凶的邻居，两个都要看。标出「区间内 N 个未测」的，真凶在这段范围里，不止命名的这一个。";
 
-/**
- * Did V2 itself get slower here, or did the pair separate because V1 got
- * faster?
- *
- * The detector runs on `log(v2) − log(v1)`, so `ratio` above 1 means the gap
- * widened and nothing more. One of the thirteen V2-mover slowdowns on record
- * reads 1.28x on the pair while V2 went 1231ms to 627ms — a case that got
- * twice as fast, on a card that would have called it a regression.
- *
- * `v2Level` is absent on records written before attribution existed. Those are
- * kept rather than dropped: the ratio is all there is, and silently discarding
- * the rows that cannot be checked would shrink the list without saying so.
- */
-export const isRegression = (point) => {
-  if (!Number.isFinite(point?.ratio) || point.ratio <= 1) {
-    return false;
-  }
-  const before = point.v2Level?.before;
-  const after = point.v2Level?.after;
-  if (!Number.isFinite(before) || !Number.isFinite(after)) {
-    return true;
-  }
-  return after > before;
-};
-
-// Ordered and coloured on what the row actually says, so the top row is the
-// worst slowdown a reader can see rather than the widest gap against a control
-// the card never mentions.
-const magnitude = (point) => {
-  const factor = reportedFactor(point);
-  return Number.isFinite(factor) && factor > 0 ? Math.abs(Math.log(factor)) : 0;
-};
-
-/**
- * The rows the card shows, worst first.
- *
- * Speedups are excluded rather than sorted to the bottom. Two thirds of all
- * confirmed change points are speedups — 246 of 363 across the artifacts on
- * hand — and there is no action to take on one. Their count is stated on the
- * card so the exclusion is visible rather than silent.
- *
- * `mover: v1` is excluded for a stronger reason than ranking it last. The
- * printed levels are V2's and the printed ratio is the pair's, and on a v1 row
- * those two disagree past the point of being read together: `table-delete/50k-20f`
- * renders as "37ms → 40ms · 慢2.2x", which is a flat series beside a 2.2x. The
- * 2.2x is real and it is entirely V1 getting faster. There is nothing in V2 to
- * open, so it is counted with the control-side changes instead.
- */
-export const rankChangePoints = (confirmed = []) =>
-  confirmed
-    .filter((point) => point?.mover !== "v1" && isRegression(point))
-    .sort((left, right) => magnitude(right) - magnitude(left));
+// The rows the card shows, worst first. The rule is the same one the standing
+// join uses, and lives with attribution; the count of what it excluded is
+// stated on the card so the exclusion is visible rather than silent.
+export const rankChangePoints = rankRegressions;
 
 const shortSha = (sha) => (typeof sha === "string" ? sha.slice(0, 8) : "?");
 
@@ -163,10 +107,46 @@ export const formatRange = (then, now) =>
     ? `${Math.round(then)}ms → ${Math.round(now)}ms`
     : `${(then / 1000).toFixed(2)}s → ${(now / 1000).toFixed(2)}s`;
 
+/**
+ * Where the largest step landed, or why there is no commit to name.
+ *
+ * A standing row without this was the card's loudest omission: "2.5x slower"
+ * with no answer to "since when". The commit is not new information — the
+ * confirmed layer works it out in the same pass over the same history — it was
+ * being computed and dropped, because the two lists were assembled separately.
+ *
+ * The two silent cases are named rather than left blank. A row that just stops
+ * after the ratio reads as a lookup that failed, and the reason it stopped is
+ * worth as much as a SHA would be: `noisy` means detection was never allowed to
+ * look, `渐变` means it looked and found no step.
+ */
+export const standingAttributionText = (row) => {
+  const introduced = row?.introducedBy;
+  if (!introduced) {
+    return row?.unattributed === "screened"
+      ? "波动太大，检测不到台阶"
+      : "渐变，没有单个台阶";
+  }
+  const parts = [
+    `最大台阶在 \`${shortSha(introduced.beforeCommit)}\`→\`${shortSha(introduced.afterCommit)}\``,
+  ];
+  if (row.otherSteps > 0) {
+    // A staircase, not a step. Four consecutive mainline commits each moved the
+    // fanout cases, and naming one of the four as the cause would be wrong in a
+    // way the row cannot show.
+    parts.push(`另有 ${row.otherSteps} 处台阶`);
+  }
+  if (introduced.unmeasuredBetween > 0) {
+    parts.push(`区间内 ${introduced.unmeasuredBetween} 个 commit 未测`);
+  }
+  return parts.join(" · ");
+};
+
 export const formatStandingLine = (row, chartUrl) =>
   `**[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**\n` +
   `${formatRange(row.v2Then, row.v2Now)} · ` +
-  `${formatRatioFactor(row.pairedDrift) ?? "—"} · ${row.points} 个历史点`;
+  `${formatRatioFactor(row.pairedDrift) ?? "—"} · ${row.points} 个历史点\n` +
+  standingAttributionText(row);
 
 /**
  * The commits `alsoPossible` names that the row does not already print.
@@ -370,6 +350,11 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
       .join("\n\n");
 
   const hasChangePoints = summary.regressions.length > 0;
+  // Whether anything on this card names a commit. Both sections do now, and the
+  // framing a SHA needs — that it is a mainline commit which may be much older
+  // than tonight's build — belongs to whichever section put one there.
+  const namesACommit =
+    hasChangePoints || standing.some((row) => row.introducedBy);
   const headLines = [
     [
       hasChangePoints
@@ -382,9 +367,11 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
         : []),
     ].join(" · "),
     ...(hasChangePoints
+      ? [`本轮共确认 ${summary.total} 个变更点，另外 ${breakdown}，不在下面`]
+      : []),
+    ...(namesACommit
       ? [
-          `本轮共确认 ${summary.total} 个变更点，另外 ${breakdown}，不在下面`,
-          `变更点归属于 mainline 上的某个 commit${context.teableRef ? `，可能比本轮测的 \`${shortSha(context.teableRef)}\` 早很多` : "，不一定是本轮测的版本"}`,
+          `commit 归属于 mainline${context.teableRef ? `，可能比本轮测的 \`${shortSha(context.teableRef)}\` 早很多` : "，不一定是本轮测的版本"}`,
         ]
       : []),
     `耗时均为 V2`,
@@ -425,7 +412,6 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
                     }),
                   ]
                 : []),
-              larkDiv(ATTRIBUTION_NOTE),
             ]
           : []),
         // Second section, and a different question: not who moved something,
@@ -456,6 +442,10 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
               }),
             ]
           : []),
+        // Once, below both sections, rather than under the change point rows.
+        // Standing rows name commits too, and the standing-only card is the
+        // common one — a quiet night for the detector is the normal night.
+        ...(namesACommit ? [larkDiv(ATTRIBUTION_NOTE)] : []),
         { tag: "hr" },
         linkButtons(context),
       ],
