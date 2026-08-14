@@ -232,4 +232,34 @@ assert.equal(segmentSeries([point(1), point(2), point(3)]).length, 1);
 // otherwise by cutting nothing or everything.
 assert.equal(segmentSeries([point(1), point(2), point(3)], {}).length, 1);
 
+// --- the series' metric --------------------------------------------------------
+
+// Carried at the series level, not only per point. The standing list refuses
+// metrics that are a clamped difference, and a refusal keyed on a field the
+// corpus does not write refuses nothing — which is how a no-op guard shipped.
+{
+  const { series } = buildOrderedSeries({
+    rows: [
+      { caseId: "a", engine: "v2", commit: "a".repeat(40), value: 1, metric: "durationMs", result: "pass" },
+      { caseId: "a", engine: "v2", commit: "b".repeat(40), value: 2, metric: "durationMs", result: "pass" },
+    ],
+    ordinals: { ["a".repeat(40)]: 1, ["b".repeat(40)]: 2 },
+  });
+  assert.equal(series.get("a::v2").metric, "durationMs");
+}
+
+// Points that disagree leave it undefined rather than picking the first. A
+// disagreement means the metric was renamed mid-history; `segmentSeries` cuts
+// there, so no segment spans both and no single name describes the series.
+{
+  const { series } = buildOrderedSeries({
+    rows: [
+      { caseId: "a", engine: "v2", commit: "a".repeat(40), value: 1, metric: "oldMs", result: "pass" },
+      { caseId: "a", engine: "v2", commit: "b".repeat(40), value: 2, metric: "newMs", result: "pass" },
+    ],
+    ordinals: { ["a".repeat(40)]: 1, ["b".repeat(40)]: 2 },
+  });
+  assert.equal(series.get("a::v2").metric, undefined);
+}
+
 console.log("commit order model checks passed");

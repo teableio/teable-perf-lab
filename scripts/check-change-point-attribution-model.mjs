@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import {
   attributeMovement,
   attributionCandidates,
+  isRegression,
   levelsAcross,
   MOVEMENT_BAR,
+  rankRegressions,
+  RECOVERY_BAR,
+  reportedFactor,
+  survivingSteps,
 } from "./change-point-attribution-model.mjs";
 
 const sha = (char) => char.repeat(40);
@@ -182,6 +187,113 @@ assert.deepEqual(
     next: [12, "#12"],
   }).alsoPossible,
   [],
+);
+
+// --- what the change point is reported as ---------------------------------------
+
+const step = ({ v2Before, v2After, ratio, mover = "v2", ...rest }) => ({
+  ratio: ratio ?? v2After / v2Before,
+  mover,
+  v2Level:
+    v2Before === undefined ? undefined : { before: v2Before, after: v2After },
+  ...rest,
+});
+
+// Judged on the pair, reported on V2.
+assert.equal(reportedFactor(step({ v2Before: 613, v2After: 1216 })), 1216 / 613);
+// No levels: the paired ratio is all there is, and it is used rather than the
+// record being dropped.
+assert.equal(reportedFactor({ ratio: 1.4 }), 1.4);
+
+// A widening pair is not a regression when V2 is the half that got faster.
+assert.equal(isRegression(step({ ratio: 1.28, v2Before: 1231, v2After: 627 })), false);
+assert.equal(isRegression(step({ v2Before: 400, v2After: 600 })), true);
+assert.equal(isRegression(undefined), false);
+
+// Speedups and control-side movements are excluded rather than ranked last.
+{
+  const slower = step({ id: "slower", v2Before: 400, v2After: 1200 });
+  const faster = step({ id: "faster", v2Before: 900, v2After: 400 });
+  const control = step({
+    id: "control",
+    v2Before: 37,
+    v2After: 40,
+    ratio: 2.2,
+    mover: "v1",
+  });
+  const small = step({ id: "small", v2Before: 400, v2After: 500 });
+  assert.deepEqual(
+    rankRegressions([small, faster, control, slower]).map((point) => point.id),
+    ["slower", "small"],
+  );
+}
+
+// --- steps that are still standing ------------------------------------------------
+
+// The measured case this exists for. The biggest step in the history ran
+// 1335ms → 10417ms and the case sits at 1616ms today; naming that commit sends
+// triage at a problem that is no longer there.
+{
+  const spike = step({ id: "spike", v2Before: 1335, v2After: 10417 });
+  const stuck = step({ id: "stuck", v2Before: 1004, v2After: 1113 });
+  assert.deepEqual(
+    rankRegressions([spike, stuck]).map((point) => point.id),
+    ["spike", "stuck"],
+    "on size alone the spike wins",
+  );
+  assert.deepEqual(
+    survivingSteps([spike, stuck], { currentLevel: 1616 }).map(
+      (point) => point.id,
+    ),
+    ["stuck"],
+    "against where the case sits today it is gone",
+  );
+}
+
+// The bar has to clear the gap between an 8-point boundary median and a
+// 20-point end median. On `lookup/foreign-select-flip-1of40-fanout100-4k` the
+// step that genuinely explains the case reads 1395ms against a current 1001ms —
+// 1.39x apart with nothing wrong.
+{
+  const real = step({ id: "real", v2Before: 634, v2After: 1395 });
+  assert.ok(1395 / 1001 < RECOVERY_BAR);
+  assert.deepEqual(
+    survivingSteps([real], { currentLevel: 1001 }).map((point) => point.id),
+    ["real"],
+  );
+}
+
+// Exactly at the bar is kept; past it is not.
+{
+  const atBar = step({ id: "at", v2Before: 100, v2After: 100 * RECOVERY_BAR });
+  const past = step({
+    id: "past",
+    v2Before: 100,
+    v2After: 100 * RECOVERY_BAR + 1,
+  });
+  assert.deepEqual(
+    survivingSteps([atBar, past], { currentLevel: 100 }).map(
+      (point) => point.id,
+    ),
+    ["at"],
+  );
+}
+
+// No current level to test against, and nothing is dropped. A caller that did
+// not supply one is asking a different question, and filtering on a level it
+// never gave would be worse than ranking on size.
+{
+  const spike = step({ id: "spike", v2Before: 1335, v2After: 10417 });
+  assert.equal(survivingSteps([spike]).length, 1);
+  assert.equal(survivingSteps([spike], { currentLevel: 0 }).length, 1);
+}
+
+// A record with no levels cannot be tested, so it is kept rather than dropped
+// on a test that could not run.
+assert.equal(
+  survivingSteps([step({ id: "old", ratio: 1.6 })], { currentLevel: 100 })
+    .length,
+  1,
 );
 
 console.log("change point attribution model checks passed");

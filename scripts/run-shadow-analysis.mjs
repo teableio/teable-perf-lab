@@ -41,6 +41,12 @@ import {
   detectChangePointsWindowed,
 } from "./change-point-model.mjs";
 import { pairedSeries } from "./control-channel-model.mjs";
+import {
+  attributeStanding,
+  driftOf,
+  isStanding,
+} from "./standing-regression-model.mjs";
+import { carriesDrift } from "./corpus-metric-model.mjs";
 import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
@@ -51,8 +57,13 @@ import {
 } from "./change-point-attribution-model.mjs";
 import {
   primaryMetricValue,
+  primaryThreshold,
   readArtifactPayloads,
 } from "./perf-artifact-read-model.mjs";
+import {
+  corpusMetricRevision,
+  corpusMetricValue,
+} from "./corpus-metric-model.mjs";
 
 export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
 
@@ -214,16 +225,134 @@ export const refreshCorpus = async ({ workDir, teableEeRepo }) => {
 
 // How much recent history the per-run confirmed pass looks at.
 //
-// Not the whole series. A change point from three months ago was reported three
-// months ago, and re-deriving it every run costs the windowed pass fourteen
-// times the work of the plain one — measured, a full-history windowed scan runs
-// past ten minutes, against a budget of thirty seconds a run.
+// The whole series, since 2026-08-13. It was 80 points, on the reasoning that a
+// change point from three months ago was reported three months ago and that a
+// full scan costs ten minutes. Both halves turned out to be wrong.
 //
-// Long enough to contain what the detector can act on: the confirmed layer
-// needs about twenty runs behind a regression to reach its stated recall, and
-// this holds four times that. Anything older is the offline periodic scan's
-// job, not this one's.
-export const DEFAULT_ANALYSIS_WINDOW = 80;
+// **The cost.** Measured against the real length distribution — 359 series long
+// enough to detect on, median 234 points, 12 of them past 550 — a full scan is
+// 23s against the window's 8.5s. Fifteen seconds, inside a step that spends 553
+// and gives 43 of them to detection; building the corpus off the 174k-row table
+// is what that step actually costs. Where the ten-minute figure came from was
+// not reproducible; if the real CI number lands far from this, it is the CI
+// number that governs and this comment should be corrected against it.
+//
+// **The claim that old change points were already reported.** Only true back to
+// 2026-08-07, when this started running. Everything before that was never
+// reported by anything: `smoke/auth-user` alone carries three boundaries at
+// positions 103, 136 and 183 of a 591-point series that no run has ever
+// announced. There was no offline periodic scan to pick them up — the comment
+// that deferred them to one described a script that does not exist.
+//
+// The reason this is safe to widen is measured too: full-scan boundaries are
+// stable as points arrive. Simulating six consecutive nights on four real
+// series, a full scan produced 0, 2, 0 and 0 boundaries it had not produced the
+// night before — against 1, 1, 0 and 1 for the 80-point window. Widening costs
+// one noisy transition, not standing churn. `RESEED_ON_WINDOW_CHANGE` below is
+// what absorbs that transition.
+export const DEFAULT_ANALYSIS_WINDOW = Infinity;
+
+/**
+ * The window this seen-set was built under.
+ *
+ * Change the window and the detector answers differently — not more, but
+ * elsewhere. On `record-read/10k-50fields-filter-sort-formula-selective` the
+ * 80-point window reports a boundary at position 190 and a full scan reports
+ * one at 102 and does not report 190 at all. A change point's identity is its
+ * commit pair, so every boundary that moves is a key the seen-set has never
+ * seen, and the first run under a new window announces its whole history as
+ * new. That is the cold start again, arriving by a different door.
+ *
+ * So the window travels with the seen-set. When it changes, the run detects as
+ * normal, folds everything it finds into the seen-set, and announces none of
+ * it — the same trade the cold start makes, for the same reason, decided here
+ * rather than by whoever happens to edit the window.
+ */
+export const seenWindowOf = (parsed) => {
+  // `null` is how a full scan survives JSON — `Infinity` does not serialise, and
+  // `JSON.stringify(Infinity)` is the string "null". Reading it back as `null`
+  // makes every full-scan run differ from the one before it, which re-seeds
+  // nightly and silences the card permanently. Caught before it shipped by
+  // round-tripping the file rather than by reading the code.
+  if (parsed?.window === null) {
+    return Infinity;
+  }
+  // Absent means a seen-set written before the window was recorded, and every
+  // one of those was built under the 80-point window.
+  return parsed?.window === undefined ? 80 : parsed.window;
+};
+
+const windowLabel = (window) =>
+  Number.isFinite(window) ? String(window) : "full-history";
+
+/**
+ * The metric substitution the cached seen-set was built under.
+ *
+ * Absent means a seen-set written before the corpus started substituting, and
+ * every one of those was built on the raw primary metric.
+ */
+export const seenMetricsOf = (parsed) => parsed?.metrics ?? "primary-metric";
+
+/**
+ * Whether this run has to re-seed, and what to say about it.
+ *
+ * Two things move every boundary in a series without anything having changed in
+ * teable-ee, and both of them make the first run after the change announce
+ * histories as findings:
+ *
+ *   - **The analysis window.** On
+ *     `record-read/10k-50fields-filter-sort-formula-selective` the 80-point
+ *     window reports a boundary at position 190 and a full scan reports one at
+ *     102 and does not report 190 at all.
+ *   - **What the corpus records.** Substituting the query component for a
+ *     clamped difference replaces every value in twenty series, and eleven of
+ *     those were screened out of detection entirely before the swap — so their
+ *     whole histories arrive at once, as keys nothing has ever seen.
+ *
+ * Both are compared, and either one re-seeds: the run detects as normal, folds
+ * everything it finds into the seen-set, and announces none of it. Same trade
+ * for the same reason, decided here rather than by whoever edits a constant.
+ *
+ * Pulled out of `main` and exported for one reason: `main` runs only as a
+ * script, so no check executes a line of it. The first version of this read
+ * `analysisWindow` — a parameter of `analyse`, not a binding `main` has — and
+ * the suite passed, because the suite never runs `main`. CI found it fourteen
+ * minutes into a run, after the whole corpus had been rebuilt.
+ */
+export const reseedDecision = ({
+  cachedWindow,
+  analysisWindow = DEFAULT_ANALYSIS_WINDOW,
+  cachedMetrics,
+  metrics = corpusMetricRevision(),
+  freshCount = 0,
+  knownCount = 0,
+} = {}) => {
+  // Nothing cached at all is the cold start, which `isColdStart` handles on its
+  // own terms. Only a seen-set that exists and disagrees re-seeds here.
+  const changed = [];
+  if (cachedWindow !== undefined && cachedWindow !== analysisWindow) {
+    changed.push(
+      `the analysis window changed from ${windowLabel(cachedWindow)} to ${windowLabel(analysisWindow)}`,
+    );
+  }
+  if (cachedMetrics !== undefined && cachedMetrics !== metrics) {
+    changed.push(
+      `the corpus changed which metric it records (${cachedMetrics} → ${metrics})`,
+    );
+  }
+  if (changed.length === 0) {
+    return { reseeding: false };
+  }
+  return {
+    reseeding: true,
+    reason:
+      `Shadow: ${changed.join(", and ")}. ` +
+      `Detection ran and found ${freshCount} change points not in the seen-set, but this moves boundaries — ` +
+      `these are re-detections at shifted commit pairs, not new findings. Folding all ${knownCount} keys in and announcing none. ` +
+      `The next run reports normally.`,
+    warning: `::warning title=Shadow re-seeded after an analysis shape change::${freshCount} change points withheld; see the step log.`,
+  };
+};
 
 /**
  * Both layers over the corpus.
@@ -268,6 +397,8 @@ export const analyse = (
   const fastCases = {};
   const unjudged = [];
   const points = [];
+  const standing = [];
+  let driftless = 0;
   let notMeasured = 0;
   let tested = 0;
 
@@ -275,6 +406,44 @@ export const analyse = (
     if (entry.engine !== "v2") continue;
     const segment = longestSegment(entry);
     const values = segment.map(([, value]) => value);
+
+    // Hoisted above the measurability screen on purpose. The screen decides
+    // whether a series can carry a *detector*; the standing list is two medians
+    // and a division, and needs no such thing. Left below the screen it would
+    // drop `record-read/10k-50fields-group-three-levels`, which the screen calls
+    // `too-noisy` and which has drifted 2.82x against its control — the single
+    // case a full-history scan still cannot reach.
+    const control = series[`${entry.caseId}::v1`];
+    const controlSegment = control
+      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
+      : [];
+    const pairedPoints = control
+      ? pairedSeries({
+          v2: segment.map(([ordinal, value]) => [ordinal, value]),
+          v1: controlSegment,
+        }).points
+      : [];
+    // A metric that is already a difference cannot say "the case got slower":
+    // on both cases this reached the card for, the difference grew because the
+    // baseline got 30% faster. Counted rather than dropped silently, because a
+    // list that quietly omits twenty cases is making a claim about coverage it
+    // cannot support.
+    if (!carriesDrift(entry.metric)) {
+      driftless += 1;
+    } else if (pairedPoints.length > 0) {
+      // Only the V2 points that found a control, in the same order, so the two
+      // series the drift compares describe the same commits.
+      const pairedOrdinals = new Set(pairedPoints.map(([ordinal]) => ordinal));
+      const drift = driftOf({
+        paired: pairedPoints.map(([, value]) => value),
+        v2: segment
+          .filter(([ordinal]) => pairedOrdinals.has(ordinal))
+          .map(([, value]) => value),
+      });
+      if (isStanding(drift)) {
+        standing.push({ caseId: entry.caseId, ...drift });
+      }
+    }
 
     const measurable = measurabilityOf(values);
     if (!measurable.measurable) {
@@ -307,15 +476,8 @@ export const analyse = (
       notMeasured += 1;
     }
 
-    const control = series[`${entry.caseId}::v1`];
     const analysed = control
-      ? pairedSeries({
-          v2: segment.map(([ordinal, value]) => [ordinal, value]),
-          v1: longestSegment(control).map(([ordinal, value]) => [
-            ordinal,
-            value,
-          ]),
-        }).points
+      ? pairedPoints
       : segment.map(([ordinal, value]) => [ordinal, Math.log(value)]);
 
     if (analysed.length < 30) continue;
@@ -327,9 +489,6 @@ export const analyse = (
       seed: 7,
     });
     tested += found.tested;
-    const controlSegment = control
-      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
-      : [];
 
     for (const point of found.points) {
       const beforeOrdinal = recent[point.index - 1]?.[0];
@@ -398,6 +557,24 @@ export const analyse = (
     unjudged,
     tested,
     candidates: points.length,
+    // Sorted here rather than at the card, so the artifact and the card agree
+    // on what "worst" means without either having to re-derive it.
+    //
+    // Attributed against the full confirmed set rather than against the fresh
+    // ones `main` announces. A standing case is standing precisely because its
+    // change point is old news — filtering to tonight's new findings first
+    // would leave every long-standing row unattributed, which is exactly the
+    // rows a reader most wants a commit for.
+    // How many cases the standing list could not judge because their metric is
+    // a difference rather than a duration.
+    driftless,
+    standing: attributeStanding({
+      standing: standing.sort(
+        (left, right) => right.pairedDrift - left.pairedDrift,
+      ),
+      confirmed,
+      unjudged,
+    }),
   };
 };
 
@@ -471,7 +648,15 @@ export const runMeasurements = (payloadEntries = []) => {
     const payload = entry?.payload ?? entry;
     if (payload?.engine !== "v2" || payload?.result !== "pass") continue;
     const caseId = String(payload.caseId ?? "").trim();
-    const value = primaryMetricValue(payload);
+    // The corpus's number, not the case's own. On the twenty cases whose
+    // primary metric is a clamped difference the corpus records the query
+    // component instead, and judging this run's overhead against a history of
+    // query durations compares two instruments and calls the gap a regression.
+    const value = corpusMetricValue({
+      metric: primaryThreshold(payload)?.metric,
+      primaryValue: primaryMetricValue(payload),
+      metrics: payload.metrics,
+    });
     if (!caseId || !(value > 0)) continue;
     if (!byCase.has(caseId)) byCase.set(caseId, []);
     byCase.get(caseId).push(value);
@@ -729,8 +914,13 @@ const main = async () => {
   // own change point.
   const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
   let cached;
+  let cachedWindow;
+  let cachedMetrics;
   try {
-    cached = JSON.parse(await readFile(seenPath, "utf8")).known ?? [];
+    const parsed = JSON.parse(await readFile(seenPath, "utf8"));
+    cached = parsed.known ?? [];
+    cachedWindow = seenWindowOf(parsed);
+    cachedMetrics = seenMetricsOf(parsed);
   } catch {
     cached = undefined;
   }
@@ -739,10 +929,26 @@ const main = async () => {
   reportSeenSources({ cached, recovered, seen });
   const separated = separateFresh(analysis.confirmed, seen);
 
+  // The window moved under an accumulated seen-set, so every boundary that
+  // shifted is a key nobody has seen and this run would announce its whole
+  // history. Fold it in, announce none of it, and say so loudly enough that a
+  // silent night is not mistaken for a quiet one.
+  const reseed = reseedDecision({
+    cachedWindow,
+    cachedMetrics,
+    freshCount: separated.fresh.length,
+    knownCount: separated.known.length,
+  });
+  if (reseed.reseeding) {
+    console.warn(reseed.reason);
+    console.log(reseed.warning);
+  }
+  const fresh = reseed.reseeding ? [] : separated.fresh;
+
   const reconciliation = reconcileRun({
     oldFlagged,
     newFlagged: analysis.fast.flagged.map((entry) => entry.key),
-    confirmed: separated.fresh,
+    confirmed: fresh,
     unjudged: analysis.unjudged,
   });
 
@@ -765,8 +971,38 @@ const main = async () => {
       source: measured ? "run" : "corpus-tail",
       measured: measured ? measured.size : undefined,
     },
-    confirmed: separated.fresh,
+    confirmed: fresh,
+    // Which cases sit slower than they started, whoever did it and however long
+    // ago. Not filtered against the seen-set: "still slower" is true every day
+    // until someone fixes it, and suppressing repeats would empty the list
+    // while the problem stood.
+    standing: (analysis.standing ?? []).map((row) => ({
+      caseId: row.caseId,
+      pairedDrift: Number(row.pairedDrift.toFixed(3)),
+      v2Drift: Number(row.v2Drift.toFixed(3)),
+      v2Then: Number(row.v2Then.toFixed(1)),
+      v2Now: Number(row.v2Now.toFixed(1)),
+      points: row.points,
+      // Which commit stepped it up, when the confirmed layer can say — and when
+      // it cannot, why not. Carried in the artifact rather than re-derived at
+      // the card, so the audit trail and the message name the same commit.
+      introducedBy: row.introducedBy,
+      otherSteps: row.otherSteps,
+      unattributed: row.unattributed,
+    })),
+    // Cases the standing list could not judge because their primary metric is a
+    // difference of two measurements. Stated so a reader can tell "nothing is
+    // standing here" from "this list does not cover these".
+    driftless: analysis.driftless,
     confirmedRepeated: separated.counts.repeated,
+    // The window this run detected under. Carried so the next run can tell a
+    // widened window from an ordinary night; see `seenWindowOf`.
+    analysisWindow: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+      ? DEFAULT_ANALYSIS_WINDOW
+      : null,
+    // And which metric the corpus recorded, for the same reason.
+    corpusMetrics: corpusMetricRevision(),
+    reseeded: reseed.reseeding || undefined,
     // How many change points were already on the record when this run started.
     // Zero means the seen-set was empty and every change point below is a first
     // sighting only because nothing had been recorded before — the cold start,
@@ -792,9 +1028,19 @@ const main = async () => {
   await mkdir(dirname(seenPath), { recursive: true });
   await writeFile(
     seenPath,
-    `${JSON.stringify({ known: separated.known }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        known: separated.known,
+        window: Number.isFinite(DEFAULT_ANALYSIS_WINDOW)
+          ? DEFAULT_ANALYSIS_WINDOW
+          : null,
+        metrics: corpusMetricRevision(),
+      },
+      null,
+      2,
+    )}\n`,
   );
-  const movers = separated.fresh.reduce((tally, point) => {
+  const movers = fresh.reduce((tally, point) => {
     tally[point.mover] = (tally[point.mover] ?? 0) + 1;
     return tally;
   }, {});
@@ -810,7 +1056,10 @@ const main = async () => {
       `(${separated.counts.repeated} already reported), ` +
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
-      `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}) → ${outputPath}`,
+      `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}); ` +
+      `${result.standing.length} cases standing slower than they started ` +
+      `(${result.standing.filter((row) => row.introducedBy).length} with a commit named, ` +
+      `${analysis.driftless} cases not judgeable on a differential metric) → ${outputPath}`,
   );
 };
 

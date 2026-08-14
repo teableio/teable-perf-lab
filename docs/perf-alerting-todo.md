@@ -82,12 +82,31 @@ meaning, since a cleared set reports the whole recent history as fresh again.
 **2. Ledger shape**, once enough nightly runs have been judged to give a
 false-positive rate.
 
-**3. Card mock**, to be reviewed before it is built.
+**3. ~~Card mock.~~ Decided 2026-08-13 and built.** The owner chose a second
+card over a panel on the run summary, carrying the confirmed layer only. Both
+halves of that are recorded where the code is, in
+`scripts/change-point-card-model.mjs`; the short form:
+
+- **A second card, not a panel.** The run summary is sent at step 17 of the
+  report job and the shadow analysis finishes at step 30, nine and a half
+  minutes later on a run that takes thirty. One card means holding the report
+  everyone reads behind the step that is allowed to fail.
+- **Confirmed layer only.** The same-run layer contradicts the release
+  comparison already on the first card, and not by a little: on 2026-08-11 the
+  old gate flagged 32 and the same-run layer flagged 5, agreeing on 4. Which of
+  them is right is what G3 settles, and two counts for one question in the same
+  chat is not something to ship while that is open.
+- **Silent when there is nothing to say.** No card on a night with no new V2
+  slowdown, and none on a cold start — the 2026-08-09 cache miss would have
+  pushed 25 red rows that had all been reported days earlier. The job summary
+  and the artifact are written either way, so the audit trail does not go quiet
+  with the card.
 
 Merged to `main` at `fab8642b` on 2026-08-07, after run 31192079501 read the
 whole history and 31193504224 confirmed the seen-set carries between runs. The
-shadow now runs on every dispatch and reports into the job summary; nothing it
-produces reaches the Feishu card.
+shadow runs on every dispatch and reports into the job summary. Since
+2026-08-13 the confirmed layer also reaches Feishu, on the terms above; the
+same-run layer still does not.
 
 ## Blocked on me, in order
 
@@ -475,6 +494,36 @@ This was got wrong once: a triage document carrying 22 SHAs with their subject
 lines was committed, and the history was rewritten to purge it before anything
 was pushed. Check before committing, not after.
 
+### The subjects are on the runner even though nothing reads them
+
+Asked on 2026-08-13 and worth writing down, because the answer has two halves
+and only the first is reassuring.
+
+**No source code is fetched.** The ordering checkout uses `--filter=tree:0`:
+commit objects only, no trees, no blobs. And the whole surface is four git
+commands, every one of which answers in identifiers — `rev-list` (SHAs),
+`rev-list --count` (a number), `rev-parse HEAD` (a SHA), and `cat-file
+--batch-check` (`<sha> <type> <size>`). No `log`, no `show`, no `--format`.
+`commit-order.json` holds SHAs, ordinals and counts, is written to
+`$RUNNER_TEMP`, and is not among the three files the shadow artifact uploads.
+Every upload path in the workflow names a specific directory; none of them is
+the workspace root, so the clone itself never leaves the runner.
+
+**A commit object carries its own message, and no filter removes that.** So the
+subjects are on the runner's disk regardless. Nothing reads them today. The
+exposure is one debugging line away: a `git log --oneline` added while chasing
+an ordering bug prints into a public log, exits zero, and looks like every
+other green step.
+
+`scripts/check-private-repo-git-reads.mjs` is the guard, added the same day. It
+holds the shape of the access — an allowlist of subcommands whose output is
+identifiers, a denylist of the flags that turn one of those into a printer of
+prose, and a rule that a file cannot start running git against the clone
+without being named. It scans the whole source tree rather than a list of files,
+because the first version listed files and a new file would not have been on it.
+It is a static read of source text: it catches the accident it was built for,
+not a command assembled at runtime or anyone determined to get around it.
+
 ## A confirmed change point does not always mean V2 moved
 
 The confirmed layer detects on the paired series, `log(v2) − log(v1)`, which is
@@ -537,9 +586,14 @@ commits sitting one mainline position either side of the one it names, and
 before the boundary and the one after. The second number is the one to read when
 it is large — a hundred unmeasured commits in the gap means the named commit
 ends a range rather than answering the question, and no ±1 phrasing covers that.
-Telling triage about the tolerance is still owed. With the 44-item list dropped
-it now belongs wherever the nightly output is read — the card, or the ledger
-once it exists — rather than in code.
+Telling triage about the tolerance was owed from the day it was signed off and
+is now paid, on 2026-08-13. `ATTRIBUTION_NOTE` in
+`scripts/change-point-card-model.mjs` sits under the rows on every change point
+card: the named commit may be the neighbour, both are worth opening, and a row
+carrying "区间内 N 个未测" names a range rather than a culprit. The rows
+themselves print `alsoPossible` when it holds a commit the row has not already
+named, and `unmeasuredBetween` only when it is non-zero — a "0 个未测" on every
+row is a number nobody would keep reading.
 
 ## Findings this produced along the way
 
@@ -568,3 +622,239 @@ The first issue was filed with a claim that had to be retracted afterwards: a
 1.90x between adjacent runs of identical code. That is what the measurability
 screen now exists to prevent, and it is the reason the screen runs before
 detection rather than filtering findings after.
+
+## The standing list, and how measuring it went wrong four times
+
+Added 2026-08-13. The owner's goal, stated plainly: _find the cases that are
+quietly getting slower_. The confirmed layer answers a different question —
+which commit moved something — and answers it once, at the moment the boundary
+becomes significant. A case that has been 2x slower for two months is correctly
+silent there and very much not silent to a person.
+
+`standing-regression-model.mjs` is the answer to the other half. It is two
+medians and a division, which is why it reaches a case the detector cannot:
+`record-read/10k-50fields-group-three-levels` is screened `too-noisy` before
+detection runs and has drifted 2.82x against its control.
+
+**Fifteen cases qualify across the whole history. Ten had been attributed by
+the confirmed layer; five never had.** Where an attribution exists, the row now
+carries it — see _Naming the commit on a standing row_ below.
+
+### Five measurement faults, in the order they were made
+
+Every one of them produced a confident, wrong conclusion that survived until
+the next check. They are recorded because the next person measuring this corpus
+will have the chance to make all five again. The fifth is below the other four,
+because it was found after the standing list shipped and it reached the team's
+chat before it was caught.
+
+**1. Sorting commit SHAs alphabetically and calling it time order.** A series
+pulled `ORDER BY started_at` was re-sorted in JavaScript with `.sort()` on the
+SHA keys, which shuffles it. Change point detection then ran on noise. The
+conclusion drawn — that the detector has a structural blind spot for drift —
+was the opposite of the truth: with the order restored, a full scan finds 4, 8,
+10 and 1 change points on the four cases it had "missed". The same shuffled
+data also produced a full-scan cost estimate of 23s that was wrong by a factor
+of sixteen.
+
+**2. Pairing V1 to V2 by array index.** The two engines do not measure the same
+set of commits, so index `i` in one is a different commit in the other. Every
+paired figure computed that way described nothing. Pair on the commit, always.
+
+**3. Treating a V2 drift as a regression.** The first list of "quietly slowed"
+cases had eleven entries and four of them were the runner, not the engine. On
+`field-delete/50k-delete-active-field` V2 drifted 1.70x and V1 drifted 1.54x
+over the same span. On `lookup/dual-link-computed-repoint-2k` — reported at the
+time as the worst miss in the corpus, 6.2s to 16.6s — the control moved 96x and
+the pair says V2 got relatively _faster_. This is the measurement that settled
+a question left open earlier in this document: the V1 control channel earns its
+place, and the evidence is four false alarms it removes from a list of fifteen.
+
+**4. Calibrating against a pooled null.** A shuffle-based null distribution over
+all cases had a p999 of 18, driven almost entirely by one case whose paired
+ratio swings 40x. A global bar calibrated on that is hostage to the worst-behaved
+series in the corpus. Per-case bars — the same shape the fast layer already
+uses — fixed it.
+
+### What the model refuses, and why both tests are load-bearing
+
+`isStanding` requires the paired drift _and_ V2's own drift to clear 1.25x.
+Neither test is redundant:
+
+- Paired alone admits cases where only the control moved.
+  `field-duplicate/10k-duplicate-start-date-field` reads 204ms then 206ms with
+  a control that improved 0.69x, giving a paired 1.47x that describes a case
+  which did not move.
+- V2 alone admits everything the runner did to everybody — the four above.
+
+### Naming the commit on a standing row
+
+Added 2026-08-14, on the owner's question: _can you find which commit caused the
+regression, and put it on the card?_
+
+The confirmed layer already could. The change point rows have carried
+`引入于 <before>→<after>` since the card shipped. What was missing is that the
+_standing_ rows had none — and the standing section is what a reader sees on a
+normal night, because a night with no newly confirmed change point is the normal
+night. The card said "this case is 2.5x slower" and left "since when, and by
+whom" unanswered.
+
+Nothing new is computed. Both lists come out of the same pass over the same full
+history; they were assembled separately and the commit was being thrown away.
+`attributeStanding` joins them. Measured over the cached corpus, **13 of 14
+standing cases get a commit.**
+
+Three of the thirteen land on commits identified independently before this
+existed, which is the check that matters:
+
+| case                                                 | named                 | known as                                                        |
+| ---------------------------------------------------- | --------------------- | --------------------------------------------------------------- |
+| `form-submit/sequential-500-rating-100fields`        | `c2308148`→`a7c04bf9` | `a7c04bf9`, filed as `receeJXDRNoh7qQcy3o`, fixed by `a4c04008` |
+| `form-submit/sequential-500-single-select-100fields` | `c2308148`→`a7c04bf9` | same commit, second case                                        |
+| `lookup/foreign-select-flip-1of40-fanout100-4k`      | `1dd78a15`→`b636d744` | the fanout staircase, positions 2659–2662                       |
+
+**The largest step is the wrong answer, and the corpus says so.** The first
+version ranked a case's confirmed regressions by size and named the biggest. On
+`lookup/customer-update-user-update-order-4k-depth5` that is a step from 1335ms
+to 10417ms — against a case sitting at 1616ms today, because the level came back
+down after it. A real change point, a real regression at the time, and pointing
+whoever triages at a problem that is no longer there.
+
+The fix that did _not_ work is worth recording, because it is the one that looks
+right: netting later confirmed speedups against earlier confirmed slowdowns,
+newest first. It repaired one row and left this one alone, because the recovery
+on this case was gradual and nothing confirmed it. The detector's account of how
+a level got where it is is not always complete; the level itself is. So a step
+is dropped when the case now sits more than `RECOVERY_BAR` = 1.5x below where
+that step left it. Across the fourteen, the steps that genuinely explain their
+case sit between 0.77x and 1.39x of the current level and the one that does not
+sits at 6.4x — the bar is set at the tight end of that gap, and the looseness it
+needs comes from the two levels being different estimators (an 8-point median at
+the boundary against a 20-point median at the end of the series).
+
+Two rows carry no commit, and both say why rather than going quiet:
+`screened` when the measurability screen kept the case out of detection —
+`lookup/customer-update-other-user-create-order-4k-depth5`, the worst drift in
+the list — and `no-step` when detection ran and found no boundary that survives.
+A row that simply stops after the ratio reads as a lookup that failed.
+
+`另有 N 处台阶` is on the row for the same reason the change point section names
+its neighbours: the fanout cases did not slow down once, they climbed four
+consecutive mainline commits, and a row naming one of the four as _the_ cause is
+wrong in a way the reader cannot see.
+
+Two smaller things fell out of rendering it against the real rows:
+
+- The ±1 attribution caveat used to hang under the change point section.
+  Standing rows carry SHAs now, so on a standing-only card it shipped SHAs with
+  the caveat missing. It is rendered once, below both sections, whenever
+  anything on the card names a commit.
+- `formatRange` picked its unit from the larger end, so
+  `form-submit/sequential-500-multiple-select-100fields` at 82ms → 105ms
+  rendered as `0.08s → 0.10s`. Two decimals of seconds cannot show a move the
+  smaller end is sensitive to. The smaller end picks the unit.
+
+### Fault 5: a metric that is already a difference
+
+Added 2026-08-14. This one shipped. Run 31765570337 pushed a card whose top two
+rows were `record-read/10k-50fields-group-three-levels` at 3.0x and
+`record-read/10k-50fields-filter-sort-groupby-overhead` at 2.5x. **Neither case
+got slower.**
+
+Both report `max(query − baseline, 0)`: the price of a filter/sort/group clause,
+measured by scanning the same rows twice. Decomposed over the segment the card
+reported:
+
+|                                             | reported    | baseline               | query              |
+| ------------------------------------------- | ----------- | ---------------------- | ------------------ |
+| `10k-50fields-group-three-levels`           | 2.0x slower | 1662→1167ms, **0.70x** | 1947→2058ms, 1.06x |
+| `10k-50fields-filter-sort-groupby-overhead` | 2.9x slower | 1580→1106ms, **0.70x** | 1866→1844ms, 0.99x |
+
+The baseline scan got about 30% faster and the query did not follow, so the gap
+widened. The gap is what the card reports. The direction holds under every
+alignment tried — the whole series, the card's segment, and the subset carrying
+a signed overhead — though the exact ratio moves with the alignment, which is
+why the table above quotes the card's own segment.
+
+**The control channel cannot catch this**, and that is the part worth
+remembering. A control corrects for the runner, and the runner is not what
+moved: V1's own baseline went the _other_ way, 1.19x slower over the same span,
+so the paired figure widens too. Every safeguard that exists was aimed at a
+different failure.
+
+The same subtraction explains why these cases are screened out of detection.
+Both components are steady — V2's baseline jitters 1.17x and its query 1.14x,
+against a corpus median of 1.09 — and their difference jitters 1.86x. V2 suffers
+more than V1 for an arithmetic reason rather than a performance one: V2 is
+_faster_ at the clause, so its difference is 494ms where V1's is 1077ms, against
+the same ~250ms of component noise. The clamp then floors 5% of V2's readings at
+zero, which is where the 1ms and 2ms readings in that series come from. V1 never
+crosses zero and has none.
+
+**How it reached the card.** The measurability screen was catching both cases,
+and the standing list bypasses the screen on purpose — the reasoning recorded
+above is that the list is two medians and a division and needs no detector.
+That reasoning is still right about detection and was wrong about this: the
+screen was also acting as a proxy for whether the metric means anything, and
+bypassing it removed a check nobody had written down as a check.
+
+**The fix, first attempt, was a no-op.** It excluded these cases from the
+standing list by reading `entry.metric` off the corpus series — and the corpus
+series carried no `metric` field, so the guard read `undefined` and refused
+nothing. `pnpm check` passed because the fixtures supplied the field the corpus
+does not. Recorded because it is the same shape as the `analysisWindow` fault:
+a check that exercises a function with hand-made inputs proves nothing about the
+inputs the system actually produces.
+
+**The fix that works** substitutes the query's own duration for the difference
+at corpus build time, and keeps the exclusion as the guard of last resort for
+anything the substitution cannot reach. `corpus-metric-model.mjs` owns the
+table.
+
+Measured across the twelve of the twenty cases with enough history to judge:
+
+|                      | before  | after   |
+| -------------------- | ------- | ------- |
+| jitter, worst        | 2.66x   | 1.14x   |
+| screened `too-noisy` | 7 of 12 | 0 of 12 |
+| points               | 2313    | 2610    |
+
+Every one of the twelve lands between 1.05x and 1.14x, against a corpus median
+of 1.09. **Seven cases go from undetectable to detectable**, so a change point
+can now name a commit for them — which was never possible on the difference.
+The extra points are the readings the clamp floored at zero: `Primary_Metric_Value > 0`
+drops 971 of the 4860 rows across these cases, and the component is present and
+positive on all 4860.
+
+And the two rows that started this now read correctly: `group-three-levels` at
+1.16x rather than 3.0x, and `filter-sort-groupby-overhead` at 0.49x — it got
+_twice as fast_, and was reported as 2.5x slower.
+
+Three consequences, all deliberate:
+
+- **Detection no longer measures what the case's threshold measures.** The
+  threshold still guards the clause overhead and should. A series is a different
+  instrument and needs a number that can carry a level.
+- **The same-run layer had to move with it.** It reads this run's artifacts
+  directly, and judging tonight's overhead against a history of query durations
+  compares two instruments. `runMeasurements` applies the same substitution.
+- **Every value in those series changed, so every boundary moved.** The seen-set
+  now carries a metric revision beside the analysis window, and `reseedDecision`
+  re-seeds on either — one quiet night, the same trade the window change made.
+
+`check-corpus-metric-model.mjs` compares the substitution table against
+`isClampedOverheadMetric` in `framework/runners/record-read-model.ts`, so a
+third clamped metric cannot be added on one side only.
+
+### Deliberately not done
+
+- **The measurability screen was not touched.** It blocks one case from
+  detection, and the standing list reaches that case without it. The screen
+  exists because a "3.59x" headline drawn from the noisiest series in the corpus
+  had to be retracted; loosening it to recover one case is a bad trade made
+  under time pressure.
+- **A separate drift alert was built, calibrated, and dropped.** It worked — one
+  firing on a 173-case sample, a true positive, no false positives against the
+  known non-regressions. It was dropped because a full-history scan already
+  recovers 6 of the 7 genuine drifters and names the commit as well, so the
+  alert would have added a row to the card and no information.
