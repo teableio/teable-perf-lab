@@ -52,9 +52,10 @@ same fixture definition to prevent cross-case mutation leakage.
   readable with the complete new chain.
 
 Diagnostics include `sourceWriteMs`, `postResponsePropagationMs`,
-`allAffectedOrdersReadyMs`, and `purchaseCascadeReadyMs`. A second hard
-threshold fails if response-after propagation exceeds 10 seconds. The initial
-primary guardrail is 15 seconds.
+`allAffectedOrdersReadyMs`, `purchaseCascadeReadyMs`, `readinessAttempts`, and
+`readyOnFirstRead`. The V1/V2 engine panel compares `sourceWriteMs`. A second
+hard threshold fails if response-after propagation exceeds 10 seconds. The
+initial primary guardrail is 15 seconds.
 
 ## Verification
 

@@ -236,6 +236,8 @@ type PrimaryResult = {
   cascadeVerificationMs: number;
   readinessReadPath: LinkComputedReadPath;
   readinessCheckedRecords: number;
+  readinessAttempts?: number;
+  readyOnFirstRead?: number;
   requestedRecords: number;
   updatedRecords: number;
   responseHeaders: Record<string, string>;
@@ -1096,20 +1098,26 @@ const assertMutatedOrderReads = async (
   return { checkedRecords };
 };
 
-const waitForMutatedOrderReads = (
+const waitForMutatedOrderReads = async (
   fixture: Fixture,
   config: LinkComputedPropagationCaseConfig,
   readPath: Exclude<LinkComputedReadPath, "full-scan">,
   context: PerfRunContext,
-) =>
-  pollUntilReady(
+) => {
+  let attempts = 0;
+  const result = await pollUntilReady(
     {
       timeoutMs: config.verify.timeoutMs ?? 300_000,
       pollIntervalMs: config.verify.pollIntervalMs ?? 250,
       description: `${readPath} lookup readiness`,
     },
-    () => assertMutatedOrderReads(fixture, config, readPath, context),
+    async () => {
+      attempts += 1;
+      return assertMutatedOrderReads(fixture, config, readPath, context);
+    },
   );
+  return { ...result, attempts };
+};
 
 // seedReady is cheap: only checks orders sample rows (not the downstream
 // purchase, which is proven in the post-write full readiness scan).
@@ -1595,6 +1603,12 @@ const buildResult = ({
           linkWriteMs: primary.linkWriteMs,
           lookupPropagationMs: primary.lookupPropagationMs,
           cascadeVerificationMs: primary.cascadeVerificationMs,
+          ...(primary.readinessAttempts
+            ? {
+                readinessAttempts: primary.readinessAttempts,
+                readyOnFirstRead: primary.readyOnFirstRead ?? 0,
+              }
+            : {}),
         }
       : {}),
   },
@@ -1797,6 +1811,7 @@ const runLcpMeasuredOperation = async (
   let lookupPropagationMs = 0;
   let cascadeVerificationMs = 0;
   let readinessCheckedRecords = 0;
+  let readinessAttempts = 0;
   let responseHeaders: Record<string, string> = {};
   let requestedRecords = 0;
   let updatedRecords = 0;
@@ -1852,6 +1867,7 @@ const runLcpMeasuredOperation = async (
           lookupPropagationMs = propagationMeasurement.durationMs;
           readinessCheckedRecords =
             propagationMeasurement.result.checkedRecords;
+          readinessAttempts = propagationMeasurement.result.attempts;
         }
       }),
   );
@@ -1882,6 +1898,9 @@ const runLcpMeasuredOperation = async (
       cascadeVerificationMs,
       readinessReadPath: readinessPlan.primaryReadPath,
       readinessCheckedRecords,
+      readinessAttempts,
+      readyOnFirstRead:
+        readinessAttempts > 0 && readinessAttempts === 1 ? 1 : 0,
       requestedRecords,
       updatedRecords,
       responseHeaders,
