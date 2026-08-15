@@ -188,6 +188,8 @@ type PrimaryResult = {
   dependenciesBefore: string[];
   dependenciesAfter: string[];
   firstOrderRecordId?: string;
+  readinessAttempts?: number;
+  readyOnFirstRead?: number;
   ordersScan: ScanResult;
   purchaseScan: ScanResult;
   fullOrdersVerificationMs: number;
@@ -213,7 +215,7 @@ type PropagationResult =
       ordersScan: ScanResult;
       purchaseScan: ScanResult;
     }
-  | { kind: "first-order"; recordId: string };
+  | { kind: "first-order"; recordId: string; attempts: number };
 
 type CachedSeed = {
   fixtureVersion: string;
@@ -879,7 +881,7 @@ const waitForFullCascade = async (
   return { ordersScan, purchaseScan };
 };
 
-const waitForFirstAffectedOrder = (
+const waitForFirstAffectedOrder = async (
   fixture: Fixture,
   config: ComputedChainMutationCaseConfig,
 ) => {
@@ -890,13 +892,15 @@ const waitForFirstAffectedOrder = (
       `Missing first affected order ${impact.firstAffectedOrderRow}`,
     );
   }
-  return pollUntilReady(
+  let attempts = 0;
+  const result = await pollUntilReady(
     {
       timeoutMs: config.verify.timeoutMs ?? 180_000,
       pollIntervalMs: config.verify.pollIntervalMs ?? 100,
       description: "first affected order",
     },
     async () => {
+      attempts += 1;
       const record = await getRecord(fixture.ordersTableId, seeded.recordId);
       assertOrderFields(
         fixture,
@@ -908,6 +912,7 @@ const waitForFirstAffectedOrder = (
       return { recordId: seeded.recordId };
     },
   );
+  return { ...result, attempts };
 };
 
 const createFixture = async (
@@ -1428,6 +1433,7 @@ const runMeasuredOperation = async (
   let convertedField: PrimaryResult["convertedField"];
   let dependenciesAfter = [...fixture.profileSeedDependencyIds];
   let firstOrderRecordId: string | undefined;
+  let readinessAttempts = 0;
   let ordersScan: ScanResult = {
     scannedRecords: 0,
     pageSize: 0,
@@ -1492,6 +1498,7 @@ const runMeasuredOperation = async (
           purchaseScan = propagationMeasurement.result.purchaseScan;
         } else {
           firstOrderRecordId = propagationMeasurement.result.recordId;
+          readinessAttempts = propagationMeasurement.result.attempts;
         }
       }),
   );
@@ -1550,6 +1557,12 @@ const runMeasuredOperation = async (
       dependenciesBefore: fixture.profileSeedDependencyIds,
       dependenciesAfter,
       firstOrderRecordId,
+      ...(readinessAttempts
+        ? {
+            readinessAttempts,
+            readyOnFirstRead: readinessAttempts === 1 ? 1 : 0,
+          }
+        : {}),
       ordersScan,
       purchaseScan,
       fullOrdersVerificationMs,
@@ -1610,6 +1623,12 @@ const buildResult = ({
             purchaseCascadeReadyMs: primary.purchaseCascadeReadyMs,
             fullOrdersVerificationMs: primary.fullOrdersVerificationMs,
             purchaseVerificationMs: primary.purchaseVerificationMs,
+            ...(primary.readinessAttempts
+              ? {
+                  readinessAttempts: primary.readinessAttempts,
+                  readyOnFirstRead: primary.readyOnFirstRead ?? 0,
+                }
+              : {}),
           }
         : {}),
     },

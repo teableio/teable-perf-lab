@@ -44,6 +44,10 @@ Order formula and derive one more formula.
 - `postOrderResponseReadyMs`: Order POST response until that read succeeds;
   maximum 10 seconds.
 
+Diagnostics include `userWriteMs`, `orderWriteMs`, `targetReadAttempts`, and
+`readyOnFirstRead`. The V1/V2 engine panel compares `orderWriteMs`. `computeMs`
+is V2-only occupancy and never replaces the primary.
+
 ## Verification
 
 - The User and Order requests each contain exactly one record and their routing

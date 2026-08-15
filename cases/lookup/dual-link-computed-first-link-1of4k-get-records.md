@@ -55,8 +55,10 @@ empty customer/guest links.
 - `lookupPropagationMs`: time from the one-record PATCH response until the
   filtered `getRecords` response exposes the correct lookup and formula values.
 
-Diagnostics include `linkWriteMs`, `lookupReadyTotalMs`, and
-`cascadeVerificationMs`. The initial `maxMs` is 10 seconds: the customer-reported
+Diagnostics include `linkWriteMs`, `lookupReadyTotalMs`,
+`cascadeVerificationMs`, `readinessAttempts`, and `readyOnFirstRead`. The V1/V2
+engine panel compares `linkWriteMs`, not this primary: the 100 ms poll grain is
+not an engine loss. The initial `maxMs` is 10 seconds: the customer-reported
 failure boundary. The first local V1/V2 hybrid run measured 35 ms/205 ms, leaving
 substantial environment-noise margin while still failing on a customer-class
 empty window.
