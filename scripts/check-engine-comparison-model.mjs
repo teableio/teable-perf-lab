@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { buildEngineComparison } from "./engine-comparison-model.mjs";
+import {
+  buildEngineComparison,
+  engineComparisonBasis,
+} from "./engine-comparison-model.mjs";
 
 const payload = ({
   caseId,
@@ -7,10 +10,12 @@ const payload = ({
   metric = "opMs",
   actual,
   result = "pass",
+  metrics,
 }) => ({
   caseId,
   engine,
   result,
+  metrics,
   thresholds:
     actual === undefined
       ? []
@@ -124,5 +129,93 @@ assert.deepEqual(
 );
 
 assert.deepEqual(buildEngineComparison().rows, []);
+
+// Hybrid first-row primaries mix a write with a 100ms poll. Ranking that poll
+// as an engine loss files scheduling grain as a 1.8x regression. The write is
+// still comparable, so both payloads carrying `linkWriteMs` are judged there.
+assert.deepEqual(
+  engineComparisonBasis(
+    payload({
+      caseId: "lookup/dual-link",
+      engine: "v2",
+      metric: "lookupPropagationMs",
+      actual: 107,
+      metrics: { linkWriteMs: 324, lookupPropagationMs: 107 },
+    }),
+  ),
+  { metric: "linkWriteMs", value: 324, kind: "write" },
+);
+
+const hybrid = buildEngineComparison({
+  payloads: [
+    payload({
+      caseId: "lookup/dual-link-computed-first-link-1of4k-get-records",
+      engine: "v1",
+      metric: "lookupPropagationMs",
+      actual: 60,
+      metrics: { linkWriteMs: 465, lookupPropagationMs: 60 },
+    }),
+    payload({
+      caseId: "lookup/dual-link-computed-first-link-1of4k-get-records",
+      engine: "v2",
+      metric: "lookupPropagationMs",
+      actual: 107,
+      metrics: { linkWriteMs: 324, lookupPropagationMs: 107 },
+    }),
+    payload({
+      caseId: "lookup/foreign-select-flip-1of40-fanout100-4k",
+      engine: "v1",
+      metric: "firstOrderReadyTotalMs",
+      actual: 402,
+      metrics: { sourceWriteMs: 365, firstOrderReadyTotalMs: 402 },
+    }),
+    payload({
+      caseId: "lookup/foreign-select-flip-1of40-fanout100-4k",
+      engine: "v2",
+      metric: "firstOrderReadyTotalMs",
+      actual: 517,
+      metrics: { sourceWriteMs: 156, firstOrderReadyTotalMs: 517 },
+    }),
+    payload({
+      caseId: "lookup/customer-update-user-create-order-4k-depth5",
+      engine: "v1",
+      metric: "customerFlowReadyTotalMs",
+      actual: 876,
+      metrics: { orderWriteMs: 421, customerFlowReadyTotalMs: 876 },
+    }),
+    payload({
+      caseId: "lookup/customer-update-user-create-order-4k-depth5",
+      engine: "v2",
+      metric: "customerFlowReadyTotalMs",
+      actual: 1161,
+      metrics: { orderWriteMs: 280, customerFlowReadyTotalMs: 1161 },
+    }),
+  ],
+});
+assert.equal(hybrid.counts.slower, 0);
+assert.equal(hybrid.counts.faster, 3);
+assert.equal(hybrid.rows[0].comparisonKind, "write");
+assert.equal(hybrid.rows[0].comparedMetric, "linkWriteMs");
+
+// A payload that never recorded the write metric still compares the primary.
+const missingWrite = buildEngineComparison({
+  payloads: [
+    payload({
+      caseId: "lookup/dual-link-computed-first-link-1of4k-get-record",
+      engine: "v1",
+      metric: "lookupPropagationMs",
+      actual: 55,
+    }),
+    payload({
+      caseId: "lookup/dual-link-computed-first-link-1of4k-get-record",
+      engine: "v2",
+      metric: "lookupPropagationMs",
+      actual: 91,
+    }),
+  ],
+});
+assert.equal(missingWrite.counts.slower, 1);
+assert.equal(missingWrite.regressions[0].comparisonKind, "primary");
+assert.ok(Math.abs(missingWrite.regressions[0].ratio - 91 / 55) < 0.01);
 
 console.log("engine comparison model checks passed.");

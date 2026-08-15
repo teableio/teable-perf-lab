@@ -800,8 +800,13 @@ const engineValueText = (value, result) => {
 
 const engineVerdict = (row) => formatRatioFactor(row.ratio) ?? "无对比";
 
+const engineMetricNote = (row) =>
+  row.comparisonKind === "write" && row.comparedMetric
+    ? ` · 写路径 ${row.comparedMetric}`
+    : "";
+
 export const formatEngineLine = (row, chartUrl) =>
-  `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**`;
+  `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**${engineMetricNote(row)}`;
 
 /**
  * The V1/V2 panel. Returns `undefined` when the run had no V1 leg — a panel of
@@ -919,7 +924,7 @@ export const buildEngineSummaryMarkdown = ({
   for (const row of regressions) {
     const candidate = [
       ...detailLines,
-      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} ${engineVerdict(row)}`,
+      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} ${engineVerdict(row)}${engineMetricNote(row)}`,
     ];
     if (
       markdownBytes(render(candidate, regressions.length - candidate.length)) >

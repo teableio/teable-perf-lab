@@ -340,10 +340,15 @@ why — a folded "慢 0" would read as a clean run rather than an absent one.
 
 **与 V1 对比** follows: V2 against V1 inside this run — compared/slower/faster/
 not compared, the cases where V2 lost to V1 worst first, and the cases V1
-skipped so nothing could be compared. It repeats none of the run health. It is
-absent on a run with no V1 leg, so it drops off on its own once V1 is retired —
-`engine-comparison-model.mjs`, the marked engine section of
-`perf-run-summary-model.mjs`, and one call in each report script go with it.
+skipped so nothing could be compared. It repeats none of the run health. Hybrid
+first-row cases (`lookupPropagationMs`, `firstOrderReadyTotalMs`,
+`customerFlowReadyTotalMs`) are compared on the recorded write
+(`linkWriteMs` / `sourceWriteMs` / `orderWriteMs`), not the poll-inflated
+primary. The customer-visible empty window stays the case primary and the
+release gate. The panel is absent on a run with no V1 leg, so it drops off on
+its own once V1 is retired — `engine-comparison-model.mjs`, the marked engine
+section of `perf-run-summary-model.mjs`, and one call in each report script go
+with it.
 
 Each panel is folded open only on its own bad news. The card's header colour and
 title come from the release comparison alone: being slower than V1 while

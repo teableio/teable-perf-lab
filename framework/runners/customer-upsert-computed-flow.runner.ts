@@ -1915,7 +1915,10 @@ const buildResult = ({
               ? { purchasesVerificationMs: primary.purchasesVerificationMs }
               : {}),
             ...(primary.targetRead
-              ? { targetReadAttempts: primary.targetRead.attempts }
+              ? {
+                  targetReadAttempts: primary.targetRead.attempts,
+                  readyOnFirstRead: primary.targetRead.attempts === 1 ? 1 : 0,
+                }
               : {}),
             ...(primary.outbox
               ? {

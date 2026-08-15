@@ -27,6 +27,67 @@ const TIE_RATIO = 1.05;
 
 const isSlower = (ratio) => ratio !== undefined && ratio >= TIE_RATIO;
 
+const positiveNumber = (value) =>
+  Number.isFinite(value) && value > 0 ? value : undefined;
+
+const metricFromPayload = (payload) =>
+  Array.isArray(payload?.thresholds)
+    ? payload.thresholds[0]?.metric
+    : undefined;
+
+// Hybrid first-row / read-after-write primaries mix the write with a 100ms
+// poll until the customer API exposes the new value. V1 finishes that work
+// inside the request, so the same primary on V2 is mostly "did the next poll
+// land". Ranking those rows as engine regressions files a scheduling grain as
+// a 1.8x loss.
+//
+// The write itself is still comparable across engines. Prefer it when both
+// payloads recorded the same write metric; otherwise keep the primary. The
+// customer-visible empty window stays the case primary and the release gate.
+export const ENGINE_WRITE_METRICS_BY_PRIMARY = {
+  lookupPropagationMs: "linkWriteMs",
+  firstOrderReadyTotalMs: "sourceWriteMs",
+  customerFlowReadyTotalMs: "orderWriteMs",
+};
+
+export const engineComparisonBasis = (payload) => {
+  const primaryMetric = metricFromPayload(payload);
+  const writeMetric = ENGINE_WRITE_METRICS_BY_PRIMARY[primaryMetric];
+  const writeValue = writeMetric
+    ? positiveNumber(payload?.metrics?.[writeMetric])
+    : undefined;
+  if (writeMetric && writeValue !== undefined) {
+    return { metric: writeMetric, value: writeValue, kind: "write" };
+  }
+  const primaryValue = measuredValue(payload);
+  return {
+    metric: primaryMetric,
+    value: primaryValue,
+    kind: primaryValue === undefined ? undefined : "primary",
+  };
+};
+
+const pairedEngineValue = (leftPayload, rightPayload) => {
+  const left = engineComparisonBasis(leftPayload);
+  const right = engineComparisonBasis(rightPayload);
+  if (left.kind === "write" && right.kind === "write") {
+    return { left, right, kind: "write" };
+  }
+  return {
+    left: {
+      metric: metricFromPayload(leftPayload),
+      value: measuredValue(leftPayload),
+      kind: measuredValue(leftPayload) === undefined ? undefined : "primary",
+    },
+    right: {
+      metric: metricFromPayload(rightPayload),
+      value: measuredValue(rightPayload),
+      kind: measuredValue(rightPayload) === undefined ? undefined : "primary",
+    },
+    kind: "primary",
+  };
+};
+
 // Worst first, ties by case id, so the preview always carries the widest gaps.
 const compareBySlowness = (left, right) => {
   if (left.ratio !== right.ratio) {
@@ -56,8 +117,9 @@ export const buildEngineComparison = ({ payloads = [] } = {}) => {
     if (v1Payload) {
       ranV1 = true;
     }
-    const v1Value = measuredValue(v1Payload);
-    const v2Value = measuredValue(v2Payload);
+    const pair = pairedEngineValue(v1Payload, v2Payload);
+    const v1Value = pair.left.value;
+    const v2Value = pair.right.value;
     const ratio =
       v1Value !== undefined && v2Value !== undefined
         ? v2Value / v1Value
@@ -70,6 +132,8 @@ export const buildEngineComparison = ({ payloads = [] } = {}) => {
       caseId,
       v1Value,
       v2Value,
+      comparedMetric: pair.left.metric ?? pair.right.metric,
+      comparisonKind: ratio === undefined ? undefined : pair.kind,
       // The raw results, so the renderer can tell "V1 never ran this case" from
       // "V1 ran it and failed" — both leave `v1Value` undefined, and printing
       // "skip" for a failure was wrong in the report this replaces.
