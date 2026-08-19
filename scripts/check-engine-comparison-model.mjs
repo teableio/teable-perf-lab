@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import {
+  ENGINE_MIN_DELTA_MS,
+  ENGINE_NOISE_RATIO,
   buildEngineComparison,
   engineComparisonBasis,
+  engineSlowdown,
+  median,
+  pairEngineHistoryRows,
 } from "./engine-comparison-model.mjs";
+import { buildEnginePairHistorySql } from "./resolve-engine-pair-history.mjs";
 
 const payload = ({
   caseId,
@@ -22,11 +28,11 @@ const payload = ({
       : [{ metric, actual, max: actual * 4, passed: result !== "fail" }],
 });
 
-// Much narrower than the release comparison's 1.2x: V1 and V2 are two
-// implementations measured in the same run, so there is no run-to-run noise to
-// clear before "V2 lost" means something. The floor is only the tie the card
-// prints — a row counted as 慢 while it rendered 持平 was the mixed-signal the
-// split is meant to remove.
+// Same 1.2x band as the release gate: V1 and V2 are different hosts, not a
+// same-machine A/B, so a 5% gap is runner noise. The 50ms floor is the other
+// half — smoke/auth-user at 7ms vs 10ms is 1.4x and still not a finding.
+assert.equal(ENGINE_NOISE_RATIO, 1.2);
+assert.equal(ENGINE_MIN_DELTA_MS, 50);
 const slower = buildEngineComparison({
   payloads: [
     payload({
@@ -45,18 +51,26 @@ const slower = buildEngineComparison({
     payload({ caseId: "lookup/tie", engine: "v2", actual: 1_010 }),
     payload({ caseId: "lookup/edge", engine: "v1", actual: 1_000 }),
     payload({ caseId: "lookup/edge", engine: "v2", actual: 1_050 }),
+    payload({ caseId: "smoke/auth-user", engine: "v1", actual: 7 }),
+    payload({ caseId: "smoke/auth-user", engine: "v2", actual: 10 }),
+    payload({ caseId: "lookup/band", engine: "v1", actual: 1_000 }),
+    payload({ caseId: "lookup/band", engine: "v2", actual: 1_200 }),
   ],
 });
 assert.equal(slower.available, true);
 assert.deepEqual(slower.counts, {
-  compared: 4,
+  compared: 6,
   slower: 2,
-  faster: 2,
+  faster: 4,
   pending: 0,
 });
 assert.deepEqual(
   slower.regressions.map((row) => row.caseId),
-  ["duplicate-table/50k-20f", "lookup/edge"],
+  ["duplicate-table/50k-20f", "lookup/band"],
+);
+assert.equal(
+  slower.rows.find((row) => row.caseId === "smoke/auth-user").status,
+  "ok",
 );
 // V2 divided by V1, so above 1 is slower — the same direction the release
 // comparison prints, which the old V1/V2 ratio inverted.
@@ -125,7 +139,7 @@ const ordered = buildEngineComparison({
 });
 assert.deepEqual(
   ordered.regressions.map((row) => row.caseId),
-  ["a/severe", "b/mild"],
+  ["a/severe"],
 );
 
 assert.deepEqual(buildEngineComparison().rows, []);
@@ -204,18 +218,120 @@ const missingWrite = buildEngineComparison({
       caseId: "lookup/dual-link-computed-first-link-1of4k-get-record",
       engine: "v1",
       metric: "lookupPropagationMs",
-      actual: 55,
+      actual: 550,
     }),
     payload({
       caseId: "lookup/dual-link-computed-first-link-1of4k-get-record",
       engine: "v2",
       metric: "lookupPropagationMs",
-      actual: 91,
+      actual: 910,
     }),
   ],
 });
 assert.equal(missingWrite.counts.slower, 1);
 assert.equal(missingWrite.regressions[0].comparisonKind, "primary");
-assert.ok(Math.abs(missingWrite.regressions[0].ratio - 91 / 55) < 0.01);
+assert.ok(Math.abs(missingWrite.regressions[0].ratio - 910 / 550) < 0.01);
+
+assert.equal(median([0.9, 0.92, 0.71, 1.96, 0.68]), 0.9);
+
+assert.deepEqual(
+  engineSlowdown({
+    v1Value: 7,
+    v2Value: 10,
+    ratio: 10 / 7,
+  }),
+  { slower: false, recentMedianRatio: undefined },
+);
+
+assert.equal(
+  engineSlowdown({
+    v1Value: 7_394,
+    v2Value: 14_464,
+    ratio: 14_464 / 7_394,
+    recentRatios: [0.92, 0.71, 0.68, 0.87, 0.86],
+  }).slower,
+  true,
+);
+
+assert.equal(
+  engineSlowdown({
+    v1Value: 20_700,
+    v2Value: 27_722,
+    ratio: 27_722 / 20_700,
+    recentRatios: [1.3, 1.32, 1.28, 1.35, 1.31],
+  }).slower,
+  false,
+);
+
+const paired = pairEngineHistoryRows(
+  [
+    {
+      caseId: "record-read/range",
+      engine: "v1",
+      runId: "1",
+      value: 9_000,
+      startedAt: "2026-08-18T14:00:00.000Z",
+    },
+    {
+      caseId: "record-read/range",
+      engine: "v2",
+      runId: "1",
+      value: 6_700,
+      startedAt: "2026-08-18T14:00:01.000Z",
+    },
+    {
+      caseId: "record-read/range",
+      engine: "v1",
+      runId: "2",
+      value: 7_400,
+      startedAt: "2026-08-18T18:00:00.000Z",
+    },
+    {
+      caseId: "record-read/range",
+      engine: "v2",
+      runId: "now",
+      value: 14_000,
+      startedAt: "2026-08-18T18:00:01.000Z",
+    },
+  ],
+  { currentRunId: "now" },
+);
+assert.equal(paired["record-read/range"].length, 1);
+assert.ok(Math.abs(paired["record-read/range"][0] - 6_700 / 9_000) < 0.01);
+
+const typical = buildEngineComparison({
+  payloads: [
+    payload({
+      caseId: "duplicate-table/50k-20f",
+      engine: "v1",
+      actual: 20_700,
+    }),
+    payload({
+      caseId: "duplicate-table/50k-20f",
+      engine: "v2",
+      actual: 27_722,
+    }),
+  ],
+  recentRatiosByCase: {
+    "duplicate-table/50k-20f": [1.3, 1.32, 1.28, 1.35, 1.31],
+  },
+});
+assert.equal(typical.counts.slower, 0);
+assert.ok(
+  Math.abs(typical.rows[0].recentMedianRatio - 1.31) < 0.01,
+);
+
+assert.equal(buildEnginePairHistorySql({ caseIds: [] }), undefined);
+const historySql = buildEnginePairHistorySql({
+  caseIds: ["smoke/auth-user", "record-read/range"],
+  currentRunId: "32169630715",
+});
+assert.match(historySql, /"Case_ID" IN \('smoke\/auth-user', 'record-read\/range'\)/);
+assert.match(historySql, /"Run_ID" <> '32169630715'/);
+assert.match(historySql, /"Status" = 'pass'/);
+assert.equal(
+  buildEnginePairHistorySql({ caseIds: ["o'reilly"] }).includes("'o''reilly'"),
+  true,
+);
 
 console.log("engine comparison model checks passed.");

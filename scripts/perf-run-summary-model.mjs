@@ -4,7 +4,10 @@ import {
   buildReleaseComparison,
   REGRESSION_TIERS,
 } from "./full-run-comparison-model.mjs";
-import { buildEngineComparison } from "./engine-comparison-model.mjs";
+import {
+  ENGINE_TREND_NOTE,
+  buildEngineComparison,
+} from "./engine-comparison-model.mjs";
 import { buildComputeComparison } from "./compute-comparison-model.mjs";
 
 export const parseDate = (value) => {
@@ -429,6 +432,7 @@ export const buildPerfSummaryCard = ({
   timings = {},
   context = {},
   baseline,
+  recentRatiosByCase,
 }) => {
   const counts = resultCounts(payloads);
   const comparison = buildReleaseComparison({ payloads, baseline });
@@ -491,7 +495,11 @@ export const buildPerfSummaryCard = ({
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
     rows.map((row) => formatComparisonLine(row, context.chartUrl)).join("\n");
-  const enginePanel = buildEngineSummaryPanel({ payloads, context });
+  const enginePanel = buildEngineSummaryPanel({
+    payloads,
+    context,
+    recentRatiosByCase,
+  });
 
   const v2TimingColumns =
     Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
@@ -805,16 +813,25 @@ const engineMetricNote = (row) =>
     ? ` · 写路径 ${row.comparedMetric}`
     : "";
 
+const engineTrendNote = (row) =>
+  Number.isFinite(row.recentMedianRatio)
+    ? ` · 近期中位 ${row.recentMedianRatio.toFixed(1)}x`
+    : "";
+
 export const formatEngineLine = (row, chartUrl) =>
-  `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**${engineMetricNote(row)}`;
+  `${row.status === "attention" ? "🔴" : "⚪"} **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} **${engineVerdict(row)}**${engineTrendNote(row)}${engineMetricNote(row)}`;
 
 /**
  * The V1/V2 panel. Returns `undefined` when the run had no V1 leg — a panel of
  * "无对比" rows says nothing, and this is how the V1 half of the card drops off
  * on its own once V1 is retired.
  */
-export const buildEngineSummaryPanel = ({ payloads, context = {} }) => {
-  const comparison = buildEngineComparison({ payloads });
+export const buildEngineSummaryPanel = ({
+  payloads,
+  context = {},
+  recentRatiosByCase,
+} = {}) => {
+  const comparison = buildEngineComparison({ payloads, recentRatiosByCase });
   if (!comparison.available) {
     return undefined;
   }
@@ -842,6 +859,7 @@ export const buildEngineSummaryPanel = ({ payloads, context = {} }) => {
           statColumn("待对比", counts.pending),
         ],
       },
+      larkDiv(ENGINE_TREND_NOTE),
       larkDiv(previewRows.length > 0 ? renderRows(previewRows) : "无"),
       ...(remainingRows.length > 0
         ? [
@@ -881,6 +899,7 @@ export const buildEngineSummaryPanel = ({ payloads, context = {} }) => {
 export const buildEngineSummaryMarkdown = ({
   payloads,
   context = {},
+  recentRatiosByCase,
   maxBytes = DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
 }) => {
   if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
@@ -889,7 +908,7 @@ export const buildEngineSummaryMarkdown = ({
     );
   }
 
-  const comparison = buildEngineComparison({ payloads });
+  const comparison = buildEngineComparison({ payloads, recentRatiosByCase });
   if (!comparison.available) {
     return undefined;
   }
@@ -924,7 +943,7 @@ export const buildEngineSummaryMarkdown = ({
   for (const row of regressions) {
     const candidate = [
       ...detailLines,
-      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} ${engineVerdict(row)}${engineMetricNote(row)}`,
+      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) V1 ${engineValueText(row.v1Value, row.v1Result)} → V2 ${engineValueText(row.v2Value, row.v2Result)} ${engineVerdict(row)}${engineTrendNote(row)}${engineMetricNote(row)}`,
     ];
     if (
       markdownBytes(render(candidate, regressions.length - candidate.length)) >
