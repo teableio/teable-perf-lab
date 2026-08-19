@@ -389,6 +389,14 @@ drops the condition and answers 200, so a renamed column returns an arbitrary
 row from a lost sort, or the whole table (129,850 rows) from a lost filter.
 Field ids survive a rename; names do not.
 
+`projection` carries its own version of the same silent degradation: it must be
+sent as repeated query params (`projection=A&projection=B`), never as one
+JSON-encoded array. A JSON string gets a 200 whose every record has an empty
+`fields` object — measured on 2026-08-19 in teable-e2e-lab, where that shape
+made an upsert's find match nothing and its first case sync create duplicates
+instead of updating. This repository's readers already use the repeated form;
+this note exists so the next new reader script does too.
+
 This step is `continue-on-error` and is not part of full-run acceptance. A
 missing token, a released commit nobody has measured, or a failed lookup leaves
 the file absent, and both summaries render an explicit "no baseline" state —
