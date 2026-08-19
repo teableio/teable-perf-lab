@@ -5,6 +5,7 @@ import {
   buildEngineSummaryPanel,
   buildPerfSummaryCard,
   buildPerfSummaryMarkdown,
+  formatEngineLine,
   formatDuration,
   formatMetricSeconds,
   formatComputeGlossary,
@@ -12,6 +13,7 @@ import {
   resolveRunTimingFromJobs,
   resultCounts,
 } from "./perf-run-summary-model.mjs";
+import { ENGINE_TREND_NOTE } from "./engine-comparison-model.mjs";
 import {
   buildPerformanceTrackResultRecord,
   chunkPerformanceTrackWriteRecords,
@@ -360,19 +362,65 @@ assert.match(
 );
 assert.match(releaseRows, /lookup\/slightly-slower/);
 
-const enginePanel = panelByTitle(card.card, "与 V1 对比 · 慢 2");
+const enginePanel = panelByTitle(card.card, "与 V1 对比 · 慢 1");
 assert.ok(enginePanel);
 assert.equal(enginePanel.expanded, true);
 assert.deepEqual(
   columnSetsOf(enginePanel)[0].columns.map(
     (column) => column.elements[0].content,
   ),
-  ["**对比** 3", "**慢** 2", "**快** 1", "**待对比** 2"],
+  ["**对比** 3", "**慢** 1", "**快** 2", "**待对比** 2"],
 );
+assert.equal(enginePanel.elements[1].text.content, ENGINE_TREND_NOTE);
 assert.match(
-  enginePanel.elements[1].text.content,
+  enginePanel.elements[2].text.content,
   /🔴 \*\*\[lookup\/regressed\].*：V1 1\.00s → V2 1\.40s \*\*慢1\.4x\*\*/,
 );
+assert.doesNotMatch(enginePanel.elements[2].text.content, /slightly-slower/);
+assert.match(
+  formatEngineLine(
+    {
+      status: "attention",
+      caseId: "record-read/range",
+      v1Value: 7_394,
+      v2Value: 14_464,
+      v1Result: "pass",
+      v2Result: "pass",
+      ratio: 14_464 / 7_394,
+      recentMedianRatio: 0.9,
+    },
+    "https://charts.example",
+  ),
+  /近期中位 0\.9x/,
+);
+
+// A case that is always ~1.3x slower than V1 is not news; the panel keeps the
+// count and prints no row.
+const typicalEnginePanel = buildEngineSummaryPanel({
+  payloads: [
+    {
+      caseId: "duplicate-table/50k-20f",
+      engine: "v1",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 20_700, passed: true }],
+    },
+    {
+      caseId: "duplicate-table/50k-20f",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 27_722, passed: true }],
+    },
+  ],
+  recentRatiosByCase: {
+    "duplicate-table/50k-20f": [1.3, 1.32, 1.28, 1.35, 1.31],
+  },
+  context: { chartUrl: "https://charts.example" },
+});
+assert.equal(
+  typicalEnginePanel.header.title.content,
+  "**与 V1 对比 · 慢 0**",
+);
+assert.equal(typicalEnginePanel.elements[2].text.content, "无");
 // The V1 panel repeats none of the run's health — that is stated once, above
 // both panels.
 assert.doesNotMatch(JSON.stringify(enginePanel), /线上|总耗时|Seed|失败/);
@@ -460,7 +508,7 @@ assert.deepEqual(
   ["**对比** 0", "**慢** 0", "**快** 0", "**无基线** 3"],
 );
 // The V1 comparison does not depend on a release baseline, so it is still there.
-assert.ok(panelByTitle(noBaselineCard.card, "与 V1 对比 · 慢 2"));
+assert.ok(panelByTitle(noBaselineCard.card, "与 V1 对比 · 慢 1"));
 
 // A run whose target IS the released commit has no comparison to make, and that
 // is not the same as a missing baseline: nothing is absent, the baseline is this
@@ -540,7 +588,7 @@ const residentEnginePanel = panelByTitle(
 assert.ok(residentEnginePanel);
 assert.equal(residentEnginePanel.expanded, true);
 assert.match(
-  residentEnginePanel.elements[1].text.content,
+  residentEnginePanel.elements[2].text.content,
   /🔴 \*\*\[duplicate-table\/50k-20f\]\(https:\/\/charts\.example#duplicate-table\/50k-20f\)\*\*：V1 20\.70s → V2 27\.72s \*\*慢1\.3x\*\*/,
 );
 assert.equal(
@@ -580,7 +628,8 @@ const pendingEnginePanel = buildEngineSummaryPanel({
   context: { chartUrl: "https://charts.example" },
 });
 assert.equal(pendingEnginePanel.expanded, false);
-assert.equal(pendingEnginePanel.elements[1].text.content, "无");
+assert.equal(pendingEnginePanel.elements[1].text.content, ENGINE_TREND_NOTE);
+assert.equal(pendingEnginePanel.elements[2].text.content, "无");
 const [pendingSubPanel] = panelsOf(pendingEnginePanel);
 assert.equal(pendingSubPanel.header.title.content, "**待对比 1**");
 assert.match(
@@ -814,7 +863,7 @@ const engineMarkdown = buildEngineSummaryMarkdown({
 assert.match(engineMarkdown, /^## V2 vs V1/m);
 assert.match(
   engineMarkdown,
-  /Compared: 3 · 2 slower · 1 faster or equal · 2 not compared/,
+  /Compared: 3 · 1 slower · 2 faster or equal · 2 not compared/,
 );
 assert.match(
   engineMarkdown,
