@@ -11,6 +11,8 @@ import {
   DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
 } from "./perf-run-summary-model.mjs";
 import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
+import { buildEngineComparison } from "./engine-comparison-model.mjs";
+import { loadEnginePairHistory } from "./resolve-engine-pair-history.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -68,6 +70,22 @@ const main = async () => {
   };
   // The same split as the two Feishu cards: the release comparison, then the
   // V1 comparison as its own section, each within its own byte budget.
+  let recentRatiosByCase;
+  try {
+    const candidates = buildEngineComparison({ payloads }).regressions.map(
+      (row) => row.caseId,
+    );
+    recentRatiosByCase = await loadEnginePairHistory({
+      caseIds: candidates,
+      currentRunId: context.runId,
+    });
+  } catch (error) {
+    console.warn(
+      `Could not load recent V1/V2 pairs for the engine summary: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
   const sections = [
     buildPerfSummaryMarkdown({
       payloads,
@@ -82,6 +100,7 @@ const main = async () => {
       payloads,
       maxBytes: configuredMaxBytes,
       context,
+      recentRatiosByCase,
     }),
   ].filter(Boolean);
   const markdown = sections.join("\n");
