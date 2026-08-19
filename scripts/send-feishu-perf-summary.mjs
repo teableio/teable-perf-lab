@@ -8,7 +8,9 @@ import {
   buildPerfSummaryCard,
   resolveRunTimingFromJobs,
 } from "./perf-run-summary-model.mjs";
+import { buildEngineComparison } from "./engine-comparison-model.mjs";
 import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
+import { loadEnginePairHistory } from "./resolve-engine-pair-history.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -136,7 +138,29 @@ const main = async () => {
   // it: they answer different questions against different references, so they
   // stay separated — but the run's health, timings and links are stated once,
   // and the reader gets a single message instead of two to correlate.
-  const card = buildPerfSummaryCard({ payloads, timings, baseline, context });
+  let recentRatiosByCase;
+  try {
+    const candidates = buildEngineComparison({ payloads }).regressions.map(
+      (row) => row.caseId,
+    );
+    recentRatiosByCase = await loadEnginePairHistory({
+      caseIds: candidates,
+      currentRunId: context.runId,
+    });
+  } catch (error) {
+    console.warn(
+      `Could not load recent V1/V2 pairs for the engine panel: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const card = buildPerfSummaryCard({
+    payloads,
+    timings,
+    baseline,
+    context,
+    recentRatiosByCase,
+  });
   if (env("FEISHU_PERF_DRY_RUN") === "true") {
     console.log(JSON.stringify(card, null, 2));
     return;

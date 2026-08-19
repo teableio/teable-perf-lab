@@ -340,8 +340,12 @@ why — a folded "慢 0" would read as a clean run rather than an absent one.
 
 **与 V1 对比** follows: V2 against V1 inside this run — compared/slower/faster/
 not compared, the cases where V2 lost to V1 worst first, and the cases V1
-skipped so nothing could be compared. It repeats none of the run health. Hybrid
-first-row cases (`lookupPropagationMs`, `firstOrderReadyTotalMs`,
+skipped so nothing could be compared. It repeats none of the run health. A row
+is 慢 only when the gap is at least 1.2x **and** 50ms, and — when at least five
+recent pairs exist — also worse than that case's own recent median. Millisecond
+probes and a case that is always ~1.3x slower than V1 stay off the list; a case
+that is usually faster and printed 2.0x tonight stays on. Hybrid first-row
+cases (`lookupPropagationMs`, `firstOrderReadyTotalMs`,
 `customerFlowReadyTotalMs`) are compared on the recorded write
 (`linkWriteMs` / `sourceWriteMs` / `orderWriteMs`), not the poll-inflated
 primary. The customer-visible empty window stays the case primary and the
