@@ -60,15 +60,19 @@ loading the selection scales with the selection.
 ## Primary Metric
 
 - `pasteOver1kMs`: elapsed time for the paste request and its response
-  assertions; initial guardrail `maxMs: 12_000`.
+  assertions; guardrail `maxMs: 6_000`.
 
 ## Notes
 
-The guardrail is an assumption, not a calibration. The create-paste sibling
-(`record-paste/1k-single-line-text-10fields`) is capped at 6,000ms, and this
-path additionally resolves 1,000 selected records before writing, so the
-guardrail starts at twice the sibling and should be tightened once this case
-has CI history — the same way the other paste guardrails were set from run
-percentiles.
+First measurement, Actions run 32360582474 against teable-ee develop: **v1
+1,469ms, v2 926ms**, both passing with routing matched. That is close enough to
+the create-paste sibling (`record-paste/1k-single-line-text-10fields`, v1
+1,690ms / v2 781ms) that resolving 1,000 selected records costs far less than
+the doubled guardrail this case shipped with assumed, so it now shares the
+sibling's 6,000ms.
+
+One run is not a calibration. The guardrail keeps the same shape as its
+siblings — roughly four times the worst observed v1 — and should be replaced
+from run percentiles once this case has history.
 
 Verification and cleanup are outside the primary timer.
