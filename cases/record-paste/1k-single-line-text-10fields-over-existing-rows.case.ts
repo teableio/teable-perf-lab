@@ -18,11 +18,13 @@ export default definePerfCase({
     pasteOverSeededRows: true,
     threshold: {
       metric: "pasteOver1kMs",
-      // Initial guardrail, not yet calibrated: the create-paste sibling is
-      // capped at 6_000ms and this path also loads every selected record
-      // first, so it starts at twice that and should be tightened once CI
-      // history exists.
-      maxMs: 12_000,
+      // Measured on Actions run 32360582474 (teable-ee develop): v1 1469ms,
+      // v2 926ms - close enough to the create-paste sibling that it shares the
+      // sibling's guardrail rather than the doubled placeholder this shipped
+      // with. One run is not a calibration; this is the same 4x-over-worst
+      // shape the other paste guardrails use, to be replaced from percentiles
+      // once there is history.
+      maxMs: 6_000,
     },
   },
 });
