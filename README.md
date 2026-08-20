@@ -293,6 +293,9 @@ workload.
   count-all rollup over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-sum-fanout10-10k`: Measure adding a conditional
   numeric sum over 10 matching source rows for every row of a 10k host.
+- `rollup/conditional-composite-key-sum-fanout10-10k`: Measure adding a
+  conditional numeric sum whose filter AND-s two field-reference equalities, the
+  "name + code" reconciliation shape reported in T6849.
 - `rollup/conditional-group-average-fanout10-10k`: Measure adding a conditional
   numeric average over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-active-max-10k`: Measure adding a conditional
@@ -310,6 +313,9 @@ workload.
 - `rollup/conditional-group-active-sum-update-1k-fanout10-10k`: Measure
   conditional sum propagation when each of 10,000 host rows aggregates five
   active values from 10 group matches and 1,000 source amounts change.
+- `rollup/conditional-composite-key-sum-update-1k-fanout10-10k`: Measure
+  propagation of a two-key conditional sum when 1,000 source amounts change, the
+  write shape that produced the dead-lettered compute tasks in T6849.
 - `rollup/conditional-group-active-sum-update-1k-fanout50-10k`: Measure
   conditional sum propagation when each of 10,000 host rows aggregates 25 active
   values from 50 group matches and 1,000 source amounts change.

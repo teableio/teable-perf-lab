@@ -10,6 +10,34 @@ export const CONDITIONAL_QUERY_SOURCE_FIELDS = [
   "A Active",
 ] as const;
 export const CONDITIONAL_QUERY_HOST_FIELDS = ["B Key", "Lookup Group"] as const;
+// Second key column pair, seeded only for the "group-and-code" profile. Adding
+// them unconditionally would change every existing fixture's seed payload and
+// break comparability with recorded history.
+export const CONDITIONAL_QUERY_CODE_SOURCE_FIELD = "A Code";
+export const CONDITIONAL_QUERY_CODE_HOST_FIELD = "Lookup Code";
+
+export const isCompositeKeyConditionalQuery = (
+  config: ConditionalQueryCaseConfig,
+): boolean => config.field.filter === "group-and-code";
+
+export const conditionalQuerySeedFieldNames = (
+  config: ConditionalQueryCaseConfig,
+): { source: readonly string[]; host: readonly string[] } =>
+  isCompositeKeyConditionalQuery(config)
+    ? {
+        source: [
+          ...CONDITIONAL_QUERY_SOURCE_FIELDS,
+          CONDITIONAL_QUERY_CODE_SOURCE_FIELD,
+        ],
+        host: [
+          ...CONDITIONAL_QUERY_HOST_FIELDS,
+          CONDITIONAL_QUERY_CODE_HOST_FIELD,
+        ],
+      }
+    : {
+        source: CONDITIONAL_QUERY_SOURCE_FIELDS,
+        host: CONDITIONAL_QUERY_HOST_FIELDS,
+      };
 
 export type ConditionalQueryValuePhase = "seed" | "mutated";
 export type ConditionalQueryPropagationCaseConfig = Extract<
@@ -21,6 +49,7 @@ export type ConditionalQuerySourceFieldIds = {
   text: string;
   amount: string;
   active: string;
+  code?: string;
 };
 export type ConditionalQueryMutationTarget = {
   recordId: string;
@@ -74,6 +103,23 @@ const assertConfig = (config: ConditionalQueryCaseConfig) => {
   const rowsPerGroup = config.sourceRecordCount / config.groupCount;
   if (config.sourceRecordCount % config.groupCount !== 0 || rowsPerGroup < 2) {
     throw new Error("Grouped fanout requires an integral fanout >= 2");
+  }
+  const codeCount = config.generator.codeCount;
+  if (isCompositeKeyConditionalQuery(config)) {
+    if (!Number.isInteger(codeCount) || (codeCount ?? 0) < 2) {
+      throw new Error(
+        "Composite key filter requires generator.codeCount >= 2 - a single code makes the second equality redundant",
+      );
+    }
+    if (rowsPerGroup % (codeCount as number) !== 0) {
+      throw new Error(
+        "Composite key filter requires codeCount to divide the fanout evenly",
+      );
+    }
+  } else if (codeCount != null) {
+    throw new Error(
+      "generator.codeCount only applies to the group-and-code filter profile",
+    );
   }
   if (!config.mutation) return;
   if (
@@ -155,6 +201,30 @@ export const createConditionalQueryWorkload = (
       config.mutation?.kind === "active-flip" &&
       isMutationTargetSlot(slot)
     );
+  // Codes partition each group's slots into contiguous equal blocks, and host
+  // rows cycle through the codes. So a group key alone matches every slot in
+  // the group while the (group, code) pair matches exactly one block - that
+  // gap is what makes the second equality load-bearing rather than decorative.
+  const composite = isCompositeKeyConditionalQuery(config);
+  const codeCount = composite ? (config.generator.codeCount as number) : 1;
+  const slotsPerCode = rowsPerGroup / codeCount;
+  const codeForSlot = (slot: number) =>
+    Math.floor((slot - 1) / slotsPerCode) + 1;
+  const codeForHost = (row: number) => ((row - 1) % codeCount) + 1;
+  const slotMatchesHost = (
+    slot: number,
+    phase: ConditionalQueryValuePhase,
+    hostCode: number,
+  ) => {
+    switch (config.field.filter) {
+      case "group":
+        return true;
+      case "group-and-active":
+        return isActiveSlot(slot, phase);
+      case "group-and-code":
+        return codeForSlot(slot) === hostCode;
+    }
+  };
   const textValue = (
     group: number,
     slot: number,
@@ -179,13 +249,13 @@ export const createConditionalQueryWorkload = (
     isMutationTargetSlot(slot)
       ? config.mutation.amountDelta
       : 0);
+  // Every code block holds the same number of slots, so any host code is
+  // representative of the per-host retained count.
   const retainedValuesPerHost = (phase: ConditionalQueryValuePhase) => {
     const filtered = Array.from(
       { length: rowsPerGroup },
       (_, i) => i + 1,
-    ).filter(
-      (slot) => config.field.filter === "group" || isActiveSlot(slot, phase),
-    ).length;
+    ).filter((slot) => slotMatchesHost(slot, phase, 1)).length;
     return config.field.limit == null
       ? filtered
       : Math.min(filtered, config.field.limit);
@@ -203,6 +273,9 @@ export const createConditionalQueryWorkload = (
         "A Text": textValue(group, slot, "seed"),
         "A Amount": amountValue(group, slot, "seed"),
         "A Active": isActiveSlot(slot, "seed"),
+        ...(composite
+          ? { [CONDITIONAL_QUERY_CODE_SOURCE_FIELD]: codeForSlot(slot) }
+          : {}),
       },
     };
   };
@@ -210,6 +283,9 @@ export const createConditionalQueryWorkload = (
     fields: {
       "B Key": `${config.generator.hostKeyPrefix}-${row}`,
       "Lookup Group": groupKey(groupForHost(row)),
+      ...(composite
+        ? { [CONDITIONAL_QUERY_CODE_HOST_FIELD]: codeForHost(row) }
+        : {}),
     },
   });
   const expectedValue = (
@@ -217,8 +293,9 @@ export const createConditionalQueryWorkload = (
     phase: ConditionalQueryValuePhase,
   ): unknown => {
     const group = groupForHost(hostRowNumber);
+    const hostCode = codeForHost(hostRowNumber);
     const slots = Array.from({ length: rowsPerGroup }, (_, i) => i + 1).filter(
-      (slot) => config.field.filter === "group" || isActiveSlot(slot, phase),
+      (slot) => slotMatchesHost(slot, phase, hostCode),
     );
     const ordered =
       config.field.sort?.order === "desc" ? [...slots].reverse() : slots;
@@ -297,11 +374,14 @@ export const createConditionalQueryWorkload = (
     expectedValue,
     shape: (phase) => {
       const retained = retainedValuesPerHost(phase);
+      // Composite keys narrow the key match to one code block; reporting the
+      // full group fanout here would overstate the work the engine does.
+      const keyMatches = composite ? slotsPerCode : rowsPerGroup;
       return {
         fanout: rowsPerGroup,
-        groupMatchesPerHost: rowsPerGroup,
+        groupMatchesPerHost: keyMatches,
         retainedValuesPerHost: retained,
-        groupMatchPairCount: config.hostRecordCount * rowsPerGroup,
+        groupMatchPairCount: config.hostRecordCount * keyMatches,
         retainedValueCount: config.hostRecordCount * retained,
       };
     },

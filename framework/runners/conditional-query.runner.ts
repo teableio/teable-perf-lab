@@ -41,9 +41,11 @@ import {
   type RecordMutationLifecycleSpec,
 } from "./record-mutation-lifecycle";
 import {
-  CONDITIONAL_QUERY_HOST_FIELDS,
-  CONDITIONAL_QUERY_SOURCE_FIELDS,
+  CONDITIONAL_QUERY_CODE_HOST_FIELD,
+  CONDITIONAL_QUERY_CODE_SOURCE_FIELD,
+  conditionalQuerySeedFieldNames,
   createConditionalQueryWorkload,
+  isCompositeKeyConditionalQuery,
   type ConditionalQueryMutationTarget,
   type ConditionalQueryPropagationCaseConfig,
   type ConditionalQuerySourceFieldIds,
@@ -55,7 +57,7 @@ const FIXTURE_VERSION = "conditional-query-grouped-v1";
 const SHARED_SEED_ID = "conditional-query/grouped-fanout-shared";
 
 type FieldIds = ConditionalQuerySourceFieldIds;
-type HostFieldIds = { key: string; group: string };
+type HostFieldIds = { key: string; group: string; code?: string };
 type Fixture = {
   sourceTableId: string;
   hostTableId: string;
@@ -77,23 +79,35 @@ const resolveFields = (fields: Array<{ id: string; name: string }>) =>
 const fixtureFields = (
   source: Array<{ id: string; name: string }>,
   host: Array<{ id: string; name: string }>,
+  c: ConditionalQueryCaseConfig,
 ) => {
   const s = resolveFields(source);
   const h = resolveFields(host);
-  for (const name of [
-    ...CONDITIONAL_QUERY_SOURCE_FIELDS,
-    ...CONDITIONAL_QUERY_HOST_FIELDS,
-  ])
-    if (!(s.has(name) || h.has(name)))
-      throw new Error(`Missing conditional query seed field ${name}`);
+  const names = conditionalQuerySeedFieldNames(c);
+  for (const name of names.source)
+    if (!s.has(name))
+      throw new Error(`Missing conditional query source seed field ${name}`);
+  for (const name of names.host)
+    if (!h.has(name))
+      throw new Error(`Missing conditional query host seed field ${name}`);
+  const composite = isCompositeKeyConditionalQuery(c);
   return {
     sourceFields: {
       group: s.get("A Group")!,
       text: s.get("A Text")!,
       amount: s.get("A Amount")!,
       active: s.get("A Active")!,
+      // Spread rather than assigned so `Object.values(sourceFields)` stays a
+      // clean projection list on the single-key profiles.
+      ...(composite
+        ? { code: s.get(CONDITIONAL_QUERY_CODE_SOURCE_FIELD)! }
+        : {}),
     },
-    hostFields: { key: h.get("B Key")!, group: h.get("Lookup Group")! },
+    hostFields: {
+      key: h.get("B Key")!,
+      group: h.get("Lookup Group")!,
+      ...(composite ? { code: h.get(CONDITIONAL_QUERY_CODE_HOST_FIELD)! } : {}),
+    },
   };
 };
 
@@ -135,6 +149,7 @@ const assertFixtureReady = async (
   }
   const sourceFirst = sourceChecks[0].records[0];
   const expectedSourceFirst = fixture.workload.sourceRow(1).fields;
+  const sourceCodeFieldId = fixture.sourceFields.code;
   if (
     sourceFirst.fields[fixture.sourceFields.group] !==
       expectedSourceFirst["A Group"] ||
@@ -143,7 +158,10 @@ const assertFixtureReady = async (
     sourceFirst.fields[fixture.sourceFields.amount] !==
       expectedSourceFirst["A Amount"] ||
     sourceFirst.fields[fixture.sourceFields.active] !==
-      expectedSourceFirst["A Active"]
+      expectedSourceFirst["A Active"] ||
+    (sourceCodeFieldId != null &&
+      sourceFirst.fields[sourceCodeFieldId] !==
+        expectedSourceFirst[CONDITIONAL_QUERY_CODE_SOURCE_FIELD])
   ) {
     throw new Error("Conditional query source seed sample mismatch");
   }
@@ -157,10 +175,15 @@ const assertFixtureReady = async (
     const record = result.records[0];
     const row = rowOffset + 1;
     const expectedHost = fixture.workload.hostRow(row).fields;
+    const hostCodeFieldId = fixture.hostFields.code;
     if (
       !record ||
       record.fields[fixture.hostFields.key] !== expectedHost["B Key"] ||
-      record.fields[fixture.hostFields.group] !== expectedHost["Lookup Group"]
+      record.fields[fixture.hostFields.group] !==
+        expectedHost["Lookup Group"] ||
+      (hostCodeFieldId != null &&
+        record.fields[hostCodeFieldId] !==
+          expectedHost[CONDITIONAL_QUERY_CODE_HOST_FIELD])
     )
       throw new Error(`Conditional query host seed mismatch at row ${row}`);
   }
@@ -220,13 +243,11 @@ const prepareFixture = async (
     const fields = fixtureFields(
       await getFields(cachedSource.id),
       await getFields(cachedHost.id),
+      c,
     );
+    const hostSeedFieldNames = conditionalQuerySeedFieldNames(c).host;
     for (const field of await getFields(cachedHost.id))
-      if (
-        !CONDITIONAL_QUERY_HOST_FIELDS.includes(
-          field.name as (typeof CONDITIONAL_QUERY_HOST_FIELDS)[number],
-        )
-      )
+      if (!hostSeedFieldNames.includes(field.name))
         await deleteField(cachedHost.id, field.id);
     const fixture: Fixture = {
       sourceTableId: cachedSource.id,
@@ -259,6 +280,7 @@ const prepareFixture = async (
     if (table)
       await permanentDeleteTable(globalThis.testConfig.baseId, table.id);
   const started = performance.now();
+  const composite = isCompositeKeyConditionalQuery(c);
   const source = await createTable(globalThis.testConfig.baseId, {
     name: sourceTableName,
     fields: [
@@ -266,6 +288,14 @@ const prepareFixture = async (
       { name: "A Text", type: FieldType.SingleLineText },
       { name: "A Amount", type: FieldType.Number },
       { name: "A Active", type: FieldType.Checkbox },
+      ...(composite
+        ? [
+            {
+              name: CONDITIONAL_QUERY_CODE_SOURCE_FIELD,
+              type: FieldType.Number,
+            },
+          ]
+        : []),
     ],
     records: [],
   });
@@ -274,6 +304,9 @@ const prepareFixture = async (
     fields: [
       { name: "B Key", type: FieldType.SingleLineText },
       { name: "Lookup Group", type: FieldType.SingleLineText },
+      ...(composite
+        ? [{ name: CONDITIONAL_QUERY_CODE_HOST_FIELD, type: FieldType.Number }]
+        : []),
     ],
     records: [],
   });
@@ -301,7 +334,7 @@ const prepareFixture = async (
     hostTableId: host.id,
     sourceTableName,
     hostTableName,
-    ...fixtureFields(source.fields, host.fields),
+    ...fixtureFields(source.fields, host.fields, c),
     seedCacheInfo,
     seedCacheHit: false,
     reusable: seedCacheInfo.enabled,
@@ -335,6 +368,15 @@ const buildConditionalFieldInput = (
   ];
   if (field.filter === "group-and-active")
     filterSet.push({ fieldId: sf.active, operator: "is", value: true });
+  if (field.filter === "group-and-code") {
+    if (!sf.code || !fixture.hostFields.code)
+      throw new Error("Composite key filter is missing its code seed fields");
+    filterSet.push({
+      fieldId: sf.code,
+      operator: "is",
+      value: { type: "field", fieldId: fixture.hostFields.code },
+    });
+  }
   const options = {
     foreignTableId: fixture.sourceTableId,
     lookupFieldId: valueField(field, sf),
