@@ -935,6 +935,17 @@ export interface RecordPasteCaseConfig {
   seedRowCount?: number;
   seedFieldCount?: number;
   stream?: boolean;
+  // Paste OVER rows that already exist, addressed by their record ids, instead
+  // of pasting into an empty table. This is the body the grid sends when a user
+  // selects a block of existing rows and pastes: `selection.recordIds` carries
+  // every selected id, which is the path a per-row record load fans out on.
+  // Every other paste case sends `recordIds: []`, so that path is measured
+  // nowhere else.
+  //
+  // The rows are seeded blank, so the post-paste full scan proves the paste
+  // wrote every cell rather than reading back values the seed had already put
+  // there.
+  pasteOverSeededRows?: boolean;
   maxPasteCells?: number;
   fields: Array<IFieldRo & { id?: string; name: string }>;
   generator: {
@@ -949,7 +960,12 @@ export interface RecordPasteCaseConfig {
     fullScanPageSize?: number;
   };
   threshold: {
-    metric: "paste1kMs" | "paste5kMs" | "paste10kMs" | "pasteExpand10kMs";
+    metric:
+      | "paste1kMs"
+      | "paste5kMs"
+      | "paste10kMs"
+      | "pasteExpand10kMs"
+      | "pasteOver1kMs";
     maxMs: number;
   };
 }

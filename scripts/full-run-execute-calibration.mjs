@@ -1281,6 +1281,18 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 780.61,
     traceMs: 0,
   },
+  // Provisional: this case has no observation yet. The costs copy its nearest
+  // sibling, record-paste/1k-single-line-text-10fields, which pastes the same
+  // 1,000 x 10 text block into the same table shape; this one additionally
+  // seeds the rows it pastes over and names them all in the request, so the
+  // real numbers will be higher. The planner packs it at sibling scale until
+  // the next full-run refresh overwrites this entry.
+  "record-paste/1k-single-line-text-10fields-over-existing-rows": {
+    coldSeedMs: 0.21,
+    v1Ms: 1689.77,
+    v2Ms: 780.61,
+    traceMs: 0,
+  },
   "record-paste/1k-single-select-10fields": {
     coldSeedMs: 0.17,
     v1Ms: 1651.61,

@@ -12,6 +12,7 @@ import type {
   IPasteSelectionStreamProgressEvent,
 } from "@teable/openapi";
 import {
+  createRecords,
   createTable,
   getFields,
   getRecords,
@@ -249,6 +250,39 @@ const buildSeedRows = (config: RecordPasteCaseConfig) =>
         ]),
     ),
   }));
+
+const BLANK_SEED_BATCH_SIZE = 1_000;
+
+// Rows that exist and hold nothing. The paste under test addresses them by id,
+// so what matters is that there are exactly `rowCount` of them and that every
+// cell the scan checks afterwards was written by the paste.
+const seedBlankRows = async (
+  tableId: string,
+  config: RecordPasteCaseConfig,
+): Promise<string[]> => {
+  const recordIds: string[] = [];
+  for (
+    let seeded = 0;
+    seeded < config.rowCount;
+    seeded += BLANK_SEED_BATCH_SIZE
+  ) {
+    const size = Math.min(BLANK_SEED_BATCH_SIZE, config.rowCount - seeded);
+    const created = await createRecords(tableId, {
+      fieldKeyType: FieldKeyType.Name,
+      typecast: false,
+      records: Array.from({ length: size }, () => ({ fields: {} })),
+    });
+    recordIds.push(
+      ...created.records.map((record: { id: string }) => record.id),
+    );
+  }
+  if (recordIds.length !== config.rowCount) {
+    throw new Error(
+      `Seeded ${recordIds.length} rows to paste over, expected ${config.rowCount}`,
+    );
+  }
+  return recordIds;
+};
 
 const resolvePasteFields = (
   fields: NamedField[],
@@ -510,8 +544,19 @@ const preparePasteFixture = async (
   const table = await createTable(baseId, {
     name: tableName,
     fields: config.fields.slice(0, seedFieldCount),
-    records: seedRowCount > 0 ? buildSeedRows(config) : [],
+    records:
+      seedRowCount > 0 && !config.pasteOverSeededRows
+        ? buildSeedRows(config)
+        : [],
   });
+  // Pasting over existing rows needs those rows first, and a thousand of them
+  // do not belong in the createTable body. They are seeded blank and in
+  // batches, inside the fixture phase, so none of it reaches the primary
+  // metric and the post-paste scan has nothing to read but what the paste
+  // wrote.
+  const seededOverRecordIds = config.pasteOverSeededRows
+    ? await seedBlankRows(table.id, config)
+    : [];
   const tableFields = await getFields(table.id);
   const views = await getViews(table.id);
   const viewId = views[0]?.id;
@@ -545,7 +590,9 @@ const preparePasteFixture = async (
     seedRowCount,
     seedFieldCount,
     header,
-    seededRecordIds: (table.records ?? []).map((record) => record.id),
+    seededRecordIds: config.pasteOverSeededRows
+      ? seededOverRecordIds
+      : (table.records ?? []).map((record) => record.id),
   };
 };
 
@@ -578,15 +625,24 @@ const executePaste = async (
         viewId: prepared.viewId,
         projection: prepared.projection,
         // recordIds:[] = no existing rows selected, so every content row is
-        // created (these cases paste into an empty table). fieldIds anchors on
-        // the existing columns; header carries the clipboard schema.
-        selection: { recordIds: [], fieldIds: prepared.projection },
+        // created (those cases paste into an empty table). With
+        // pasteOverSeededRows the grid's other shape is sent instead: every
+        // selected row named by id, which is what a user pasting over a block
+        // of existing rows produces. fieldIds anchors on the existing columns;
+        // header carries the clipboard schema.
+        selection: {
+          recordIds: config.pasteOverSeededRows ? prepared.seededRecordIds : [],
+          fieldIds: prepared.projection,
+        },
         content: prepared.content,
         header: prepared.header,
       });
       expect(response.status).toBe(200);
+      // Pasting over existing rows creates none of them; pasting into an empty
+      // table creates all of them. Asserting the right one of those is what
+      // keeps a silently-expanding paste from passing as an update.
       expect(response.data.createdRecordIds ?? []).toHaveLength(
-        config.rowCount,
+        config.pasteOverSeededRows ? 0 : config.rowCount,
       );
       const responseHeaders = pickRoutingResponseHeaders(
         response.headers as Record<string, unknown>,
