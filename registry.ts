@@ -322,6 +322,7 @@ import recordRead100k50FieldsFilterNumberSortDescendingCase from "./cases/record
 import recordPaste1kPrimaryOnlyCase from "./cases/record-paste/1k-primary-only.case";
 import recordPaste10kPrimaryOnlyCase from "./cases/record-paste/10k-primary-only.case";
 import recordPaste1kSingleLineText10FieldsCase from "./cases/record-paste/1k-single-line-text-10fields.case";
+import recordPaste1kSingleLineText10FieldsOverExistingRowsCase from "./cases/record-paste/1k-single-line-text-10fields-over-existing-rows.case";
 import recordPaste1kLongText10FieldsCase from "./cases/record-paste/1k-long-text-10fields.case";
 import recordPaste1kNumber10FieldsCase from "./cases/record-paste/1k-number-10fields.case";
 import recordPaste1kDate10FieldsCase from "./cases/record-paste/1k-date-10fields.case";
@@ -758,6 +759,7 @@ const cases = [
   recordPaste1kPrimaryOnlyCase,
   recordPaste10kPrimaryOnlyCase,
   recordPaste1kSingleLineText10FieldsCase,
+  recordPaste1kSingleLineText10FieldsOverExistingRowsCase,
   recordPaste1kLongText10FieldsCase,
   recordPaste1kNumber10FieldsCase,
   recordPaste1kDate10FieldsCase,

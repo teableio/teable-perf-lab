@@ -1301,6 +1301,9 @@ workload.
   count changes.
 - `record-paste/1k-single-line-text-10fields`: Measure grid paste performance
   for 1,000 records in a fixed-width ten-field single-line text table.
+- `record-paste/1k-single-line-text-10fields-over-existing-rows`: Measure grid
+  paste performance when the paste lands on 1,000 rows that already exist and are
+  addressed by their record ids, rather than creating rows in an empty table.
 - `record-paste/1k-long-text-10fields`: Measure grid paste performance for 1,000
   records in a ten-field table dominated by long-text payloads.
 - `record-paste/1k-number-10fields`: Measure numeric clipboard parsing and grid

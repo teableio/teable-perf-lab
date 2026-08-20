@@ -141,6 +141,7 @@ export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:record-paste/1k-number-10fields": 1,
   "case:record-paste/1k-rating-10fields": 6,
   "case:record-paste/1k-single-line-text-10fields": 3,
+  "case:record-paste/1k-single-line-text-10fields-over-existing-rows": 3,
   "case:record-paste/1k-single-select-10fields": 2,
   "case:record-paste/5k-checkbox-10fields": 2,
   "case:record-paste/5k-date-10fields": 7,
