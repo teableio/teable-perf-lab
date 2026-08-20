@@ -232,15 +232,38 @@ Testing every series at full permutation is 46s, which is the number this
 criterion exists to keep the design away from. A typical run has a handful of
 survivors, so the expected cost is under a second.
 
-**F3. Teable reads are incremental.** The corpus is append-only — settled
-history never changes — so a run fetches only its own rows, one page, one query.
-Rebuilding the whole corpus is an explicit separate command, not something a run
-does. The initial build took 174 queries against the 50,000-character response
-cap; no per-run path may look like that.
+**F3. Teable reads are incremental.** ~~The corpus is append-only — settled
+history never changes — so a run fetches only its own rows, one page, one
+query.~~ **Not adopted, 2026-08-21.** The nightly run rebuilds the whole corpus:
+325 paged queries, 3m33s, inside a step that takes about 22 minutes and a job
+that allows 40.
 
-**F4. History is not re-derived.** Once a change point is confirmed and written
-to the ledger, the series before it is settled and is not searched again. Only
-the tail since the last confirmed change point is analysed.
+The saving is real and it is three and a half minutes a night. What it costs is
+the property that makes the corpus trustworthy — that every run derives it from
+Performance Track and from nothing else. An incremental corpus is a cached
+corpus, and a cache that goes subtly wrong here does not fail: it produces a
+complete-looking history with a stretch missing, and every detector downstream
+reports confidently off it. This project has shipped that exact failure four
+times (a shallow clone reading one commit of history, a seen-set built under a
+different window, a reconciliation pointed at the wrong file, a card step
+dropping a field it did not know about), and each one was found late because a
+wrong answer and a right answer look the same in a JSON file.
+
+Three and a half minutes a night does not buy that risk. The measured growth is
+about 10,000 rows a month, roughly 25 more pages, about 20 seconds a month — so
+the arithmetic that makes this the right call holds for something like a year.
+It is the arithmetic, not the preference, that decided it: if the corpus build
+ever approaches the step's own budget, this is a different question with
+different numbers.
+
+**F4. History is not re-derived.** ~~Once a change point is confirmed and
+written to the ledger, the series before it is settled and is not searched
+again.~~ **Not adopted, 2026-08-21**, and the measurement that killed F3 is not
+even the main reason here. Re-deriving the whole series every night is what
+found 62% of the confirmed change points: older boundaries become confirmable as
+measurements accumulate behind them, and a detector that never looks back at a
+settled segment cannot find those at all. Freezing history would trade a
+detection the system demonstrably makes for a saving of 45 seconds.
 
 **F5. Drift sweeps are scheduled, not per-run.** Accumulated drift is by
 definition slow, so the full-window sweep that catches it runs on a schedule

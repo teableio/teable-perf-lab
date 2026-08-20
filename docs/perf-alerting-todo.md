@@ -3,10 +3,20 @@
 Written 2026-08-07 to be picked up cold. Everything needed to resume is here or
 linked from here.
 
-**Where it stands:** the shadow analysis is merged and runs on every dispatch,
-verified end to end in CI. Nothing it finds is shown to anyone yet. The next
-step is calendar time — ten full runs — and it is the owner who starts those, by
-dispatching full runs as normal. Then sections 1 and 2 below, then the ledger.
+**Where it stands:** the shadow analysis is merged and runs on the nightly
+scheduled run, verified end to end in CI. Nothing it finds is shown to anyone
+yet. The next step is calendar time — ten full runs — and the schedule produces
+those without anyone dispatching. Then sections 1 and 2 below, then the ledger.
+
+**Nightly only, since 2026-08-21.** It used to run on every dispatch too, which
+was never the design: the analysis reads the whole corpus, so a single-case
+dispatch paid the same nine to fifteen minutes as a full run to re-examine a
+history that had not moved since the night before. The `report` job sets
+`PERF_LAB_SHADOW_ANALYSIS` from the trigger and every step in the shadow block
+is gated on it; a dispatch that is exercising the analysis itself turns it back
+on with the `shadow_analysis` input. `check:schedule-trigger` holds all three:
+the schedule sets it, the dispatch default is off, and no step in that block is
+ungated.
 
 **If you are the next agent on this:** sections 1 and 2 are history, kept
 because the faults in them are the ones this wiring keeps producing. Section 2's
@@ -104,7 +114,7 @@ halves of that are recorded where the code is, in
 
 Merged to `main` at `fab8642b` on 2026-08-07, after run 31192079501 read the
 whole history and 31193504224 confirmed the seen-set carries between runs. The
-shadow runs on every dispatch and reports into the job summary. Since
+shadow runs nightly and reports into the job summary. Since
 2026-08-13 the confirmed layer also reaches Feishu, on the terms above; the
 same-run layer still does not.
 
@@ -233,7 +243,7 @@ The confirmed layer does not have this problem — it is deduplicated by
 `[[change-point-identity-model]]` and was clean across the pair: 68 new and 0
 repeated on the first run, 0 new and 68 repeated on the second.
 
-### 3. The corpus is refetched in full every run — 325 requests, ~4 minutes
+### 3. The corpus is refetched in full every run — closed, not adopted
 
 Measured in CI: **5m56s** for the whole step, of which **3m52s** is the corpus.
 The same work is 21m37s on a developer machine — the difference is the `teable`
@@ -272,12 +282,20 @@ rather than four minutes whenever someone remembers to dispatch. That is
 accepted rather than fixed, because the shadow step runs last and behind
 `continue-on-error`, so those four minutes cost the run nothing that it needs.
 
-What settles it is the incremental read in acceptance F3, which asks for it by
-name — "a run fetches only its own rows, one page, one query". Do that before
-the ledger, not in the same change as the reconciliation fix: the watermark has
-to survive a commit being re-measured by a later run, which is a correctness
-question of its own and does not belong in a change whose point is that a zero
-must not be able to lie.
+**Closed 2026-08-21: the incremental read is not adopted, and neither is
+freezing settled history.** F3 and F4 in the acceptance criteria are struck
+through with the reasoning and the numbers. Short version: three and a half
+minutes a night is not worth buying with a cached corpus, because a cache that
+goes subtly wrong here produces a complete-looking history with a stretch
+missing and every detector downstream reports confidently off it — the failure
+this project has now shipped four times. And F4 would cost a detection the
+system demonstrably makes: 62% of confirmed change points sit at older
+boundaries that only became confirmable as measurements accumulated behind them,
+which a detector that never revisits settled history cannot find.
+
+This is a decision, not a deferral. What could reopen it is the arithmetic
+changing — the corpus grows about 10,000 rows a month, roughly 20 seconds of
+build time, so the numbers behind this hold for about a year.
 
 ### 4. Ten shadow runs
 
@@ -327,8 +345,10 @@ cache entry is keyed `perf-shadow-seen-<run_id>` and restored by prefix, and
 Actions cache entries are immutable — so two runs whose report jobs overlap both
 fork from one snapshot and each saves a lineage the other does not contain. The
 next run restores one of them and the other's records are gone. Dispatching by
-hand while the nightly runs is enough to trigger it, which is the normal working
-pattern here.
+hand while the nightly runs is enough to trigger it, which was the normal
+working pattern here — until 2026-08-21 made the shadow nightly-only, which
+removes that source without removing the fault: two overlapping nightly runs, or
+a re-run of one, still fork the same way.
 
 G1 and G2 both absorb this without lying: G1 is met many times over, and G2 is
 flags divided by runs, so a dropped run removes a term from each and leaves a
@@ -395,6 +415,15 @@ worth having in hand before the ten start, neither verified here:
   between them, close to half the average. A case that flags every single run is
   not a detection; either the measurability screen should be rejecting it or its
   threshold is being read off a history it does not belong to.
+
+  **Taken out of the job summary on 2026-08-21**, on the same reasoning that
+  keeps it off the card: it had no reader, and a panel that reports a standing
+  inventory beside a release comparison giving a different number for the same
+  question is not information. The layer itself is untouched — it runs every
+  night and travels in the artifact, because G1 counts a run by `fast.source`,
+  G2 is measured against its flag rate, and G3's hand review reads its
+  `oldOnly` list. Where it is judged is the artifact, not a panel.
+
 - The confirmed layer produced **7.7 fresh change points per run** across the 22
   post-cold-start runs (169 total, 122 distinct cases), against a backtest that
   measured 0.0 false alarms per run. The hypothesis recorded here was the ±1
@@ -438,7 +467,42 @@ worth having in hand before the ten start, neither verified here:
   it.** The tolerance was proposed against 7.7 per run; it addresses 13% of 5.3,
   at the price of changing the identity scheme before anything depends on it.
 
-**The ten now run themselves.** A nightly schedule at 18:00 UTC — 02:00 Beijing,
+  **A third reading, found 2026-08-21 and fixed: a card going out cost the next
+  night's findings.** Re-measured on the 27 shadow artifacts to 2026-08-20 — 71
+  fresh change points, 2.6 per run, 57 of them speedups and 48 `below-bar`, with
+  13 reaching the card across 7 runs, which is consistent with the drain above.
+  What did not fit was `reseeded`: **9 of the 27 runs re-seeded**, each one
+  announcing nothing, and the corpus metric revision has never changed. The
+  cause was in `send-feishu-change-point-summary.mjs`, which marks the standing
+  cases a card announced by rewriting the seen-set from the fields it knew about
+  — `known` and `window`. `metrics` was added to the seen-set later and never
+  added here, so the file it wrote read as one built before the substitution
+  table existed, and the next run re-seeded on a change that had not happened.
+
+  The seven runs that wrote a `metrics`-less seen-set are exactly the seven with
+  a V2 slowdown to push. **So the failure fired precisely when the system had
+  something to say**, and what the re-seeded run withheld is folded into the
+  seen-set and never announced again. Fixed by `seenAfterCard` in
+  `change-point-card-model.mjs`, which carries the cached object through whole
+  and replaces only `known`; `check:change-point-card` fails if any field is
+  dropped. Nothing recovers the withheld findings — the seen-set is monotonic by
+  design, and the only way back is a deliberate wipe, which would re-announce
+  all 894 keys.
+
+  **What it withheld, counted exactly.** The withheld keys are recoverable
+  without re-running anything: a re-seeded run's own uploaded seen-set minus the
+  one it restored from is precisely what it swallowed, since it announced
+  nothing. Across the nine re-seeded runs that is **52 change points over 40
+  cases** (0, 0, 1, 3, 4, 7, 9, 11, 17 per run). Cross-checked against the
+  standing list, which is not filtered by the seen-set and therefore never went
+  quiet: exactly one of the 40 also stands —
+  `form-submit/sequential-500-rating-100fields`, 1.25x, 75.2ms → 96.2ms, and it
+  has been reported every night since. Eleven of the 40 produced a later change
+  point of their own, almost all speedups or `below-bar`. **So nothing severe
+  was lost**, the standing layer caught what mattered, and there is no case for
+  wiping the seen-set. This is a closed question, not an outstanding audit.
+
+**The ten now run themselves.** A nightly schedule at 01:00 UTC — 09:00 Beijing,
 after the working day's commits — dispatches a full run on the default branch.
 Twenty-five hand-dispatched runs produced the last round of evidence and two of
 them died on a timeout with nobody watching; a validation that depends on
@@ -469,8 +533,39 @@ nothing is what the shallow clone produced twice, and it must never read as
 
 ### 5. Ledger, card, retirement
 
-All gated on the shadow data, and on a false-positive rate now drawn from the
-nightly runs rather than from the dropped 44-item list. Section G of the
+**The incident records landed 2026-08-21.** `pairIncidents` had been written,
+checked, and called by nothing since the identity scheme was built; it is now
+wired into the nightly analysis through `describeIncidents`, which joins the
+mainline's own commit dates onto the pairing. Every night's artifact carries an
+`incidents` array — which commit made a case slower, which one undid it or that
+nothing has, and how many days it stood. The job summary prints the count and
+the longest open one, and a standing row on the card now ends with 已持续 N 天
+wherever an open incident on that case can supply the number.
+
+Three deliberate limits, none of them a pending item:
+
+- **`asOf` is the newest mainline commit's date, not the wall clock.** Reading
+  the same history twice has to give the same answer, and an incident's age must
+  not depend on what time the run started. It also stops advancing when
+  measurement stops, which is the honest reading.
+- **Every count from these records is a lower bound**, for the reason acceptance
+  B4 measures: a regression introduced and fixed within a few days is often
+  never paired at all (1.5x at 3-4 days: 12%). Anything quoted from here says so.
+- **`mover: v1` is excluded from every count a person reads**, and from the
+  duration a standing row prints, on the same rule the card ranks by. Measured
+  on the real change points: `lookup/conditional-10k` pairs into a 1.42x
+  incident whose entire movement is the control channel speeding up. The
+  artifact keeps those records with their `mover` attached — dropping them would
+  hide a real fact about the pair — but nothing counts them as an incident
+  anyone can act on.
+- **No Teable table and no hand annotation.** Marking a record "false positive"
+  or "known" needs someone looking every day; building the table before that
+  person exists produces an empty table and a second place for the truth to
+  live. The artifact answers "how often, and how long" today without anyone
+  maintaining it.
+
+The rest is gated on the shadow data, and on a false-positive rate now drawn
+from the nightly runs rather than from the dropped 44-item list. Section G of the
 acceptance criteria will not accept retiring the old comparison until ten runs
 have been reconciled and every case the new system dropped has been reviewed by
 hand.

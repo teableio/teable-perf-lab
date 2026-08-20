@@ -55,13 +55,38 @@ const git = async (repo, args, { maxBuffer = 64 * 1024 * 1024 } = {}) => {
  * positions as if they had been on the mainline all along.
  */
 const readMainline = async (repo, branch) => {
+  // The commit date travels with the position. Incident records need to say how
+  // long a regression stood, and the only clock that is a fact about the code
+  // rather than about when this happened to run is the mainline's own — so it
+  // is read here, once, alongside the ordering it belongs to.
+  //
+  // `--timestamp` rather than `--format=%cI`, and the difference is a
+  // disclosure rule rather than a preference: this clone is private and this
+  // repository's logs are public, so `check-private-repo-git-reads.mjs` allows
+  // `rev-list` and forbids every flag that can make it print prose, `--format`
+  // included. `--timestamp` prefixes each line with the committer date as a
+  // Unix second and nothing else, which is the one route to a date that cannot
+  // also emit a commit subject.
   const stdout = await git(repo, [
     "rev-list",
     "--first-parent",
     "--reverse",
+    "--timestamp",
     branch,
   ]);
-  return stdout.split("\n").filter(Boolean);
+  return stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [seconds, sha] = line.split(" ");
+      const at = Number(seconds);
+      return {
+        sha,
+        committedAt: Number.isFinite(at)
+          ? new Date(at * 1000).toISOString()
+          : undefined,
+      };
+    });
 };
 
 /**
@@ -111,8 +136,14 @@ const main = async () => {
   }
 
   const mainline = await readMainline(repo, branch);
-  const position = new Map(mainline.map((sha, index) => [sha, index]));
-  const head = mainline[mainline.length - 1];
+  const position = new Map(
+    mainline.map((commit, index) => [commit.sha, index]),
+  );
+  const dateOf = new Map(
+    mainline.map((commit) => [commit.sha, commit.committedAt]),
+  );
+  const head = mainline[mainline.length - 1]?.sha;
+  const headCommittedAt = mainline[mainline.length - 1]?.committedAt;
 
   const pinned = refs.filter((ref) => isPinnedCommit(ref));
   const resolvable = await readResolvable(
@@ -145,6 +176,10 @@ const main = async () => {
   const artifact = {
     branch,
     head,
+    // The newest mainline commit's own date, used as "now" when an incident is
+    // still open. Wall-clock would make the same history produce a different
+    // answer on every run.
+    headCommittedAt,
     mainlineLength: mainline.length,
     refCount: refs.length,
     positionedCount: positioned.length,
@@ -154,6 +189,11 @@ const main = async () => {
         ? { from: span[0], to: span[span.length - 1] }
         : undefined,
     ordinals,
+    // Only for the refs that were positioned; the whole chain is ~2,700 commits
+    // and nothing reads the dates of the ones no measurement mentions.
+    committedAt: Object.fromEntries(
+      positioned.map((sha) => [sha, dateOf.get(sha)]),
+    ),
     excluded,
   };
 

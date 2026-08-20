@@ -69,6 +69,11 @@ Manual inputs:
 - `expected_perf_lab_sha`: optional exact 40-character commit guard for a
   cold/warm acceptance pair. Resolve the workflow branch before dispatch and
   pass the same SHA to both runs; planning fails if the branch moved.
+- `shadow_analysis`: run the change point analysis on this dispatch. Off by
+  default. The analysis reads the whole measurement history rather than this
+  run's cases, so it costs the same nine to fifteen minutes whether one case ran
+  or all of them; it belongs to the nightly scheduled run at 01:00 UTC (09:00
+  Beijing), which always performs it. Turn this on only when the analysis itself is what is being exercised.
 
 Because `teableio/teable-ee` is private, configure a read-only deploy key on
 that repository and store the private key in this repository as

@@ -16,6 +16,8 @@ import {
   STANDING_LIMIT,
   STANDING_CONTRAST,
   STANDING_NOTE,
+  seenAfterCard,
+  standingDurationText,
   standingKey,
   summariseChangePoints,
 } from "./change-point-card-model.mjs";
@@ -563,6 +565,65 @@ const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
   // And the framing a SHA needs: that it is a mainline commit, possibly much
   // older than the build this run measured.
   assert.match(text, /commit 归属于 mainline/);
+}
+
+// --- the seen-set survives a card going out ----------------------------------
+
+// The failure this guards is silent and it cost a night's findings every time
+// the card had something to say: rewriting the seen-set field by field dropped
+// `metrics`, the next run read that as the corpus changing what it records, and
+// it re-seeded — folding everything it found in and announcing none of it.
+{
+  const before = {
+    known: ["case@a..b"],
+    window: null,
+    metrics: "overheadMs>pagedScanMs",
+    // Stands in for whatever the seen-set grows next. This step must not need
+    // to know about it.
+    somethingAddedLater: { count: 3 },
+  };
+  const after = seenAfterCard(before, ["standing:record-read/case"]);
+  assert.deepEqual(after.known, ["case@a..b", "standing:record-read/case"]);
+  for (const field of ["window", "metrics", "somethingAddedLater"]) {
+    assert.deepEqual(
+      after[field],
+      before[field],
+      `${field} was dropped when the card marked its standing cases; the next run re-seeds and announces nothing`,
+    );
+  }
+  // Idempotent, so a retried step does not grow the file.
+  assert.deepEqual(seenAfterCard(after, ["standing:record-read/case"]), after);
+  // And a missing or unusable file is a first run, not a crash.
+  assert.deepEqual(seenAfterCard(undefined, ["standing:x"]), {
+    known: ["standing:x"],
+  });
+  assert.deepEqual(seenAfterCard([], []), { known: [] });
+}
+
+// --- how long a standing case has been slow -----------------------------------
+
+// The duration comes from the incident pairing, which the standing list does
+// not always have a counterpart in. Where it does, the row says it; where it
+// does not, the row is what it always was rather than carrying a made-up
+// number.
+{
+  assert.equal(standingDurationText({ openDays: 19.4 }), "已持续 19 天");
+  assert.equal(standingDurationText({ openDays: 0.4 }), "已持续 0 天");
+  assert.equal(standingDurationText({}), undefined);
+  assert.equal(standingDurationText({ openDays: null }), undefined);
+
+  const line = formatStandingLine(
+    { ...standingOf("slow", 1.8), openDays: 12.2 },
+    "https://chart.example",
+  );
+  // The duration is only ever attached upstream for incidents V2 actually
+  // moved on; a row that reached here without one prints no duration at all.
+  assert.match(line, /已持续 12 天/);
+  assert.ok(
+    !formatStandingLine(standingOf("slow", 1.8), "https://chart.example").includes(
+      "已持续",
+    ),
+  );
 }
 
 console.log("change point card model checks passed");

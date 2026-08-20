@@ -16,6 +16,7 @@ import { env } from "./env.mjs";
 import {
   buildChangePointCard,
   describeDelivery,
+  seenAfterCard,
   standingKey,
 } from "./change-point-card-model.mjs";
 import {
@@ -76,13 +77,15 @@ const main = async () => {
   // has, which is the correct reading on a first run.
   const seenPath = resolve(env("SHADOW_SEEN_PATH", SHADOW_SEEN_FILE_NAME));
   let seen = [];
-  let seenWindow;
+  // The whole cached file, not the fields this step happens to use. It is
+  // rewritten below, and the analysis reads more out of it than the key list —
+  // the window and the corpus metric revision both live here, and dropping
+  // either makes the next run re-seed and announce nothing. `seenAfterCard`
+  // carries it through; see the note there for what that cost before.
+  let seenFile;
   try {
-    const parsed = JSON.parse(await readFile(seenPath, "utf8"));
-    seen = parsed.known ?? [];
-    // Carried through untouched. The analysis uses it to notice a window
-    // change, and dropping it here would make the next run re-seed.
-    seenWindow = parsed.window;
+    seenFile = JSON.parse(await readFile(seenPath, "utf8"));
+    seen = seenFile.known ?? [];
   } catch {
     seen = [];
   }
@@ -133,11 +136,10 @@ const main = async () => {
   // owns this file; this appends to it rather than rewriting, and a failure
   // here is reported without failing the step, because the card did go out.
   const announced = (result.standing ?? []).map((row) => standingKey(row));
-  const merged = [...new Set([...seen, ...announced])];
   try {
     await writeFile(
       seenPath,
-      `${JSON.stringify({ known: merged, window: seenWindow }, null, 2)}\n`,
+      `${JSON.stringify(seenAfterCard(seenFile, announced), null, 2)}\n`,
     );
   } catch (error) {
     console.warn(

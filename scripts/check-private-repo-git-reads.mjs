@@ -118,6 +118,13 @@ const UNSAFE_FLAGS = [
 // object is its message.
 const CAT_FILE_REQUIRED_FLAG = "--batch-check";
 
+// Not on the unsafe list, and worth saying why rather than leaving it to be
+// re-litigated: `rev-list --timestamp` prefixes each line with the committer
+// date as a Unix second. It is the only way to get a date out of this clone
+// without `--format`, which is banned above, and its output stays what this
+// check exists to keep it — identifiers and numbers. The incident records read
+// it to say how many days a regression stood.
+
 const failures = [];
 
 const fail = (where, message) => {
