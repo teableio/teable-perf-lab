@@ -16,10 +16,9 @@ needs them:
   flagged as `Trace 缺失` by the performance monitor.
 - [new-runner-contract.md](new-runner-contract.md) — required wiring and
   artifact/trace/seed contracts when a new runner is unavoidable.
-- `skills/localrun/` — local `teable-ee` sandbox refresh, perf-lab injection,
-  runtime smoke checks, GitHub Actions acceptance, and trace artifact
-  diagnosis. The scripts are committed; the instructions are not published with
-  this repository, so ask the team for them.
+- the localrun skill — local sandbox refresh, perf-lab injection, runtime smoke
+  checks, GitHub Actions acceptance, and trace artifact diagnosis. Not
+  published with this repository; ask the team for it.
 - [artifact-content.md](artifact-content.md) — exact files and JSON shapes a run
   produces, so you can query a result/manifest without unpacking it first.
 
@@ -158,14 +157,8 @@ that the root README "Available Cases" list matches the registry. It does
 ### 8. Local Verify
 
 Follow the localrun skill for the exact commands (sandbox refresh, perf-lab
-injection, Docker prerequisites, the vitest invocation). Those instructions are
-not published with this repository — ask the team. The short version:
-
-```bash
-.agents/skills/localrun/scripts/refresh-teable-ee-sandbox.sh
-.agents/skills/localrun/scripts/inject-perf-lab.sh
-# then run the case from the sandbox with PERF_LAB_ENGINE_LIST=v1,v2
-```
+injection, Docker prerequisites, the vitest invocation). It is not published
+with this repository — ask the team for it.
 
 A run is verified only when you have checked the artifact JSON
 (`$PERF_LAB_ARTIFACT_DIR/<case>-<engine>.json`), not just the vitest exit

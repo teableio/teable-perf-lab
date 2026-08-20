@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-// Local operating instructions must not be committed to this repository.
+// Local operating tooling must not be committed to this repository.
 //
-// This repository is public, and running a case locally means driving a
-// private product checkout. Instructions for that accrete details that are
-// true only of one deployment - internal build and deployment switches,
-// instance configuration - and one such switch did reach this repository and
-// sat in it for two months. The skill's scripts are committed because they
-// carry none of that; the prose is not.
+// This repository is public, and running a case locally means driving a private
+// product checkout. Everything about that — the instructions and the scripts
+// that carry them out — describes a layout and a workflow that only exist for
+// one deployment, so none of it is published here; it is handed over through
+// the team's own channel.
 //
-// So the rule is structural rather than a list of forbidden words: a run
-// command for this repository's lab runner must not appear in any tracked
-// file, and the skill documents must not be tracked at all. Nothing here has
-// to name what it is keeping out.
+// The rule is structural rather than a list of forbidden words: nothing under
+// .agents/skills may be tracked, and no tracked file may spell out a run of
+// this repository's lab runner. Nothing here has to name what it keeps out.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -33,9 +31,9 @@ const tracked = (...patterns) =>
 
 const failures = [];
 
-// 1. The skill documents themselves.
-for (const file of tracked(".agents/skills/*/*.md")) {
-  failures.push(`${file} is tracked; local skill instructions must stay out`);
+// 1. The skill directory, documents and scripts alike.
+for (const file of tracked(".agents/skills/**")) {
+  failures.push(`${file} is tracked; local skill tooling must stay out`);
 }
 
 // 2. Anything else that spells out a local run.
@@ -50,10 +48,10 @@ for (const file of tracked("*.md")) {
 
 if (failures.length > 0) {
   console.error(
-    "Local run instructions must not be committed to this public repository.",
+    "Local run tooling must not be committed to this public repository.",
   );
   console.error(
-    "Keep them in the gitignored skill document and hand them over through the team's own channel; commit only the scripts.",
+    "Keep the skill out of the repository and hand it over through the team's own channel.",
   );
   for (const failure of failures) {
     console.error(`  ${failure}`);
@@ -61,4 +59,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log("Local run instructions are untracked");
+console.log("Local run tooling is untracked");

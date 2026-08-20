@@ -18,10 +18,9 @@ ready.
 - Adding a runner: read [.agents/runners.md](.agents/runners.md), then
   [.agents/new-runner-contract.md](.agents/new-runner-contract.md) only if reuse or
   extension cannot express the case.
-- Verifying a case locally before handing it back: follow the localrun skill in
-  `.agents/skills/localrun/`. Its scripts are here; its instructions are not
-  published with this repository, so ask the team for them. A case is not done
-  until it has passed a local v1+v2 run with verified artifacts.
+- Verifying a case locally before handing it back: follow the localrun skill.
+  It is not published with this repository — ask the team for it. A case is not
+  done until it has passed a local v1+v2 run with verified artifacts.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
   owns trigger commands and workflow inputs.
