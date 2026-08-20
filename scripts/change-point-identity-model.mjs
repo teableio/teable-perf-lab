@@ -139,3 +139,82 @@ export const pairIncidents = (
 
   return incidents.sort((left, right) => right.ratio - left.ratio);
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const daysBetween = (from, to) => {
+  const start = Date.parse(from ?? "");
+  const end = Date.parse(to ?? "");
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return undefined;
+  }
+  return Math.round(((end - start) / DAY_MS) * 10) / 10;
+};
+
+/**
+ * Incidents with the two things a reader asks next: when, and for how long.
+ *
+ * `pairIncidents` answers "was this fixed" and stops there, which leaves the
+ * question the ledger exists for — how long a regression stood — to whoever is
+ * reading. This joins the mainline's own commit dates onto the pairing so the
+ * answer is in the record.
+ *
+ * `asOf` is the newest mainline commit's date, not the wall clock. An open
+ * incident's age has to be a fact about the history: reading the same corpus
+ * twice must not produce two different numbers, and a run that happens at
+ * 02:00 must not report an incident as older than the same run at 01:00 would.
+ * It also means the age stops advancing when measurement stops, which is the
+ * honest reading — nothing is known about a stretch nobody measured.
+ *
+ * `days` is the span from the introducing commit to the fixing one, or to
+ * `asOf` while the incident is open. It is a lower bound in both directions and
+ * the reason is in the acceptance criteria under B4: a regression fixed within
+ * a few days is often never paired at all, so no count drawn from these records
+ * is a complete incident history.
+ */
+export const describeIncidents = (
+  points = [],
+  { positionOf = () => undefined, dateOf = () => undefined, asOf, closingRatio } = {},
+) => {
+  const paired = pairIncidents(points, { positionOf, closingRatio });
+  const byKey = new Map(points.map((point) => [changePointKey(point), point]));
+
+  return paired.map((incident) => {
+    const source = byKey.get(incident.key);
+    const introducedOn = dateOf(incident.introducedAt);
+    const fixedOn = incident.fixedAt ? dateOf(incident.fixedAt) : undefined;
+    return {
+      ...incident,
+      introducedOn,
+      fixedOn,
+      days: daysBetween(introducedOn, fixedOn ?? asOf),
+      // Carried so a reader can tell a V2 regression from a control channel
+      // that moved, without joining back to the change point list.
+      mover: source?.mover,
+      v2Level: source?.v2Level,
+    };
+  });
+};
+
+/**
+ * Days the longest open incident on this case has stood, if there is one.
+ *
+ * The longest rather than the newest: a case that stepped up twice and had
+ * neither step undone has been slow since the first one.
+ */
+export const openDaysFor = (incidents = [], caseId) => {
+  const days = incidents
+    .filter(
+      (incident) =>
+        incident.caseId === caseId &&
+        incident.open &&
+        // A control-channel mover is not this case getting slower. Measured on
+        // the real change points: `lookup/conditional-10k` pairs into a 1.42x
+        // incident whose whole movement is V1 speeding up, and a standing row
+        // saying it has been slow for N days would be citing the wrong series.
+        incident.mover !== "v1" &&
+        Number.isFinite(incident.days),
+    )
+    .map((incident) => incident.days);
+  return days.length > 0 ? Math.max(...days) : undefined;
+};

@@ -146,11 +146,25 @@ export const standingAttributionText = (row) => {
   return parts.join(" · ");
 };
 
+/**
+ * How long this case has been slow, when an open incident on it can say.
+ *
+ * Rounded to whole days: the underlying figure is the span between two commit
+ * timestamps, and a tenth of a day is precision the reader has no use for.
+ * Absent where the standing list and the incident pairing do not meet — a case
+ * screened out of detection has no change point to pair, and printing a
+ * duration there would be an invented answer.
+ */
+export const standingDurationText = (row) =>
+  Number.isFinite(row?.openDays) ? `已持续 ${Math.round(row.openDays)} 天` : undefined;
+
 export const formatStandingLine = (row, chartUrl) =>
   `**[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**\n` +
   `${formatRange(row.v2Then, row.v2Now)} · ` +
   `${formatRatioFactor(row.pairedDrift) ?? "—"} · ${row.points} 个历史点\n` +
-  standingAttributionText(row);
+  [standingAttributionText(row), standingDurationText(row)]
+    .filter(Boolean)
+    .join(" · ");
 
 /**
  * The commits `alsoPossible` names that the row does not already print.
@@ -275,6 +289,35 @@ export const freshStanding = (standing = [], seen = []) => {
   const known = new Set(seen);
   return standing.filter((row) => !known.has(standingKey(row)));
 };
+
+/**
+ * The seen-set file as it stands after a card went out.
+ *
+ * The card step marks the standing cases it announced, which means rewriting a
+ * file `run-shadow-analysis.mjs` owns. The first version rebuilt that file from
+ * the fields it knew about — `known` and `window` — and `metrics` was added to
+ * the analysis later without being added here. So every night a card actually
+ * went out wrote back a seen-set that looked like it predated the substitution
+ * table, and the next run read that as "the corpus changed which metric it
+ * records", re-seeded, and announced nothing it found.
+ *
+ * Measured on the 27 shadow artifacts to 2026-08-20: seven runs wrote a
+ * seen-set with no `metrics`, and they are exactly the seven runs whose card
+ * had a V2 slowdown to push. Nine runs re-seeded, each the next run after one
+ * of those. The withheld change points are folded into the seen-set and never
+ * announced again, so a real finding on one night silently cost the next
+ * night's.
+ *
+ * Nothing is enumerated here now: the cached object is carried through whole
+ * and only `known` is replaced. A field added to the seen-set in future
+ * survives this step without anyone remembering it exists.
+ */
+export const seenAfterCard = (parsed, announced = []) => ({
+  ...(parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed
+    : {}),
+  known: [...new Set([...(parsed?.known ?? []), ...announced])],
+});
 
 export const describeDelivery = ({ result, seen = [] } = {}) => {
   const summary = summariseChangePoints(result?.confirmed ?? []);

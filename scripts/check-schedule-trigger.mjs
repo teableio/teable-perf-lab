@@ -100,6 +100,47 @@ assert.match(
   "a scheduled run must plan every case: G1 counts full runs, and a partial one silently does not count",
 );
 
+// --- the analysis runs nightly, and only nightly ------------------------------
+
+// The change point analysis costs what the history costs, not what the run
+// costs: it reads every series in Performance Track whether the run measured
+// one case or all of them. So it is gated on an env the schedule sets, and a
+// dispatch has to ask for it. Both halves are load-bearing — without the gate a
+// single-case dispatch pays fifteen minutes to re-read a corpus that has not
+// moved, and without the schedule setting it, G1 accumulates nothing while the
+// nightly run still looks like it is accumulating.
+const shadowGate = text.match(/PERF_LAB_SHADOW_ANALYSIS: (.*)/)?.[1] ?? "";
+assert.match(
+  shadowGate,
+  /event_name == 'schedule' \|\|/,
+  "the scheduled run is what drives the change point analysis; gating it off the schedule stops the nightly detection entirely",
+);
+
+const shadowInput = workflow.on?.workflow_dispatch?.inputs?.shadow_analysis;
+assert.equal(
+  shadowInput?.default,
+  false,
+  "a dispatch must not run the analysis unless it asks: that default is the whole saving",
+);
+
+// Every step from the shadow section onward carries the gate, directly or by
+// depending on the analysis step's outcome. A new step added there without one
+// puts the cost back on every dispatch, which is exactly how it got there the
+// first time.
+const reportSteps = workflow.jobs?.report?.steps ?? [];
+const shadowStart = reportSteps.findIndex(
+  (step) => step.name === "Checkout teable-ee for commit ordering",
+);
+assert.ok(shadowStart > 0, "the shadow section no longer starts where expected");
+for (const step of reportSteps.slice(shadowStart)) {
+  const condition = String(step.if ?? "");
+  assert.ok(
+    condition.includes("env.PERF_LAB_SHADOW_ANALYSIS") ||
+      condition.includes("steps.shadow-analysis.outcome"),
+    `step "${step.name}" runs on every dispatch; gate it on env.PERF_LAB_SHADOW_ANALYSIS`,
+  );
+}
+
 const group = workflow.concurrency?.group ?? "";
 assert.match(
   group,

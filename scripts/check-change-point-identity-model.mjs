@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   changePointKey,
+  describeIncidents,
+  openDaysFor,
   pairIncidents,
   separateFresh,
 } from "./change-point-identity-model.mjs";
@@ -168,6 +170,99 @@ const positionOf = (commit) => positions[commit];
     incidents.map((entry) => entry.caseId),
     ["read/b", "read/a"],
   );
+}
+
+// --- how long it stood ---------------------------------------------------------
+
+// The number the ledger exists to produce. A fixed incident is measured to its
+// fix; an open one to the newest mainline commit, never to the wall clock —
+// otherwise the same history answers differently depending on when it is read.
+{
+  const dates = {
+    c2: "2026-08-01T00:00:00Z",
+    c5: "2026-08-08T12:00:00Z",
+  };
+  const [fixed] = describeIncidents(
+    [point("read/a", "c1", "c2", 2.0), point("read/a", "c4", "c5", 0.5)],
+    {
+      positionOf,
+      dateOf: (commit) => dates[commit],
+      asOf: "2026-08-20T00:00:00Z",
+    },
+  );
+  assert.equal(fixed.open, false);
+  assert.equal(fixed.days, 7.5, "a closed incident is measured to its fix");
+
+  const [open] = describeIncidents([point("read/a", "c1", "c2", 2.0)], {
+    positionOf,
+    dateOf: (commit) => dates[commit],
+    asOf: "2026-08-20T00:00:00Z",
+  });
+  assert.equal(open.open, true);
+  assert.equal(open.days, 19, "an open incident is measured to the newest commit");
+
+  // Same inputs, same answer, whenever it is read. The guard is against
+  // reaching for `Date.now()` here, which would make every run disagree with
+  // the one before it about how old the same incident is.
+  assert.equal(
+    describeIncidents([point("read/a", "c1", "c2", 2.0)], {
+      positionOf,
+      dateOf: (commit) => dates[commit],
+      asOf: "2026-08-20T00:00:00Z",
+    })[0].days,
+    19,
+  );
+}
+
+// A commit the clone could not date is reported without a duration rather than
+// with a wrong one. Ordering resolves ~86% of the refs a corpus mentions, so
+// this is the normal state of some rows, not an edge case.
+{
+  const [incident] = describeIncidents([point("read/a", "c1", "c2", 2.0)], {
+    positionOf,
+    dateOf: () => undefined,
+    asOf: "2026-08-20T00:00:00Z",
+  });
+  assert.equal(incident.days, undefined);
+  assert.equal(incident.open, true);
+}
+
+// Attribution travels with the incident, so a reader can tell a V2 regression
+// from a control channel that moved without joining back to the change points.
+{
+  const withMover = {
+    ...point("read/a", "c1", "c2", 2.0),
+    mover: "v1",
+    v2Level: { before: 100, after: 101 },
+  };
+  const [incident] = describeIncidents([withMover], { positionOf });
+  assert.equal(incident.mover, "v1");
+  assert.deepEqual(incident.v2Level, { before: 100, after: 101 });
+}
+
+// --- the duration a standing row is allowed to print ---------------------------
+
+// Only from an open incident V2 itself moved on. Measured on the real change
+// points: `lookup/conditional-10k` pairs into a 1.42x incident whose entire
+// movement is the control channel speeding up, and a standing row citing its
+// age would be quoting the wrong series at a reader who cannot see the join.
+{
+  const incidents = [
+    { caseId: "read/a", open: true, days: 4, mover: "v2" },
+    { caseId: "read/a", open: true, days: 11, mover: "v2" },
+    { caseId: "read/a", open: false, days: 30, mover: "v2" },
+    { caseId: "read/b", open: true, days: 9, mover: "v1" },
+    { caseId: "read/c", open: true, days: undefined, mover: "v2" },
+  ];
+  assert.equal(openDaysFor(incidents, "read/a"), 11, "the longest open one");
+  assert.equal(
+    openDaysFor(incidents, "read/b"),
+    undefined,
+    "a control-channel mover is not this case getting slower",
+  );
+  assert.equal(openDaysFor(incidents, "read/c"), undefined);
+  assert.equal(openDaysFor(incidents, "read/absent"), undefined);
+  assert.equal(openDaysFor([], "read/a"), undefined);
 }
 
 console.log("change point identity model checks passed");

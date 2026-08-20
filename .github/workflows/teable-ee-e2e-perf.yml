@@ -7,8 +7,9 @@ on:
   # of which died on a timeout without anyone noticing — a validation that
   # depends on someone remembering to press a button is not a validation.
   #
-  # 18:00 UTC is 02:00 the next day in Beijing, after the working day's commits
-  # have landed. Every night rather than weekdays only: a weekend run re-measures
+  # 01:00 UTC is 09:00 in Beijing, so the night's card is waiting when the day
+  # starts and the run measures everything the previous working day landed.
+  # Every night rather than weekdays only: a weekend run re-measures
   # Friday's commit, which adds nothing to the mainline coverage but is still a
   # valid paired observation of the old gate against the new system, and G1 is
   # counted in runs. Ten qualifying runs therefore take ten nights instead of a
@@ -23,7 +24,7 @@ on:
   # default branch, so the seen-set and the run ledger only chain when the runs
   # share a branch.
   schedule:
-    - cron: "0 18 * * *"
+    - cron: "0 1 * * *"
   workflow_dispatch:
     inputs:
       teable_ee_ref:
@@ -74,6 +75,17 @@ on:
         required: false
         default: ""
         type: string
+      shadow_analysis:
+        description: >-
+          Run the change point analysis on this dispatch. Off by default: it
+          reads the whole measurement history rather than this run's cases, so
+          it costs the same nine to fifteen minutes whether one case ran or all
+          282 did. The nightly scheduled run always does it, which is the
+          cadence the detection was designed for. Turn this on only to exercise
+          the analysis itself.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -667,9 +679,11 @@ jobs:
     if: always()
     # Was 30, which the report's own work clears in about a minute. The extra
     # ten are headroom for the shadow analysis that now runs after everything
-    # else — it is bounded at 20 on its own step, and this keeps the job budget
+    # else — it is bounded at 30 on its own step, and this keeps the job budget
     # from becoming the thing that bounds it, since hitting a job timeout
-    # cancels rather than skips.
+    # cancels rather than skips. Measured on the nightly runs the whole job is
+    # about 27 minutes, 22 of them the analysis; on a dispatch, where the
+    # analysis does not run, it is the report's own minute.
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -679,6 +693,12 @@ jobs:
       contents: write
     env:
       PERF_LAB_REPORT_JAEGER_CONTAINER: perf-report-jaeger-${{ github.run_id }}-${{ github.run_attempt }}
+      # The change point analysis is a nightly job, not a per-run one. Its cost
+      # is set by the length of the history it reads, not by how many cases this
+      # run measured, so a single-case dispatch pays the same nine to fifteen
+      # minutes as a full run — for a corpus that has not moved since last
+      # night. Every step below that belongs to it is gated on this.
+      PERF_LAB_SHADOW_ANALYSIS: ${{ github.event_name == 'schedule' || inputs.shadow_analysis }}
 
     steps:
       - name: Checkout perf lab
@@ -993,6 +1013,14 @@ jobs:
       # replacing it. Section G of docs/change-point-alerting-acceptance.md will
       # not accept a switch until ten runs of this have been reconciled by hand.
       #
+      # Nightly only, which is the cadence it was designed for: the analysis
+      # reads the whole measurement history, so its cost tracks the corpus and
+      # not this run, and a hand-dispatched single case paid the same nine to
+      # fifteen minutes to re-examine a history that had not moved since the
+      # night before. `PERF_LAB_SHADOW_ANALYSIS` on the job carries the rule,
+      # and the `shadow_analysis` dispatch input turns it on for a run that is
+      # exercising the analysis itself.
+      #
       # Last in the job, deliberately. Everything the run itself depends on —
       # the artifact uploads and both acceptance gates — has already happened by
       # the time these steps start, so a shadow that is slow, stuck or broken
@@ -1015,7 +1043,7 @@ jobs:
       # `cat-file --batch-check` never look at a tree — so `tree:0` fetches the
       # whole graph without a byte of source.
       - name: Checkout teable-ee for commit ordering
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         uses: actions/checkout@v5
         with:
@@ -1030,7 +1058,7 @@ jobs:
       # a remote-tracking ref to have been set up. The count is the signal worth
       # having in the log: one means shallow, thousands means this worked.
       - name: Deepen teable-ee history for commit ordering
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         run: |
           git -C teable-ee-revision fetch --filter=tree:0 --no-tags --prune \
@@ -1047,7 +1075,7 @@ jobs:
       # one does read blobs; the case files come down in a single batched fetch
       # while the rest of the history's contents stay on the server.
       - name: Deepen perf-lab history for case digests
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         run: |
           # `rev-parse --git-dir` answers relative to the repository, so testing
@@ -1068,7 +1096,7 @@ jobs:
       # recent history each run: 101 of them, almost all seen before. That is a
       # standing inventory, and nobody reads an alert that repeats itself.
       - name: Restore shadow change point state
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         uses: actions/cache/restore@v5
         with:
@@ -1115,7 +1143,7 @@ jobs:
       # is skipped, and the worst case is the behaviour from before this step
       # existed.
       - name: Recover shadow state lost to a forked or missed cache
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -1220,7 +1248,7 @@ jobs:
       # minutes still does that.
       - name: Shadow perf analysis
         id: shadow-analysis
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         timeout-minutes: 30
         working-directory: perf-lab
@@ -1256,7 +1284,7 @@ jobs:
       # This writes the outcome into the job summary either way, so ten empty
       # shadow runs cannot pass for ten quiet ones.
       - name: Report shadow analysis outcome
-        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
         continue-on-error: true
         run: |
           if [ -s shadow-analysis.json ]; then
@@ -1278,15 +1306,38 @@ jobs:
               const moverText = Object.entries(movers)
                 .map(([mover, count]) => `${count} ${mover}`)
                 .join(", ");
+              const incidents = r.incidents ?? [];
+              // `mover: v1` excluded from the count a person reads, on the same
+              // rule the card ranks by: the pair widened because the control
+              // channel moved, and there is nothing in V2 to open.
+              const openIncidents = incidents.filter(
+                (i) => i.open && i.mover !== "v1"
+              );
+              const longestOpen = Math.round(
+                Math.max(0, ...openIncidents.map((i) => i.days ?? 0))
+              );
+              // The same-run layer is deliberately absent from this panel,
+              // since 2026-08-21. It still runs and still travels in the
+              // artifact — G1 counts a run by `fast.source` and G2 is measured
+              // against its flag rate — but it had no reader here: it
+              // disagreed with the release comparison on the same page (32
+              // against 5 on 2026-08-11) and two of its cases flagged in 23
+              // runs out of 23, which is a standing inventory rather than a
+              // detection. Whether it is right is what G3 settles, from the
+              // artifact.
               console.log(
-                `- same-run flagged: ${r.fast?.flagged?.length ?? 0}` +
-                ` (judged ${r.fast?.judged ?? 0} of ${r.fast?.measured ?? "?"}` +
-                ` measured this run; source ${r.fast?.source ?? "?"})\n` +
                 `- new confirmed change points: ${confirmed.length}` +
                 ` (${r.confirmedRepeated ?? 0} already reported)` +
                 (moverText ? ` — ${moverText}` : "") + `\n` +
                 `- old gate ${c.old ?? 0}, agreed ${c.agreed ?? 0},` +
-                ` old only ${c.oldOnly ?? 0}, new only ${c.newOnly ?? 0}`
+                ` old only ${c.oldOnly ?? 0}, new only ${c.newOnly ?? 0}\n` +
+                // What the incident pairing makes of the whole record: how many
+                // slowdowns have never been undone, and how long the oldest of
+                // them has stood. A lower bound on both — a regression fixed
+                // within a few days is often never paired at all.
+                `- incidents: ${incidents.length} paired,` +
+                ` ${openIncidents.length} still open` +
+                (longestOpen > 0 ? `, longest standing ${longestOpen} days` : "")
               );
             ' >> "$GITHUB_STEP_SUMMARY"
           else
@@ -1368,7 +1419,7 @@ jobs:
           key: perf-shadow-seen-${{ github.run_id }}
 
       - name: Upload shadow analysis
-        if: always()
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v6
         with:

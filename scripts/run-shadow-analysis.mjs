@@ -50,7 +50,11 @@ import { carriesDrift } from "./corpus-metric-model.mjs";
 import { measurabilityOf } from "./measurability-model.mjs";
 import { checkRun } from "./fast-check-model.mjs";
 import { reconcileRun } from "./shadow-comparison-model.mjs";
-import { separateFresh } from "./change-point-identity-model.mjs";
+import {
+  describeIncidents,
+  openDaysFor,
+  separateFresh,
+} from "./change-point-identity-model.mjs";
 import {
   attributeMovement,
   attributionCandidates,
@@ -945,6 +949,22 @@ const main = async () => {
   }
   const fresh = reseed.reseeding ? [] : separated.fresh;
 
+  // Every confirmed change point on record this run, paired into incidents:
+  // which commit made a case slower, which one undid it, and how long it stood.
+  // Built from `analysis.confirmed` rather than the fresh ones — an incident is
+  // a fact about the history, and the history includes the change points that
+  // were announced on some earlier night.
+  //
+  // Written to the artifact and nowhere else, deliberately. The card already
+  // carries what a reader acts on tonight; this is what answers "how often does
+  // this happen to us, and how long do these last" months later, and that
+  // question is asked of a file rather than of a chat message.
+  const incidents = describeIncidents(analysis.confirmed, {
+    positionOf: (sha) => order.ordinals?.[sha],
+    dateOf: (sha) => order.committedAt?.[sha],
+    asOf: order.headCommittedAt,
+  });
+
   const reconciliation = reconcileRun({
     oldFlagged,
     newFlagged: analysis.fast.flagged.map((entry) => entry.key),
@@ -989,11 +1009,21 @@ const main = async () => {
       introducedBy: row.introducedBy,
       otherSteps: row.otherSteps,
       unattributed: row.unattributed,
+      // How long this case has been slow, when an open incident on it can say.
+      // Standing and incidents answer the same question from two directions —
+      // "still slower than it started" and "nobody has undone this commit" —
+      // and the day count only exists on the second. Where the two do not meet,
+      // the row prints what it always did rather than an invented duration.
+      openDays: openDaysFor(incidents, row.caseId),
     })),
     // Cases the standing list could not judge because their primary metric is a
     // difference of two measurements. Stated so a reader can tell "nothing is
     // standing here" from "this list does not cover these".
     driftless: analysis.driftless,
+    // Slowdowns paired with the speedup that undid them, where there was one.
+    // A lower bound on both counts and durations — see B4 in the acceptance
+    // criteria: a regression fixed within a few days is often never paired.
+    incidents,
     confirmedRepeated: separated.counts.repeated,
     // The window this run detected under. Carried so the next run can tell a
     // widened window from an ordinary night; see `seenWindowOf`.
@@ -1057,6 +1087,8 @@ const main = async () => {
       `${analysis.unjudged.length} cases not judgeable; ` +
       `old gate flagged ${oldFlagged.length} (agreed ${reconciliation.counts.agreed}, ` +
       `old only ${reconciliation.counts.oldOnly}, new only ${reconciliation.counts.newOnly}); ` +
+      `${incidents.length} incidents (${incidents.filter((incident) => incident.open).length} open, ` +
+      `longest ${Math.max(0, ...incidents.filter((incident) => incident.open).map((incident) => incident.days ?? 0))} days); ` +
       `${result.standing.length} cases standing slower than they started ` +
       `(${result.standing.filter((row) => row.introducedBy).length} with a commit named, ` +
       `${analysis.driftless} cases not judgeable on a differential metric) → ${outputPath}`,
