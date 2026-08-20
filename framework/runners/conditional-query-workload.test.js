@@ -163,6 +163,90 @@ test("models amount and active mutations without runtime services", () => {
   assert.equal(active.mutation?.scanRows, 3);
 });
 
+test("splits each group by code so both equalities carry weight", () => {
+  const workload = createConditionalQueryWorkload({
+    ...baseConfig,
+    generator: { ...baseConfig.generator, codeCount: 2 },
+    field: {
+      name: "Amount",
+      kind: "rollup",
+      valueField: "amount",
+      expression: "sum({values})",
+      filter: "group-and-code",
+    },
+    threshold: { metric: "conditionalQueryReadyMs", maxMs: 1_000 },
+  });
+
+  assert.deepEqual(workload.sourceRow(1).fields, {
+    "A Group": "Group-1",
+    "A Text": "Value-1-1",
+    "A Amount": 101,
+    "A Active": true,
+    "A Code": 1,
+  });
+  // Slot 3 of the same group falls in the second code block.
+  assert.deepEqual(workload.sourceRow(7).fields, {
+    "A Group": "Group-1",
+    "A Text": "Value-1-3",
+    "A Amount": 103,
+    "A Active": true,
+    "A Code": 2,
+  });
+  assert.deepEqual(workload.hostRow(1).fields, {
+    "B Key": "Host-1",
+    "Lookup Group": "Group-2",
+    "Lookup Code": 1,
+  });
+  assert.deepEqual(workload.hostRow(2).fields, {
+    "B Key": "Host-2",
+    "Lookup Group": "Group-1",
+    "Lookup Code": 2,
+  });
+
+  // Host 1 shares group 2 with slots 1-4 but only slots 1-2 carry code 1, so
+  // the code equality must halve the aggregate. Host 2 lands on the other
+  // block of a different group: same group fanout, disjoint values.
+  assert.equal(workload.expectedValue(1, "seed"), 201 + 202);
+  assert.equal(workload.expectedValue(2, "seed"), 103 + 104);
+  assert.deepEqual(workload.shape("seed"), {
+    fanout: 4,
+    groupMatchesPerHost: 2,
+    retainedValuesPerHost: 2,
+    groupMatchPairCount: 12,
+    retainedValueCount: 12,
+  });
+});
+
+test("keeps the code key and its profile from drifting apart", () => {
+  const composite = (generator, filter) => () =>
+    createConditionalQueryWorkload({
+      ...baseConfig,
+      generator: { ...baseConfig.generator, ...generator },
+      field: {
+        name: "Amount",
+        kind: "rollup",
+        valueField: "amount",
+        expression: "sum({values})",
+        filter,
+      },
+      threshold: { metric: "conditionalQueryReadyMs", maxMs: 1_000 },
+    });
+
+  assert.throws(composite({}, "group-and-code"), /codeCount >= 2/);
+  assert.throws(
+    composite({ codeCount: 1 }, "group-and-code"),
+    /codeCount >= 2/,
+  );
+  assert.throws(
+    composite({ codeCount: 3 }, "group-and-code"),
+    /divide the fanout evenly/,
+  );
+  assert.throws(
+    composite({ codeCount: 2 }, "group"),
+    /only applies to the group-and-code filter/,
+  );
+});
+
 test("rejects invalid workload combinations before any Teable call", () => {
   assert.throws(
     () =>

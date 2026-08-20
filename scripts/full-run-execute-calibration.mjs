@@ -1671,6 +1671,22 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 2963.05,
     traceMs: 464,
   },
+  // Provisional: these two composite-key cases have no observation yet. Cold
+  // seed copies the fixture builder of the single-key group and the execute
+  // costs copy each case's nearest single-key sibling, so the planner packs
+  // them at sibling scale until the next full-run refresh overwrites them.
+  "rollup/conditional-composite-key-sum-fanout10-10k": {
+    coldSeedMs: 10971.72,
+    v1Ms: 3793.84,
+    v2Ms: 2157.58,
+    traceMs: 3006,
+  },
+  "rollup/conditional-composite-key-sum-update-1k-fanout10-10k": {
+    coldSeedMs: 368.68,
+    v1Ms: 8044.35,
+    v2Ms: 5346.3,
+    traceMs: 760,
+  },
   "rollup/conditional-group-active-max-10k": {
     coldSeedMs: 354.13,
     v1Ms: 3659.26,

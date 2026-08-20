@@ -276,7 +276,12 @@ export interface ConditionalRollupCaseConfig
 }
 
 export type ConditionalQueryValueField = "text" | "amount" | "active";
-export type ConditionalQueryFilterProfile = "group" | "group-and-active";
+export type ConditionalQueryFilterProfile =
+  | "group"
+  | "group-and-active"
+  // Two field-reference equalities AND-ed together (group key + code key), the
+  // "name + code" reconciliation shape from T6849. Requires generator.codeCount.
+  | "group-and-code";
 interface ConditionalQueryFieldBase {
   name: string;
   filter: ConditionalQueryFilterProfile;
@@ -318,6 +323,10 @@ export interface ConditionalQueryBaseCaseConfig {
     sourceTextPrefix: string;
     hostKeyPrefix: string;
     permutation: { multiplier: number; offset: number };
+    // Distinct codes per group, splitting each group's slots into equal blocks.
+    // Only "group-and-code" reads it; it is part of the seed cache key, so
+    // composite fixtures never reuse a single-key fixture's tables.
+    codeCount?: number;
   };
   field: ConditionalQueryFieldConfig;
   verify: {

@@ -190,6 +190,7 @@ export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "computed-chain/4k-depth5": 1,
   "conditional-computed/10k": 6,
   "conditional-query/fanout10-host10k": 1,
+  "conditional-query/fanout10-host10k-composite": 1,
   "conditional-query/fanout100-host10k": 1,
   "conditional-query/fanout100-host20k": 2,
   "conditional-query/fanout100-host30k": 8,

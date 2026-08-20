@@ -45,3 +45,17 @@ export const groupedConditionalQueryFanout100Host20kBase = {
   hostTableNamePrefix: "perf-conditional-query-host-20k-fanout100",
   hostRecordCount: 20_000,
 } satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
+
+// Composite-key fixture (T6849): the same grouped fanout, plus a code column on
+// both sides that splits every group into two blocks of five. Its own table
+// prefixes keep it from sharing a seed fixture with the single-key bases, whose
+// tables have no code column.
+export const compositeKeyConditionalQueryBase = {
+  ...groupedConditionalQueryBase,
+  sourceTableNamePrefix: "perf-conditional-query-source-10k-composite",
+  hostTableNamePrefix: "perf-conditional-query-host-10k-composite",
+  generator: {
+    ...groupedConditionalQueryBase.generator,
+    codeCount: 2,
+  },
+} satisfies Omit<ConditionalQueryBaseCaseConfig, "field">;
