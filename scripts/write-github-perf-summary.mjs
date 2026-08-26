@@ -13,6 +13,8 @@ import {
 import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
 import { buildEngineComparison } from "./engine-comparison-model.mjs";
 import { loadEnginePairHistory } from "./resolve-engine-pair-history.mjs";
+import { loadSameRunHistory } from "./resolve-same-run-history.mjs";
+import { buildSameRunComparison } from "./same-run-comparison-model.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -68,8 +70,30 @@ const main = async () => {
       DEFAULT_TEABLE_RESULTS_URL,
     ),
   };
-  // The same split as the two Feishu cards: the release comparison, then the
-  // V1 comparison as its own section, each within its own byte budget.
+  let sameRun;
+  try {
+    const caseIds = [
+      ...new Set(
+        payloads
+          .filter(
+            (payload) => payload.engine === "v2" && payload.result === "pass",
+          )
+          .map((payload) => payload.caseId)
+          .filter(Boolean),
+      ),
+    ];
+    const historyByCase = await loadSameRunHistory({
+      caseIds,
+      currentRunId: context.runId,
+    });
+    sameRun = buildSameRunComparison({ payloads, historyByCase });
+  } catch (error) {
+    console.warn(
+      `Could not load same-run history for the GitHub summary: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
   let recentRatiosByCase;
   try {
     const candidates = buildEngineComparison({ payloads }).regressions.map(
@@ -90,11 +114,11 @@ const main = async () => {
     buildPerfSummaryMarkdown({
       payloads,
       maxBytes: configuredMaxBytes,
-      // Same file the Feishu card reads, so both surfaces quote one lookup.
       baseline: await readJsonFileIfExists(
         join(artifactDir, RELEASE_BASELINE_FILE_NAME),
       ),
       context,
+      sameRun,
     }),
     buildEngineSummaryMarkdown({
       payloads,

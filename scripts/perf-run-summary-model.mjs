@@ -9,6 +9,7 @@ import {
   buildEngineComparison,
 } from "./engine-comparison-model.mjs";
 import { buildComputeComparison } from "./compute-comparison-model.mjs";
+import { SAME_RUN_NOTE } from "./same-run-comparison-model.mjs";
 
 export const parseDate = (value) => {
   const time = Date.parse(value ?? "");
@@ -309,6 +310,45 @@ export const formatComputeLine = (row, chartUrl) => {
 export const formatComparisonLine = (row, chartUrl) =>
   `🔴 **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.v2Value)} · ${formatReleaseNote(row)}`;
 
+export const formatSameRunLine = (row, chartUrl) =>
+  `🔴 **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.latest)} · 近期中位 ${formatMetricSeconds(row.level)} 慢${Number(row.ratio).toFixed(1)}x（门槛 ${Number(row.thresholdRatio).toFixed(2)}x）`;
+
+const sameRunHeader = ({ sameRun, failed }) => {
+  if (!sameRun?.available) {
+    return {
+      template: failed ? "red" : "grey",
+      title: "性能 · 未做历史判断",
+    };
+  }
+  if (sameRun.flagged.length > 0) {
+    return {
+      template: failed ? "red" : "orange",
+      title: `性能异常 · 相对近期 ${sameRun.flagged.length}`,
+    };
+  }
+  if (sameRun.judged > 0) {
+    return {
+      template: failed ? "red" : "green",
+      title: `性能正常 · 相对近期已判 ${sameRun.judged}`,
+    };
+  }
+  return {
+    template: failed ? "red" : "grey",
+    title: "性能 · 历史不足未判",
+  };
+};
+
+const sameRunStatColumns = (sameRun) => ({
+  tag: "column_set",
+  flex_mode: "none",
+  background_style: "grey",
+  columns: [
+    statColumn("已判", sameRun.counts.judged),
+    statColumn("异常", sameRun.counts.flagged),
+    statColumn("未判", sameRun.counts.skipped),
+  ],
+});
+
 const baselineLabel = (baseline) => {
   if (!baseline) {
     return "无";
@@ -433,6 +473,7 @@ export const buildPerfSummaryCard = ({
   context = {},
   baseline,
   recentRatiosByCase,
+  sameRun,
 }) => {
   const counts = resultCounts(payloads);
   const comparison = buildReleaseComparison({ payloads, baseline });
@@ -457,23 +498,14 @@ export const buildPerfSummaryCard = ({
   const regressions = comparison.regressions;
   const severeCount = comparison.tiers.severe;
   const failures = failedCaseIds(payloads);
-
-  const headerTemplate = !comparison.available
-    ? "grey"
-    : workflowFailed || counts.fail > 0
-      ? "red"
-      : severeCount > 0 || regressions.length > 0
-        ? "orange"
-        : "green";
-  // Two ways to have no comparison, and only one of them is missing something.
-  // A run whose target is the released commit has nothing to compare against by
-  // construction; saying "无线上基线" there would send someone looking for a
-  // baseline that is not absent, it is this run.
-  const headerTitle = comparison.available
-    ? `性能回归 · 较线上慢 ${regressions.length} · 严重 ${severeCount}`
-    : baseline?.sameCommit
-      ? "本次即线上版本 · 不做线上对比"
-      : "性能回归 · 无线上基线";
+  const failed = workflowFailed || counts.fail > 0;
+  // Header colour and title come from the same-run layer, not the 1.2x
+  // vs-one-release-run gate. That gate is the industry comparison MongoDB
+  // discarded: it answers a different question and sits on the noise floor.
+  const { template: headerTemplate, title: headerTitle } = sameRunHeader({
+    sameRun,
+    failed,
+  });
 
   const compute = buildComputeComparison({
     payloads,
@@ -495,16 +527,92 @@ export const buildPerfSummaryCard = ({
   const remainingRows = regressions.slice(REGRESSION_PREVIEW_LIMIT);
   const renderRows = (rows) =>
     rows.map((row) => formatComparisonLine(row, context.chartUrl)).join("\n");
+  const renderSameRunRows = (rows) =>
+    rows.map((row) => formatSameRunLine(row, context.chartUrl)).join("\n");
   const enginePanel = buildEngineSummaryPanel({
     payloads,
     context,
     recentRatiosByCase,
   });
+  const sameRunPreview = (sameRun?.flagged ?? []).slice(
+    0,
+    REGRESSION_PREVIEW_LIMIT,
+  );
+  const sameRunRemaining = (sameRun?.flagged ?? []).slice(
+    REGRESSION_PREVIEW_LIMIT,
+  );
+  const sameRunPanel = sameRun?.available
+    ? collapsiblePanel({
+        title: `相对近期 · 异常 ${sameRun.flagged.length}`,
+        expanded: sameRun.flagged.length > 0,
+        elements: [
+          sameRunStatColumns(sameRun),
+          larkDiv(SAME_RUN_NOTE),
+          larkDiv(
+            sameRunPreview.length > 0
+              ? renderSameRunRows(sameRunPreview)
+              : "无",
+          ),
+          ...(sameRunRemaining.length > 0
+            ? [
+                collapsiblePanel({
+                  title: `其余 ${sameRunRemaining.length}`,
+                  elements: [larkDiv(renderSameRunRows(sameRunRemaining))],
+                }),
+              ]
+            : []),
+        ],
+      })
+    : undefined;
 
   const v2TimingColumns =
     Number.isFinite(timings.v2SyncMs) || Number.isFinite(timings.v2HybridMs)
       ? [splitV2TimingColumn(timings)]
       : [timingColumn("V2", timings.v2Ms)];
+
+  const releasePanelElements = [
+    releaseStatColumns(comparison),
+    {
+      tag: "column_set",
+      flex_mode: "none",
+      background_style: "grey",
+      columns: REGRESSION_TIERS.map((tier) =>
+        statColumn(tier.label, comparison.tiers[tier.key]),
+      ),
+    },
+    larkDiv(previewRows.length > 0 ? renderRows(previewRows) : "无"),
+    ...(remainingRows.length > 0
+      ? [
+          collapsiblePanel({
+            title: `其余 ${remainingRows.length}`,
+            elements: [larkDiv(renderRows(remainingRows))],
+          }),
+        ]
+      : []),
+    ...(compute.available && computeHighlights.length > 0
+      ? [
+          collapsiblePanel({
+            title: `计算时间 · 异步转移 ${compute.counts.deferred} · 计算变慢 ${compute.counts.computeSlower}`,
+            expanded: compute.counts.deferred > 0,
+            elements: [
+              ...(computeGlossary ? [larkDiv(computeGlossary)] : []),
+              larkDiv(
+                shownComputeRows
+                  .map((row) => formatComputeLine(row, context.chartUrl))
+                  .join("\n"),
+              ),
+              ...(computeHighlights.length > shownComputeRows.length
+                ? [
+                    larkDiv(
+                      `其余 ${computeHighlights.length - shownComputeRows.length} 个见 Performance Track`,
+                    ),
+                  ]
+                : []),
+            ],
+          }),
+        ]
+      : []),
+  ];
 
   return {
     msg_type: "interactive",
@@ -521,8 +629,8 @@ export const buildPerfSummaryCard = ({
             comparison.available
               ? `**基线** ${baselineLabel(comparison.baseline)}${comparison.baseline?.runUrl ? ` · [run ${comparison.baseline.runId}](${comparison.baseline.runUrl})` : ""}`
               : baseline?.sameCommit
-                ? `**基线** 本次测的就是线上版本 ${baselineLabel(baseline)}，同版本相比只有跑间波动，不做对比`
-                : `**基线** 未找到线上版本的历史结果，本轮无对比`,
+                ? `**基线** 本次测的就是线上版本 ${baselineLabel(baseline)}，同版本相比只有跑间波动，不做单次对照`
+                : `**基线** 未找到线上版本的历史结果，本轮无单次对照`,
             `**运行** ${runId} · ${counts.pass}✓ ${counts.skipped}⊘ ${counts.fail}✗`,
           ].join("\n"),
         ),
@@ -556,77 +664,13 @@ export const buildPerfSummaryCard = ({
           ],
         },
         { tag: "hr" },
-        // The two comparisons, one panel each. They answer different questions
-        // against different references, so they stay in separate boxes — what
-        // never worked was putting both verdicts on a single row.
-        //
-        // Without a baseline there is nothing to fold open: a panel reading
-        // "较线上慢 0" would look like a clean run rather than an absent one, so
-        // the counts are shown bare and the header above says why.
+        ...(sameRunPanel ? [sameRunPanel] : []),
         ...(comparison.available
           ? [
               collapsiblePanel({
-                title: `与线上对比 · 慢 ${regressions.length} · 严重 ${severeCount}`,
-                expanded: regressions.length > 0,
-                elements: [
-                  releaseStatColumns(comparison),
-                  {
-                    tag: "column_set",
-                    flex_mode: "none",
-                    background_style: "grey",
-                    columns: REGRESSION_TIERS.map((tier) =>
-                      statColumn(tier.label, comparison.tiers[tier.key]),
-                    ),
-                  },
-                  larkDiv(
-                    previewRows.length > 0 ? renderRows(previewRows) : "无",
-                  ),
-                  ...(remainingRows.length > 0
-                    ? [
-                        collapsiblePanel({
-                          title: `其余 ${remainingRows.length}`,
-                          elements: [larkDiv(renderRows(remainingRows))],
-                        }),
-                      ]
-                    : []),
-                  // Compute time answers what the rows above cannot: whether a
-                  // case that got faster actually got cheaper. Its own panel
-                  // rather than a column on those rows, because the two
-                  // measurements disagree by design — a run can be "慢 0" and
-                  // still have burned more machine.
-                  ...(compute.available && computeHighlights.length > 0
-                    ? [
-                        collapsiblePanel({
-                          title: `计算时间 · 异步转移 ${compute.counts.deferred} · 计算变慢 ${compute.counts.computeSlower}`,
-                          expanded: compute.counts.deferred > 0,
-                          elements: [
-                            // First, not last. The panel is folded shut until
-                            // someone opens it, and what they open it for is a
-                            // term they cannot read — so the definitions meet
-                            // them at the top rather than under the rows.
-                            ...(computeGlossary
-                              ? [larkDiv(computeGlossary)]
-                              : []),
-                            larkDiv(
-                              shownComputeRows
-                                .map((row) =>
-                                  formatComputeLine(row, context.chartUrl),
-                                )
-                                .join("\n"),
-                            ),
-                            ...(computeHighlights.length >
-                            shownComputeRows.length
-                              ? [
-                                  larkDiv(
-                                    `其余 ${computeHighlights.length - shownComputeRows.length} 个见 Performance Track`,
-                                  ),
-                                ]
-                              : []),
-                          ],
-                        }),
-                      ]
-                    : []),
-                ],
+                title: `对照线上单次 · 慢 ${regressions.length} · 严重 ${severeCount}`,
+                expanded: false,
+                elements: releasePanelElements,
               }),
             ]
           : [releaseStatColumns(comparison)]),
@@ -652,6 +696,7 @@ export const buildPerfSummaryMarkdown = ({
   payloads,
   baseline,
   context = {},
+  sameRun,
   maxBytes = DEFAULT_GITHUB_SUMMARY_MAX_BYTES,
 }) => {
   if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
@@ -672,6 +717,9 @@ export const buildPerfSummaryMarkdown = ({
   const tierLine = REGRESSION_TIERS.map(
     (tier) => `${tier.label} ${comparison.tiers[tier.key]}`,
   ).join(" · ");
+  const sameRunLine = sameRun?.available
+    ? `- Same-run: ${sameRun.counts.judged} judged · ${sameRun.counts.flagged} unusual · ${sameRun.counts.skipped} skipped`
+    : "- Same-run: history was not read; no per-case quantile judgement";
 
   const heading = [
     "## Teable EE performance summary",
@@ -680,20 +728,28 @@ export const buildPerfSummaryMarkdown = ({
     comparison.available
       ? `- Baseline: ${baselineLabel(comparison.baseline)} · run ${comparison.baseline?.runId}`
       : baseline?.sameCommit
-        ? `- Baseline: none — this run measures the released commit itself (${baselineLabel(baseline)}), so a comparison could only report run-to-run noise`
+        ? `- Baseline: none — this run measures the released commit itself (${baselineLabel(baseline)}), so a two-point release comparison could only report run-to-run noise`
         : "- Baseline: none — no recorded run for the released commit",
     `- Run: ${runId || "unknown"} · Job: ${context.executeResult || "unknown"}`,
     `- Results: ${counts.pass} passed · ${counts.skipped} skipped · ${counts.fail} failed`,
-    `- Vs release: ${comparison.counts.compared} compared · ${comparison.counts.slower} slower · ${comparison.counts.faster} faster · ${comparison.counts.missingBaseline} without baseline`,
-    // Compute time answers the question the line above cannot: whether a faster
-    // wall clock is work saved or work relocated. Reported, never gated — the
-    // band is inherited rather than calibrated, see compute-comparison-model.mjs.
+    sameRunLine,
+    `- Vs last release run (noisy two-point): ${comparison.counts.compared} compared · ${comparison.counts.slower} slower · ${comparison.counts.faster} faster · ${comparison.counts.missingBaseline} without baseline`,
     `- Compute vs release: ${compute.counts.compared} compared · ${compute.counts.computeSlower} slower · ${compute.counts.computeFaster} faster · ${compute.counts.deferred} moved not saved · ${compute.counts.shapeChanged} shape changed · ${compute.counts.missingBaseline} without baseline`,
     ...(comparison.available ? [`- Bands: ${tierLine}`] : []),
     "",
-    "### Slower than the released build",
+    "### Unusual versus own recent history",
     "",
   ];
+  const sameRunDetails = (sameRun?.flagged ?? []).map(
+    (row) =>
+      `- [${row.caseId}](${chartUrlForCase(row.caseId, context.chartUrl)}) 本次 ${formatMetricSeconds(row.latest)} · 近期中位 ${formatMetricSeconds(row.level)} 慢${Number(row.ratio).toFixed(1)}x（门槛 ${Number(row.thresholdRatio).toFixed(2)}x）`,
+  );
+  heading.push(
+    ...(sameRunDetails.length > 0 ? sameRunDetails : ["None."]),
+    "",
+    "### Two-point versus last release run (noisy)",
+    "",
+  );
   const footerLinks = [
     context.runUrl ? `[CI run](${context.runUrl})` : "",
     context.teableResultsUrl

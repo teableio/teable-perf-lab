@@ -296,9 +296,10 @@ const card = buildPerfSummaryCard({
 });
 
 assert.equal(card.msg_type, "interactive");
-// A failed case outranks the regression colour.
+// A failed case outranks the same-run colour. Without history the title does
+// not pretend the 1.2x vs-release list is a regression verdict.
 assert.equal(card.card.header.template, "red");
-assert.equal(card.card.header.title.content, "性能回归 · 较线上慢 2 · 严重 1");
+assert.equal(card.card.header.title.content, "性能 · 未做历史判断");
 assert.match(card.card.elements[0].text.content, /6✓ 1⊘ 1✗/);
 // The baseline itself is on the card, so a comparison against the wrong build
 // is visible rather than inferred.
@@ -321,8 +322,9 @@ assert.equal(
   "https://charts.example",
 );
 
-// One card, two comparison panels: 与线上对比 leads, 与 V1 对比 follows, and the
-// run's health above them is stated once for both.
+// Same-run leads when history was read; the two-point vs-release list is a
+// folded对照. Without history the对照 is still present so the old gate stays
+// auditable, but it does not colour the header.
 const panelsOf = (element) =>
   (element.elements ?? []).filter((child) => child.tag === "collapsible_panel");
 const panels = panelsOf(card.card);
@@ -333,9 +335,9 @@ const panelByTitle = (element, title) =>
 const columnSetsOf = (element) =>
   (element.elements ?? []).filter((child) => child.tag === "column_set");
 
-const releasePanel = panelByTitle(card.card, "与线上对比 · 慢 2 · 严重 1");
+const releasePanel = panelByTitle(card.card, "对照线上单次 · 慢 2 · 严重 1");
 assert.ok(releasePanel);
-assert.equal(releasePanel.expanded, true);
+assert.equal(releasePanel.expanded, false);
 assert.equal(panels[0], releasePanel);
 
 const releaseColumnSets = columnSetsOf(releasePanel);
@@ -416,10 +418,7 @@ const typicalEnginePanel = buildEngineSummaryPanel({
   },
   context: { chartUrl: "https://charts.example" },
 });
-assert.equal(
-  typicalEnginePanel.header.title.content,
-  "**与 V1 对比 · 慢 0**",
-);
+assert.equal(typicalEnginePanel.header.title.content, "**与 V1 对比 · 慢 0**");
 assert.equal(typicalEnginePanel.elements[2].text.content, "无");
 // The V1 panel repeats none of the run's health — that is stated once, above
 // both panels.
@@ -437,6 +436,69 @@ assert.doesNotMatch(JSON.stringify(card), /formula\/fast/);
 // belongs in the failure panel rather than the regression list.
 assert.equal(panels.at(-1).header.title.content, "**失败 1**");
 assert.match(panels.at(-1).elements[0].text.content, /field\/fail \(v2\)/);
+
+const sameRunCard = buildPerfSummaryCard({
+  payloads,
+  baseline,
+  timings: {},
+  context: {
+    chartUrl: "https://charts.example",
+    executeResult: "success",
+    runId: "123",
+  },
+  sameRun: {
+    available: true,
+    flagged: [
+      {
+        caseId: "lookup/regressed",
+        latest: 1400,
+        level: 700,
+        ratio: 2,
+        thresholdRatio: 1.18,
+      },
+    ],
+    judged: 2,
+    skipped: { "too-noisy": 1 },
+    counts: { judged: 2, flagged: 1, skipped: 1 },
+  },
+});
+assert.equal(sameRunCard.card.header.template, "red");
+assert.equal(sameRunCard.card.header.title.content, "性能异常 · 相对近期 1");
+const sameRunPanel = panelByTitle(sameRunCard.card, "相对近期 · 异常 1");
+assert.ok(sameRunPanel);
+assert.equal(sameRunPanel.expanded, true);
+assert.equal(panelsOf(sameRunCard.card)[0], sameRunPanel);
+assert.match(
+  sameRunPanel.elements[2].text.content,
+  /lookup\/regressed.*近期中位 0\.70s 慢2\.0x（门槛 1\.18x）/,
+);
+assert.ok(panelByTitle(sameRunCard.card, "对照线上单次 · 慢 2 · 严重 1"));
+
+const cleanSameRunCard = buildPerfSummaryCard({
+  payloads: [
+    {
+      caseId: "formula/fast",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 500, passed: true }],
+    },
+  ],
+  timings: {},
+  baseline: releaseBaseline([["formula/fast", "v2", 500, "durationMs"]]),
+  context: { chartUrl: "https://charts.example", executeResult: "success" },
+  sameRun: {
+    available: true,
+    flagged: [],
+    judged: 1,
+    skipped: {},
+    counts: { judged: 1, flagged: 0, skipped: 0 },
+  },
+});
+assert.equal(cleanSameRunCard.card.header.template, "green");
+assert.equal(
+  cleanSameRunCard.card.header.title.content,
+  "性能正常 · 相对近期已判 1",
+);
 
 // The regression the V1/V2 report could never show: slower than the released
 // build while still ahead of V1. Nothing on this card mentions V1, so the row
@@ -468,7 +530,7 @@ const [hiddenPanel] = hiddenCard.card.elements.filter(
 );
 assert.equal(
   hiddenPanel.header.title.content,
-  "**与线上对比 · 慢 1 · 严重 1**",
+  "**对照线上单次 · 慢 1 · 严重 1**",
 );
 assert.match(
   hiddenPanel.elements[2].text.content,
@@ -486,34 +548,32 @@ assert.match(
   /Baseline: none/,
 );
 
-// No baseline must say so. Reporting "较线上慢 0" would read as a clean run.
+// No baseline must say so in the body. The header is the same-run verdict;
+// without history it does not fall back to calling the missing two-point
+// comparison a clean run or a regression.
+const passingPayloads = payloads.filter(
+  (payload) => payload.result === "pass" || payload.result === "skipped",
+);
 const noBaselineCard = buildPerfSummaryCard({
-  payloads,
+  payloads: passingPayloads,
   timings: {},
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
 assert.equal(noBaselineCard.card.header.template, "grey");
-assert.equal(noBaselineCard.card.header.title.content, "性能回归 · 无线上基线");
+assert.equal(noBaselineCard.card.header.title.content, "性能 · 未做历史判断");
 assert.match(
   noBaselineCard.card.elements[0].text.content,
   /未找到线上版本的历史结果/,
 );
-// No panel either — a folded "与线上对比 · 慢 0" reads as a comparison that ran.
-// The counts stay on the card so the reader still sees what was measured.
-assert.doesNotMatch(JSON.stringify(noBaselineCard), /与线上对比/);
+assert.doesNotMatch(JSON.stringify(noBaselineCard), /对照线上单次/);
 assert.deepEqual(
   columnSetsOf(noBaselineCard.card)
     .at(-1)
     .columns.map((column) => column.elements[0].content),
   ["**对比** 0", "**慢** 0", "**快** 0", "**无基线** 3"],
 );
-// The V1 comparison does not depend on a release baseline, so it is still there.
 assert.ok(panelByTitle(noBaselineCard.card, "与 V1 对比 · 慢 1"));
 
-// A run whose target IS the released commit has no comparison to make, and that
-// is not the same as a missing baseline: nothing is absent, the baseline is this
-// build. Comparing anyway could only dress run-to-run noise — 13.6% mean on the
-// wall clock, against a 20% band — as verdicts.
 const sameCommitBaseline = {
   commit: "87ef752d8fd4532d86ce08a42bc699fc7994a81b",
   release: "release.2026-08-09T14-50-08Z.2564",
@@ -526,18 +586,13 @@ const sameCommitCard = buildPerfSummaryCard({
   baseline: sameCommitBaseline,
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
-assert.equal(
-  sameCommitCard.card.header.title.content,
-  "本次即线上版本 · 不做线上对比",
-);
+assert.equal(sameCommitCard.card.header.title.content, "性能 · 未做历史判断");
 assert.match(
   sameCommitCard.card.elements[0].text.content,
   /本次测的就是线上版本 release\.2026-08-09T14-50-08Z\.2564/,
 );
-// Never the wording for an absent baseline: it would send someone hunting for
-// something that is not missing.
 assert.doesNotMatch(JSON.stringify(sameCommitCard), /未找到线上版本的历史结果/);
-assert.doesNotMatch(JSON.stringify(sameCommitCard), /与线上对比/);
+assert.doesNotMatch(JSON.stringify(sameCommitCard), /对照线上单次/);
 assert.match(
   buildPerfSummaryMarkdown({
     payloads,
@@ -573,14 +628,8 @@ const residentCard = buildPerfSummaryCard({
   ]),
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
-assert.equal(
-  residentCard.card.header.title.content,
-  "性能回归 · 较线上慢 0 · 严重 0",
-);
-// The card is coloured by the release comparison alone. Being slower than V1
-// while matching what is deployed is not a regression against production, and
-// the V1 panel's own header carries that count.
-assert.equal(residentCard.card.header.template, "green");
+assert.equal(residentCard.card.header.title.content, "性能 · 未做历史判断");
+assert.equal(residentCard.card.header.template, "grey");
 const residentEnginePanel = panelByTitle(
   residentCard.card,
   "与 V1 对比 · 慢 1",
@@ -592,7 +641,7 @@ assert.match(
   /🔴 \*\*\[duplicate-table\/50k-20f\]\(https:\/\/charts\.example#duplicate-table\/50k-20f\)\*\*：V1 20\.70s → V2 27\.72s \*\*慢1\.3x\*\*/,
 );
 assert.equal(
-  panelByTitle(residentCard.card, "与线上对比 · 慢 0 · 严重 0").expanded,
+  panelByTitle(residentCard.card, "对照线上单次 · 慢 0 · 严重 0").expanded,
   false,
 );
 
@@ -656,19 +705,13 @@ const zeroCard = buildPerfSummaryCard({
   ]),
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
-assert.equal(
-  zeroCard.card.header.title.content,
-  "性能回归 · 较线上慢 0 · 严重 0",
-);
+assert.equal(zeroCard.card.header.title.content, "性能 · 未做历史判断");
 assert.deepEqual(
   columnSetsOf(
-    panelByTitle(zeroCard.card, "与线上对比 · 慢 0 · 严重 0"),
+    panelByTitle(zeroCard.card, "对照线上单次 · 慢 0 · 严重 0"),
   )[0].columns.map((column) => column.elements[0].content),
   ["**对比** 0", "**慢** 0", "**快** 0", "**无基线** 0"],
 );
-
-// The compute panel: a term per row, the two ratios the term is made of, and
-// the key that defines it. Three rows landing on three different verdicts with
 // the compute ratio slower in all three — which is exactly the reading the old
 // wording could not deliver, because the row never printed its wall ratio.
 const computePayload = (caseId, wallMs, computeMs) => ({
@@ -708,7 +751,7 @@ const computeCard = buildPerfSummaryCard({
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
 const [computePanel] = panelsOf(
-  panelByTitle(computeCard.card, "与线上对比 · 慢 1 · 严重 1"),
+  panelByTitle(computeCard.card, "对照线上单次 · 慢 1 · 严重 1"),
 );
 assert.equal(
   computePanel.header.title.content,
@@ -740,10 +783,7 @@ assert.doesNotMatch(computeKey, /调度退化|计算优化|隐性计算收益|�
 // 18.1% / 12.0% on 931 pairs to these, on 2,678. If this assertion fails, work
 // through the copy list in docs/compute-time-observation-spec.md Phase 3 —
 // do not loosen the regex.
-assert.match(
-  computeKey,
-  /computeMs 的平均变化为 16\.0%，墙钟为 13\.6%/,
-);
+assert.match(computeKey, /computeMs 的平均变化为 16\.0%，墙钟为 13\.6%/);
 assert.equal(computeKey.split("\n").at(-1), COMPUTE_NOISE_NOTE);
 assert.equal(formatComputeGlossary([]), undefined);
 assert.equal(formatComputeGlossary([{ verdict: undefined }]), undefined);
@@ -768,7 +808,7 @@ const renamedCard = buildPerfSummaryCard({
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
 const [renamedPanel] = panelsOf(
-  panelByTitle(renamedCard.card, "与线上对比 · 慢 0 · 严重 0"),
+  panelByTitle(renamedCard.card, "对照线上单次 · 慢 0 · 严重 0"),
 );
 assert.equal(
   renamedPanel.header.title.content,
