@@ -302,69 +302,47 @@ when all three succeed. Feishu's webhook acknowledgement enforces the 100KB
 card limit; the GitHub and Performance Track builders enforce their configured
 1MB and per-write limits before their steps can succeed.
 
-### One card, two comparison panels
+### One card, same-run first
 
 The run pushes one card. Above the fold it states the run's own health once —
 target, run id, pass/skip/fail, stage timings, seed cache, trace warnings — and
-below it the two comparisons sit in a collapsible panel each, because they
-answer different questions against different references and a row carrying both
-stated two verdicts at once.
+below it the comparisons sit in a collapsible panel each.
 
-**与线上对比** leads: this run against the currently released build, its
-compared/slower/faster/no-baseline counts, the `>1.2x / >1.5x / >2x` bands, the
-regressions worst first, and the compute-time panel folded inside it. It never
-mentions V1.
+**相对近期** leads. This is the MongoDB / ICPE 2020 same-day check: each
+passing V2 case versus the median of its own last 12 measurements, flagged
+only if that deviation exceeds the case's own 0.99 quantile of historical
+deviations (`fast-check-model.mjs`). Unmeasurable series (jitter above 1.4x)
+and differential overhead metrics are not judged. The header colour and title
+come from this panel: `性能异常 · 相对近期 N`, or `性能正常` when history was
+read and nothing flagged. It says "look at this", not "this is a confirmed
+regression". Confirmed change points stay on the nightly second card
+(`send-feishu-change-point-summary.mjs`).
 
-The compute-time panel labels each row with a term — 异步转移 / 计算退化 /
-隐性计算成本 — and prints both ratios the term is made of, compute and wall,
-because the verdict is a pair of directions and a row showing one of them cannot
-be checked. The head of the panel defines only the terms actually on screen.
+**对照线上单次** is the old 1.2x vs-one-release-run list, folded shut. It is
+kept so shadow reconciliation still has the old gate, and so a reader can open
+the noisy two-point comparison if they want it. It never colours the header.
+The 1.2x band sits on the measured noise floor (mean absolute per-case change
+17.4%); a single case just over the line is not evidence.
 
-The key ends with the panel's own noise caveat, the counterpart of the one the
-wall-clock bands carry below: across 91 full runs, restricted to consecutive
-pairs that did identical work, per-case `computeMs` moved 16.0% on average
-against the wall clock's 13.6%, and 28% of those pairs crossed 20% unprompted.
-The 1.2x band the panel sorts by therefore sits on the noise floor, not above
-it — a single case just over the line is not evidence. The smallest cases are
-the loudest, but size is not protection: 18 of the 37 cases sit above 1s and the
-noisiest of those still moves 23.1%. `COMPUTE_NOISE_NOTE` in
-`perf-run-summary-model.mjs` holds the sentence; it has to be rewritten the day
-`DEFAULT_COMPUTE_BAND` is recalibrated.
+The compute-time panel still lives inside that对照. It labels each row with a
+term — 异步转移 / 计算退化 / 隐性计算成本 — and prints both ratios the term is
+made of, compute and wall. The key ends with the panel's own noise caveat:
+across 91 full runs, restricted to consecutive pairs that did identical work,
+per-case `computeMs` moved 16.0% on average against the wall clock's 13.6%,
+and 28% of those pairs crossed 20% unprompted. `COMPUTE_NOISE_NOTE` in
+`perf-run-summary-model.mjs` holds the sentence.
 
 A fourth label, 无墙钟基线, covers rows whose compute got more expensive while
-the wall half had no comparable baseline, so no verdict could be formed. The
-realistic cause is a renamed primary metric: the wall comparison rejects the
-rename by design, the compute comparison has no such check, and the row survives
-on one side only. Without this label such a row reached the header's 计算变慢
-count and no list — a number with nothing under it. It fires on nothing today
-(measured on run 31319492585 against release.2563: 36 compared, 0 unpaired), but
-`lookup/dual-link-computed-repoint-2k` — one of the 37 cases that emit compute
-time — was renamed on 2026-08-08, so the shape is reachable rather than
-hypothetical. Without a baseline the panel is absent entirely and the header says
-why — a folded "慢 0" would read as a clean run rather than an absent one.
+the wall half had no comparable baseline, so no verdict could be formed.
 
 **与 V1 对比** follows: V2 against V1 inside this run — compared/slower/faster/
 not compared, the cases where V2 lost to V1 worst first, and the cases V1
-skipped so nothing could be compared. It repeats none of the run health. A row
-is 慢 only when the gap is at least 1.2x **and** 50ms, and — when at least five
-recent pairs exist — also worse than that case's own recent median. Millisecond
-probes and a case that is always ~1.3x slower than V1 stay off the list; a case
-that is usually faster and printed 2.0x tonight stays on. Hybrid first-row
-cases (`lookupPropagationMs`, `firstOrderReadyTotalMs`,
-`customerFlowReadyTotalMs`) are compared on the recorded write
-(`linkWriteMs` / `sourceWriteMs` / `orderWriteMs`), not the poll-inflated
-primary. The customer-visible empty window stays the case primary and the
-release gate. The panel is absent on a run with no V1 leg, so it drops off on
-its own once V1 is retired — `engine-comparison-model.mjs`, the marked engine
-section of `perf-run-summary-model.mjs`, and one call in each report script go
-with it.
+skipped so nothing could be compared. A row is 慢 only when the gap is at
+least 1.2x **and** 50ms, and — when at least five recent pairs exist — also
+worse than that case's own recent median. The panel is absent on a run with
+no V1 leg.
 
-Each panel is folded open only on its own bad news. The card's header colour and
-title come from the release comparison alone: being slower than V1 while
-matching what is deployed is not a regression against production, and the V1
-panel's own header carries that count.
-
-The GitHub summary carries the same split as two sections of one page.
+The GitHub summary carries the same split.
 
 ### Release baseline
 
@@ -401,12 +379,13 @@ never zero regressions, which would read as a clean run. To create a baseline
 for a release that was never measured, dispatch the workflow with
 `teable_ee_ref` set to that commit.
 
-The 与线上对比 panel compares V2 against the released V2 at a 1.2x gate, in
-exclusive `>1.2x / >1.5x / >2x` bands. Read the bands against the measured
-run-to-run noise rather than case by case: the mean absolute per-case change
-between two consecutive full runs was 17.4%, and V1 — whose code barely moves
-between runs — still drifts past 20% on 42 of 263 cases. A single case just over
-the gate proves little; a `>2x` band with cases in it does.
+The folded 对照线上单次 panel still compares V2 against the released V2 at a
+1.2x gate, in exclusive `>1.2x / >1.5x / >2x` bands. Read those bands against
+the measured run-to-run noise rather than case by case: the mean absolute
+per-case change between two consecutive full runs was 17.4%, and V1 — whose
+code barely moves between runs — still drifts past 20% on 42 of 263 cases. A
+single case just over the gate proves little. The header does not use this
+list.
 
 For the exact JSON field shapes of each file (payload, manifest, and raw
 snapshot) plus a "what to read for X" cheat sheet, see
