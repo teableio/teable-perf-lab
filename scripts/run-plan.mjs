@@ -29,6 +29,7 @@ export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-1of4k-get-record",
   "lookup/dual-link-computed-first-link-1of4k-get-records",
   "lookup/dual-link-computed-repoint-2k",
+  "lookup/circular-dual-link-source-update-10of500-3k",
   "field-convert/formula-expression-update-4k-depth5-cascade",
   "field-convert/formula-dependency-add-4k-depth5-cascade",
   "field-convert/formula-dependency-replace-4k-depth5-cascade",

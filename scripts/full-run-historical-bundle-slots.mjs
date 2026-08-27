@@ -102,6 +102,7 @@ export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:import-base/v2-only-simple-1x10k-table-stream": 2,
   "case:import-base/v2-only-simple-1x1k-table-stream": 7,
   "case:import-base/v2-only-user-t2377-tea-stream": 6,
+  "case:lookup/circular-dual-link-source-update-10of500-3k": 2,
   "case:lookup/dual-link-computed-first-link-1of4k-get-record": 3,
   "case:lookup/dual-link-computed-first-link-1of4k-get-records": 5,
   "case:lookup/dual-link-computed-first-link-4k": 4,

@@ -789,6 +789,20 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 7339.76,
     traceMs: 1,
   },
+  // Provisional: this case has no observation yet. Cold seed copies its
+  // heaviest four-table sibling (lookup/dual-link-computed-first-link-4k,
+  // ~24.8s) rounded up because this fixture creates more computed fields;
+  // execute costs are set well above the small-propagation sibling
+  // (lookup/foreign-first-name-update-1of40-fanout100-4k, ~3-5s) because the
+  // post-metric cascade scans two wide-projection tables. The planner packs
+  // it at these estimates until the next full-run refresh overwrites this
+  // entry.
+  "lookup/circular-dual-link-source-update-10of500-3k": {
+    coldSeedMs: 30000,
+    v1Ms: 15000,
+    v2Ms: 15000,
+    traceMs: 9000,
+  },
   "lookup/conditional-10k": {
     coldSeedMs: 9554.33,
     v1Ms: 3497.68,

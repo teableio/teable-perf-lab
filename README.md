@@ -364,6 +364,17 @@ workload.
   recompute. It reproduces the customer "orders" scenario where the link targets
   change but the lookups (`user_email`, `shipping_first_name`, ...) and the
   `${first_name} ${last_name}` formula lag for a window.
+- `lookup/circular-dual-link-source-update-10of500-3k`: Catch regressions in
+  upward computed propagation through a circular cross-table link/lookup graph:
+  editing a handful of scalar cells on a link _child_ table must recompute only
+  the affected host rows, not storm the whole graph. This case freezes the
+  2026-08-27 CN production main-database incident (tsingke customer, "抗体表达"
+  base): two same-shape sync-path bulk UPDATEs each ran ~25 minutes, ~160
+  sessions piled up blocked behind them, and postmaster was ultimately OOM-killed
+  and restarted. The trigger was editing one numeric cell (表达量 mg/L) on the
+  Purification table, which propagated up a one-many link into SubOrders lookups
+  and formulas and back down into Purification's reverse lookups — all tables
+  small, but the dependency graph circular and doubled by a duplicate link.
 - `lookup/foreign-select-flip-1of40-fanout100-4k`: Measure the customer-visible
   propagation gap when one cell on a linked foreign record changes while every
   order link record id stays unchanged. One User Status update fans out through
