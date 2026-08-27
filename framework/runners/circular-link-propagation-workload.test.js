@@ -8,7 +8,9 @@ import {
   expectedPurificationComputed,
   expectedSubOrderComputed,
   expectedSubOrderExpressionCard,
+  isMutatedPlasmidRow,
   isMutatedPurificationRow,
+  mutationTargetRowCount,
   purificationRowBySubOrderRow,
   resolveMutationWindow,
   subOrderRowForPurification,
@@ -64,6 +66,67 @@ test("mutation window and affected sub-orders", () => {
   assert.equal(new Set(affected).size, 10);
   assert.equal(affected[0], 6);
   assert.equal(affected[1], 19);
+});
+
+test("plasmid-total mutation fans out to every host of the mutated plasmid row", () => {
+  const plasmidConfig = {
+    ...config,
+    mutation: { startOffset: 0, recordCount: 1, kind: "plasmid-total" },
+  };
+  assert.equal(mutationTargetRowCount(plasmidConfig), 3);
+  assert.ok(isMutatedPlasmidRow(1, plasmidConfig));
+  assert.ok(!isMutatedPlasmidRow(2, plasmidConfig));
+  // The purification-kind predicate must stay off for this mutation kind.
+  assert.ok(!isMutatedPurificationRow(1, plasmidConfig));
+
+  // Every third sub-order round-robins onto plasmid 1.
+  const affected = affectedSubOrderRows(plasmidConfig);
+  assert.equal(affected.length, 1_000);
+  assert.equal(affected[0], 1);
+  assert.equal(affected[1], 4);
+
+  // Affected hosts flip clu_pl_total; everything else is phase-stable.
+  const seed = expectedSubOrderComputed(1, plasmidConfig, "seed", undefined);
+  const updated = expectedSubOrderComputed(
+    1,
+    plasmidConfig,
+    "updated",
+    undefined,
+  );
+  assert.deepEqual(seed.clu_pl_total, { kind: "value", value: 100 });
+  assert.deepEqual(updated.clu_pl_total, { kind: "value", value: 5_100 });
+  assert.deepEqual(seed.clu_pl_backbone, updated.clu_pl_backbone);
+
+  // Hosts of unmutated plasmids stay on seed values even in updated phase.
+  const untouched = expectedSubOrderComputed(
+    2,
+    plasmidConfig,
+    "updated",
+    undefined,
+  );
+  assert.deepEqual(untouched.clu_pl_total, { kind: "value", value: 200 });
+
+  // Purification rows linked to plasmid 1 flip lu_pl_total the same way.
+  const purification = expectedPurificationComputed(
+    1,
+    plasmidConfig,
+    "updated",
+  );
+  assert.deepEqual(purification.lu_pl_total, { kind: "value", value: 5_100 });
+  const untouchedPurification = expectedPurificationComputed(
+    2,
+    plasmidConfig,
+    "updated",
+  );
+  assert.deepEqual(untouchedPurification.lu_pl_total, {
+    kind: "value",
+    value: 200,
+  });
+  // The circular expression chain is NOT part of this mutation's closure.
+  assert.deepEqual(purification.lu_so_expression_card, {
+    kind: "value",
+    value: "SO SubOrder 6 :: AE10 so-text-1-6",
+  });
 });
 
 test("updated phase changes exactly the mutated expression chain", () => {

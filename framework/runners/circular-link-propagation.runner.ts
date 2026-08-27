@@ -1,9 +1,14 @@
 import { FieldKeyType, FieldType, Relationship } from "@teable/core";
-import { updateRecords, updateTableDescription } from "@teable/openapi";
+import {
+  createRecords as createRecordsRaw,
+  updateRecords,
+  updateTableDescription,
+} from "@teable/openapi";
 import {
   createField,
   createRecords,
   createTable,
+  deleteRecords,
   getFields,
   getRecord,
   getRecords,
@@ -82,9 +87,13 @@ import {
   SUBORDER_TEXT_COUNT,
   TITLE_FIELD,
   affectedSubOrderRows,
+  appendedPurificationRows,
   expectedPurificationComputed,
   expectedSubOrderComputed,
+  mutationKind,
+  mutationTargetRowCount,
   numberedField,
+  purificationRowTotal,
   orderAttr,
   orderNum,
   orderRowForPurification,
@@ -120,6 +129,7 @@ import {
   subOrderText,
   subOrderTitle,
   updatedExpressionValue,
+  updatedPlasmidTotalValue,
   type CircularLinkPhase,
   type ExpectedCell,
 } from "./circular-link-propagation-workload";
@@ -151,10 +161,16 @@ type Fixture = {
   plasmidTableId: string;
   subOrderFields: TableFieldIds;
   purificationFields: TableFieldIds;
+  plasmidFields: TableFieldIds;
   purificationBackrefFieldId: string;
   purificationBackrefDupFieldId: string;
   subOrderRecords: SeededRecord[];
   purificationRecords: SeededRecord[];
+  plasmidRecords: SeededRecord[];
+  orderRecords: SeededRecord[];
+  // Rows created by the purification-append mutation (mutated in place so the
+  // cleanup path can remove exactly what the measured operation inserted).
+  appendedPurificationRecords: SeededRecord[];
   seedBatchDurations: number[];
   seedCacheInfo: SeedCacheInfo;
   seedCacheHit: boolean;
@@ -190,7 +206,15 @@ const applySmokeOverrides = (
   const orders = getPositiveIntegerEnv("PERF_LAB_CLP_ORDER_ROWS");
   const subOrders = getPositiveIntegerEnv("PERF_LAB_CLP_SUBORDER_ROWS");
   const purifications = getPositiveIntegerEnv("PERF_LAB_CLP_PURIFICATION_ROWS");
-  if (!orders && !subOrders && !purifications) {
+  const mutationRows = getPositiveIntegerEnv("PERF_LAB_CLP_MUTATION_ROWS");
+  const concurrency = getPositiveIntegerEnv("PERF_LAB_CLP_CONCURRENCY");
+  if (
+    !orders &&
+    !subOrders &&
+    !purifications &&
+    !mutationRows &&
+    !concurrency
+  ) {
     return config;
   }
   const subOrderRowCount = subOrders ?? config.subOrderRowCount;
@@ -198,20 +222,31 @@ const applySmokeOverrides = (
     purifications ?? config.purificationRowCount,
     subOrderRowCount,
   );
+  const kind = mutationKind(config.mutation);
+  // Appended rows extend the purification permutation, so the injectivity
+  // bound is the number of sub-orders left without a purification.
+  const mutationTargetRows =
+    kind === "plasmid-total"
+      ? config.plasmidRowCount
+      : kind === "purification-append"
+        ? subOrderRowCount - purificationRowCount
+        : purificationRowCount;
   const recordCount = Math.min(
-    config.mutation.recordCount,
-    purificationRowCount,
+    mutationRows ?? config.mutation.recordCount,
+    mutationTargetRows,
   );
   return {
     ...config,
     orderRowCount: orders ?? config.orderRowCount,
     subOrderRowCount,
     purificationRowCount,
+    ...(concurrency ? { concurrentDuplicateRequests: concurrency } : {}),
     mutation: {
+      ...config.mutation,
       recordCount,
       startOffset: Math.min(
         config.mutation.startOffset ?? 0,
-        purificationRowCount - recordCount,
+        mutationTargetRows - recordCount,
       ),
     },
     verify: {
@@ -650,7 +685,7 @@ const assertSamples = async (
   config: CircularLinkPropagationCaseConfig,
   phase: CircularLinkPhase,
 ) => {
-  const purificationBySubOrder = purificationRowBySubOrderRow(config);
+  const purificationBySubOrder = purificationRowBySubOrderRow(config, phase);
   let checkedRecords = 0;
   for (const offset of config.verify.subOrderSampleRows) {
     await assertSubOrderRecordById(
@@ -685,17 +720,32 @@ const waitForSamples = (
 
 // Primary readiness: every affected SubOrder row must expose the complete
 // post-update lookup + formula state through the real read path.
+// Evenly spaced sample so huge affected sets (the plasmid fanout dirties a
+// third of SubOrders) stay pollable inside the primary timer.
+const sampleRowsEvenly = (rows: number[], limit: number | undefined) => {
+  if (!limit || rows.length <= limit) {
+    return rows;
+  }
+  const step = rows.length / limit;
+  const sampled: number[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    sampled.push(rows[Math.min(rows.length - 1, Math.floor(index * step))]!);
+  }
+  return [...new Set(sampled)];
+};
+
 const assertAffectedSubOrders = async (
   fixture: Fixture,
   config: CircularLinkPropagationCaseConfig,
   context: PerfRunContext,
   purificationBySubOrder: Map<number, number>,
+  readinessRows: number[],
 ) => {
   if (context.signal?.aborted) {
     throw new Error("aborted while reading affected sub-orders");
   }
   let checkedRecords = 0;
-  for (const subOrderRow of affectedSubOrderRows(config)) {
+  for (const subOrderRow of readinessRows) {
     await assertSubOrderRecordById(
       fixture,
       config,
@@ -763,11 +813,12 @@ const assertPurificationFullScan = async (
   phase: CircularLinkPhase,
 ) => {
   const pageSize = config.verify.fullScanPageSize ?? 1_000;
+  const expectedRows = purificationRowTotal(config, phase);
   const projection = purificationProjection(fixture);
   const seen = new Set<number>();
   const { scannedRecords, pageCount } = await forEachRecordPage(
     {
-      totalRows: config.purificationRowCount,
+      totalRows: expectedRows,
       pageSize,
       pageNoun: "purifications",
       fetchPage: (skip, take) =>
@@ -798,9 +849,9 @@ const assertPurificationFullScan = async (
       );
     },
   );
-  if (scannedRecords !== config.purificationRowCount) {
+  if (scannedRecords !== expectedRows) {
     throw new Error(
-      `Purification scan count mismatch: expected ${config.purificationRowCount}, scanned ${scannedRecords}`,
+      `Purification scan count mismatch: expected ${expectedRows}, scanned ${scannedRecords}`,
     );
   }
   return { scannedRecords, pageSize, pageCount };
@@ -818,7 +869,7 @@ const waitForFullCascade = async (
   const startedAt = Date.now();
   const timeoutMs = config.verify.timeoutMs ?? 300_000;
   const pollIntervalMs = config.verify.pollIntervalMs ?? 250;
-  const purificationBySubOrder = purificationRowBySubOrderRow(config);
+  const purificationBySubOrder = purificationRowBySubOrderRow(config, phase);
   let lastError: unknown;
   while (Date.now() - startedAt <= timeoutMs) {
     if (context.signal?.aborted) {
@@ -877,6 +928,73 @@ const seedRecordsInBatches = async (
   }
   return recordIds;
 };
+
+// One Purification row payload (field ids as keys, all four link cells).
+// Shared by the seed inserts and the purification-append measured operation.
+type PurificationLinkContext = {
+  purificationFields: TableFieldIds;
+  backrefFieldId: string;
+  backrefDupFieldId: string;
+  subOrderRecordIdByRow: (row: number) => string;
+  plasmidRecordIdByRow: (row: number) => string;
+  orderRecordIdByRow: (row: number) => string;
+};
+
+const buildPurificationRecordFields = (
+  p: number,
+  config: CircularLinkPropagationCaseConfig,
+  linkContext: PurificationLinkContext,
+): Record<string, unknown> => {
+  const { purificationFields, backrefFieldId, backrefDupFieldId } = linkContext;
+  const s = subOrderRowForPurification(p, config);
+  return {
+    [purificationFields[TITLE_FIELD]!]: purificationTitle(p),
+    [purificationFields[PURIFICATION_EXPRESSION_FIELD]!]:
+      seedExpressionValue(p),
+    [purificationFields[PURIFICATION_BATCH_FIELD]!]: purificationBatchCode(p),
+    [purificationFields[PURIFICATION_OPERATOR_FIELD]!]: purificationOperator(p),
+    [purificationFields[PURIFICATION_METHOD_FIELD]!]: purificationMethod(p),
+    [purificationFields[PURIFICATION_PURITY_FIELD]!]: purificationPurity(p),
+    [purificationFields[PURIFICATION_YIELD_FIELD]!]: purificationYield(p),
+    ...Object.fromEntries(
+      range(PURIFICATION_TEXT_COUNT).map((i) => [
+        purificationFields[numberedField("p_text", i)]!,
+        purificationText(i, p),
+      ]),
+    ),
+    ...Object.fromEntries(
+      range(PURIFICATION_NUM_COUNT).map((i) => [
+        purificationFields[numberedField("p_num", i)]!,
+        purificationNum(i, p),
+      ]),
+    ),
+    ...Object.fromEntries(
+      range(PURIFICATION_SELECT_COUNT).map((i) => [
+        purificationFields[numberedField("p_select", i)]!,
+        purificationSelect(i, p),
+      ]),
+    ),
+    [backrefFieldId]: { id: linkContext.subOrderRecordIdByRow(s) },
+    [backrefDupFieldId]: { id: linkContext.subOrderRecordIdByRow(s) },
+    [purificationFields[PURIFICATION_PLASMID_LINK_FIELD]!]: {
+      id: linkContext.plasmidRecordIdByRow(
+        plasmidRowForPurification(p, config),
+      ),
+    },
+    [purificationFields[PURIFICATION_ORDER_LINK_FIELD]!]: {
+      id: linkContext.orderRecordIdByRow(orderRowForPurification(p, config)),
+    },
+  };
+};
+
+const fixtureLinkContext = (fixture: Fixture): PurificationLinkContext => ({
+  purificationFields: fixture.purificationFields,
+  backrefFieldId: fixture.purificationBackrefFieldId,
+  backrefDupFieldId: fixture.purificationBackrefDupFieldId,
+  subOrderRecordIdByRow: (row) => fixture.subOrderRecords[row - 1]!.recordId,
+  plasmidRecordIdByRow: (row) => fixture.plasmidRecords[row - 1]!.recordId,
+  orderRecordIdByRow: (row) => fixture.orderRecords[row - 1]!.recordId,
+});
 
 const createLinkField = async (
   tableId: string,
@@ -999,8 +1117,12 @@ const restoreFixture = async (
     const purificationFieldVos = (await getFields(
       cachedSeed.purificationTableId,
     )) as NamedField[];
+    const plasmidFieldVos = (await getFields(
+      cachedSeed.plasmidTableId,
+    )) as NamedField[];
     const subOrderFields = fieldIdMap(subOrderFieldVos);
     const purificationFields = fieldIdMap(purificationFieldVos);
+    const plasmidFields = fieldIdMap(plasmidFieldVos);
     const backrefFieldId = resolveNamedField(
       subOrderFieldVos,
       SUBORDER_PURIFICATION_LINK_FIELD,
@@ -1027,6 +1149,23 @@ const restoreFixture = async (
       config.purificationRowCount,
       pageSize,
     );
+    const plasmidRecords = await scanSeededRecords(
+      cachedSeed.plasmidTableId,
+      plasmidFields[TITLE_FIELD]!,
+      "Plasmid ",
+      config.plasmidRowCount,
+      pageSize,
+    );
+    const orderFieldVos = (await getFields(
+      cachedSeed.ordersTableId,
+    )) as NamedField[];
+    const orderRecords = await scanSeededRecords(
+      cachedSeed.ordersTableId,
+      resolveNamedField(orderFieldVos, TITLE_FIELD).id,
+      "Order ",
+      config.orderRowCount,
+      pageSize,
+    );
     const fixture: Fixture = {
       subOrdersTableId: cachedSubOrders.id,
       subOrdersTableName: cachedSubOrders.name,
@@ -1035,10 +1174,14 @@ const restoreFixture = async (
       plasmidTableId: cachedSeed.plasmidTableId,
       subOrderFields,
       purificationFields,
+      plasmidFields,
       purificationBackrefFieldId: backrefFieldId,
       purificationBackrefDupFieldId: backrefDupFieldId,
       subOrderRecords,
       purificationRecords,
+      plasmidRecords,
+      orderRecords,
+      appendedPurificationRecords: [],
       seedBatchDurations: [0],
       seedCacheInfo,
       seedCacheHit: true,
@@ -1462,51 +1605,19 @@ const createFixture = async (
     // --- Seed Purification records. Field keys are ids because the two
     // symmetric backref cells have server-generated names. Each insert wires
     // BOTH backrefs to the same SubOrder (the duplicate-link fingerprint). ---
+    const seedLinkContext: PurificationLinkContext = {
+      purificationFields,
+      backrefFieldId,
+      backrefDupFieldId,
+      subOrderRecordIdByRow: (row) => subOrderRecordIds[row - 1]!,
+      plasmidRecordIdByRow: (row) => plasmidRecordIds[row - 1]!,
+      orderRecordIdByRow: (row) => orderRecordIds[row - 1]!,
+    };
     const purificationRecordIds = await seedRecordsInBatches(
       purification.id,
-      range(config.purificationRowCount).map((p) => {
-        const s = subOrderRowForPurification(p, config);
-        return {
-          [purificationFields[TITLE_FIELD]!]: purificationTitle(p),
-          [purificationFields[PURIFICATION_EXPRESSION_FIELD]!]:
-            seedExpressionValue(p),
-          [purificationFields[PURIFICATION_BATCH_FIELD]!]:
-            purificationBatchCode(p),
-          [purificationFields[PURIFICATION_OPERATOR_FIELD]!]:
-            purificationOperator(p),
-          [purificationFields[PURIFICATION_METHOD_FIELD]!]:
-            purificationMethod(p),
-          [purificationFields[PURIFICATION_PURITY_FIELD]!]:
-            purificationPurity(p),
-          [purificationFields[PURIFICATION_YIELD_FIELD]!]: purificationYield(p),
-          ...Object.fromEntries(
-            range(PURIFICATION_TEXT_COUNT).map((i) => [
-              purificationFields[numberedField("p_text", i)]!,
-              purificationText(i, p),
-            ]),
-          ),
-          ...Object.fromEntries(
-            range(PURIFICATION_NUM_COUNT).map((i) => [
-              purificationFields[numberedField("p_num", i)]!,
-              purificationNum(i, p),
-            ]),
-          ),
-          ...Object.fromEntries(
-            range(PURIFICATION_SELECT_COUNT).map((i) => [
-              purificationFields[numberedField("p_select", i)]!,
-              purificationSelect(i, p),
-            ]),
-          ),
-          [backrefFieldId]: { id: subOrderRecordIds[s - 1]! },
-          [backrefDupFieldId]: { id: subOrderRecordIds[s - 1]! },
-          [purificationFields[PURIFICATION_PLASMID_LINK_FIELD]!]: {
-            id: plasmidRecordIds[plasmidRowForPurification(p, config) - 1]!,
-          },
-          [purificationFields[PURIFICATION_ORDER_LINK_FIELD]!]: {
-            id: orderRecordIds[orderRowForPurification(p, config) - 1]!,
-          },
-        };
-      }),
+      range(config.purificationRowCount).map((p) =>
+        buildPurificationRecordFields(p, config, seedLinkContext),
+      ),
       config.purificationBatchSize,
       FieldKeyType.Id,
       seedBatchDurations,
@@ -1535,6 +1646,7 @@ const createFixture = async (
       plasmidTableId: plasmid.id,
       subOrderFields: fieldIdMap(subOrderFieldVos),
       purificationFields: fieldIdMap(purificationFieldVos),
+      plasmidFields: plasmidFieldIds,
       purificationBackrefFieldId: backrefFieldId,
       purificationBackrefDupFieldId: backrefDupFieldId,
       subOrderRecords: subOrderRecordIds.map((recordId, index) => ({
@@ -1545,6 +1657,15 @@ const createFixture = async (
         rowNumber: index + 1,
         recordId,
       })),
+      plasmidRecords: plasmidRecordIds.map((recordId, index) => ({
+        rowNumber: index + 1,
+        recordId,
+      })),
+      orderRecords: orderRecordIds.map((recordId, index) => ({
+        rowNumber: index + 1,
+        recordId,
+      })),
+      appendedPurificationRecords: [],
       seedBatchDurations,
       seedCacheInfo,
       seedCacheHit: false,
@@ -1600,50 +1721,149 @@ const prepareFixture = async (
 // Measured operation
 // ---------------------------------------------------------------------------
 
+// The table/field/value triple the measured PATCH edits, by mutation kind.
+const resolveMutationTarget = (
+  fixture: Fixture,
+  config: CircularLinkPropagationCaseConfig,
+) => {
+  if (mutationKind(config.mutation) === "plasmid-total") {
+    return {
+      tableId: fixture.plasmidTableId,
+      fieldId: fixture.plasmidFields[PLASMID_TOTAL_FIELD]!,
+      records: fixture.plasmidRecords,
+      valueFor: (rowNumber: number, phase: CircularLinkPhase) =>
+        phase === "updated"
+          ? updatedPlasmidTotalValue(rowNumber)
+          : plasmidTotalAmount(rowNumber),
+    };
+  }
+  return {
+    tableId: fixture.purificationTableId,
+    fieldId: fixture.purificationFields[PURIFICATION_EXPRESSION_FIELD]!,
+    records: fixture.purificationRecords,
+    valueFor: (rowNumber: number, phase: CircularLinkPhase) =>
+      phase === "updated"
+        ? updatedExpressionValue(rowNumber)
+        : seedExpressionValue(rowNumber),
+  };
+};
+
+// The purification-append measured operation: sequential bulk INSERT batches
+// that extend the purification permutation (the write-burst shape that races
+// the hybrid strategy's dispatched outbox tasks on the table advisory lock).
+const appendPurificationRecords = async (
+  fixture: Fixture,
+  config: CircularLinkPropagationCaseConfig,
+) => {
+  const linkContext = fixtureLinkContext(fixture);
+  const rows = appendedPurificationRows(config);
+  let requested = 0;
+  let updated = 0;
+  let responseHeaders: Record<string, string> = {};
+  fixture.appendedPurificationRecords = [];
+  for (const batch of chunk(rows, config.writeBatchSize)) {
+    const response = await createRecordsRaw(fixture.purificationTableId, {
+      fieldKeyType: FieldKeyType.Id,
+      typecast: true,
+      records: batch.map((p) => ({
+        fields: buildPurificationRecordFields(p, config, linkContext),
+      })),
+    });
+    expect(response.status).toBe(201);
+    const records =
+      (response.data as { records?: Array<{ id: string }> })?.records ?? [];
+    expect(records.length).toBe(batch.length);
+    records.forEach((record, index) => {
+      fixture.appendedPurificationRecords.push({
+        rowNumber: batch[index]!,
+        recordId: record.id,
+      });
+    });
+    requested += batch.length;
+    updated += records.length;
+    responseHeaders = pickRoutingResponseHeaders(
+      response.headers as Record<string, unknown>,
+    );
+  }
+  return {
+    requestedRecords: requested,
+    updatedRecords: updated,
+    responseHeaders,
+  };
+};
+
+const removeAppendedPurificationRecords = async (
+  fixture: Fixture,
+  config: CircularLinkPropagationCaseConfig,
+) => {
+  const recordIds = fixture.appendedPurificationRecords.map(
+    (record) => record.recordId,
+  );
+  for (const batch of chunk(recordIds, config.writeBatchSize)) {
+    await deleteRecords(fixture.purificationTableId, batch);
+  }
+  fixture.appendedPurificationRecords = [];
+  return {
+    requestedRecords: recordIds.length,
+    updatedRecords: recordIds.length,
+    responseHeaders: {} as Record<string, string>,
+  };
+};
+
 const writeExpressionValues = async (
   fixture: Fixture,
   config: CircularLinkPropagationCaseConfig,
   phase: CircularLinkPhase,
 ) => {
+  if (mutationKind(config.mutation) === "purification-append") {
+    return phase === "updated"
+      ? appendPurificationRecords(fixture, config)
+      : removeAppendedPurificationRecords(fixture, config);
+  }
   const window = resolveMutationWindow(
-    config.purificationRowCount,
+    mutationTargetRowCount(config),
     config.mutation,
   );
-  const targets = fixture.purificationRecords.slice(
+  const target = resolveMutationTarget(fixture, config);
+  const targets = target.records.slice(
     window.startOffset,
     window.endOffsetExclusive,
   );
-  const expressionFieldId =
-    fixture.purificationFields[PURIFICATION_EXPRESSION_FIELD]!;
   const updates = targets.map((record) => ({
     id: record.recordId,
     fields: {
-      [expressionFieldId]:
-        phase === "updated"
-          ? updatedExpressionValue(record.rowNumber)
-          : seedExpressionValue(record.rowNumber),
+      [target.fieldId]: target.valueFor(record.rowNumber, phase),
     },
   }));
+  // The incident showed two identical concurrent bulk UPDATEs; > 1 replays
+  // that duplicate-event shape with byte-identical concurrent requests.
+  const concurrency = Math.max(1, config.concurrentDuplicateRequests ?? 1);
   let requested = 0;
   let updated = 0;
   let responseHeaders: Record<string, string> = {};
   for (const batch of chunk(updates, config.writeBatchSize)) {
-    const response = await updateRecords(fixture.purificationTableId, {
-      fieldKeyType: FieldKeyType.Id,
-      typecast: false,
-      records: batch,
-    });
-    const data = response.data as unknown;
-    const batchUpdated = Array.isArray(data)
-      ? data.length
-      : ((data as { records?: unknown[] })?.records?.length ?? 0);
-    expect(response.status).toBe(200);
-    expect(batchUpdated).toBe(batch.length);
-    requested += batch.length;
-    updated += batchUpdated;
-    responseHeaders = pickRoutingResponseHeaders(
-      response.headers as Record<string, unknown>,
+    const responses = await Promise.all(
+      Array.from({ length: concurrency }, () =>
+        updateRecords(target.tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          typecast: false,
+          records: batch,
+        }),
+      ),
     );
+    for (const response of responses) {
+      const data = response.data as unknown;
+      const batchUpdated = Array.isArray(data)
+        ? data.length
+        : ((data as { records?: unknown[] })?.records?.length ?? 0);
+      expect(response.status).toBe(200);
+      expect(batchUpdated).toBe(batch.length);
+      responseHeaders = pickRoutingResponseHeaders(
+        response.headers as Record<string, unknown>,
+      );
+    }
+    requested += batch.length;
+    updated += batch.length;
   }
   return {
     requestedRecords: requested,
@@ -1658,8 +1878,15 @@ const runMeasuredOperation = async (
   config: CircularLinkPropagationCaseConfig,
   fixture: Fixture,
 ): Promise<Measurement<PrimaryResult>> => {
-  const purificationBySubOrder = purificationRowBySubOrderRow(config);
+  const purificationBySubOrder = purificationRowBySubOrderRow(
+    config,
+    "updated",
+  );
   const affectedRows = affectedSubOrderRows(config);
+  const readinessRows = sampleRowsEvenly(
+    affectedRows,
+    config.verify.readinessSampleLimit,
+  );
 
   let sourceUpdateMs = 0;
   let hostReadinessMs = 0;
@@ -1700,6 +1927,7 @@ const runMeasuredOperation = async (
                 config,
                 context,
                 purificationBySubOrder,
+                readinessRows,
               ),
           ),
         );
@@ -1721,7 +1949,10 @@ const runMeasuredOperation = async (
   );
 
   const routing = assertEngineRouting(context, responseHeaders, {
-    operation: "updateRecords",
+    operation:
+      mutationKind(config.mutation) === "purification-append"
+        ? "createRecords"
+        : "updateRecords",
   });
 
   return {
@@ -1902,10 +2133,14 @@ const buildResult = ({
       },
       fieldCounts: FIELD_COUNTS,
       computedFieldCounts: COMPUTED_FIELD_COUNTS,
-      mutation: resolveMutationWindow(
-        config.purificationRowCount,
-        config.mutation,
-      ),
+      mutation: {
+        kind: mutationKind(config.mutation),
+        ...resolveMutationWindow(
+          mutationTargetRowCount(config),
+          config.mutation,
+        ),
+        concurrentDuplicateRequests: config.concurrentDuplicateRequests ?? 1,
+      },
       readiness: primary
         ? {
             readPath: "get-record",
@@ -1916,17 +2151,19 @@ const buildResult = ({
         : undefined,
       request: fixture
         ? {
-            method: "PATCH",
-            path: `/api/table/${fixture.purificationTableId}/record`,
+            method:
+              mutationKind(config.mutation) === "purification-append"
+                ? "POST"
+                : "PATCH",
+            path: `/api/table/${resolveMutationTarget(fixture, config).tableId}/record`,
             fieldKeyType: "id",
             typecast: false,
             recordCount: resolveMutationWindow(
-              config.purificationRowCount,
+              mutationTargetRowCount(config),
               config.mutation,
             ).recordCount,
             writeBatchSize: config.writeBatchSize,
-            expressionFieldId:
-              fixture.purificationFields[PURIFICATION_EXPRESSION_FIELD],
+            expressionFieldId: resolveMutationTarget(fixture, config).fieldId,
           }
         : undefined,
       update: primary

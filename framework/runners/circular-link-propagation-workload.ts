@@ -16,10 +16,30 @@ export type CircularPermutation = { multiplier: number; offset: number };
 
 export type CircularLinkPhase = "seed" | "updated";
 
+// "purification-expression" edits expression_mg_l on Purification rows (the
+// incident's literal trigger). "plasmid-total" edits total_amount_mg on
+// Plasmid rows — the 3-row conditional-lookup source; one cell dirties the
+// conditional lookups of a third of SubOrders AND the plain lookups of a
+// third of Purification simultaneously (the maximum-fanout suspect path).
+// "purification-append" bulk-INSERTS recordCount new Purification rows
+// (p = purificationRowCount+1 ...), each wiring all four link cells — the
+// write-burst shape that loses computed propagation under the hybrid
+// strategy (each insert batch's inline run races the previous batch's
+// dispatched outbox task on the table advisory lock).
+export type CircularLinkMutationKind =
+  | "purification-expression"
+  | "plasmid-total"
+  | "purification-append";
+
 export type CircularLinkMutationWindowConfig = {
   startOffset?: number;
   recordCount: number;
+  kind?: CircularLinkMutationKind;
 };
+
+export const mutationKind = (
+  mutation: CircularLinkMutationWindowConfig,
+): CircularLinkMutationKind => mutation.kind ?? "purification-expression";
 
 export type CircularLinkMutationWindow = {
   startOffset: number;
@@ -145,11 +165,14 @@ export const plasmidRowForPurification = (
 // Injective purification -> subOrder mapping proof + inverse map. Each
 // purification attaches to a distinct subOrder, so subOrders carry 0 or 1
 // purification (single-element one-many lookups keep expected values exact).
+// In the updated phase of the append kind the appended rows extend the same
+// permutation, so injectivity is proven over the extended range too.
 export const purificationRowBySubOrderRow = (
   config: CircularLinkWorkloadConfig,
+  phase: CircularLinkPhase = "seed",
 ): Map<number, number> => {
   const map = new Map<number, number>();
-  for (let p = 1; p <= config.purificationRowCount; p += 1) {
+  for (let p = 1; p <= purificationRowTotal(config, phase); p += 1) {
     const s = subOrderRowForPurification(p, config);
     if (map.has(s)) {
       throw new Error(
@@ -190,10 +213,49 @@ export const resolveMutationWindow = (
   return { startOffset, recordCount, endOffsetExclusive };
 };
 
+// Row count of the table the mutation window ranges over. For the append
+// kind the window ranges over the appended rows themselves.
+export const mutationTargetRowCount = (config: CircularLinkWorkloadConfig) => {
+  switch (mutationKind(config.mutation)) {
+    case "plasmid-total":
+      return config.plasmidRowCount;
+    case "purification-append":
+      return config.mutation.recordCount;
+    default:
+      return config.purificationRowCount;
+  }
+};
+
+// Number of Purification rows that exist beyond the seeded set in a phase.
+export const appendedPurificationRowCount = (
+  config: CircularLinkWorkloadConfig,
+  phase: CircularLinkPhase,
+) =>
+  mutationKind(config.mutation) === "purification-append" && phase === "updated"
+    ? config.mutation.recordCount
+    : 0;
+
+export const purificationRowTotal = (
+  config: CircularLinkWorkloadConfig,
+  phase: CircularLinkPhase,
+) => config.purificationRowCount + appendedPurificationRowCount(config, phase);
+
+// The appended row numbers (empty for other mutation kinds).
+export const appendedPurificationRows = (config: CircularLinkWorkloadConfig) =>
+  mutationKind(config.mutation) === "purification-append"
+    ? Array.from(
+        { length: config.mutation.recordCount },
+        (_, index) => config.purificationRowCount + index + 1,
+      )
+    : [];
+
 export const isMutatedPurificationRow = (
   purificationRow: number,
   config: CircularLinkWorkloadConfig,
 ) => {
+  if (mutationKind(config.mutation) !== "purification-expression") {
+    return false;
+  }
   const window = resolveMutationWindow(
     config.purificationRowCount,
     config.mutation,
@@ -202,8 +264,37 @@ export const isMutatedPurificationRow = (
   return offset >= window.startOffset && offset < window.endOffsetExclusive;
 };
 
-// SubOrder rows whose linked purification is inside the mutation window.
+export const isMutatedPlasmidRow = (
+  plasmidRow: number,
+  config: CircularLinkWorkloadConfig,
+) => {
+  if (mutationKind(config.mutation) !== "plasmid-total") {
+    return false;
+  }
+  const window = resolveMutationWindow(config.plasmidRowCount, config.mutation);
+  const offset = plasmidRow - 1;
+  return offset >= window.startOffset && offset < window.endOffsetExclusive;
+};
+
+// SubOrder rows directly dirtied by the mutation: for the purification kind
+// the rows whose linked purification is inside the window; for the plasmid
+// kind every row whose round-robin plasmid is inside the window (the
+// conditional-lookup fanout — a third of the table per plasmid row).
 export const affectedSubOrderRows = (config: CircularLinkWorkloadConfig) => {
+  if (mutationKind(config.mutation) === "plasmid-total") {
+    const rows: number[] = [];
+    for (let s = 1; s <= config.subOrderRowCount; s += 1) {
+      if (isMutatedPlasmidRow(plasmidRowForSubOrder(s, config), config)) {
+        rows.push(s);
+      }
+    }
+    return rows;
+  }
+  if (mutationKind(config.mutation) === "purification-append") {
+    return appendedPurificationRows(config).map((p) =>
+      subOrderRowForPurification(p, config),
+    );
+  }
   const window = resolveMutationWindow(
     config.purificationRowCount,
     config.mutation,
@@ -226,6 +317,16 @@ export const affectedSubOrderRows = (config: CircularLinkWorkloadConfig) => {
 export const plasmidTitle = (n: number) => `Plasmid ${n}`;
 export const plasmidTypeKey = (n: number) => `ptype-${n}`;
 export const plasmidTotalAmount = (n: number) => 100 * n;
+export const updatedPlasmidTotalValue = (n: number) =>
+  plasmidTotalAmount(n) + 5_000;
+export const expectedPlasmidTotalValue = (
+  n: number,
+  config: CircularLinkWorkloadConfig,
+  phase: CircularLinkPhase,
+) =>
+  phase === "updated" && isMutatedPlasmidRow(n, config)
+    ? updatedPlasmidTotalValue(n)
+    : plasmidTotalAmount(n);
 export const plasmidBackbone = (n: number) => `pl-backbone-${n}`;
 export const plasmidGrade = (n: number) => `pl-grade-${n}`;
 export const plasmidNote = (i: number, n: number) => `pl-note-${i}-${n}`;
@@ -657,7 +758,7 @@ export const expectedSubOrderComputed = (
     const i = Number(spec.target.slice("o_attr_".length));
     expected[spec.name] = value(orderAttr(i, o));
   }
-  expected.clu_pl_total = value(plasmidTotalAmount(k));
+  expected.clu_pl_total = value(expectedPlasmidTotalValue(k, config, phase));
   expected.clu_pl_backbone = value(plasmidBackbone(k));
   expected.clu_pl_grade = value(plasmidGrade(k));
 
@@ -737,7 +838,7 @@ export const expectedPurificationComputed = (
     }
   }
 
-  expected.lu_pl_total = value(plasmidTotalAmount(k));
+  expected.lu_pl_total = value(expectedPlasmidTotalValue(k, config, phase));
   expected.lu_pl_backbone = value(plasmidBackbone(k));
   expected.lu_pl_grade = value(plasmidGrade(k));
   for (const i of [1, 2, 3, 4]) {

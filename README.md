@@ -375,6 +375,27 @@ workload.
   Purification table, which propagated up a one-many link into SubOrders lookups
   and formulas and back down into Purification's reverse lookups — all tables
   small, but the dependency graph circular and doubled by a duplicate link.
+- `lookup/circular-conditional-source-update-1of3-3k`: Guard the
+  conditional-lookup fanout of the 2026-08-27 CN incident fixture: a single-cell
+  edit on the 3-row conditional-lookup source table (Plasmid) whose dirty closure
+  covers a third of BOTH host tables at once. This is the maximum-fanout edit the
+  incident base's shape allows from one cell, and it is the plan family
+  (`conditionalFiltered` propagation over a host-field filter) that T7002 /
+  teable-ee PR #3207 ("bound inline computed updates") routes away from the user
+  transaction when it degrades to a whole-table plan. The case pins the cost of
+  that closure so growth in the conditional target-scan path shows up as a
+  threshold regression.
+- `lookup/circular-purification-append-400-3k`: Catch the reproduced
+  pathological behavior behind the 2026-08-27 CN production main-database
+  incident (tsingke "抗体表达" base, T7002 / teable-ee PR #3207): under the
+  **hybrid** computed-update strategy, sequential bulk record-INSERT batches on
+  the circular link fixture race the previous batch's dispatched outbox task on
+  the per-table computed advisory lock; the losing run fails with
+  `computed_update.lock_unavailable`, its propagation is **silently dropped**,
+  and `computed_update_outbox` ends up **empty** — the incident's forensic
+  fingerprint (sync-path storm with an empty outbox). The result is host rows
+  whose lookups/formulas never converge: user-visible stale computed data with no
+  error surfaced to the writer.
 - `lookup/foreign-select-flip-1of40-fanout100-4k`: Measure the customer-visible
   propagation gap when one cell on a linked foreign record changes while every
   order link record id stays unchanged. One User Status update fans out through

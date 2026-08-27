@@ -623,7 +623,7 @@ const currentBundleIds = buildAffinityStageBundles({
   affinities: resolvedFullRunAffinities,
   caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
 }).map(({ id }) => id);
-assert.equal(currentBundleIds.length, 188);
+assert.equal(currentBundleIds.length, 190);
 assert.deepEqual(
   currentBundleIds.filter(
     (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,

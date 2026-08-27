@@ -477,17 +477,31 @@ export interface CircularLinkPropagationCaseConfig {
   purificationSubOrderPermutation: { multiplier: number; offset: number };
   // purification row -> order row for Purification's own order link.
   purificationOrderPermutation: { multiplier: number; offset: number };
-  // Execute-only window of Purification rows whose expression_mg_l is edited.
+  // Execute-only mutation. The window is over Purification rows for
+  // "purification-expression" (default), over Plasmid rows for
+  // "plasmid-total" (the 3-row conditional-lookup source whose single-cell
+  // edit dirties both host tables at once), and over the appended rows for
+  // "purification-append" (sequential bulk INSERT batches extending the
+  // purification permutation — the hybrid write-burst shape).
   mutation: {
     startOffset?: number;
     recordCount: number;
+    kind?: "purification-expression" | "plasmid-total" | "purification-append";
   };
+  // Number of identical concurrent bulk update requests fired per write batch
+  // (the incident showed two same-shape UPDATEs running concurrently,
+  // suspected duplicate events). Default 1.
+  concurrentDuplicateRequests?: number;
   verify: {
     subOrderSampleRows: number[];
     purificationSampleRows: number[];
     fullScanPageSize?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;
+    // Cap on affected sub-order rows polled inside the primary timer (evenly
+    // spaced sample). The post-metric full scans still prove the complete
+    // cascade. Unset = poll every affected row (only sane for small windows).
+    readinessSampleLimit?: number;
   };
   threshold: {
     metric: "circularPropagationReadyMs";
