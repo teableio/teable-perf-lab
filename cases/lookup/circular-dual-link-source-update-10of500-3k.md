@@ -154,3 +154,13 @@ Fingerprint mapping assumptions:
 - The measured update is 10 rows in one request; production's storm was
   triggered by an even smaller edit, so 10 gives a stable non-trivial
   propagation set without depending on a single row's timing noise.
+
+Local verification (2026-08-27, full 6k/3k/500/3 scale, single-database run):
+both engines passed with complete full-scan evidence and `routeMatched: true`;
+the primary metric came in around half a second on V1 and V2 sync, so the
+guardrail has enormous headroom until CI history justifies tightening. For a
+fast local smoke, set `PERF_LAB_CLP_ORDER_ROWS` / `PERF_LAB_CLP_SUBORDER_ROWS`
+/ `PERF_LAB_CLP_PURIFICATION_ROWS` to shrink the workload without editing this
+config. Do not set `NEXT_BUILD_ENV_EDITION=CLOUD` for a full-scale local run:
+it enables the free-plan billing row limit, which rejects the 9.5k-row seed
+with a 402; CI does not set that variable either.
