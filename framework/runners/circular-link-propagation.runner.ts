@@ -308,7 +308,9 @@ const purificationPlainFields = () => [
   ),
 ];
 
-const lookupFieldType = (kind: "text" | "number" | "select" | "link") => {
+const lookupFieldType = (
+  kind: "text" | "number" | "select" | "link" | "formula",
+) => {
   switch (kind) {
     case "number":
       return FieldType.Number;
@@ -316,6 +318,10 @@ const lookupFieldType = (kind: "text" | "number" | "select" | "link") => {
       return FieldType.SingleSelect;
     case "link":
       return FieldType.Link;
+    // The server requires the lookup's declared type to equal the looked-up
+    // field's type, so formula-target lookups are created as formula fields.
+    case "formula":
+      return FieldType.Formula;
     default:
       return FieldType.SingleLineText;
   }
@@ -432,6 +438,9 @@ const assertComputedFields = (
 // Seed metadata (persisted in the SubOrders table description for cache reuse)
 // ---------------------------------------------------------------------------
 
+// Record ids are NOT persisted: the V2 table-properties path caps the
+// description at 2,000 characters, so the restore path re-derives the
+// row-number -> record-id maps with a cheap paged Title scan instead.
 type CachedSeed = {
   fixtureVersion: string;
   orderRowCount: number;
@@ -441,8 +450,6 @@ type CachedSeed = {
   ordersTableId: string;
   purificationTableId: string;
   plasmidTableId: string;
-  subOrderRecordIds: string[];
-  purificationRecordIds: string[];
 };
 
 const parseCachedSeed = (
@@ -521,6 +528,48 @@ const parseRowNumber = (prefix: string, value: unknown) => {
     throw new Error(`Expected integer row number, got ${String(value)}`);
   }
   return rowNumber;
+};
+
+// Rebuild the row-number -> record-id map from a paged Title-only scan. Used
+// on cache restore because record ids are not persisted in the (V2
+// length-capped) table description.
+const scanSeededRecords = async (
+  tableId: string,
+  titleFieldId: string,
+  titlePrefix: string,
+  totalRows: number,
+  pageSize: number,
+): Promise<SeededRecord[]> => {
+  const byRow = new Array<SeededRecord | undefined>(totalRows);
+  await forEachRecordPage(
+    {
+      totalRows,
+      pageSize,
+      pageNoun: "seeded records",
+      fetchPage: (skip, take) =>
+        getRecords(tableId, {
+          fieldKeyType: FieldKeyType.Id,
+          projection: [titleFieldId],
+          skip,
+          take,
+        }),
+    },
+    (record) => {
+      const rowNumber = parseRowNumber(
+        titlePrefix,
+        record.fields[titleFieldId],
+      );
+      byRow[rowNumber - 1] = { rowNumber, recordId: record.id };
+    },
+  );
+  return byRow.map((record, index) => {
+    if (!record) {
+      throw new Error(
+        `Missing ${titlePrefix}${index + 1} while scanning seeded record ids`,
+      );
+    }
+    return record;
+  });
 };
 
 const assertSubOrderRow = (
@@ -845,7 +894,7 @@ const createLinkField = async (
 const createLookup = async (
   tableId: string,
   name: string,
-  kind: "text" | "number" | "select" | "link",
+  kind: "text" | "number" | "select" | "link" | "formula",
   foreignTableId: string,
   linkFieldId: string,
   lookupFieldId: string,
@@ -860,7 +909,7 @@ const createLookup = async (
 const createConditionalLookup = async (
   tableId: string,
   name: string,
-  kind: "text" | "number" | "select" | "link",
+  kind: "text" | "number" | "select" | "link" | "formula",
   foreignTableId: string,
   lookupFieldId: string,
   filterSourceFieldId: string,
@@ -938,9 +987,7 @@ const restoreFixture = async (
       cachedSeed.orderRowCount !== config.orderRowCount ||
       cachedSeed.subOrderRowCount !== config.subOrderRowCount ||
       cachedSeed.purificationRowCount !== config.purificationRowCount ||
-      cachedSeed.plasmidRowCount !== config.plasmidRowCount ||
-      cachedSeed.subOrderRecordIds.length !== config.subOrderRowCount ||
-      cachedSeed.purificationRecordIds.length !== config.purificationRowCount
+      cachedSeed.plasmidRowCount !== config.plasmidRowCount
     ) {
       throw new Error(
         `Missing or stale cached seed metadata for ${subOrdersTableName}`,
@@ -965,6 +1012,21 @@ const restoreFixture = async (
     if (!backrefFieldId || !backrefDupFieldId) {
       throw new Error("Cached seed is missing symmetric purification links");
     }
+    const pageSize = config.verify.fullScanPageSize ?? 1_000;
+    const subOrderRecords = await scanSeededRecords(
+      cachedSubOrders.id,
+      subOrderFields[TITLE_FIELD]!,
+      "SubOrder ",
+      config.subOrderRowCount,
+      pageSize,
+    );
+    const purificationRecords = await scanSeededRecords(
+      cachedSeed.purificationTableId,
+      purificationFields[TITLE_FIELD]!,
+      "Purification ",
+      config.purificationRowCount,
+      pageSize,
+    );
     const fixture: Fixture = {
       subOrdersTableId: cachedSubOrders.id,
       subOrdersTableName: cachedSubOrders.name,
@@ -975,13 +1037,8 @@ const restoreFixture = async (
       purificationFields,
       purificationBackrefFieldId: backrefFieldId,
       purificationBackrefDupFieldId: backrefDupFieldId,
-      subOrderRecords: cachedSeed.subOrderRecordIds.map((recordId, index) => ({
-        rowNumber: index + 1,
-        recordId,
-      })),
-      purificationRecords: cachedSeed.purificationRecordIds.map(
-        (recordId, index) => ({ rowNumber: index + 1, recordId }),
-      ),
+      subOrderRecords,
+      purificationRecords,
       seedBatchDurations: [0],
       seedCacheInfo,
       seedCacheHit: true,
@@ -1464,8 +1521,6 @@ const createFixture = async (
       ordersTableId: orders.id,
       purificationTableId: purification.id,
       plasmidTableId: plasmid.id,
-      subOrderRecordIds,
-      purificationRecordIds,
     });
 
     // Refresh field maps so later phases see every created field.

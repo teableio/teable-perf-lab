@@ -274,7 +274,11 @@ export const purificationSelect = (i: number, p: number) =>
 // Computed-field schema (names, targets, expressions)
 // ---------------------------------------------------------------------------
 
-export type LookupValueKind = "text" | "number" | "select" | "link";
+// "formula" marks lookups whose target is a formula field: Teable requires the
+// lookup's declared `type` to equal the looked-up field's type (a lookup of a
+// formula must be created with type "formula"), while its cell value stays the
+// formula's string result.
+export type LookupValueKind = "text" | "number" | "select" | "link" | "formula";
 
 export type LookupSpec = {
   name: string;
@@ -322,7 +326,11 @@ export const SUBORDER_PURIFICATION_LOOKUPS: LookupSpec[] = [
     target: PURIFICATION_YIELD_FIELD,
     kind: "number",
   },
-  { name: "lu_p_actual_expression", target: "actual_expression", kind: "text" },
+  {
+    name: "lu_p_actual_expression",
+    target: "actual_expression",
+    kind: "formula",
+  },
 ];
 
 // Purification: 18 reverse lookups into SubOrders (9 text / 4 select /
@@ -370,7 +378,7 @@ export const PURIFICATION_SUBORDER_LOOKUPS: ReverseLookupSpec[] = [
   {
     name: "lu_so_expression_card",
     target: "so_expression_card",
-    kind: "text",
+    kind: "formula",
     via: "backref-dup",
   },
   ...[3, 4].map(
