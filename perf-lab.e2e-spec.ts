@@ -124,7 +124,12 @@ const withEngineEnv = async <T>(engine: Engine, fn: () => Promise<T>) => {
 
   process.env.FORCE_V2_ALL = getForceV2All(engine);
   process.env.PERF_LAB_ENGINE = engine;
-  if (requestedComputedUpdateMode) {
+  if (requestedComputedUpdateMode === "hybrid") {
+    // The app env schema (env.validation.schema.ts) only accepts "sync";
+    // hybrid is the unset default, so requesting hybrid must UNSET the
+    // variable — exporting the literal "hybrid" fails Joi validation at boot.
+    delete process.env.V2_COMPUTED_UPDATE_MODE;
+  } else if (requestedComputedUpdateMode) {
     process.env.V2_COMPUTED_UPDATE_MODE = requestedComputedUpdateMode;
   }
   process.env.OTEL_SERVICE_NAME =

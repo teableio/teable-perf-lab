@@ -93,7 +93,12 @@ export const applySingleEngineBootstrapEnv = () => {
   process.env.E2E_SHARED_APP = "1";
   process.env.FORCE_V2_ALL = bootEngine === "v2" ? "true" : "false";
   process.env.PERF_LAB_ENGINE = runtimeEngine;
-  if (process.env.PERF_LAB_COMPUTED_UPDATE_MODE) {
+  if (process.env.PERF_LAB_COMPUTED_UPDATE_MODE === "hybrid") {
+    // The app env schema (env.validation.schema.ts) only accepts "sync";
+    // hybrid is the unset default, so requesting hybrid must UNSET the
+    // variable — exporting the literal "hybrid" fails Joi validation at boot.
+    delete process.env.V2_COMPUTED_UPDATE_MODE;
+  } else if (process.env.PERF_LAB_COMPUTED_UPDATE_MODE) {
     process.env.V2_COMPUTED_UPDATE_MODE =
       process.env.PERF_LAB_COMPUTED_UPDATE_MODE;
   }
