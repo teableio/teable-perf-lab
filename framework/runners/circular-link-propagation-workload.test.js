@@ -5,6 +5,8 @@ import {
   COMPUTED_FIELD_COUNTS,
   FIELD_COUNTS,
   affectedSubOrderRows,
+  appendedPurificationRowCount,
+  appendedPurificationRows,
   expectedPurificationComputed,
   expectedSubOrderComputed,
   expectedSubOrderExpressionCard,
@@ -12,6 +14,7 @@ import {
   isMutatedPurificationRow,
   mutationTargetRowCount,
   purificationRowBySubOrderRow,
+  purificationRowTotal,
   resolveMutationWindow,
   subOrderRowForPurification,
 } from "./circular-link-propagation-workload.ts";
@@ -193,4 +196,49 @@ test("purification chain card closes the circle through the sub-order formula", 
     kind: "value",
     value: "AE1010 so-text-1-6",
   });
+});
+
+// Codex review (PR #171): the append algebra previously had no unit test,
+// which hid the startOffset discrepancy this block now pins down.
+test("purification-append extends the seeded permutation and rejects offsets", () => {
+  const appendConfig = {
+    ...config,
+    mutation: { startOffset: 0, recordCount: 4, kind: "purification-append" },
+  };
+  // Appended rows continue the injective permutation right after the seed.
+  assert.deepEqual(
+    appendedPurificationRows(appendConfig),
+    [501, 502, 503, 504],
+  );
+  assert.equal(mutationTargetRowCount(appendConfig), 4);
+  // Phase-aware totals: the appended rows exist only in the updated phase.
+  assert.equal(appendedPurificationRowCount(appendConfig, "seed"), 0);
+  assert.equal(appendedPurificationRowCount(appendConfig, "updated"), 4);
+  assert.equal(purificationRowTotal(appendConfig, "seed"), 500);
+  assert.equal(purificationRowTotal(appendConfig, "updated"), 504);
+  // Other kinds never report appended rows.
+  assert.deepEqual(appendedPurificationRows(config), []);
+  assert.equal(purificationRowTotal(config, "updated"), 500);
+  // Each appended row attaches to a distinct, previously purification-free
+  // sub-order.
+  const seededHosts = new Set(purificationRowBySubOrderRow(config).keys());
+  const appendedHosts = appendedPurificationRows(appendConfig).map((row) =>
+    subOrderRowForPurification(row, appendConfig),
+  );
+  assert.equal(new Set(appendedHosts).size, appendedHosts.length);
+  for (const host of appendedHosts) {
+    assert.ok(!seededHosts.has(host));
+  }
+  // startOffset has no defined meaning for append: appended rows always
+  // extend the permutation, so a nonzero offset must fail loudly instead of
+  // being silently ignored.
+  assert.throws(
+    () =>
+      resolveMutationWindow(4, {
+        startOffset: 1,
+        recordCount: 3,
+        kind: "purification-append",
+      }),
+    /startOffset is not supported for purification-append/,
+  );
 });

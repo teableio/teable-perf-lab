@@ -85,10 +85,12 @@ one-many pair, permutation-deterministic row mappings.
   batch until every newly linked host sub-order exposes its complete
   post-append computed state through the real read path.
 
-`maxMs` is 120,000 ms — a provisional generous bound until the first CI
-observation recalibrates it. Healthy V2 sync at full scale measured ~13.2 s
-locally (`sourceUpdateMs` ~2.7 s for the four POSTs, `hostReadinessMs`
-~10.5 s), so the provisional bound has ~9x headroom.
+`maxMs` is 100,000 ms, calibrated from the first CI acceptance run
+(33088879155): v1 measured 24,898 ms and v2 17,592 ms, so the bound is ~4x
+the slower engine (~5.7x for v2 alone) — inside the repo's 3-5x calibration
+convention, sized for CI I/O variance on ~25 s of sequential POST work.
+Healthy V2 sync at full scale measured ~13.2 s locally (`sourceUpdateMs`
+~2.7 s for the four POSTs, `hostReadinessMs` ~10.5 s).
 
 Diagnostics: `sourceUpdateMs`, `hostReadinessMs`, `cascadeVerificationMs`,
 plus seed phases (`prepareMs`, `maxSeedBatchMs`, `seedReadyMs`).

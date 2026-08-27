@@ -49,12 +49,13 @@ export default definePerfCase({
     },
     threshold: {
       metric: "circularPropagationReadyMs",
-      // COARSE first-run guardrail (assumption, no CI history yet). A healthy
-      // run touches ~10 purifications + ~10 sub-orders; the regression this
-      // case exists for is the whole-graph storm recompute (25-minute UPDATE
-      // in production), which either blows far past this bound or times out
-      // at verify.timeoutMs. Tighten after real V1/V2 baselines land.
-      maxMs: 120_000,
+      // Calibrated from the first CI acceptance run (33088879155):
+      // v1 808.6 ms, v2 786.6 ms — ~5x the slower engine. A healthy run
+      // touches ~10 purifications + ~10 sub-orders; the regression this case
+      // exists for is the whole-graph storm recompute (25-minute UPDATE in
+      // production), which blows past any sane bound or times out at
+      // verify.timeoutMs.
+      maxMs: 4_000,
     },
   },
 });

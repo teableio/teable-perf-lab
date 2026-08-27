@@ -76,11 +76,11 @@ load-bearing elements here are:
   until the sampled affected sub-orders expose their post-update computed
   state through the real read path.
 
-`maxMs` is 120,000 ms — a coarse first-run guardrail. Local full-scale V2
-runs measured ~0.76 s (sync inline), so the bound only trips when the
-conditional fanout path degrades by orders of magnitude (e.g. whole-table
-target scans re-entering the user transaction). Tighten once CI history
-exists.
+`maxMs` is 6,000 ms, calibrated from the first CI acceptance run
+(33088879155): v1 measured 1,220.2 ms and v2 1,024.4 ms, so the bound is ~5x
+the slower engine — inside the repo's 3-5x calibration convention. The bound
+trips when the conditional fanout path degrades by orders of magnitude (e.g.
+whole-table target scans re-entering the user transaction).
 
 Diagnostics: `sourceUpdateMs`, `hostReadinessMs`, `cascadeVerificationMs`,
 plus seed phases (`prepareMs`, `maxSeedBatchMs`, `seedReadyMs`).

@@ -41,10 +41,13 @@ export default definePerfCase({
     },
     threshold: {
       metric: "circularPropagationReadyMs",
-      // Sync-mode runs land in the tens of seconds locally (~13 s at full
-      // scale). Provisional generous bound until the first CI observation
-      // recalibrates it.
-      maxMs: 120_000,
+      // Calibrated from the first CI acceptance run (33088879155):
+      // v1 24,898 ms, v2 17,592 ms — ~4x the slower engine (v2 alone gets
+      // ~5.7x). Local full-scale v2 sync measured ~13 s; the four sequential
+      // 100-row POST batches dominate, so the bound must absorb CI I/O
+      // variance on ~25 s of work while still catching a burst-insert
+      // propagation blowup well before verify.timeoutMs.
+      maxMs: 100_000,
     },
   },
 });

@@ -44,12 +44,14 @@ export default definePerfCase({
     },
     threshold: {
       metric: "circularPropagationReadyMs",
-      // Pre-T7002 (teable-ee <= b913e5014) the dirty-state preparation runs
-      // the conditional target scan inline in the user transaction and this
-      // metric blows far past the bound (or the PATCH itself hangs); with the
-      // fix the whole-table work is bounded/queued and readiness lands well
-      // under it. Calibrate against CI history once it exists.
-      maxMs: 120_000,
+      // Calibrated from the first CI acceptance run (33088879155):
+      // v1 1220.2 ms, v2 1024.4 ms — ~5x the slower engine. Pre-T7002
+      // (teable-ee <= b913e5014) the dirty-state preparation runs the
+      // conditional target scan inline in the user transaction and this
+      // metric blows far past the bound (or the PATCH itself hangs); with
+      // the fix the whole-table work is bounded/queued and readiness lands
+      // well under it.
+      maxMs: 6_000,
     },
   },
 });

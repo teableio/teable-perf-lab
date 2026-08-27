@@ -60,10 +60,13 @@ production mapping in parentheses):
 Row mappings are permutation-deterministic (multipliers coprime with the row
 counts), each purification attaches both duplicate backrefs to the same
 distinct sub-order, and every cell value is computable from the row number.
-With seed caching the four tables are named from `seedHash`, and the seeded
-sub-order/purification record ids plus sibling table ids are persisted in the
-sub-orders table description. `seedReady` revalidates sampled sub-orders
-(linked and unlinked branches) and purifications.
+With seed caching the four tables are named from `seedHash`, and the sibling
+table ids plus row counts are persisted in the sub-orders table description
+(record ids are NOT persisted — the V2 table-properties path caps the
+description at 2,000 characters, so the restore path re-derives the
+row-number → record-id maps with a cheap paged Title scan). `seedReady`
+revalidates sampled sub-orders (linked and unlinked branches) and
+purifications.
 
 ## Execute Phase
 
@@ -88,11 +91,13 @@ sub-orders table description. `seedReady` revalidates sampled sub-orders
   post-update lookup + formula state through the real read path. This is the
   user-visible wait between the incident's cell edit and correct reads.
 
-The initial `maxMs` is 120,000 ms — a coarse first-run guardrail chosen
-without CI history (assumption). A healthy engine touches ~10 purifications
-and ~10 sub-orders; the incident regression shape (whole-graph storm
-recompute) either blows far past this bound or times out at the 600s
-verification limit. Tighten once real V1/V2 baselines exist.
+`maxMs` is 4,000 ms, calibrated from the first CI acceptance run
+(33088879155): v1 measured 808.6 ms and v2 786.6 ms, so the bound is ~5x the
+slower engine — inside the repo's 3-5x calibration convention, wide enough
+for CI variance on sub-second work. A healthy engine touches ~10
+purifications and ~10 sub-orders; the incident regression shape (whole-graph
+storm recompute) either blows far past this bound or times out at the 600s
+verification limit.
 
 Diagnostics: `sourceUpdateMs` (the PATCH only), `hostReadinessMs` (poll window
 after the response), `cascadeVerificationMs` (post-metric full circular scan),

@@ -36,12 +36,13 @@ import {
 import { pollUntilReady, sleep } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
-import type {
-  CircularLinkPropagationCaseConfig,
-  PerfCase,
-  PerfCaseFor,
-  PerfRunContext,
-  PerfRunResult,
+import {
+  PerfRunDiagnosticError,
+  type CircularLinkPropagationCaseConfig,
+  type PerfCase,
+  type PerfCaseFor,
+  type PerfRunContext,
+  type PerfRunResult,
 } from "../types";
 import {
   COMPUTED_FIELD_COUNTS,
@@ -171,6 +172,11 @@ type Fixture = {
   // Rows created by the purification-append mutation (mutated in place so the
   // cleanup path can remove exactly what the measured operation inserted).
   appendedPurificationRecords: SeededRecord[];
+  // Codex review (PR #171): true while an append burst is in flight. A batch
+  // that fails after the server commits leaves rows whose ids were never
+  // captured, so cleanup cannot restore the fixture by deleting captured ids;
+  // it must drop the tables instead of marking the seed reusable.
+  appendWriteUncertain: boolean;
   seedBatchDurations: number[];
   seedCacheInfo: SeedCacheInfo;
   seedCacheHit: boolean;
@@ -185,13 +191,17 @@ type PrimaryResult = {
   requestedRecords: number;
   updatedRecords: number;
   responseHeaders: Record<string, string>;
-  routing: EngineRouting;
-  subOrdersScan: {
+  // Optional so a partial primary measurement (Codex review, PR #171) can be
+  // surfaced through PerfRunDiagnosticError when readiness or the cascade
+  // fails before routing/scan evidence exists; buildResult already treats
+  // them as optional.
+  routing?: EngineRouting;
+  subOrdersScan?: {
     scannedRecords: number;
     pageSize: number;
     pageCount: number;
   };
-  purificationScan: {
+  purificationScan?: {
     scannedRecords: number;
     pageSize: number;
     pageCount: number;
@@ -1182,6 +1192,7 @@ const restoreFixture = async (
       plasmidRecords,
       orderRecords,
       appendedPurificationRecords: [],
+      appendWriteUncertain: false,
       seedBatchDurations: [0],
       seedCacheInfo,
       seedCacheHit: true,
@@ -1666,6 +1677,7 @@ const createFixture = async (
         recordId,
       })),
       appendedPurificationRecords: [],
+      appendWriteUncertain: false,
       seedBatchDurations,
       seedCacheInfo,
       seedCacheHit: false,
@@ -1761,6 +1773,11 @@ const appendPurificationRecords = async (
   let updated = 0;
   let responseHeaders: Record<string, string> = {};
   fixture.appendedPurificationRecords = [];
+  // Codex review (PR #171): a request that dies after the server commits
+  // (timeout, dropped connection) creates rows whose ids are never captured
+  // below. Until every batch has acknowledged, cleanup must treat the
+  // fixture as unrestorable rather than reusable.
+  fixture.appendWriteUncertain = true;
   for (const batch of chunk(rows, config.writeBatchSize)) {
     const response = await createRecordsRaw(fixture.purificationTableId, {
       fieldKeyType: FieldKeyType.Id,
@@ -1785,6 +1802,7 @@ const appendPurificationRecords = async (
       response.headers as Record<string, unknown>,
     );
   }
+  fixture.appendWriteUncertain = false;
   return {
     requestedRecords: requested,
     updatedRecords: updated,
@@ -1894,6 +1912,41 @@ const runMeasuredOperation = async (
   let updatedRecords = 0;
   let responseHeaders: Record<string, string> = {};
 
+  // Codex review (PR #171): when readiness or the post-metric cascade fails
+  // — exactly the artifact a propagation regression produces — keep the
+  // staged evidence gathered so far instead of losing the whole primary
+  // measurement (record-mutation-lifecycle recovers
+  // details.partialPrimaryMeasurement from PerfRunDiagnosticError).
+  const primaryStartedAt = performance.now();
+  const currentPrimaryResult = (): PrimaryResult => ({
+    sourceUpdateMs,
+    hostReadinessMs,
+    cascadeVerificationMs: 0,
+    affectedSubOrderCount: affectedRows.length,
+    requestedRecords,
+    updatedRecords,
+    responseHeaders,
+  });
+  const throwWithPartialPrimary = (
+    error: unknown,
+    totalDurationMs?: number,
+  ): never => {
+    const partialPrimaryMeasurement: Measurement<PrimaryResult> = {
+      name: config.threshold.metric,
+      durationMs:
+        totalDurationMs ?? roundMetric(performance.now() - primaryStartedAt),
+      result: currentPrimaryResult(),
+    };
+    throw new PerfRunDiagnosticError(
+      error instanceof Error ? error.message : String(error),
+      {
+        metrics: {},
+        thresholds: [],
+        details: { partialPrimaryMeasurement },
+      },
+    );
+  };
+
   const totalMeasurement = await withPerfTraceStep(
     context,
     perfCase,
@@ -1933,7 +1986,7 @@ const runMeasuredOperation = async (
         );
         hostReadinessMs = readinessMeasurement.durationMs;
       }),
-  );
+  ).catch((error) => throwWithPartialPrimary(error));
 
   // Full circular cascade (both tables, including Purification's reverse
   // lookups over the changed SubOrders formula) proven OUTSIDE the primary
@@ -1946,14 +1999,21 @@ const runMeasuredOperation = async (
       measureAsync("cascadeVerification", () =>
         waitForFullCascade(fixture, config, "updated", context),
       ),
+  ).catch((error) =>
+    throwWithPartialPrimary(error, totalMeasurement.durationMs),
   );
 
-  const routing = assertEngineRouting(context, responseHeaders, {
-    operation:
-      mutationKind(config.mutation) === "purification-append"
-        ? "createRecords"
-        : "updateRecords",
-  });
+  let routing: EngineRouting;
+  try {
+    routing = assertEngineRouting(context, responseHeaders, {
+      operation:
+        mutationKind(config.mutation) === "purification-append"
+          ? "createRecords"
+          : "updateRecords",
+    });
+  } catch (error) {
+    throwWithPartialPrimary(error, totalMeasurement.durationMs);
+  }
 
   return {
     ...totalMeasurement,
@@ -2004,6 +2064,17 @@ const cleanupFixture = async ({
     }
   };
   if (!fixture.reusableSeed) {
+    await dropAllTables();
+    return;
+  }
+  // Codex review (PR #171): an append burst that never acknowledged every
+  // batch may have committed rows whose ids were not captured; deleting only
+  // the captured ids and re-checking a few seed samples cannot detect the
+  // leftovers, so the fixture must not survive as a reusable seed.
+  if (fixture.appendWriteUncertain) {
+    console.warn(
+      `Append burst on ${fixture.purificationTableId} did not acknowledge every batch; dropping the fixture instead of restoring it`,
+    );
     await dropAllTables();
     return;
   }
@@ -2119,7 +2190,14 @@ const buildResult = ({
         : []),
     ],
     details: {
-      operation: "edit-purification-cells-await-circular-cascade",
+      // Codex review (PR #171): describe the actual measured operation per
+      // mutation kind instead of always claiming the purification-cell edit.
+      operation:
+        mutationKind(config.mutation) === "purification-append"
+          ? "append-purification-rows-await-circular-cascade"
+          : mutationKind(config.mutation) === "plasmid-total"
+            ? "edit-plasmid-cells-await-circular-cascade"
+            : "edit-purification-cells-await-circular-cascade",
       subOrdersTableId: fixture?.subOrdersTableId,
       subOrdersTableName: fixture?.subOrdersTableName,
       ordersTableId: fixture?.ordersTableId,
@@ -2157,13 +2235,21 @@ const buildResult = ({
                 : "PATCH",
             path: `/api/table/${resolveMutationTarget(fixture, config).tableId}/record`,
             fieldKeyType: "id",
-            typecast: false,
+            // Codex review (PR #171): the append POST sends typecast: true
+            // (link cells by record id) and creates complete records, so it
+            // has no single mutated expression field to report.
+            typecast: mutationKind(config.mutation) === "purification-append",
             recordCount: resolveMutationWindow(
               mutationTargetRowCount(config),
               config.mutation,
             ).recordCount,
             writeBatchSize: config.writeBatchSize,
-            expressionFieldId: resolveMutationTarget(fixture, config).fieldId,
+            ...(mutationKind(config.mutation) === "purification-append"
+              ? {}
+              : {
+                  expressionFieldId: resolveMutationTarget(fixture, config)
+                    .fieldId,
+                }),
           }
         : undefined,
       update: primary

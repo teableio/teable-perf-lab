@@ -199,6 +199,15 @@ export const resolveMutationWindow = (
       `mutation.startOffset must be a non-negative integer, got ${startOffset}`,
     );
   }
+  // Codex review (PR #171): appended rows always extend the seeded
+  // permutation from purificationRowCount + 1, so an offset has no defined
+  // meaning for the append kind — fail loudly instead of silently ignoring
+  // it (appendedPurificationRows never consults it).
+  if (mutationKind(mutation) === "purification-append" && startOffset !== 0) {
+    throw new Error(
+      "mutation.startOffset is not supported for purification-append; appended rows always extend the seeded permutation",
+    );
+  }
   if (!Number.isInteger(recordCount) || recordCount <= 0) {
     throw new Error(
       `mutation.recordCount must be a positive integer, got ${recordCount}`,
