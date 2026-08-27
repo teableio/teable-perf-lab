@@ -18,28 +18,35 @@ enabled: true
 
 ## Goal
 
-Catch the reproduced pathological behavior behind the 2026-08-27 CN
-production main-database incident (tsingke "抗体表达" base, T7002 / teable-ee
-PR #3207): under the **hybrid** computed-update strategy, sequential bulk
-record-INSERT batches on the circular link fixture race the previous batch's
-dispatched outbox task on the per-table computed advisory lock; the losing
-run fails with `computed_update.lock_unavailable`, its propagation is
-**silently dropped**, and `computed_update_outbox` ends up **empty** — the
-incident's forensic fingerprint (sync-path storm with an empty outbox). The
-result is host rows whose lookups/formulas never converge: user-visible
-stale computed data with no error surfaced to the writer.
+Guard the **cost** of the burst-INSERT propagation shape from the
+2026-08-27 CN production main-database incident (tsingke "抗体表达" base,
+T7002 / teable-ee PR #3207) in the default **sync** computed-update mode:
+400 new purification rows in four sequential 100-row batches, each wiring
+all four link cells, must drive the full circular cross-table cascade and
+have every newly linked host row readable in the tens of seconds (~13 s
+measured at full scale). Growth in the burst-insert propagation path shows
+up here as a threshold regression.
 
-Local reproduction (2026-08-27, engine v2, full scale, hybrid via
-`PERF_LAB_COMPUTED_UPDATE_MODE=hybrid`): deterministic across commits — the
-run fails primary readiness after 600 s with a specific host row stale
-(e.g. `SubOrder 1806 so_is_expressible expected YES-... actual NO-...`),
-with 2-3 `computed:run:failed` `lock_unavailable` log entries and an empty
-outbox. This reproduces on BOTH `b913e5014` (pre-#3207) and `98f225c53`
-(the #3207 fix), i.e. #3207's inline bounding does NOT close this loss path;
-the PR's own "verification gap ... should be closed" note remains open for
-this manifestation. In the default sync mode the same operation is healthy
-(~13 s at full scale), so this case doubles as a burst-insert propagation
-cost guardrail there.
+**Responsibility handoff (2026-08-27):** this shape also reproduces a
+deterministic propagation **loss** under the production-default **hybrid**
+strategy (batches race the previous batch's dispatched outbox task on the
+per-table computed advisory lock; the loser fails with
+`computed_update.lock_unavailable`, its propagation is silently dropped,
+and `computed_update_outbox` ends up empty — the incident's forensic
+fingerprint). That red-guard duty now lives in **teable-e2e-lab** case
+`lookup/a-burst-of-new-rows-reaches-every-lookup` (e2e-lab PR #125,
+ledger status `open`, issue **T7018**), whose verdict model expects the
+failure while the bug is unfixed. This perf case was therefore taken OUT of
+`HYBRID_COMPUTED_CASES` and runs in the V2 sync pool only — perf-lab CI
+must not carry a permanently red case for a known unfixed bug.
+
+The original reproduction record (2026-08-27, engine v2, full scale,
+hybrid via `PERF_LAB_COMPUTED_UPDATE_MODE=hybrid`): deterministic across
+commits — the run fails primary readiness after 600 s with a specific host
+row stale (e.g. `SubOrder 1806 so_is_expressible expected YES-... actual
+NO-...`), with 2-3 `computed:run:failed` `lock_unavailable` log entries and
+an empty outbox, on BOTH `b913e5014` (pre-#3207) and `98f225c53` (the
+#3207 fix): #3207's inline bounding does NOT close this loss path.
 
 ## Seed Phase
 
@@ -78,11 +85,10 @@ one-many pair, permutation-deterministic row mappings.
   batch until every newly linked host sub-order exposes its complete
   post-append computed state through the real read path.
 
-`maxMs` is 120,000 ms. Healthy V2 sync at full scale measured ~13.2 s
-(`sourceUpdateMs` ~2.7 s for the four POSTs, `hostReadinessMs` ~10.5 s), so
-the bound has ~9x headroom; a hybrid engine that drops a batch's propagation
-never converges and fails at `verify.timeoutMs` (600 s) with the stale row
-named in the diagnostic instead.
+`maxMs` is 120,000 ms — a provisional generous bound until the first CI
+observation recalibrates it. Healthy V2 sync at full scale measured ~13.2 s
+locally (`sourceUpdateMs` ~2.7 s for the four POSTs, `hostReadinessMs`
+~10.5 s), so the provisional bound has ~9x headroom.
 
 Diagnostics: `sourceUpdateMs`, `hostReadinessMs`, `cascadeVerificationMs`,
 plus seed phases (`prepareMs`, `maxSeedBatchMs`, `seedReadyMs`).
@@ -109,7 +115,9 @@ fixture-held order/plasmid record ids, phase-aware purification totals, and
 create/delete write paths. A new runner would have duplicated the fixture
 wholesale.
 
-Failure-mechanism mapping (from the teable-ee sources, pre- and post-#3207):
+Failure-mechanism mapping for the hybrid-mode loss (kept as background for
+local reproduction; the CI guard for it is the e2e-lab case above), from the
+teable-ee sources, pre- and post-#3207:
 `HybridWithOutboxStrategy` dispatches queued tasks ~50 ms after each write;
 the dispatched execution runs with `lockWait: false` and the next insert
 batch's inline run holds the exclusive per-table computed lock
@@ -120,10 +128,12 @@ of 100 with 10-12 computed steps each reproduce this reliably at full scale.
 
 Operational notes:
 
-- Hybrid mode requires `PERF_LAB_COMPUTED_UPDATE_MODE=hybrid`, which the
-  harness maps to UNSETTING `V2_COMPUTED_UPDATE_MODE` (the app env schema
-  only accepts `sync`; hybrid is the unset default — exporting the literal
-  `hybrid` fails Joi validation at boot).
+- In CI this case runs sync-mode only (it is deliberately absent from
+  `HYBRID_COMPUTED_CASES`). To reproduce the hybrid loss locally, set
+  `PERF_LAB_COMPUTED_UPDATE_MODE=hybrid`, which the harness maps to
+  UNSETTING `V2_COMPUTED_UPDATE_MODE` (the app env schema only accepts
+  `sync`; hybrid is the unset default — exporting the literal `hybrid`
+  fails Joi validation at boot).
 - A failed hybrid run can leave a locally cached seed fixture with stale
   host rows that later runs' deterministic values would mask; local seed
   caches touched by a failed hybrid run should be discarded (CI execute jobs

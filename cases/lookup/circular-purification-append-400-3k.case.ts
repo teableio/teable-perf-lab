@@ -22,9 +22,11 @@ export default definePerfCase({
     // The measured operation: 400 new purification rows (p = 501..900, the
     // same injective permutation) in FOUR sequential POST batches of 100 —
     // the write-burst shape from the 2026-08-27 CN incident base. Each batch
-    // wires all four link cells per row, so each batch's inline computed run
-    // races the previous batch's dispatched outbox task on the table
-    // advisory lock under the hybrid strategy.
+    // wires all four link cells per row, so every batch triggers the full
+    // cross-table computed cascade. This case runs in the V2 SYNC pool and
+    // guards the burst-insert propagation cost; the hybrid-mode propagation
+    // LOSS this shape also reproduces (T7002 / T7018) is guarded by
+    // teable-e2e-lab lookup/a-burst-of-new-rows-reaches-every-lookup.
     writeBatchSize: 100,
     orderPermutation: { multiplier: 7, offset: 3 },
     purificationSubOrderPermutation: { multiplier: 13, offset: 5 },
@@ -39,10 +41,9 @@ export default definePerfCase({
     },
     threshold: {
       metric: "circularPropagationReadyMs",
-      // Sync-mode runs land in the tens of seconds. A hybrid-mode run on an
-      // engine that loses a batch's propagation (computed:run:failed
-      // lock_unavailable with an empty outbox) never converges and dies at
-      // verify.timeoutMs instead.
+      // Sync-mode runs land in the tens of seconds locally (~13 s at full
+      // scale). Provisional generous bound until the first CI observation
+      // recalibrates it.
       maxMs: 120_000,
     },
   },
