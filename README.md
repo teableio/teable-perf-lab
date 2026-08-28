@@ -364,6 +364,35 @@ workload.
   recompute. It reproduces the customer "orders" scenario where the link targets
   change but the lookups (`user_email`, `shipping_first_name`, ...) and the
   `${first_name} ${last_name}` formula lag for a window.
+- `lookup/circular-dual-link-source-update-10of500-3k`: Catch regressions in
+  upward computed propagation through a circular cross-table link/lookup graph:
+  editing a handful of scalar cells on a link _child_ table must recompute only
+  the affected host rows, not storm the whole graph. This case freezes the
+  2026-08-27 CN production main-database incident (tsingke customer, "抗体表达"
+  base): two same-shape sync-path bulk UPDATEs each ran ~25 minutes, ~160
+  sessions piled up blocked behind them, and postmaster was ultimately OOM-killed
+  and restarted. The trigger was editing one numeric cell (表达量 mg/L) on the
+  Purification table, which propagated up a one-many link into SubOrders lookups
+  and formulas and back down into Purification's reverse lookups — all tables
+  small, but the dependency graph circular and doubled by a duplicate link.
+- `lookup/circular-conditional-source-update-1of3-3k`: Guard the
+  conditional-lookup fanout of the 2026-08-27 CN incident fixture: a single-cell
+  edit on the 3-row conditional-lookup source table (Plasmid) whose dirty closure
+  covers a third of BOTH host tables at once. This is the maximum-fanout edit the
+  incident base's shape allows from one cell, and it is the plan family
+  (`conditionalFiltered` propagation over a host-field filter) that T7002 /
+  teable-ee PR #3207 ("bound inline computed updates") routes away from the user
+  transaction when it degrades to a whole-table plan. The case pins the cost of
+  that closure so growth in the conditional target-scan path shows up as a
+  threshold regression.
+- `lookup/circular-purification-append-400-3k`: Guard the **cost** of the
+  burst-INSERT propagation shape from the 2026-08-27 CN production main-database
+  incident (tsingke "抗体表达" base, T7002 / teable-ee PR #3207) in the default
+  **sync** computed-update mode: 400 new purification rows in four sequential
+  100-row batches, each wiring all four link cells, must drive the full circular
+  cross-table cascade and have every newly linked host row readable in the tens
+  of seconds (~13 s measured at full scale). Growth in the burst-insert
+  propagation path shows up here as a threshold regression.
 - `lookup/foreign-select-flip-1of40-fanout100-4k`: Measure the customer-visible
   propagation gap when one cell on a linked foreign record changes while every
   order link record id stays unchanged. One User Status update fans out through

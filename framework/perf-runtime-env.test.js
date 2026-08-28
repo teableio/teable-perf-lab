@@ -46,13 +46,17 @@ test("single-engine execute jobs establish one shared app environment", () =>
     process.env.PERF_LAB_ENGINE_LIST = "v2";
     process.env.PERF_LAB_COMPUTED_UPDATE_MODE = "hybrid";
     process.env.PERF_LAB_OTEL_SERVICE_PREFIX = "perf-ci";
+    // A stale sync value (e.g. forced by the teable-ee e2e setup file) must be
+    // cleared: the app env schema only accepts "sync", and hybrid is the
+    // unset default.
+    process.env.V2_COMPUTED_UPDATE_MODE = "sync";
 
     applySingleEngineBootstrapEnv();
 
     assert.equal(process.env.E2E_SHARED_APP, "1");
     assert.equal(process.env.FORCE_V2_ALL, "true");
     assert.equal(process.env.PERF_LAB_ENGINE, "v2");
-    assert.equal(process.env.V2_COMPUTED_UPDATE_MODE, "hybrid");
+    assert.equal(process.env.V2_COMPUTED_UPDATE_MODE, undefined);
     assert.equal(process.env.OTEL_SERVICE_NAME, "perf-ci-v2");
   }));
 

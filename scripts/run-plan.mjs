@@ -29,6 +29,12 @@ export const HYBRID_COMPUTED_CASES = [
   "lookup/dual-link-computed-first-link-1of4k-get-record",
   "lookup/dual-link-computed-first-link-1of4k-get-records",
   "lookup/dual-link-computed-repoint-2k",
+  "lookup/circular-dual-link-source-update-10of500-3k",
+  "lookup/circular-conditional-source-update-1of3-3k",
+  // lookup/circular-purification-append-400-3k intentionally stays in the V2
+  // sync pool: its hybrid run is a known deterministic failure (T7002 /
+  // T7018), and that red-guard duty moved to teable-e2e-lab
+  // lookup/a-burst-of-new-rows-reaches-every-lookup (e2e-lab PR #125).
   "field-convert/formula-expression-update-4k-depth5-cascade",
   "field-convert/formula-dependency-add-4k-depth5-cascade",
   "field-convert/formula-dependency-replace-4k-depth5-cascade",

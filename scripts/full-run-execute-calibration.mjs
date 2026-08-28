@@ -789,6 +789,39 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 7339.76,
     traceMs: 1,
   },
+  // Provisional: this case has no observation yet. Cold seed copies its
+  // heaviest four-table sibling (lookup/dual-link-computed-first-link-4k,
+  // ~24.8s) rounded up because this fixture creates more computed fields;
+  // execute costs are set well above the small-propagation sibling
+  // (lookup/foreign-first-name-update-1of40-fanout100-4k, ~3-5s) because the
+  // post-metric cascade scans two wide-projection tables. The planner packs
+  // it at these estimates until the next full-run refresh overwrites this
+  // entry.
+  "lookup/circular-dual-link-source-update-10of500-3k": {
+    coldSeedMs: 30000,
+    v1Ms: 15000,
+    v2Ms: 15000,
+    traceMs: 9000,
+  },
+  // Provisional: same four-table fixture as the circular dual-link sibling.
+  // Local full-scale V2 measured ~0.8s execute; costs stay padded like the
+  // sibling because the post-metric cascade scans two wide-projection tables.
+  // The planner packs at these estimates until a full-run refresh overwrites.
+  "lookup/circular-conditional-source-update-1of3-3k": {
+    coldSeedMs: 30000,
+    v1Ms: 12000,
+    v2Ms: 12000,
+    traceMs: 9000,
+  },
+  // Provisional: local full-scale V2 sync measured ~13-14s execute (four
+  // 100-row POST batches + 400-host readiness); V1 padded above that until a
+  // full run measures it. Cold seed matches the shared fixture shape.
+  "lookup/circular-purification-append-400-3k": {
+    coldSeedMs: 30000,
+    v1Ms: 25000,
+    v2Ms: 20000,
+    traceMs: 9000,
+  },
   "lookup/conditional-10k": {
     coldSeedMs: 9554.33,
     v1Ms: 3497.68,

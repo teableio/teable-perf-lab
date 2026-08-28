@@ -51,6 +51,10 @@ import { runImportBaseCase } from "./runners/import-base.runner";
 import { seedImportBaseCase } from "./runners/import-base.runner";
 import { runLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { seedLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
+import {
+  runCircularLinkPropagationCase,
+  seedCircularLinkPropagationCase,
+} from "./runners/circular-link-propagation.runner";
 import { runLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { seedLookupSearchIndexCase } from "./runners/lookup-search-index.runner";
 import { runRecordCreateCase } from "./runners/record-create.runner";
@@ -232,6 +236,14 @@ const runnerInventory = {
     },
     execute: runLinkComputedPropagationCase,
     seed: seedLinkComputedPropagationCase,
+  },
+  "circular-link-propagation": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runCircularLinkPropagationCase,
+    seed: seedCircularLinkPropagationCase,
   },
   "computed-chain-mutation": {
     implementation: {

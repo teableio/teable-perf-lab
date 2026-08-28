@@ -14,6 +14,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
+  "circular-link-propagation": CircularLinkPropagationCaseConfig;
   "computed-chain-mutation": ComputedChainMutationCaseConfig;
   "customer-upsert-computed-flow": CustomerUpsertComputedFlowCaseConfig;
   "lookup-search-index": LookupSearchIndexCaseConfig;
@@ -442,6 +443,68 @@ export interface LinkComputedPropagationCaseConfig {
   };
   threshold: {
     metric: "lookupReadyTotalMs" | "lookupPropagationMs";
+    maxMs: number;
+  };
+}
+
+// Fixture mirroring the 2026-08-27 CN production incident ("antibody
+// expression" base): Orders -> SubOrders <=> Purification (circular dual-link
+// lookups + formulas) with a tiny Plasmid conditional-lookup source. The
+// measured operation edits a scalar number cell on Purification (the link
+// child) and waits until every affected SubOrders lookup + formula is
+// readable; the full circular cascade (including Purification's reverse
+// lookups over the changed SubOrders formula) is verified after the primary
+// timer. Field names, schema constants, and the deterministic value algebra
+// live in framework/runners/circular-link-propagation-workload.ts.
+export interface CircularLinkPropagationCaseConfig {
+  baseId: "seed-base";
+  // Prefix for the SubOrders host table; sibling tables derive their names.
+  tableNamePrefix: string;
+  orderRowCount: number;
+  subOrderRowCount: number;
+  purificationRowCount: number;
+  plasmidRowCount: number;
+  batchSize: number;
+  // Purification rows write four link cells each (both duplicate backrefs,
+  // plasmid, order), so their insert batches are kept smaller.
+  purificationBatchSize: number;
+  // Batch size for the measured scalar update on Purification.
+  writeBatchSize: number;
+  // subOrder row -> order row (multiplier coprime with orderRowCount).
+  orderPermutation: { multiplier: number; offset: number };
+  // purification row -> subOrder row (multiplier coprime with
+  // subOrderRowCount so each purification attaches to a distinct subOrder).
+  purificationSubOrderPermutation: { multiplier: number; offset: number };
+  // purification row -> order row for Purification's own order link.
+  purificationOrderPermutation: { multiplier: number; offset: number };
+  // Execute-only mutation. The window is over Purification rows for
+  // "purification-expression" (default), over Plasmid rows for
+  // "plasmid-total" (the 3-row conditional-lookup source whose single-cell
+  // edit dirties both host tables at once), and over the appended rows for
+  // "purification-append" (sequential bulk INSERT batches extending the
+  // purification permutation — the hybrid write-burst shape).
+  mutation: {
+    startOffset?: number;
+    recordCount: number;
+    kind?: "purification-expression" | "plasmid-total" | "purification-append";
+  };
+  // Number of identical concurrent bulk update requests fired per write batch
+  // (the incident showed two same-shape UPDATEs running concurrently,
+  // suspected duplicate events). Default 1.
+  concurrentDuplicateRequests?: number;
+  verify: {
+    subOrderSampleRows: number[];
+    purificationSampleRows: number[];
+    fullScanPageSize?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    // Cap on affected sub-order rows polled inside the primary timer (evenly
+    // spaced sample). The post-metric full scans still prove the complete
+    // cascade. Unset = poll every affected row (only sane for small windows).
+    readinessSampleLimit?: number;
+  };
+  threshold: {
+    metric: "circularPropagationReadyMs";
     maxMs: number;
   };
 }

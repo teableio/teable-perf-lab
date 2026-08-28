@@ -43,6 +43,9 @@ import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-f
 import dualLinkComputedFirstLink1of4kGetRecordCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-record.case";
 import dualLinkComputedFirstLink1of4kGetRecordsCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-records.case";
 import dualLinkComputedRepoint2kCase from "./cases/lookup/dual-link-computed-repoint-2k.case";
+import circularDualLinkSourceUpdate10of500_3kCase from "./cases/lookup/circular-dual-link-source-update-10of500-3k.case";
+import circularConditionalSourceUpdate1of3_3kCase from "./cases/lookup/circular-conditional-source-update-1of3-3k.case";
+import circularPurificationAppend400_3kCase from "./cases/lookup/circular-purification-append-400-3k.case";
 import foreignSelectFlip1of40Fanout100_4kCase from "./cases/lookup/foreign-select-flip-1of40-fanout100-4k.case";
 import foreignSelectFlip1of40Fanout500_20kCase from "./cases/lookup/foreign-select-flip-1of40-fanout500-20k.case";
 import foreignFirstNameUpdate1of40Fanout100_4kCase from "./cases/lookup/foreign-first-name-update-1of40-fanout100-4k.case";
@@ -436,6 +439,9 @@ const cases = [
   dualLinkComputedFirstLink1of4kGetRecordCase,
   dualLinkComputedFirstLink1of4kGetRecordsCase,
   dualLinkComputedRepoint2kCase,
+  circularDualLinkSourceUpdate10of500_3kCase,
+  circularConditionalSourceUpdate1of3_3kCase,
+  circularPurificationAppend400_3kCase,
   foreignSelectFlip1of40Fanout100_4kCase,
   foreignSelectFlip1of40Fanout500_20kCase,
   foreignFirstNameUpdate1of40Fanout100_4kCase,
@@ -809,6 +815,18 @@ const caseAliases = new Map([
     "lookup/dual-link-computed-first-link-1of4k-get-records",
   ],
   ["lookup/dual-link-repoint", "lookup/dual-link-computed-repoint-2k"],
+  [
+    "lookup/circular-storm",
+    "lookup/circular-dual-link-source-update-10of500-3k",
+  ],
+  [
+    "lookup/circular-storm-blowup",
+    "lookup/circular-conditional-source-update-1of3-3k",
+  ],
+  [
+    "lookup/circular-storm-append",
+    "lookup/circular-purification-append-400-3k",
+  ],
   ["lookup/search-index", "search/search-index-on-10k-20search-fields"],
   ["lookup/search-index/off", "search/search-index-off-10k-20search-fields"],
   ["lookup/search-index/on", "search/search-index-on-10k-20search-fields"],
