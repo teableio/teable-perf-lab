@@ -364,6 +364,40 @@ joined to another contract.
 
 ### Same-host base/candidate experiment
 
+Create the immutable collection plan from a clean perf-lab checkout before the
+trusted collector starts:
+
+```bash
+PERF_LAB_PAIRED_EXPERIMENT_ID=pr-123-attempt-1 \
+PERF_LAB_PAIRED_BASE_SHA=<40-char-base-sha> \
+PERF_LAB_PAIRED_CANDIDATE_SHA=<40-char-candidate-sha> \
+PERF_LAB_SHA=<40-char-current-perf-lab-sha> \
+PERF_LAB_PAIRED_CASE_IDS=record-read/10k-50fields-filter-formula-greater-half \
+PERF_LAB_COMPUTED_UPDATE_MODE=sync \
+PERF_LAB_PAIRED_SAMPLE_COUNT=1 \
+PERF_LAB_SEED_SCHEMA_SIGNATURE=<schema-digest> \
+PERF_LAB_PAIRED_CONTRACT_MANIFEST_PATH=artifacts/paired-contract-preflight.json \
+PERF_LAB_PAIRED_PLAN_PATH=artifacts/paired-plan.json \
+pnpm paired:plan
+```
+
+The trusted collector produces the preflight manifest before any timed sample.
+For every selected case it records both the base and candidate measurement
+contracts under `cases.<caseId>.base` and `.candidate`, plus the immutable
+base/candidate/perf-lab SHAs and the global protocol inputs. Plan creation fails
+unless both variants produce the same self-consistent contract and the manifest
+envelope exactly matches the requested experiment. This is necessary because
+some workload configuration is resolved through `@teable/*` at runtime and
+cannot be inferred reliably by parsing the public case source.
+
+The command refuses wildcards, `all`, duplicate/unknown cases, cases that skip
+the selected engine, tracked changes in the perf-lab checkout, a
+moving/mismatched `PERF_LAB_SHA`, and overwriting an existing plan. The plan
+also fixes the protocol revision, computed-update mode, sample count, and schema
+signature. The collector must project those fields into every artifact's
+measurement contract. An unknown plan revision or contract mismatch fails
+closed.
+
 `scripts/evaluate-paired-experiment.mjs` is the offline validation and verdict
 adapter. It consumes already-collected artifacts, requires full immutable
 base/candidate and perf-lab harness SHAs, rejects artifacts whose
@@ -372,8 +406,9 @@ experiment/variant/SHA provenance does not match the
 rejects missing perf-lab SHA, job, shard, sample index, or unbalanced order
 metadata. `PERF_LAB_PAIRED_BASE_DIR` and
 `PERF_LAB_PAIRED_CANDIDATE_DIR` must be checkouts whose HEADs match the plan;
-the evaluator rechecks their schema digest before issuing a verdict. It never
-executes product code and never resets databases or caches.
+the evaluator rechecks their schema digest and verifies its own tracked-clean
+checkout HEAD matches the planned perf-lab SHA before issuing a verdict. It
+never executes product code and never resets databases or caches.
 
 The collection side remains an explicit security boundary. A separately
 authorized trusted runner must compare checkout schemas with
@@ -385,9 +420,11 @@ arbitrary refs while holding private-repository credentials.
 
 The output directory contains:
 
+- `paired-contract-preflight.json`: untimed base/candidate contracts for every
+  selected case;
 - `paired-plan.json`: experiment identity, immutable base/candidate/harness
-  SHAs, and balanced execution order, including the resolved case IDs expected
-  from the trusted collector;
+  SHAs, exact per-case contracts, and balanced execution order, including the
+  resolved case IDs expected from the trusted collector;
 - `observations/<pair>/<variant>/*.json`: ordinary perf artifacts with paired
   execution metadata;
 - `paired-verdict.json`: per-case effect, confidence interval, adjusted p-value,

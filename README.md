@@ -108,6 +108,10 @@ ready.
 - `scripts/paired-experiment-model.mjs`: same-host base/candidate statistics —
   balanced order, complete-pair filtering, paired bootstrap interval, practical
   regression test, FDR correction, MDE, and environment-control verdicts.
+- `scripts/create-paired-plan.mjs`: safe paired-plan generator — resolves an
+  explicit catalog case list, requires matching base/candidate contract
+  preflights, pins a clean perf-lab HEAD, and writes a versioned balanced plan
+  without executing product code.
 - `scripts/evaluate-paired-experiment.mjs`: offline paired-artifact validator and
   verdict writer. It never checks out or executes product code and never resets
   infrastructure; a separately authorized trusted runner must collect the

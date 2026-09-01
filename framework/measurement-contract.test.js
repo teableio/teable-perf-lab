@@ -4,6 +4,7 @@ import {
   buildMeasurementMetadata,
   workloadDigestOf,
 } from "./measurement-contract.ts";
+import { measurementContractIdOf } from "../scripts/paired-experiment-model.mjs";
 
 const perfCase = {
   id: "record-read/example",
@@ -146,4 +147,22 @@ test("environment fingerprint changes without changing the contract", () => {
     second.environment.fingerprint,
   );
   assert.equal(first.environment.class, second.environment.class);
+});
+
+test("the offline evaluator independently reproduces the contract id", () => {
+  const measurement = buildMeasurementMetadata({
+    perfCase,
+    engine: "v2",
+    primaryThreshold: threshold,
+    host: stableHost,
+    env: {
+      PERF_LAB_SAMPLES: "3",
+      PERF_LAB_COMPUTED_UPDATE_MODE: "hybrid",
+      PERF_LAB_SEED_SCHEMA_SIGNATURE: "schema-a",
+    },
+  });
+  assert.equal(
+    measurementContractIdOf(measurement.contract),
+    measurement.contract.id,
+  );
 });

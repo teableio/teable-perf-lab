@@ -9,23 +9,38 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
+import { readCleanPerfLabIdentity } from "./create-paired-plan.mjs";
 import { env, requiredEnv } from "./env.mjs";
 import { readArtifactPayloads } from "./perf-artifact-read-model.mjs";
 import {
   assertFullCommitSha,
   evaluatePairedExperiment,
   isFullCommitSha,
+  measurementContractIdOf,
+  PAIRED_MEASUREMENT_PROTOCOL_VERSION,
+  PAIRED_PLAN_REVISION,
 } from "./paired-experiment-model.mjs";
 import { assertPairedSchemaCompatibility } from "./paired-schema-read.mjs";
 
 export const assertPairedArtifactIdentities = ({ payloads = [], plan }) => {
   const { experimentId, baseSha, candidateSha, perfLabSha } = plan ?? {};
+  if (plan?.revision !== PAIRED_PLAN_REVISION) {
+    throw new Error(
+      `Paired plan revision must be ${PAIRED_PLAN_REVISION}, received ${plan?.revision ?? "missing"}`,
+    );
+  }
   assertFullCommitSha(baseSha, "baseSha");
   assertFullCommitSha(candidateSha, "candidateSha");
   assertFullCommitSha(perfLabSha, "perfLabSha");
   if (
     !experimentId ||
     !plan?.schemaSignature ||
+    !plan?.contract ||
+    !plan?.caseContracts ||
+    plan.contract.protocolVersion !== PAIRED_MEASUREMENT_PROTOCOL_VERSION ||
+    !["sync", "hybrid"].includes(plan.contract.computedUpdateMode) ||
+    !Number.isSafeInteger(plan.contract.sampleCount) ||
+    plan.contract.sampleCount <= 0 ||
     !Array.isArray(plan.caseIds) ||
     plan.caseIds.length === 0
   ) {
@@ -64,6 +79,9 @@ export const assertPairedArtifactIdentities = ({ payloads = [], plan }) => {
   const coverage = new Map();
   for (const payload of payloads) {
     const execution = payload?.measurement?.execution;
+    const contract = payload?.measurement?.contract;
+    const primaryThreshold = payload?.thresholds?.[0];
+    const expectedContract = plan.caseContracts?.[payload.caseId];
     if (!plan.caseIds?.includes(payload.caseId)) {
       throw new Error(
         `Artifact ${payload.caseId ?? "unknown"} is outside the resolved case plan`,
@@ -76,8 +94,23 @@ export const assertPairedArtifactIdentities = ({ payloads = [], plan }) => {
     }
     if (
       payload.engine !== plan.engine ||
-      payload.measurement?.contract?.seedSchemaSignature !==
-        plan.schemaSignature
+      contract?.protocolVersion !== plan.contract.protocolVersion ||
+      contract?.caseId !== payload.caseId ||
+      contract?.engine !== plan.engine ||
+      contract?.computedUpdateMode !== plan.contract.computedUpdateMode ||
+      contract?.sampleCount !== plan.contract.sampleCount ||
+      contract?.seedSchemaSignature !== plan.schemaSignature ||
+      plan.contract.seedSchemaSignature !== plan.schemaSignature ||
+      !/^[0-9a-f]{24}$/i.test(contract?.id ?? "") ||
+      contract.id !== measurementContractIdOf(contract) ||
+      contract.id !== expectedContract?.id ||
+      !contract?.runner ||
+      !/^[0-9a-f]{24}$/i.test(contract?.workloadDigest ?? "") ||
+      !contract?.primaryMetric?.name ||
+      !contract?.primaryMetric?.unit ||
+      contract.primaryMetric.name !== primaryThreshold?.metric ||
+      contract.primaryMetric.unit !== primaryThreshold?.unit ||
+      contract?.primaryMetric?.direction !== "lower-is-better"
     ) {
       throw new Error(
         `Artifact ${payload.caseId ?? "unknown"} does not match the planned engine or schema contract`,
@@ -198,11 +231,18 @@ export const markdownOf = (result) => {
 
 export const main = async ({
   verifySchema = assertPairedSchemaCompatibility,
+  readPerfLabIdentity = readCleanPerfLabIdentity,
 } = {}) => {
   const artifactDir = resolve(requiredEnv("PERF_LAB_ARTIFACT_DIR"));
   const planPath = resolve(requiredEnv("PERF_LAB_PAIRED_PLAN_PATH"));
   const plan = JSON.parse(await readFile(planPath, "utf8"));
   const { experimentId, baseSha, candidateSha, perfLabSha } = plan;
+  const evaluatorPerfLabSha = await readPerfLabIdentity();
+  if (evaluatorPerfLabSha.toLowerCase() !== String(perfLabSha).toLowerCase()) {
+    throw new Error(
+      "Evaluator checkout HEAD does not match the immutable perf-lab SHA in the paired plan",
+    );
+  }
   const schema = await verifySchema({
     baseDir: resolve(requiredEnv("PERF_LAB_PAIRED_BASE_DIR")),
     candidateDir: resolve(requiredEnv("PERF_LAB_PAIRED_CANDIDATE_DIR")),

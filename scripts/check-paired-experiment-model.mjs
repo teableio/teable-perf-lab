@@ -34,6 +34,35 @@ assert.throws(
   /perfLabSha must be a full immutable/,
 );
 
+assert.throws(
+  () =>
+    buildPairedPlan({
+      experimentId: "experiment-a",
+      baseSha: "a".repeat(40),
+      candidateSha: "b".repeat(40),
+      perfLabSha: "c".repeat(40),
+      caseFilter: "record-read/example",
+      caseIds: ["record-read/example"],
+      schemaSignature: "schema-a",
+      computedUpdateMode: "eventual",
+    }),
+  /computedUpdateMode/,
+);
+assert.throws(
+  () =>
+    buildPairedPlan({
+      experimentId: "experiment-a",
+      baseSha: "a".repeat(40),
+      candidateSha: "b".repeat(40),
+      perfLabSha: "c".repeat(40),
+      caseFilter: "record-read/example",
+      caseIds: ["record-read/example"],
+      schemaSignature: "schema-a",
+      sampleCount: 0,
+    }),
+  /sampleCount/,
+);
+
 const order = buildPairedExecutionOrder({ pairs: 10, seed: "experiment-a" });
 assert.equal(order.length, 10);
 assert.equal(order.filter((pair) => pair.order === "base-candidate").length, 5);

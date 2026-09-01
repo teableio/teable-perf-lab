@@ -10,6 +10,7 @@ import {
 import {
   assertFullCommitSha,
   buildPairedPlan,
+  measurementContractIdOf,
 } from "./paired-experiment-model.mjs";
 
 const baseSha = "a".repeat(40);
@@ -18,15 +19,36 @@ const perfLabSha = "c".repeat(40);
 assertFullCommitSha(baseSha, "base");
 assert.throws(() => assertFullCommitSha("main", "base"), /full immutable/);
 
+const measurementContractWithoutId = {
+  protocolVersion: "v1",
+  caseId: "record-read/example",
+  runner: "record-read",
+  workloadDigest: "e".repeat(24),
+  primaryMetric: {
+    name: "durationMs",
+    unit: "ms",
+    direction: "lower-is-better",
+  },
+  engine: "v2",
+  computedUpdateMode: "sync",
+  sampleCount: 1,
+  seedSchemaSignature: "schema-a",
+};
+const measurementContract = {
+  id: measurementContractIdOf(measurementContractWithoutId),
+  ...measurementContractWithoutId,
+};
+
 const plan = buildPairedPlan({
   experimentId: "experiment-a",
   baseSha,
   candidateSha,
   perfLabSha,
-  caseFilter: "record-read/*",
+  caseFilter: "record-read/example",
   caseIds: ["record-read/example"],
   pairs: 10,
   schemaSignature: "schema-a",
+  caseContracts: { "record-read/example": measurementContract },
 });
 assert.equal(plan.order.length, 10);
 assert.equal(
@@ -37,8 +59,9 @@ assert.equal(
 const artifact = ({ variant, sha, pair = plan.order[0] }) => ({
   caseId: "record-read/example",
   engine: "v2",
+  thresholds: [{ metric: "durationMs", unit: "ms", actual: 100, passed: true }],
   measurement: {
-    contract: { seedSchemaSignature: "schema-a" },
+    contract: measurementContract,
     execution: {
       lane: "paired",
       experimentId: "experiment-a",
@@ -76,6 +99,26 @@ assert.throws(
     assertPairedArtifactIdentities({
       payloads: [
         { ...artifact({ variant: "base", sha: baseSha }), engine: "v1" },
+        artifact({ variant: "candidate", sha: candidateSha }),
+      ],
+      plan: singlePairPlan,
+    }),
+  /planned engine or schema contract/,
+);
+assert.throws(
+  () =>
+    assertPairedArtifactIdentities({
+      payloads: [
+        {
+          ...artifact({ variant: "base", sha: baseSha }),
+          measurement: {
+            ...artifact({ variant: "base", sha: baseSha }).measurement,
+            contract: {
+              ...measurementContract,
+              computedUpdateMode: "hybrid",
+            },
+          },
+        },
         artifact({ variant: "candidate", sha: candidateSha }),
       ],
       plan: singlePairPlan,
@@ -133,11 +176,12 @@ for (let index = 0; index < 10; index += 1) {
       caseId: "record-read/example",
       engine: "v2",
       result: "pass",
-      thresholds: [{ metric: "durationMs", actual: 100, passed: true }],
+      thresholds: [
+        { metric: "durationMs", unit: "ms", actual: 100, passed: true },
+      ],
       measurement: {
         contract: {
-          id: "contract-a",
-          seedSchemaSignature: "schema-a",
+          ...measurementContract,
         },
         environment: {
           class: "runner:Linux:X64:postgres-e2e",
@@ -173,6 +217,7 @@ process.env.PERF_LAB_PAIRED_BASE_DIR = artifactDir;
 process.env.PERF_LAB_PAIRED_CANDIDATE_DIR = artifactDir;
 await main({
   verifySchema: async () => ({ compatible: true, baseDigest: "schema-a" }),
+  readPerfLabIdentity: async () => perfLabSha,
 });
 const verdict = JSON.parse(
   await readFile(join(artifactDir, "paired-verdict.json"), "utf8"),
@@ -185,6 +230,15 @@ assert.deepEqual(verdict.experiment.pairOrders.sort(), [
   "base-candidate",
   "candidate-base",
 ]);
-assert.deepEqual(verdict.cases[0].identity.contractIds, ["contract-a"]);
+assert.deepEqual(verdict.cases[0].identity.contractIds, [
+  measurementContract.id,
+]);
+await assert.rejects(
+  main({
+    verifySchema: async () => ({ compatible: true, baseDigest: "schema-a" }),
+    readPerfLabIdentity: async () => "f".repeat(40),
+  }),
+  /Evaluator checkout HEAD does not match/,
+);
 
 console.log("paired orchestration checks passed");

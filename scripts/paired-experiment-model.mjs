@@ -10,6 +10,9 @@ export const DEFAULT_PAIRED_POLICY = Object.freeze({
   environmentDriftLimit: 0.2,
 });
 
+export const PAIRED_PLAN_REVISION = "paired-plan-v2";
+export const PAIRED_MEASUREMENT_PROTOCOL_VERSION = "v1";
+
 const hashSeed = (value) =>
   Number.parseInt(
     createHash("sha256").update(String(value)).digest("hex").slice(0, 8),
@@ -76,6 +79,71 @@ export const assertFullCommitSha = (value, label) => {
   }
 };
 
+const canonicalContractValue = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalContractValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalContractValue(entry)]),
+    );
+  }
+  return value;
+};
+
+export const measurementContractIdOf = (contract) => {
+  const { id: _ignored, ...withoutId } = contract ?? {};
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalContractValue(withoutId)))
+    .digest("hex")
+    .slice(0, 24);
+};
+
+const normalizedCaseContracts = ({
+  caseIds,
+  caseContracts,
+  engine,
+  protocolVersion,
+  computedUpdateMode,
+  sampleCount,
+  schemaSignature,
+}) => {
+  const entries = Object.entries(caseContracts ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const expectedIds = [...caseIds].sort();
+  if (
+    entries.length !== expectedIds.length ||
+    entries.some(([caseId], index) => caseId !== expectedIds[index])
+  ) {
+    throw new Error(
+      "caseContracts must contain exactly one preflight contract for every planned case",
+    );
+  }
+  for (const [caseId, contract] of entries) {
+    if (
+      contract?.caseId !== caseId ||
+      contract?.protocolVersion !== protocolVersion ||
+      contract?.engine !== engine ||
+      contract?.computedUpdateMode !== computedUpdateMode ||
+      contract?.sampleCount !== sampleCount ||
+      contract?.seedSchemaSignature !== schemaSignature ||
+      !contract?.runner ||
+      !/^[0-9a-f]{24}$/i.test(contract?.workloadDigest ?? "") ||
+      !contract?.primaryMetric?.name ||
+      !contract?.primaryMetric?.unit ||
+      contract?.primaryMetric?.direction !== "lower-is-better" ||
+      contract?.id !== measurementContractIdOf(contract)
+    ) {
+      throw new Error(
+        `Preflight measurement contract for ${caseId} does not match the paired plan inputs`,
+      );
+    }
+  }
+  return Object.fromEntries(entries);
+};
+
 export const buildPairedExecutionOrder = ({ pairs, seed = 1 } = {}) => {
   if (!Number.isSafeInteger(pairs) || pairs <= 0) {
     throw new Error(`pairs must be a positive integer, received ${pairs}`);
@@ -105,11 +173,24 @@ export const buildPairedPlan = ({
   engine = "v2",
   pairs = 10,
   schemaSignature,
+  computedUpdateMode = "sync",
+  sampleCount = 1,
+  caseContracts,
 }) => {
   assertFullCommitSha(baseSha, "baseSha");
   assertFullCommitSha(candidateSha, "candidateSha");
   assertFullCommitSha(perfLabSha, "perfLabSha");
   const plannedCaseIds = [...new Set((caseIds ?? []).filter(Boolean))].sort();
+  if (!["sync", "hybrid"].includes(computedUpdateMode)) {
+    throw new Error(
+      `computedUpdateMode must be sync or hybrid, received ${computedUpdateMode}`,
+    );
+  }
+  if (!Number.isSafeInteger(sampleCount) || sampleCount <= 0) {
+    throw new Error(
+      `sampleCount must be a positive integer, received ${sampleCount}`,
+    );
+  }
   if (
     !experimentId ||
     !caseFilter ||
@@ -120,7 +201,17 @@ export const buildPairedPlan = ({
       "experimentId, caseFilter, caseIds, and schemaSignature are required",
     );
   }
+  const plannedCaseContracts = normalizedCaseContracts({
+    caseIds: plannedCaseIds,
+    caseContracts,
+    engine,
+    protocolVersion: PAIRED_MEASUREMENT_PROTOCOL_VERSION,
+    computedUpdateMode,
+    sampleCount,
+    schemaSignature,
+  });
   return {
+    revision: PAIRED_PLAN_REVISION,
     experimentId,
     baseSha,
     candidateSha,
@@ -129,6 +220,13 @@ export const buildPairedPlan = ({
     caseIds: plannedCaseIds,
     engine,
     schemaSignature,
+    contract: {
+      protocolVersion: PAIRED_MEASUREMENT_PROTOCOL_VERSION,
+      computedUpdateMode,
+      sampleCount,
+      seedSchemaSignature: schemaSignature,
+    },
+    caseContracts: plannedCaseContracts,
     order: buildPairedExecutionOrder({ pairs, seed: experimentId }),
   };
 };
