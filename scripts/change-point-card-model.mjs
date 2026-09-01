@@ -156,12 +156,14 @@ export const standingAttributionText = (row) => {
  * duration there would be an invented answer.
  */
 export const standingDurationText = (row) =>
-  Number.isFinite(row?.openDays) ? `已持续 ${Math.round(row.openDays)} 天` : undefined;
+  Number.isFinite(row?.openDays)
+    ? `已持续 ${Math.round(row.openDays)} 天`
+    : undefined;
 
 export const formatStandingLine = (row, chartUrl) =>
   `**[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**\n` +
   `${formatRange(row.v2Then, row.v2Now)} · ` +
-  `${formatRatioFactor(row.pairedDrift) ?? "—"} · ${row.points} 个历史点\n` +
+  `${formatRatioFactor(row.controlledDrift) ?? "—"} · ${row.points} 个历史点\n` +
   [standingAttributionText(row), standingDurationText(row)]
     .filter(Boolean)
     .join(" · ");
@@ -210,7 +212,9 @@ export const formatChangePointLine = (point, chartUrl) => {
   );
   const extras = extraSuspects(point);
   if (extras.length > 0) {
-    parts.push(`同样可疑 ${extras.map((sha) => `\`${shortSha(sha)}\``).join("、")}`);
+    parts.push(
+      `同样可疑 ${extras.map((sha) => `\`${shortSha(sha)}\``).join("、")}`,
+    );
   }
   if (point.unmeasuredBetween > 0) {
     parts.push(`区间内 ${point.unmeasuredBetween} 个 commit 未测`);
@@ -234,7 +238,7 @@ export const formatChangePointLine = (point, chartUrl) => {
  */
 export const summariseChangePoints = (confirmed = []) => {
   const regressions = rankChangePoints(confirmed);
-  // Counted on what the card would report, not on the paired ratio, so the
+  // Counted on what the card would report, not on the adjusted ratio, so the
   // three buckets describe the same measurement the rows do.
   const faster = confirmed.filter((point) => {
     const factor = reportedFactor(point);
@@ -335,8 +339,7 @@ export const describeDelivery = ({ result, seen = [] } = {}) => {
   if (summary.regressions.length === 0 && newlyStanding.length > 0) {
     return {
       send: true,
-      reason:
-        `no new confirmed slowdowns, but ${newlyStanding.length} case(s) newly standing slower than they started; pushing a card.`,
+      reason: `no new confirmed slowdowns, but ${newlyStanding.length} case(s) newly standing slower than they started; pushing a card.`,
     };
   }
   if (summary.regressions.length === 0) {
@@ -365,7 +368,11 @@ export const describeDelivery = ({ result, seen = [] } = {}) => {
  * returns nothing, so "when do we stay quiet" is answered here and testable
  * without a webhook.
  */
-export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) => {
+export const buildChangePointCard = ({
+  result,
+  context = {},
+  seen = [],
+} = {}) => {
   if (!describeDelivery({ result, seen }).send) {
     return undefined;
   }
@@ -377,7 +384,9 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
     (point) => point.ratio >= SEVERE_CHANGE_POINT_RATIO,
   ).length;
   const renderRows = (rows) =>
-    rows.map((point) => formatChangePointLine(point, context.chartUrl)).join("\n\n");
+    rows
+      .map((point) => formatChangePointLine(point, context.chartUrl))
+      .join("\n\n");
 
   // What the reader needs before the rows: that these are not tonight's build.
   // A change point is attributed to a mainline commit, and the run that found
@@ -392,9 +401,7 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
   const shownStanding = standing.slice(0, STANDING_LIMIT);
   const restStanding = standing.slice(STANDING_LIMIT);
   const renderStanding = (rows) =>
-    rows
-      .map((row) => formatStandingLine(row, context.chartUrl))
-      .join("\n\n");
+    rows.map((row) => formatStandingLine(row, context.chartUrl)).join("\n\n");
 
   const hasChangePoints = summary.regressions.length > 0;
   // Whether anything on this card names a commit. Both sections do now, and the
@@ -431,7 +438,9 @@ export const buildChangePointCard = ({ result, context = {}, seen = [] } = {}) =
       header: {
         template:
           severe > 0 ||
-          standing.some((row) => row.pairedDrift >= SEVERE_CHANGE_POINT_RATIO)
+          standing.some(
+            (row) => row.controlledDrift >= SEVERE_CHANGE_POINT_RATIO,
+          )
             ? "red"
             : "orange",
         title: {

@@ -82,11 +82,27 @@ const main = async () => {
           .filter(Boolean),
       ),
     ];
-    const historyByCase = await loadSameRunHistory({
+    const identityByCase = Object.fromEntries(
+      payloads
+        .filter((payload) => payload.engine === "v2" && payload.measurement)
+        .map((payload) => [
+          payload.caseId,
+          {
+            contractId: payload.measurement.contract?.id,
+            environmentClass: payload.measurement.environment?.class,
+          },
+        ]),
+    );
+    const history = await loadSameRunHistory({
       caseIds,
       currentRunId: context.runId,
+      identityByCase,
     });
-    sameRun = buildSameRunComparison({ payloads, historyByCase });
+    sameRun = buildSameRunComparison({
+      payloads,
+      historyByCase: history.valuesByCase,
+      historyCompatibilityByCase: history.compatibilityByCase,
+    });
   } catch (error) {
     console.warn(
       `Could not load same-run history for the GitHub summary: ${

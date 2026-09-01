@@ -28,9 +28,10 @@ import { measurabilityOf } from "./measurability-model.mjs";
 // Window 12 + minHistory 40 deviations, plus slack so a page of repeats of
 // the same run does not starve the quantile.
 export const SAME_RUN_HISTORY_POINTS = 60;
+export const SAME_RUN_STRICT_MIN_POINTS = 52;
 
 export const SAME_RUN_NOTE =
-  "相对该用例自己近 12 次中位，过其历史偏差 0.99 分位才列出。不是和某一次线上比。不可测或历史不足的不判。确认变点在夜间第二张卡。";
+  "相对该用例自己近 12 次中位，过其历史偏差 0.99 分位才列为候选。不是和某一次线上比，也不是已确认代码回归。不可测或历史不足的不判。";
 
 const measuredMetric = (payload) =>
   Array.isArray(payload?.thresholds)
@@ -78,6 +79,68 @@ export const historyByCaseFromRows = (
   return historyByCase;
 };
 
+const parsedMeasurement = (value) => {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Prefer rows with the same explicit measurement contract and environment
+ * class. During the schema rollout there are not yet 52 strict points (12 for
+ * the recent level plus 40 deviations for q99), so the calibrated legacy
+ * history remains available and is labelled as a fallback rather than quietly
+ * presented as contract-safe.
+ */
+export const comparableHistoryByCaseFromRows = (
+  rows = [],
+  {
+    identityByCase = {},
+    limit = SAME_RUN_HISTORY_POINTS,
+    strictMinPoints = SAME_RUN_STRICT_MIN_POINTS,
+  } = {},
+) => {
+  const legacy = historyByCaseFromRows(rows, { limit });
+  const strictRows = rows.filter((row) => {
+    const expected = identityByCase[row.caseId];
+    if (!expected?.contractId) return false;
+    const measurement = parsedMeasurement(row.measurement);
+    if (measurement?.contract?.id !== expected.contractId) return false;
+    return (
+      !expected.environmentClass ||
+      measurement?.environment?.class === expected.environmentClass
+    );
+  });
+  const strict = historyByCaseFromRows(strictRows, { limit });
+  const valuesByCase = {};
+  const compatibilityByCase = {};
+
+  for (const [caseId, values] of Object.entries(legacy)) {
+    const strictValues = strict[caseId] ?? [];
+    if (strictValues.length >= strictMinPoints) {
+      valuesByCase[caseId] = strictValues;
+      compatibilityByCase[caseId] = {
+        mode: "strict",
+        strictPoints: strictValues.length,
+        legacyPoints: values.length,
+      };
+      continue;
+    }
+    valuesByCase[caseId] = values;
+    compatibilityByCase[caseId] = {
+      mode: identityByCase[caseId]?.contractId ? "legacy-fallback" : "legacy",
+      strictPoints: strictValues.length,
+      legacyPoints: values.length,
+    };
+  }
+
+  return { valuesByCase, compatibilityByCase };
+};
+
 /**
  * Judge this run's V2 measurements against each case's own recent history.
  *
@@ -89,6 +152,7 @@ export const historyByCaseFromRows = (
 export const buildSameRunComparison = ({
   payloads = [],
   historyByCase,
+  historyCompatibilityByCase = {},
 } = {}) => {
   if (historyByCase == null) {
     return {
@@ -97,6 +161,7 @@ export const buildSameRunComparison = ({
       judged: 0,
       skipped: {},
       counts: { judged: 0, flagged: 0, skipped: 0 },
+      compatibility: { strict: 0, legacyFallback: 0, legacy: 0 },
     };
   }
 
@@ -141,6 +206,7 @@ export const buildSameRunComparison = ({
   const flagged = result.flagged
     .map((row) => ({
       caseId: row.key,
+      evidenceLevel: "anomaly_candidate",
       latest: fastCases[row.key].latest,
       level: row.level,
       ratio: row.ratio,
@@ -153,12 +219,20 @@ export const buildSameRunComparison = ({
     (sum, count) => sum + count,
     0,
   );
+  const compatibility = { strict: 0, legacyFallback: 0, legacy: 0 };
+  for (const caseId of Object.keys(fastCases)) {
+    const mode = historyCompatibilityByCase[caseId]?.mode;
+    if (mode === "strict") compatibility.strict += 1;
+    else if (mode === "legacy-fallback") compatibility.legacyFallback += 1;
+    else compatibility.legacy += 1;
+  }
 
   return {
     available: true,
     flagged,
     judged: result.judged,
     skipped,
+    compatibility,
     counts: {
       judged: result.judged,
       flagged: flagged.length,

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
   analyse,
+  CONFIRMED_DETECTOR_REVISION,
   DEFAULT_ANALYSIS_WINDOW,
   reseedDecision,
   runMeasurements,
+  seenDetectorOf,
   seenMetricsOf,
   seenWindowOf,
 } from "./run-shadow-analysis.mjs";
@@ -168,19 +170,22 @@ const LONG = 60;
 
   assert.equal(analysis.confirmed.length, 1);
   const [point] = analysis.confirmed;
+  assert.equal(point.evidenceLevel, "confirmed_shift");
   assert.equal(point.afterCommit, commits.get(20));
   // Which engine moved, so nobody has to pull both series by hand.
   assert.equal(point.mover, "v2");
   assert.equal(point.v2Ratio, 3);
   assert.equal(point.v1Ratio, 1);
+  assert.equal(point.controlMode, "global-run-effect");
+  assert.equal(point.v1Comparison, "separate-runner-cohort");
   // And the commits the ±1 tolerance covers, named rather than left to a reader
   // who knows how the tolerance works.
   assert.deepEqual(point.alsoPossible, [commits.get(19), commits.get(21)]);
   assert.equal(point.unmeasuredBetween, 0);
 }
 
-// The control moving reads exactly like a V2 regression until the output says
-// otherwise. Same paired shift, opposite meaning.
+// V1 runs on another matrix VM. A V1-only movement is corroborating cohort
+// evidence and must not create a V2 change point.
 {
   const analysis = analyse({
     series: {
@@ -188,8 +193,26 @@ const LONG = 60;
       ...seriesOf("a", "v1", [...flat(20, 50), ...flat(20, 150)]),
     },
   });
-  assert.equal(analysis.confirmed.length, 1);
-  assert.equal(analysis.confirmed[0].mover, "v1");
+  assert.equal(analysis.confirmed.length, 0);
+}
+
+// One noisy runner wave across a broad cohort is removed from V2 history. A
+// single case regression at the same commit survives the median run effect.
+{
+  const all = {};
+  for (let index = 0; index < 20; index += 1) {
+    const values = flat(40, 100);
+    values[20] = index === 0 ? 450 : 150;
+    if (index === 0) {
+      values.fill(300, 21);
+    }
+    Object.assign(all, seriesOf(`case-${index}`, "v2", values));
+  }
+  const analysis = analyse({ series: all });
+  assert.deepEqual(
+    analysis.confirmed.map((point) => point.caseId),
+    ["case-0"],
+  );
 }
 
 console.log("shadow analysis checks passed");
@@ -321,7 +344,10 @@ console.log("shadow analysis checks passed");
   // though this run is now fine.
   {
     const t = said();
-    reportSeenSources({ cached: undefined, recovered: ["a", "b"], seen: ["a", "b"] }, t.log);
+    reportSeenSources(
+      { cached: undefined, recovered: ["a", "b"], seen: ["a", "b"] },
+      t.log,
+    );
     assert.equal(t.lines.warn.length, 1);
     assert.match(t.lines.warn[0], /cache missed and 2 keys were recovered/);
   }
@@ -339,16 +365,25 @@ console.log("shadow analysis checks passed");
   // A fork: the cache came back, short. Warns with the count it put back.
   {
     const t = said();
-    reportSeenSources({ cached: ["a"], recovered: ["a", "b"], seen: ["a", "b"] }, t.log);
+    reportSeenSources(
+      { cached: ["a"], recovered: ["a", "b"], seen: ["a", "b"] },
+      t.log,
+    );
     assert.equal(t.lines.warn.length, 1);
-    assert.match(t.lines.warn[0], /returned 1 keys and recent run artifacts held 1 more/);
+    assert.match(
+      t.lines.warn[0],
+      /returned 1 keys and recent run artifacts held 1 more/,
+    );
   }
 
   // The ordinary run. The cache had everything; recovery confirmed it and there
   // is nothing to say beyond the count.
   {
     const t = said();
-    reportSeenSources({ cached: ["a", "b"], recovered: ["a"], seen: ["a", "b"] }, t.log);
+    reportSeenSources(
+      { cached: ["a", "b"], recovered: ["a"], seen: ["a", "b"] },
+      t.log,
+    );
     assert.equal(t.lines.warn.length, 0);
     assert.match(t.lines.log[0], /2 keys, cache complete/);
   }
@@ -400,7 +435,10 @@ assert.equal(seenWindowOf({ known: [], window: 80 }), 80);
 // on `record-read/10k-50fields-filter-sort-formula-selective` the 80-point
 // window reports a boundary at position 190 that a full scan does not report
 // at all.
-assert.notEqual(seenWindowOf({ known: [], window: 80 }), DEFAULT_ANALYSIS_WINDOW);
+assert.notEqual(
+  seenWindowOf({ known: [], window: 80 }),
+  DEFAULT_ANALYSIS_WINDOW,
+);
 
 // --- the re-seed decision -----------------------------------------------------
 
@@ -452,6 +490,9 @@ assert.equal(
 assert.equal(seenMetricsOf({}), "primary-metric");
 assert.equal(seenMetricsOf(undefined), "primary-metric");
 assert.equal(seenMetricsOf({ metrics: "x>y" }), "x>y");
+assert.equal(seenDetectorOf({}), "v1-v2-separate-runner-difference");
+assert.equal(seenDetectorOf(undefined), "v1-v2-separate-runner-difference");
+assert.equal(seenDetectorOf({ detector: "x" }), "x");
 
 // Round-tripped through JSON, because that is how it travels and how the window
 // field broke: `window: null` read back as `null` rather than `Infinity` and
@@ -462,16 +503,30 @@ assert.equal(seenMetricsOf({ metrics: "x>y" }), "x>y");
       known: [],
       window: null,
       metrics: corpusMetricRevision(),
+      detector: CONFIRMED_DETECTOR_REVISION,
     }),
   );
   assert.equal(
     reseedDecision({
       cachedWindow: seenWindowOf(written),
       cachedMetrics: seenMetricsOf(written),
+      cachedDetector: seenDetectorOf(written),
     }).reseeding,
     false,
     "a seen-set this run wrote must not re-seed the next one",
   );
+}
+
+// The detector's statistical meaning changed. Re-seed exactly once instead of
+// announcing shifted historical boundaries as new regressions.
+{
+  const decision = reseedDecision({
+    cachedWindow: DEFAULT_ANALYSIS_WINDOW,
+    cachedMetrics: corpusMetricRevision(),
+    cachedDetector: "v1-v2-separate-runner-difference",
+  });
+  assert.equal(decision.reseeding, true);
+  assert.match(decision.reason, /confirmed detector changed/);
 }
 
 // The substitution landing for the first time.

@@ -69,8 +69,14 @@ const cardText = (card) =>
 
 // The direction that puts a row on the card is the paired ratio rising *and*
 // V2's own level rising with it.
-assert.equal(isRegression(pointOf({ ratio: 1.5, before: 400, after: 600 })), true);
-assert.equal(isRegression(pointOf({ ratio: 0.7, before: 600, after: 400 })), false);
+assert.equal(
+  isRegression(pointOf({ ratio: 1.5, before: 400, after: 600 })),
+  true,
+);
+assert.equal(
+  isRegression(pointOf({ ratio: 0.7, before: 600, after: 400 })),
+  false,
+);
 
 // The case that made this a function rather than `ratio > 1`. On record it is
 // `record-create/mixed-1k-20fields-bulk-create`: the pair reads 1.28x while V2
@@ -97,7 +103,13 @@ assert.equal(isRegression(undefined), false);
 // the ratio is the pair's, and on a v1 row they disagree past reading together.
 {
   const ranked = rankChangePoints([
-    pointOf({ caseId: "v1-mover", ratio: 2.2, mover: "v1", before: 37, after: 40 }),
+    pointOf({
+      caseId: "v1-mover",
+      ratio: 2.2,
+      mover: "v1",
+      before: 37,
+      after: 40,
+    }),
     pointOf({ caseId: "v2-mover", ratio: 1.2, mover: "v2" }),
   ]);
   assert.deepEqual(
@@ -129,8 +141,20 @@ assert.equal(isRegression(undefined), false);
   const confirmed = [
     pointOf({ caseId: "slower", ratio: 1.9 }),
     pointOf({ caseId: "faster", ratio: 0.6, before: 900, after: 500 }),
-    pointOf({ caseId: "control", ratio: 2.2, mover: "v1", before: 37, after: 40 }),
-    pointOf({ caseId: "v1-sped-up", ratio: 1.3, mover: "v2", before: 1231, after: 627 }),
+    pointOf({
+      caseId: "control",
+      ratio: 2.2,
+      mover: "v1",
+      before: 37,
+      after: 40,
+    }),
+    pointOf({
+      caseId: "v1-sped-up",
+      ratio: 1.3,
+      mover: "v2",
+      before: 1231,
+      after: 627,
+    }),
   ];
   const summary = summariseChangePoints(confirmed);
   assert.equal(summary.total, 4);
@@ -167,7 +191,10 @@ assert.equal(isRegression(undefined), false);
   assert.match(line, /0\.61s → 1\.22s/);
   // 1216/613, not the 1.93 paired ratio. A reader who divides the two printed
   // numbers has to land on the printed factor, or the row argues with itself.
-  assert.equal(reportedFactor(pointOf({ before: 613, after: 1216 })), 1216 / 613);
+  assert.equal(
+    reportedFactor(pointOf({ before: 613, after: 1216 })),
+    1216 / 613,
+  );
   assert.match(line, /慢2\.0x/);
   assert.match(line, /p=0\.0008/);
   // Nothing about V1 reaches the reader. It is the detector's ruler and the
@@ -179,9 +206,8 @@ assert.equal(isRegression(undefined), false);
 // `alsoPossible` normally repeats the boundary's own two commits, and a line
 // naming them twice adds no fact.
 assert.equal(
-  extraSuspects(
-    pointOf({ beforeCommit: "aaaa1111", afterCommit: "bbbb2222" }),
-  ).length,
+  extraSuspects(pointOf({ beforeCommit: "aaaa1111", afterCommit: "bbbb2222" }))
+    .length,
   0,
 );
 assert.deepEqual(
@@ -225,7 +251,10 @@ assert.doesNotMatch(
   const decision = describeDelivery({ result: resultOf() });
   assert.equal(decision.send, false);
   assert.match(decision.reason, /no new confirmed change points/);
-  assert.equal(buildChangePointCard({ result: resultOf(), context }), undefined);
+  assert.equal(
+    buildChangePointCard({ result: resultOf(), context }),
+    undefined,
+  );
 }
 
 // Change points, none of them a V2 slowdown. Still no card: there is nothing to
@@ -331,10 +360,15 @@ assert.doesNotMatch(
 // run is the one that produces a list this long, and it no longer pushes — but
 // the bound is what stops a card from being a wall either way.
 {
-  const confirmed = Array.from({ length: CHANGE_POINT_HIGHLIGHT_LIMIT + 3 }, (_, index) =>
-    pointOf({ caseId: `case-${index}`, ratio: 1.9 - index * 0.05 }),
+  const confirmed = Array.from(
+    { length: CHANGE_POINT_HIGHLIGHT_LIMIT + 3 },
+    (_, index) =>
+      pointOf({ caseId: `case-${index}`, ratio: 1.9 - index * 0.05 }),
   );
-  const card = buildChangePointCard({ result: resultOf({ confirmed }), context });
+  const card = buildChangePointCard({
+    result: resultOf({ confirmed }),
+    context,
+  });
   const panel = card.card.elements.find(
     (element) => element.tag === "collapsible_panel",
   );
@@ -347,9 +381,13 @@ assert.doesNotMatch(
 
 // --- the standing section ------------------------------------------------------
 
-const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
+const standingOf = (
   caseId,
-  pairedDrift,
+  controlledDrift,
+  { then = 400, now = 900 } = {},
+) => ({
+  caseId,
+  controlledDrift,
   v2Drift: now / then,
   v2Then: then,
   v2Now: now,
@@ -620,9 +658,10 @@ const standingOf = (caseId, pairedDrift, { then = 400, now = 900 } = {}) => ({
   // moved on; a row that reached here without one prints no duration at all.
   assert.match(line, /已持续 12 天/);
   assert.ok(
-    !formatStandingLine(standingOf("slow", 1.8), "https://chart.example").includes(
-      "已持续",
-    ),
+    !formatStandingLine(
+      standingOf("slow", 1.8),
+      "https://chart.example",
+    ).includes("已持续"),
   );
 }
 

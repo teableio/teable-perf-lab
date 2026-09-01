@@ -10,34 +10,34 @@ import {
   standingRegressions,
 } from "./standing-regression-model.mjs";
 
-// A V2 series and its control, as the corpus holds them: `v2` in milliseconds,
-// `paired` as log(v2) − log(v1) at the same commits.
-const seriesOf = ({ from, to, points = 120, controlFrom, controlTo } = {}) => {
-  const v1From = controlFrom ?? 1000;
-  const v1To = controlTo ?? 1000;
+// A V2 series and its global-run-effect-adjusted channel: `v2` in milliseconds,
+// `controlled` in log space.
+const seriesOf = ({ from, to, points = 120, effectFrom, effectTo } = {}) => {
+  const runnerFrom = effectFrom ?? 1;
+  const runnerTo = effectTo ?? 1;
   const at = (start, end, index) =>
     start + ((end - start) * index) / (points - 1);
   const v2 = [];
-  const paired = [];
+  const controlled = [];
   for (let index = 0; index < points; index += 1) {
     const v2Value = at(from, to, index);
-    const v1Value = at(v1From, v1To, index);
+    const runnerEffect = at(runnerFrom, runnerTo, index);
     v2.push(v2Value);
-    paired.push(Math.log(v2Value) - Math.log(v1Value));
+    controlled.push(Math.log(v2Value) - Math.log(runnerEffect));
   }
-  return { v2, paired };
+  return { v2, controlled };
 };
 
 // --- the drift itself ---------------------------------------------------------
 
 {
-  const { v2, paired } = seriesOf({ from: 400, to: 1200 });
-  const drift = driftOf({ paired, v2 });
+  const { v2, controlled } = seriesOf({ from: 400, to: 1200 });
+  const drift = driftOf({ controlled, v2 });
   // Ends are medians of 20 points, not the endpoints, so the measured drift is
   // a little short of 3x. That is the estimator being honest about where the
   // level sits rather than what the extremes happen to read.
   assert.ok(drift.v2Drift > 2.3 && drift.v2Drift < 3);
-  assert.ok(drift.pairedDrift > 2.3 && drift.pairedDrift < 3);
+  assert.ok(drift.controlledDrift > 2.3 && drift.controlledDrift < 3);
   assert.equal(drift.points, 120);
   assert.equal(isStanding(drift), true);
 }
@@ -48,7 +48,7 @@ assert.equal(isStanding(driftOf(seriesOf({ from: 500, to: 500 }))), false);
 // Faster is not standing.
 assert.equal(isStanding(driftOf(seriesOf({ from: 900, to: 400 }))), false);
 
-// --- the control is what makes the list worth reading -------------------------
+// --- global run-effect correction keeps the list useful -----------------------
 
 // The runner got slower and took both engines with it. On record this is
 // `field-delete/50k-delete-active-field`: V2 drifted 1.70x, V1 drifted 1.54x
@@ -56,39 +56,41 @@ assert.equal(isStanding(driftOf(seriesOf({ from: 900, to: 400 }))), false);
 // three of these on the card.
 {
   const drift = driftOf(
-    seriesOf({ from: 550, to: 940, controlFrom: 1000, controlTo: 1540 }),
+    seriesOf({ from: 550, to: 940, effectFrom: 1, effectTo: 1.54 }),
   );
   assert.ok(drift.v2Drift > DRIFT_BAR, "V2 alone would qualify");
-  assert.ok(drift.pairedDrift < DRIFT_BAR, "against the control it does not");
+  assert.ok(
+    drift.controlledDrift < DRIFT_BAR,
+    "after runner correction it does not",
+  );
   assert.equal(isStanding(drift), false);
 }
 
 // The opposite failure, and the reason `isStanding` tests both figures rather
-// than the paired one alone. `field-duplicate/10k-duplicate-start-date-field`
-// reads 204ms then 206ms with a control that improved 0.69x — a paired 1.47x
-// describing a case that did not move.
+// than the controlled one alone. A changing runner estimate can widen the
+// corrected channel even when V2 itself is flat.
 {
   const drift = driftOf(
-    seriesOf({ from: 204, to: 206, controlFrom: 1000, controlTo: 690 }),
+    seriesOf({ from: 204, to: 206, effectFrom: 1, effectTo: 0.69 }),
   );
-  assert.ok(drift.pairedDrift > DRIFT_BAR, "the pair separated");
+  assert.ok(drift.controlledDrift > DRIFT_BAR, "the channels separated");
   assert.ok(drift.v2Drift < DRIFT_BAR, "but V2 stayed where it was");
   assert.equal(isStanding(drift), false);
 }
 
 // The case this list exists to reach. `lookup/dual-link-computed-repoint-2k`
-// has a control that moved 96x; V2's own 2.25x reads as a serious regression
-// and the pair says it got relatively faster.
+// has a runner-correlated cohort movement large enough that V2's own increase
+// should not be treated as an engine regression.
 {
   const drift = driftOf(
-    seriesOf({ from: 7000, to: 15750, controlFrom: 100, controlTo: 9600 }),
+    seriesOf({ from: 7000, to: 15750, effectFrom: 1, effectTo: 96 }),
   );
   // 1.96x rather than the fixture's 2.25x endpoints: both ends are medians of
   // twenty points, so a ramp reads a little flatter than its extremes. That is
   // the estimator refusing to quote the noisiest point in the series, which is
   // the mistake the retracted "3.59x" headline was made of.
   assert.ok(drift.v2Drift > 1.9);
-  assert.ok(drift.pairedDrift < 1);
+  assert.ok(drift.controlledDrift < 1);
   assert.equal(isStanding(drift), false);
 }
 
@@ -97,14 +99,14 @@ assert.equal(isStanding(driftOf(seriesOf({ from: 900, to: 400 }))), false);
 // Too short to have two ends with history between them.
 assert.equal(driftOf(seriesOf({ from: 400, to: 1200, points: 40 })), undefined);
 assert.equal(MIN_SEGMENT, 3 * EDGE_WINDOW);
-assert.equal(driftOf({ paired: [], v2: [] }), undefined);
+assert.equal(driftOf({ controlled: [], v2: [] }), undefined);
 assert.equal(isStanding(undefined), false);
 
 // A series that starts at zero has no ratio to report.
 {
-  const { v2, paired } = seriesOf({ from: 400, to: 1200 });
+  const { v2, controlled } = seriesOf({ from: 400, to: 1200 });
   const zeroed = v2.map((value, index) => (index < EDGE_WINDOW ? 0 : value));
-  assert.equal(driftOf({ paired, v2: zeroed }), undefined);
+  assert.equal(driftOf({ controlled, v2: zeroed }), undefined);
 }
 
 // --- the list -----------------------------------------------------------------
@@ -117,8 +119,8 @@ assert.equal(isStanding(undefined), false);
     runner: seriesOf({
       from: 550,
       to: 940,
-      controlFrom: 1000,
-      controlTo: 1540,
+      effectFrom: 1,
+      effectTo: 1.54,
     }),
   };
   const series = Object.fromEntries(
@@ -132,7 +134,7 @@ assert.equal(isStanding(undefined), false);
 
   const rows = standingRegressions({
     series,
-    pairedFor: (entry) => cases[entry.caseId],
+    controlledFor: (entry) => cases[entry.caseId],
   });
   assert.deepEqual(
     rows.map((row) => row.caseId),
@@ -142,19 +144,19 @@ assert.equal(isStanding(undefined), false);
   assert.equal(
     standingRegressions({
       series,
-      pairedFor: (entry) => cases[entry.caseId],
+      controlledFor: (entry) => cases[entry.caseId],
       limit: 1,
     }).length,
     1,
   );
 }
 
-// A case the corpus has no control for contributes nothing rather than being
+// A case the caller cannot construct a controlled channel for contributes nothing rather than being
 // judged on V2 alone.
 assert.deepEqual(
   standingRegressions({
     series: { "x::v2": { caseId: "x", engine: "v2" } },
-    pairedFor: () => undefined,
+    controlledFor: () => undefined,
   }),
   [],
 );
@@ -166,7 +168,7 @@ assert.deepEqual(
 // smoke test rather than a perf case.
 {
   const drift = driftOf(seriesOf({ from: 5, to: 11, points: 240 }));
-  assert.ok(drift.pairedDrift > DRIFT_BAR, "the ratio qualifies");
+  assert.ok(drift.controlledDrift > DRIFT_BAR, "the ratio qualifies");
   assert.ok(drift.v2Drift > DRIFT_BAR);
   assert.equal(isStanding(drift), false, "the magnitude does not");
 }
@@ -188,7 +190,7 @@ assert.deepEqual(
     const v2 = Array.from({ length: points }, (_, index) =>
       index < points / 2 ? then : now,
     );
-    return { v2, paired: v2.map((value) => Math.log(value) - Math.log(1000)) };
+    return { v2, controlled: v2.map((value) => Math.log(value)) };
   };
   const drift = driftOf(stepAt(40, 60));
   assert.equal(drift.v2Then, 40);
@@ -305,18 +307,18 @@ const changePoint = ({
 }
 
 // The rows come back in the order they went in, and nothing else on them is
-// disturbed — the card sorts on `pairedDrift` and prints `v2Then`/`v2Now`.
+// disturbed — the card sorts on `controlledDrift` and prints `v2Then`/`v2Now`.
 {
   const standing = [
-    { caseId: "a", pairedDrift: 2.5, v2Then: 100, v2Now: 250, points: 200 },
-    { caseId: "b", pairedDrift: 1.4, v2Then: 500, v2Now: 700, points: 200 },
+    { caseId: "a", controlledDrift: 2.5, v2Then: 100, v2Now: 250, points: 200 },
+    { caseId: "b", controlledDrift: 1.4, v2Then: 500, v2Now: 700, points: 200 },
   ];
   const rows = attributeStanding({ standing, confirmed: [] });
   assert.deepEqual(
     rows.map((row) => row.caseId),
     ["a", "b"],
   );
-  assert.equal(rows[0].pairedDrift, 2.5);
+  assert.equal(rows[0].controlledDrift, 2.5);
   assert.equal(rows[0].v2Now, 250);
   assert.equal(rows[1].points, 200);
 }
@@ -379,7 +381,7 @@ assert.deepEqual(
         metric: "getRecordsQueryOverheadMs",
       },
     },
-    pairedFor: () => seriesOf({ from: 400, to: 1200 }),
+    controlledFor: () => seriesOf({ from: 400, to: 1200 }),
   }),
   [],
 );
@@ -392,7 +394,7 @@ assert.equal(
         metric: "getRecordsQueryPagedScanMs",
       },
     },
-    pairedFor: () => seriesOf({ from: 400, to: 1200 }),
+    controlledFor: () => seriesOf({ from: 400, to: 1200 }),
   }).length,
   1,
 );

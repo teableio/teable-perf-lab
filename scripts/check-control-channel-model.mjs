@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {
   applyRunEffect,
+  cohortDifferenceSeries,
   controlDisagreements,
-  pairedSeries,
   runEffects,
 } from "./control-channel-model.mjs";
 
@@ -12,12 +12,12 @@ const close = (actual, expected, tolerance = 1e-9) =>
     `expected ${expected}, got ${actual}`,
   );
 
-// --- pairing ----------------------------------------------------------------
+// --- separate-runner cohort difference --------------------------------------
 
-// The whole point: a run where the machine was 50% slower moves both engines,
-// and the paired series must read flat through it.
+// When two independent runner cohorts happen to move together, their log
+// difference is flat. This is corroborating evidence, not a paired control.
 {
-  const { points } = pairedSeries({
+  const { points } = cohortDifferenceSeries({
     v2: [
       [10, 100],
       [11, 150],
@@ -35,9 +35,9 @@ const close = (actual, expected, tolerance = 1e-9) =>
   }
 }
 
-// And a V2-only regression must survive pairing, because V1 did not move.
+// A V2-only movement survives the cohort difference when V1 did not move.
 {
-  const { points } = pairedSeries({
+  const { points } = cohortDifferenceSeries({
     v2: [
       [10, 100],
       [11, 200],
@@ -54,7 +54,7 @@ const close = (actual, expected, tolerance = 1e-9) =>
 // control reads exactly like a real one and would quietly weaken the commits
 // where the control is actually missing.
 {
-  const { points, unpaired } = pairedSeries({
+  const { points, unpaired } = cohortDifferenceSeries({
     v2: [
       [10, 100],
       [11, 100],
@@ -73,7 +73,10 @@ const close = (actual, expected, tolerance = 1e-9) =>
 }
 
 // Non-positive values cannot be logged and are not silently treated as tiny.
-assert.equal(pairedSeries({ v2: [[10, 100]], v1: [[10, 0]] }).points.length, 0);
+assert.equal(
+  cohortDifferenceSeries({ v2: [[10, 100]], v1: [[10, 0]] }).points.length,
+  0,
+);
 
 // --- run effect -------------------------------------------------------------
 

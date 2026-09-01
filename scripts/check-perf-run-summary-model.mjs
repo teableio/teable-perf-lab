@@ -463,8 +463,8 @@ const sameRunCard = buildPerfSummaryCard({
   },
 });
 assert.equal(sameRunCard.card.header.template, "red");
-assert.equal(sameRunCard.card.header.title.content, "性能异常 · 相对近期 1");
-const sameRunPanel = panelByTitle(sameRunCard.card, "相对近期 · 异常 1");
+assert.equal(sameRunCard.card.header.title.content, "性能候选 · 相对近期 1");
+const sameRunPanel = panelByTitle(sameRunCard.card, "相对近期 · 候选 1");
 assert.ok(sameRunPanel);
 assert.equal(sameRunPanel.expanded, true);
 assert.equal(panelsOf(sameRunCard.card)[0], sameRunPanel);
@@ -1114,6 +1114,35 @@ assert.deepEqual(
     manifestPath: "traces/formula-fast-v2/manifest.json",
   },
 );
+
+const measurementRecord = buildPerformanceTrackResultRecord({
+  payload: {
+    caseId: "formula/fast",
+    title: "Fast formula",
+    runId: "payload-run",
+    engine: "v2",
+    result: "pass",
+    startedAt: "2026-07-14T01:00:00.000Z",
+    finishedAt: "2026-07-14T01:00:01.000Z",
+    durationMs: 1000,
+    metrics: { readyMs: 900 },
+    thresholds: [{ metric: "readyMs", actual: 900, max: 1200, passed: true }],
+    measurement: {
+      contract: { id: "contract-a" },
+      environment: { class: "runner:Linux:X64:postgres-e2e" },
+      execution: { lane: "historical", shardId: "v2-s01-of-08" },
+    },
+  },
+  context: {
+    supportedFieldNames: new Set(["Measurement JSON"]),
+  },
+});
+assert.deepEqual(JSON.parse(measurementRecord.fields["Measurement JSON"]), {
+  contract: { id: "contract-a" },
+  environment: { class: "runner:Linux:X64:postgres-e2e" },
+  execution: { lane: "historical", shardId: "v2-s01-of-08" },
+});
+assert.equal(resultRecord.fields["Measurement JSON"], undefined);
 
 const writeAdapter = createInMemoryPerformanceTrackAdapter({
   fields: PERFORMANCE_TRACK_CONTRACT_FIELDS,

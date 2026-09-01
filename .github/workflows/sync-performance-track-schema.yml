@@ -1,0 +1,33 @@
+name: Sync Performance Track schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Create missing owned fields
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9.13.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.18.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Plan or apply schema
+        env:
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_SCHEMA_APPLY: ${{ inputs.apply }}
+        run: node scripts/sync-performance-track-schema.mjs

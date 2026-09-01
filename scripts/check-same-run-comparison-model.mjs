@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
   SAME_RUN_HISTORY_POINTS,
+  SAME_RUN_STRICT_MIN_POINTS,
   buildSameRunComparison,
+  comparableHistoryByCaseFromRows,
   historyByCaseFromRows,
 } from "./same-run-comparison-model.mjs";
 import { buildSameRunHistorySql } from "./resolve-same-run-history.mjs";
@@ -25,6 +27,7 @@ const payload = ({
 const steady = (n = 80, value = 100) => Array.from({ length: n }, () => value);
 
 assert.equal(SAME_RUN_HISTORY_POINTS, 60);
+assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
 
 {
   const history = historyByCaseFromRows([
@@ -35,6 +38,54 @@ assert.equal(SAME_RUN_HISTORY_POINTS, 60);
   ]);
   assert.deepEqual(history.a, [10, 20, 30]);
   assert.equal(history.b, undefined);
+}
+
+{
+  const rows = Array.from({ length: 60 }, (_, index) => ({
+    caseId: "strict/a",
+    value: index + 1,
+    startedAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString(),
+    measurement: JSON.stringify({
+      contract: { id: index < 55 ? "contract-a" : "contract-old" },
+      environment: { class: "runner:Linux:X64:postgres-e2e" },
+    }),
+  }));
+  const result = comparableHistoryByCaseFromRows(rows, {
+    identityByCase: {
+      "strict/a": {
+        contractId: "contract-a",
+        environmentClass: "runner:Linux:X64:postgres-e2e",
+      },
+    },
+  });
+  assert.equal(result.valuesByCase["strict/a"].length, 55);
+  assert.equal(result.compatibilityByCase["strict/a"].mode, "strict");
+}
+
+{
+  const rows = Array.from({ length: 60 }, (_, index) => ({
+    caseId: "rollout/a",
+    value: index + 1,
+    startedAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString(),
+    measurement:
+      index < 10
+        ? JSON.stringify({
+            contract: { id: "contract-a" },
+            environment: { class: "runner:Linux:X64:postgres-e2e" },
+          })
+        : undefined,
+  }));
+  const result = comparableHistoryByCaseFromRows(rows, {
+    identityByCase: {
+      "rollout/a": {
+        contractId: "contract-a",
+        environmentClass: "runner:Linux:X64:postgres-e2e",
+      },
+    },
+  });
+  assert.equal(result.valuesByCase["rollout/a"].length, 60);
+  assert.equal(result.compatibilityByCase["rollout/a"].mode, "legacy-fallback");
+  assert.equal(result.compatibilityByCase["rollout/a"].strictPoints, 10);
 }
 
 {
@@ -71,6 +122,7 @@ assert.equal(
     comparison.flagged.map((row) => row.caseId),
     ["quiet/spike"],
   );
+  assert.equal(comparison.flagged[0].evidenceLevel, "anomaly_candidate");
   assert.ok(comparison.flagged[0].ratio > 1.9);
   assert.ok(comparison.flagged[0].thresholdRatio < 1.1);
 }
@@ -123,6 +175,14 @@ assert.equal(
   assert.match(sql, /"Engine" = 'v2'/);
   assert.match(sql, /"Run_ID" <> '32927375813'/);
   assert.match(sql, /lookup\/a/);
+  assert.match(sql, /NULL AS j/);
+  assert.match(
+    buildSameRunHistorySql({
+      caseIds: ["lookup/a"],
+      includeMeasurement: true,
+    }),
+    /"Measurement_JSON" AS j/,
+  );
   assert.equal(buildSameRunHistorySql({ caseIds: [] }), undefined);
 }
 

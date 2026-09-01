@@ -8,6 +8,7 @@ import { writeFileAtomically } from "./atomic-file.js";
 import { buildTraceViewUrl } from "./trace-view-url.js";
 import type { PerfTraceArtifactSummary } from "./trace-collector";
 import type { TraceFetchArtifactState } from "./trace-fetch-control";
+import type { MeasurementMetadata } from "./measurement-contract";
 import type { MetricThreshold, PerfCase, PerfRunResult } from "./types";
 
 export interface PerfArtifactPayload {
@@ -24,6 +25,7 @@ export interface PerfArtifactPayload {
   thresholds: Array<
     MetricThreshold & { passed: boolean; actual: number | null }
   >;
+  measurement?: MeasurementMetadata;
   phases?: PerfRunResult["phases"];
   details?: PerfRunResult["details"];
   error?: {

@@ -36,14 +36,10 @@
 // `corpus-metric-model.mjs`, which owns the question of what number is in a
 // series and therefore whether a ratio of two of them means anything.
 //
-// The control channel is what makes the list worth reading. Comparing V2
-// against its own past says nothing about whether the *machine* got slower, and
-// the machine did: on `field-delete/50k-delete-active-field` V2 drifted 1.70x
-// and V1 drifted 1.54x over the same span, which is 1.10x of engine and the
-// rest of runner. Of the eleven cases that look worst on V2 alone, four are
-// mostly the runner — one of them, `lookup/dual-link-computed-repoint-2k`, has
-// a control that moved 96x, and reading V2 alone would have called its 2.25x a
-// regression while the pair says V2 got relatively faster.
+// The controlled channel removes a well-supported global run effect from each
+// V2 observation. It does not use V1 subtraction: historical V1 and V2 matrix
+// jobs ran on separate GitHub-hosted VMs, so their ratio is useful corroborating
+// evidence but not a paired control.
 
 import { survivingSteps } from "./change-point-attribution-model.mjs";
 import { carriesDrift } from "./corpus-metric-model.mjs";
@@ -63,8 +59,8 @@ export const MIN_SEGMENT = 3 * EDGE_WINDOW;
 // How much slower, against the control, before it is worth a row.
 //
 // The same 1.25x the movement classifier uses, and for the same reason: below
-// it nobody opens anything. Applied to the paired figure, so a case only
-// qualifies if it slowed relative to V1 rather than alongside it.
+// it nobody opens anything. Applied to the runner-adjusted figure, so a case
+// only qualifies if it slowed beyond the broad movement of the run cohort.
 export const DRIFT_BAR = 1.25;
 
 // And how many milliseconds slower, at minimum.
@@ -99,27 +95,30 @@ const edges = (values, window) => ({
 /**
  * How far this case has moved from where it started, on both measurements.
  *
- * `paired` is the verdict and `v2` is what the row prints. They are reported
+ * `controlled` is the verdict and `v2` is what the row prints. They are reported
  * separately rather than collapsed because they disagree in a way that matters:
- * a V1 that got *faster* widens the pair without V2 moving at all, and three
- * cases on record read that way — `field-duplicate/10k-duplicate-start-date-field`
- * has V2 at 204ms then 206ms, a control that improved 0.69x, and a paired
- * figure of 1.47x that describes nothing anyone can act on.
+ * a changing runner estimate can widen the corrected channel without V2
+ * moving at all. Requiring both prevents that estimate from creating a status
+ * row by itself.
  *
  * Returns `undefined` when the segment is too short to have two ends.
  */
-export const driftOf = ({ paired = [], v2 = [], window = EDGE_WINDOW } = {}) => {
-  if (paired.length < MIN_SEGMENT || v2.length < MIN_SEGMENT) {
+export const driftOf = ({
+  controlled = [],
+  v2 = [],
+  window = EDGE_WINDOW,
+} = {}) => {
+  if (controlled.length < MIN_SEGMENT || v2.length < MIN_SEGMENT) {
     return undefined;
   }
-  // `paired` carries log ratios already; `v2` carries milliseconds.
-  const pairedEdges = edges(paired, window);
+  // `controlled` carries runner-adjusted log values; `v2` carries milliseconds.
+  const controlledEdges = edges(controlled, window);
   const v2Edges = edges(v2, window);
   if (!(v2Edges.then > 0) || !(v2Edges.now > 0)) {
     return undefined;
   }
   return {
-    pairedDrift: Math.exp(pairedEdges.now - pairedEdges.then),
+    controlledDrift: Math.exp(controlledEdges.now - controlledEdges.then),
     v2Drift: v2Edges.now / v2Edges.then,
     v2Then: v2Edges.then,
     v2Now: v2Edges.now,
@@ -130,14 +129,14 @@ export const driftOf = ({ paired = [], v2 = [], window = EDGE_WINDOW } = {}) => 
 /**
  * Does this case belong on the list?
  *
- * All three tests earn their place. The paired ratio alone admits the cases
+ * All three tests earn their place. The corrected ratio alone admits the cases
  * where only the control moved; V2's ratio alone admits everything the runner
  * did to everybody; and the two ratios together still admit a case that gained
  * six milliseconds.
  */
 export const isStanding = (drift) =>
   Boolean(drift) &&
-  drift.pairedDrift > DRIFT_BAR &&
+  drift.controlledDrift > DRIFT_BAR &&
   drift.v2Drift > DRIFT_BAR &&
   drift.v2Now - drift.v2Then >= MIN_INCREASE_MS;
 
@@ -145,12 +144,12 @@ export const isStanding = (drift) =>
  * The standing list for a corpus, worst first.
  *
  * `series` is the corpus as `build-perf-corpus.mjs` writes it, and
- * `pairedFor` hands back the paired points for a case — both supplied by the
+ * `controlledFor` hands back the adjusted points for a case — both supplied by the
  * caller so this file holds the rule and not the plumbing.
  */
 export const standingRegressions = ({
   series = {},
-  pairedFor,
+  controlledFor,
   window = EDGE_WINDOW,
   limit = Infinity,
 } = {}) => {
@@ -162,13 +161,13 @@ export const standingRegressions = ({
     if (!carriesDrift(entry.metric)) {
       continue;
     }
-    const paired = pairedFor(entry);
-    if (!paired) {
+    const controlled = controlledFor(entry);
+    if (!controlled) {
       continue;
     }
     const drift = driftOf({
-      paired: paired.paired,
-      v2: paired.v2,
+      controlled: controlled.controlled,
+      v2: controlled.v2,
       window,
     });
     if (!isStanding(drift)) {
@@ -177,7 +176,7 @@ export const standingRegressions = ({
     rows.push({ caseId: entry.caseId, ...drift });
   }
   return rows
-    .sort((left, right) => right.pairedDrift - left.pairedDrift)
+    .sort((left, right) => right.controlledDrift - left.controlledDrift)
     .slice(0, limit);
 };
 

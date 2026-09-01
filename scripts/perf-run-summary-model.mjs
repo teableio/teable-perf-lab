@@ -323,7 +323,7 @@ const sameRunHeader = ({ sameRun, failed }) => {
   if (sameRun.flagged.length > 0) {
     return {
       template: failed ? "red" : "orange",
-      title: `性能异常 · 相对近期 ${sameRun.flagged.length}`,
+      title: `性能候选 · 相对近期 ${sameRun.flagged.length}`,
     };
   }
   if (sameRun.judged > 0) {
@@ -344,10 +344,23 @@ const sameRunStatColumns = (sameRun) => ({
   background_style: "grey",
   columns: [
     statColumn("已判", sameRun.counts.judged),
-    statColumn("异常", sameRun.counts.flagged),
+    statColumn("候选", sameRun.counts.flagged),
     statColumn("未判", sameRun.counts.skipped),
   ],
 });
+
+const sameRunCompatibilityNote = (sameRun) => {
+  const compatibility = sameRun?.compatibility;
+  if (!compatibility) return SAME_RUN_NOTE;
+  const strict = compatibility.strict ?? 0;
+  const fallback = compatibility.legacyFallback ?? 0;
+  const legacy = compatibility.legacy ?? 0;
+  const rollout =
+    fallback > 0 || legacy > 0
+      ? ` 可比性：严格契约 ${strict}，迁移期历史回退 ${fallback + legacy}；回退项只作提示。`
+      : ` 可比性：${strict} 项均使用相同测量契约和环境类别。`;
+  return `${SAME_RUN_NOTE}${rollout}`;
+};
 
 const baselineLabel = (baseline) => {
   if (!baseline) {
@@ -543,11 +556,11 @@ export const buildPerfSummaryCard = ({
   );
   const sameRunPanel = sameRun?.available
     ? collapsiblePanel({
-        title: `相对近期 · 异常 ${sameRun.flagged.length}`,
+        title: `相对近期 · 候选 ${sameRun.flagged.length}`,
         expanded: sameRun.flagged.length > 0,
         elements: [
           sameRunStatColumns(sameRun),
-          larkDiv(SAME_RUN_NOTE),
+          larkDiv(sameRunCompatibilityNote(sameRun)),
           larkDiv(
             sameRunPreview.length > 0
               ? renderSameRunRows(sameRunPreview)
@@ -718,7 +731,7 @@ export const buildPerfSummaryMarkdown = ({
     (tier) => `${tier.label} ${comparison.tiers[tier.key]}`,
   ).join(" · ");
   const sameRunLine = sameRun?.available
-    ? `- Same-run: ${sameRun.counts.judged} judged · ${sameRun.counts.flagged} unusual · ${sameRun.counts.skipped} skipped`
+    ? `- Same-run candidates: ${sameRun.counts.judged} judged · ${sameRun.counts.flagged} candidates · ${sameRun.counts.skipped} skipped · ${sameRun.compatibility?.strict ?? 0} strict-contract`
     : "- Same-run: history was not read; no per-case quantile judgement";
 
   const heading = [
@@ -737,7 +750,7 @@ export const buildPerfSummaryMarkdown = ({
     `- Compute vs release: ${compute.counts.compared} compared · ${compute.counts.computeSlower} slower · ${compute.counts.computeFaster} faster · ${compute.counts.deferred} moved not saved · ${compute.counts.shapeChanged} shape changed · ${compute.counts.missingBaseline} without baseline`,
     ...(comparison.available ? [`- Bands: ${tierLine}`] : []),
     "",
-    "### Unusual versus own recent history",
+    "### Candidates versus own recent history",
     "",
   ];
   const sameRunDetails = (sameRun?.flagged ?? []).map(

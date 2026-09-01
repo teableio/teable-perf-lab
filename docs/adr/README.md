@@ -10,3 +10,4 @@ defect and is not.
 
 - [0001: Full-run case cost has two sources](0001-full-run-case-cost-has-two-sources.md)
 - [0002: Keep the performance control plane separate from the runtime](0002-separate-control-plane-and-runtime.md)
+- [0003: Separate historical detection from causal regression proof](0003-separate-detection-from-causal-proof.md)

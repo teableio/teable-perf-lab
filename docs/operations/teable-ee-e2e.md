@@ -313,7 +313,7 @@ passing V2 case versus the median of its own last 12 measurements, flagged
 only if that deviation exceeds the case's own 0.99 quantile of historical
 deviations (`fast-check-model.mjs`). Unmeasurable series (jitter above 1.4x)
 and differential overhead metrics are not judged. The header colour and title
-come from this panel: `性能异常 · 相对近期 N`, or `性能正常` when history was
+come from this panel: `性能候选 · 相对近期 N`, or `性能正常` when history was
 read and nothing flagged. It says "look at this", not "this is a confirmed
 regression". Confirmed change points stay on the nightly second card
 (`send-feishu-change-point-summary.mjs`).
@@ -343,6 +343,65 @@ worse than that case's own recent median. The panel is absent on a run with
 no V1 leg.
 
 The GitHub summary carries the same split.
+
+### Evidence labels and comparability
+
+`相对近期` is now a **candidate** surface. New artifacts carry a measurement
+contract, environment identity, and execution provenance in `measurement`.
+History first requires the same contract id and environment class. Until a case
+has 52 compatible points, the existing case-id history is used only as a
+labelled migration fallback; the card must not describe that fallback as proof.
+
+The nightly confirmed layer is a historical V2 shift detector. It removes a
+well-supported global run effect and applies FDR correction. V1 is useful
+corroborating evidence, but its job ran on another hosted VM and is never called
+a paired control. Only the same-host base/candidate lane below can produce a
+`regression` verdict.
+
+### Same-host base/candidate experiment
+
+`scripts/run-paired-experiment.mjs` is the reusable execution adapter. It
+requires two already-prepared `teable-ee` checkouts, one immutable seed dump,
+one dedicated PostgreSQL container whose name begins
+`teable-postgres-paired-`, one dedicated Redis container whose name begins
+`teable-cache-paired-`, a case filter, and the resolved base/candidate SHAs.
+Both SHAs must be full 40-character commit ids and must match the two checkout
+HEADs. `PERF_LAB_SEED_SCHEMA_SIGNATURE` must be the digest emitted by the schema
+compatibility check; the runner will not create observations without it.
+Before every base or candidate observation it drops and recreates only
+`e2e_test_teable`, restores the same dump, flushes only the dedicated paired
+Redis container, records CPU/database canaries, and runs one V2 sample. Pair
+order alternates deterministically to balance warm-up and time drift.
+
+The output directory contains:
+
+- `paired-plan.json`: experiment identity and balanced execution order;
+- `observations/<pair>/<variant>/*.json`: ordinary perf artifacts with paired
+  execution metadata;
+- `paired-verdict.json`: per-case effect, confidence interval, adjusted p-value,
+  pair exclusions, MDE, environment verdict, and overall status;
+- `paired-summary.md`: human-readable audit summary.
+
+Default policy is 10 complete pairs, a 10% practical regression budget, 95%
+paired-bootstrap interval, one-sided sign-flip test, and Benjamini-Hochberg
+q ≤ 0.05 across cases. A code regression requires both the lower confidence
+bound above 1.10x and the adjusted test to pass. Missing pairs, measurement
+contract mismatch, environment-class mismatch, or >20% canary drift is
+`inconclusive`, never pass. A schema digest mismatch is rejected before the
+experiment; schema-transition benchmarking needs its own fixture protocol.
+
+Do not expose this adapter through a workflow that accepts arbitrary refs while
+holding private-repository credentials. A persistent CI entry point must accept
+only full immutable SHAs, require trusted/protected approval, exclude untrusted
+`repository_dispatch`, and use the dedicated container prefix above.
+
+### Performance Track measurement schema
+
+`Measurement JSON` is an optional long-text field owned by perf-lab. Existing
+tables remain writable while it is absent; reports warn and use migration-mode
+history. Inspect the schema plan with the manual **Sync Performance Track
+schema** workflow and set its `apply` input only for an intentional migration.
+The synchronizer is idempotent and refuses an existing field of the wrong type.
 
 ### Release baseline
 

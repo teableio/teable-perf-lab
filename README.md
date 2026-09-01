@@ -50,6 +50,9 @@ ready.
   job-tail flush/settle/fetch with shared budgets and per-case manifests.
 - `framework/artifacts.ts`: case payload/summary writes and the trace-only rewrite
   used after bounded job-tail collection finishes.
+- `framework/measurement-contract.ts`: versioned workload/metric comparability,
+  environment fingerprinting, and execution provenance embedded in every new
+  result artifact.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
 - `scripts/full-run-shard-model.mjs`: authoritative full-run selection policy,
@@ -102,6 +105,15 @@ ready.
   `scripts/send-feishu-perf-summary.mjs`.
 - `scripts/same-run-comparison-model.mjs`: this run's V2 versus each case's
   own recent history through `fast-check-model.mjs`. The header verdict.
+- `scripts/paired-experiment-model.mjs`: same-host base/candidate statistics —
+  balanced order, complete-pair filtering, paired bootstrap interval, practical
+  regression test, FDR correction, MDE, and environment-control verdicts.
+- `scripts/run-paired-experiment.mjs`: destructive-but-scoped experiment adapter;
+  it restores only a dedicated `teable-postgres-paired-*` database, runs both
+  revisions sequentially, and writes plan, observations, verdict, and summary.
+- `scripts/sync-performance-track-schema.mjs`: dry-run-by-default migration for
+  optional owned result fields such as `Measurement JSON`; the manual workflow
+  applies it only when explicitly requested.
 - `scripts/full-run-comparison-model.mjs`: pure two-point comparison of this
   run against the released build — per-case ratios and exclusive
   `>1.2x / >1.5x / >2x` bands. Folded on the card; not the header.

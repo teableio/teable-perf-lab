@@ -40,6 +40,10 @@ const REQUIRED_FIELD_NAMES = [
   "Error",
 ];
 
+export const OPTIONAL_PERFORMANCE_TRACK_FIELDS = [
+  { name: "Measurement JSON", type: "longText" },
+];
+
 const RUN_KEY_FIELD_ID = "fldBtUJjGxgsPWsqLua";
 // Filter by id, never by name. Teable does not reject a filter naming a field
 // that does not exist — it drops the condition, so a renamed column turns this
@@ -158,6 +162,9 @@ export const buildPerformanceTrackResultRecord = ({
       "Trace Manifest JSON": jsonText(compactTraceManifest(traceManifest)),
       "Summary Markdown": summaryMarkdown,
       Error: payload.error ? jsonText(payload.error) : undefined,
+      ...(context.supportedFieldNames?.has("Measurement JSON")
+        ? { "Measurement JSON": jsonText(payload.measurement) }
+        : {}),
     }),
   };
 };
@@ -369,6 +376,14 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
     if (missing.length > 0) {
       throw new Error(`Missing Teable report fields: ${missing.join(", ")}`);
     }
+    return {
+      fieldNames: names,
+      optionalFieldNames: new Set(
+        OPTIONAL_PERFORMANCE_TRACK_FIELDS.map(({ name }) => name).filter(
+          (name) => names.has(name),
+        ),
+      ),
+    };
   },
 
   async upsertResult({ fields }) {
