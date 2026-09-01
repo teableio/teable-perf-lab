@@ -382,6 +382,17 @@ pnpm paired:plan
 ```
 
 The trusted collector produces the preflight manifest before any timed sample.
+Each immutable checkout emits contracts without booting the application or
+executing a case. Point `PERF_LAB_PAIRED_BASE_CONTRACT_PATH` and
+`PERF_LAB_PAIRED_CANDIDATE_CONTRACT_PATH` at those documents and run `pnpm
+paired:preflight`. The command independently recomputes every contract ID,
+checks the checkout and harness identities embedded by each variant, and
+refuses missing or unequal contracts.
+
+The trusted collector copies `paired-contract-preflight.spec.ts` beside the
+installed harness and runs it with `vitest-perf-contract.config.ts`. That config
+has no e2e setup files, so contract discovery cannot connect to PostgreSQL,
+Redis, or the Nest application.
 For every selected case it records both the base and candidate measurement
 contracts under `cases.<caseId>.base` and `.candidate`, plus the immutable
 base/candidate/perf-lab SHAs and the global protocol inputs. Plan creation fails
