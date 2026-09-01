@@ -14,8 +14,10 @@ import { promisify } from "node:util";
 import { env } from "./env.mjs";
 import {
   SAME_RUN_HISTORY_POINTS,
+  buildSameRunComparison,
   comparableHistoryByCaseFromRows,
 } from "./same-run-comparison-model.mjs";
+import { loadTeableFieldNames } from "./teable-field-read.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,6 +35,8 @@ export const buildSameRunHistorySql = ({
   baseId = DEFAULT_BASE_ID,
   tableId = DEFAULT_TABLE,
   includeMeasurement = false,
+  identityByCase = {},
+  strictOnly = false,
 } = {}) => {
   const ids = [...new Set((caseIds ?? []).filter(Boolean))];
   if (ids.length === 0) {
@@ -45,6 +49,24 @@ export const buildSameRunHistorySql = ({
   const measurementColumn = includeMeasurement
     ? `, "Measurement_JSON" AS j`
     : ", NULL AS j";
+  const strictClauses = ids
+    .map((caseId) => {
+      const identity = identityByCase[caseId];
+      if (!identity?.contractId || !identity?.environmentClass)
+        return undefined;
+      return (
+        `("Case_ID" = ${sqlLiteral(caseId)} ` +
+        `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${sqlLiteral(identity.contractId)} ` +
+        `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${sqlLiteral(identity.environmentClass)})`
+      );
+    })
+    .filter(Boolean);
+  if (strictOnly && (!includeMeasurement || strictClauses.length === 0)) {
+    return undefined;
+  }
+  const compatibilityClause = strictOnly
+    ? ` AND (${strictClauses.join(" OR ")})`
+    : "";
   return (
     `SELECT c, v, t, j FROM (` +
     `SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn}, ` +
@@ -52,7 +74,7 @@ export const buildSameRunHistorySql = ({
     `FROM "${baseId}"."${tableId}" ` +
     `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
     `AND "Primary_Metric_Value" > 0 ` +
-    `AND "Case_ID" IN (${inList})${runClause}` +
+    `AND "Case_ID" IN (${inList})${runClause}${compatibilityClause}` +
     `) x WHERE rn <= ${Number(perCase)}`
   );
 };
@@ -101,20 +123,6 @@ export const rowsFromSqlResult = (rows = []) =>
     measurement: row.j ?? row.Measurement_JSON,
   }));
 
-const loadFieldNames = async ({ endpoint, token, tableId }) => {
-  if (!token) return new Set();
-  const response = await fetch(
-    `${endpoint.replace(/\/+$/, "")}/api/table/${tableId}/field`,
-    { headers: { authorization: `Bearer ${token}` } },
-  );
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Teable field read failed: ${response.status} ${text}`);
-  }
-  const fields = JSON.parse(text);
-  return new Set((fields ?? []).map((field) => field.name));
-};
-
 const batchesOf = (items, size) => {
   const batches = [];
   for (let index = 0; index < items.length; index += size) {
@@ -137,9 +145,14 @@ export const loadSameRunHistory = async ({
   const endpoint = env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT);
   const baseId = env("TEABLE_PERF_LAB_BASE_ID", DEFAULT_BASE_ID);
   const tableId = env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE);
-  const fieldNames = await loadFieldNames({ endpoint, token, tableId });
+  const fieldNames = await loadTeableFieldNames({
+    endpoint,
+    token,
+    tableId,
+  });
   const includeMeasurement = fieldNames.has("Measurement JSON");
   const rows = [];
+  const strictRows = [];
 
   for (const batch of batchesOf(ids, CASE_BATCH_SIZE)) {
     const sql = buildSameRunHistorySql({
@@ -151,7 +164,61 @@ export const loadSameRunHistory = async ({
     });
     const page = await sqlQuery({ endpoint, token, baseId, sql });
     rows.push(...rowsFromSqlResult(page));
+    const strictSql = buildSameRunHistorySql({
+      caseIds: batch,
+      currentRunId,
+      baseId,
+      tableId,
+      includeMeasurement,
+      identityByCase,
+      strictOnly: true,
+    });
+    if (strictSql) {
+      const strictPage = await sqlQuery({
+        endpoint,
+        token,
+        baseId,
+        sql: strictSql,
+      });
+      strictRows.push(...rowsFromSqlResult(strictPage));
+    }
   }
 
-  return comparableHistoryByCaseFromRows(rows, { identityByCase });
+  return comparableHistoryByCaseFromRows(rows, {
+    identityByCase,
+    strictRows,
+  });
+};
+
+export const resolveSameRunComparison = async ({
+  payloads = [],
+  currentRunId,
+} = {}) => {
+  const currentV2 = payloads.filter(
+    (payload) => payload.engine === "v2" && payload.result === "pass",
+  );
+  const caseIds = [
+    ...new Set(currentV2.map((payload) => payload.caseId).filter(Boolean)),
+  ];
+  const identityByCase = Object.fromEntries(
+    currentV2
+      .filter((payload) => payload.measurement)
+      .map((payload) => [
+        payload.caseId,
+        {
+          contractId: payload.measurement.contract?.id,
+          environmentClass: payload.measurement.environment?.class,
+        },
+      ]),
+  );
+  const history = await loadSameRunHistory({
+    caseIds,
+    currentRunId,
+    identityByCase,
+  });
+  return buildSameRunComparison({
+    payloads,
+    historyByCase: history.valuesByCase,
+    historyCompatibilityByCase: history.compatibilityByCase,
+  });
 };

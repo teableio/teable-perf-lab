@@ -29,6 +29,14 @@ const rngOf = (seed) => {
 const mean = (values) =>
   values.reduce((sum, value) => sum + value, 0) / values.length;
 
+const median = (values) => {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
 const sampleDeviation = (values) => {
   if (values.length < 2) return 0;
   const centre = mean(values);
@@ -57,6 +65,17 @@ const primaryValue = (payload) => {
   return value > 0 ? value : undefined;
 };
 
+export const isFullCommitSha = (value) =>
+  /^[0-9a-f]{40}$/i.test(String(value ?? ""));
+
+export const assertFullCommitSha = (value, label) => {
+  if (!isFullCommitSha(value)) {
+    throw new Error(
+      `${label} must be a full immutable 40-character commit SHA`,
+    );
+  }
+};
+
 export const buildPairedExecutionOrder = ({ pairs, seed = 1 } = {}) => {
   if (!Number.isSafeInteger(pairs) || pairs <= 0) {
     throw new Error(`pairs must be a positive integer, received ${pairs}`);
@@ -74,6 +93,44 @@ export const buildPairedExecutionOrder = ({ pairs, seed = 1 } = {}) => {
       variants,
     };
   });
+};
+
+export const buildPairedPlan = ({
+  experimentId,
+  baseSha,
+  candidateSha,
+  perfLabSha,
+  caseFilter,
+  caseIds,
+  engine = "v2",
+  pairs = 10,
+  schemaSignature,
+}) => {
+  assertFullCommitSha(baseSha, "baseSha");
+  assertFullCommitSha(candidateSha, "candidateSha");
+  assertFullCommitSha(perfLabSha, "perfLabSha");
+  const plannedCaseIds = [...new Set((caseIds ?? []).filter(Boolean))].sort();
+  if (
+    !experimentId ||
+    !caseFilter ||
+    !schemaSignature ||
+    plannedCaseIds.length === 0
+  ) {
+    throw new Error(
+      "experimentId, caseFilter, caseIds, and schemaSignature are required",
+    );
+  }
+  return {
+    experimentId,
+    baseSha,
+    candidateSha,
+    perfLabSha,
+    caseFilter,
+    caseIds: plannedCaseIds,
+    engine,
+    schemaSignature,
+    order: buildPairedExecutionOrder({ pairs, seed: experimentId }),
+  };
 };
 
 const bootstrapMeanInterval = ({ values, confidence, resamples, seed }) => {
@@ -140,6 +197,7 @@ const pairPayloads = (payloads = []) => {
     }
     const casePairs = cases.get(payload.caseId) ?? new Map();
     const pair = casePairs.get(execution.pairId) ?? {};
+    if (pair[execution.variant]) pair.duplicate = true;
     pair[execution.variant] = payload;
     casePairs.set(execution.pairId, pair);
     cases.set(payload.caseId, casePairs);
@@ -161,6 +219,10 @@ export const pairedSamplesFromPayloads = (payloads = []) => {
     const samples = [];
     const excluded = [];
     for (const [pairId, pair] of pairs) {
+      if (pair.duplicate) {
+        excluded.push({ pairId, reason: "duplicate-pair-variant" });
+        continue;
+      }
       if (!pair.base || !pair.candidate) {
         excluded.push({ pairId, reason: "incomplete-pair" });
         continue;
@@ -205,6 +267,47 @@ export const pairedSamplesFromPayloads = (payloads = []) => {
         excluded.push({ pairId, reason: "environment-fingerprint-mismatch" });
         continue;
       }
+      const baseExecution = pair.base.measurement?.execution;
+      const candidateExecution = pair.candidate.measurement?.execution;
+      if (
+        !baseExecution?.pairOrder ||
+        baseExecution.pairOrder !== candidateExecution?.pairOrder ||
+        !["base-candidate", "candidate-base"].includes(baseExecution.pairOrder)
+      ) {
+        excluded.push({ pairId, reason: "pair-order-mismatch" });
+        continue;
+      }
+      if (
+        !Number.isSafeInteger(baseExecution.sampleIndex) ||
+        baseExecution.sampleIndex < 0 ||
+        baseExecution.sampleIndex !== candidateExecution?.sampleIndex
+      ) {
+        excluded.push({ pairId, reason: "sample-index-mismatch" });
+        continue;
+      }
+      if (
+        !isFullCommitSha(baseExecution.perfLabSha) ||
+        baseExecution.perfLabSha !== candidateExecution?.perfLabSha
+      ) {
+        excluded.push({ pairId, reason: "perf-lab-sha-mismatch" });
+        continue;
+      }
+      if (
+        !isFullCommitSha(baseExecution.teableEeSha) ||
+        !isFullCommitSha(candidateExecution?.teableEeSha)
+      ) {
+        excluded.push({ pairId, reason: "product-sha-missing" });
+        continue;
+      }
+      if (
+        !baseExecution.jobId ||
+        baseExecution.jobId !== candidateExecution?.jobId ||
+        !baseExecution.shardId ||
+        baseExecution.shardId !== candidateExecution?.shardId
+      ) {
+        excluded.push({ pairId, reason: "execution-provenance-mismatch" });
+        continue;
+      }
       samples.push({
         pairId,
         base: baseValue,
@@ -220,6 +323,17 @@ export const pairedSamplesFromPayloads = (payloads = []) => {
           pair.base,
           "databaseCanaryMs",
         ),
+        contractId: baseContract,
+        environmentClass: baseClass,
+        environmentFingerprint: baseFingerprint,
+        experimentId: baseExperiment,
+        pairOrder: baseExecution.pairOrder,
+        sampleIndex: baseExecution.sampleIndex,
+        perfLabSha: baseExecution.perfLabSha,
+        baseTeableEeSha: baseExecution.teableEeSha,
+        candidateTeableEeSha: candidateExecution.teableEeSha,
+        jobId: baseExecution.jobId,
+        shardId: baseExecution.shardId,
       });
     }
     result[caseId] = { samples, excluded };
@@ -228,19 +342,99 @@ export const pairedSamplesFromPayloads = (payloads = []) => {
 };
 
 const environmentDriftOf = (samples, limit) => {
-  const ratios = samples.flatMap((sample) =>
-    [sample.cpuCanaryRatio, sample.databaseCanaryRatio].filter(
-      (value) => Number.isFinite(value) && value > 0,
-    ),
-  );
-  if (ratios.length === 0) return { status: "unmeasured" };
-  const logCentre = mean(ratios.map(Math.log));
-  const ratio = Math.exp(logCentre);
-  return {
-    status: ratio > 1 + limit || ratio < 1 / (1 + limit) ? "drifted" : "stable",
-    ratio,
-    observations: ratios.length,
+  const control = (key) => {
+    const ratios = samples
+      .map((sample) => sample[key])
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (ratios.length !== samples.length) {
+      return { status: "unmeasured", observations: ratios.length };
+    }
+    const logs = ratios.map(Math.log);
+    const ratio = Math.exp(mean(logs));
+    const typicalMagnitudeRatio = Math.exp(median(logs.map(Math.abs)));
+    return {
+      status: typicalMagnitudeRatio > 1 + limit ? "drifted" : "stable",
+      ratio,
+      typicalMagnitudeRatio,
+      observations: ratios.length,
+    };
   };
+  const controls = {
+    cpu: control("cpuCanaryRatio"),
+    database: control("databaseCanaryRatio"),
+  };
+  const measured = Object.values(controls).filter(
+    (entry) => entry.status !== "unmeasured",
+  );
+  if (measured.length !== Object.keys(controls).length) {
+    return { status: "unmeasured", controls };
+  }
+  return {
+    status: measured.some((entry) => entry.status === "drifted")
+      ? "drifted"
+      : "stable",
+    controls,
+  };
+};
+
+const identityOf = (samples) => {
+  const unique = (values) => [...new Set(values.filter(Boolean))].sort();
+  return {
+    contractIds: unique(samples.map((sample) => sample.contractId)),
+    environmentClasses: unique(
+      samples.map((sample) => sample.environmentClass),
+    ),
+    environmentFingerprints: unique(
+      samples.map((sample) => sample.environmentFingerprint),
+    ),
+    experimentIds: unique(samples.map((sample) => sample.experimentId)),
+    pairOrders: unique(samples.map((sample) => sample.pairOrder)),
+    perfLabShas: unique(samples.map((sample) => sample.perfLabSha)),
+    baseTeableEeShas: unique(samples.map((sample) => sample.baseTeableEeSha)),
+    candidateTeableEeShas: unique(
+      samples.map((sample) => sample.candidateTeableEeSha),
+    ),
+    jobIds: unique(samples.map((sample) => sample.jobId)),
+    shardIds: unique(samples.map((sample) => sample.shardId)),
+  };
+};
+
+const cohortIssueOf = (samples, identity) => {
+  const singletonFields = [
+    "contractIds",
+    "environmentClasses",
+    "environmentFingerprints",
+    "experimentIds",
+    "perfLabShas",
+    "baseTeableEeShas",
+    "candidateTeableEeShas",
+    "jobIds",
+    "shardIds",
+  ];
+  if (singletonFields.some((field) => identity[field].length !== 1)) {
+    return "incompatible-pair-cohort";
+  }
+  if (
+    new Set(samples.map((sample) => sample.sampleIndex)).size !== samples.length
+  ) {
+    return "duplicate-sample-index";
+  }
+  const orderCounts = Object.fromEntries(
+    ["base-candidate", "candidate-base"].map((order) => [
+      order,
+      samples.filter((sample) => sample.pairOrder === order).length,
+    ]),
+  );
+  if (
+    samples.length > 1 &&
+    (orderCounts["base-candidate"] === 0 ||
+      orderCounts["candidate-base"] === 0 ||
+      Math.abs(orderCounts["base-candidate"] - orderCounts["candidate-base"]) >
+        1)
+  ) {
+    return "unbalanced-pair-order";
+  }
+  return undefined;
 };
 
 export const evaluatePairedExperiment = ({
@@ -257,7 +451,14 @@ export const evaluatePairedExperiment = ({
       samples,
       policy.environmentDriftLimit,
     );
-    if (samples.length < policy.minPairs || environment.status === "drifted") {
+    const identity = identityOf(samples);
+    const cohortIssue = cohortIssueOf(samples, identity);
+    if (
+      excluded.length > 0 ||
+      samples.length < policy.minPairs ||
+      cohortIssue ||
+      environment.status !== "stable"
+    ) {
       cases.push({
         caseId,
         status: "inconclusive",
@@ -265,10 +466,17 @@ export const evaluatePairedExperiment = ({
         pairs: samples.length,
         excluded,
         environment,
+        identity,
         reason:
-          environment.status === "drifted"
-            ? "environment-control-drift"
-            : "insufficient-pairs",
+          excluded.length > 0
+            ? "excluded-pairs"
+            : samples.length < policy.minPairs
+              ? "insufficient-pairs"
+              : cohortIssue
+                ? cohortIssue
+                : environment.status === "drifted"
+                  ? "environment-control-drift"
+                  : "environment-control-unmeasured",
       });
       continue;
     }
@@ -294,6 +502,7 @@ export const evaluatePairedExperiment = ({
       pairs: samples.length,
       excluded,
       environment,
+      identity,
       ratio: Math.exp(estimateLog),
       confidenceInterval: [Math.exp(lowerLog), Math.exp(upperLog)],
       pValue,

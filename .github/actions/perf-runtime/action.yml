@@ -3,7 +3,7 @@ description: Bootstrap or clean up the shared teable-ee performance runtime.
 
 inputs:
   operation:
-    description: Runtime operation. Supported values are prepare, bootstrap and cleanup.
+    description: Runtime operation. Supported values are bootstrap and cleanup.
     required: true
   perf-lab-path:
     description: Perf-lab checkout path.
@@ -22,7 +22,7 @@ runs:
       run: |
         set -euo pipefail
         case "${{ inputs.operation }}" in
-          prepare|bootstrap|cleanup) ;;
+          bootstrap|cleanup) ;;
           *)
             echo "Unsupported perf runtime operation: ${{ inputs.operation }}" >&2
             exit 1
@@ -30,13 +30,13 @@ runs:
         esac
 
     - name: Setup pnpm
-      if: inputs.operation == 'prepare' || inputs.operation == 'bootstrap'
+      if: inputs.operation == 'bootstrap'
       uses: pnpm/action-setup@v5
       with:
         version: 9.13.0
 
     - name: Setup Node.js
-      if: inputs.operation == 'prepare' || inputs.operation == 'bootstrap'
+      if: inputs.operation == 'bootstrap'
       uses: actions/setup-node@v5
       with:
         node-version: 22.18.0
@@ -44,13 +44,13 @@ runs:
         cache-dependency-path: ${{ inputs.teable-ee-path }}/pnpm-lock.yaml
 
     - name: Install teable-ee dependencies
-      if: inputs.operation == 'prepare' || inputs.operation == 'bootstrap'
+      if: inputs.operation == 'bootstrap'
       shell: bash
       working-directory: ${{ inputs.teable-ee-path }}
       run: pnpm install --frozen-lockfile
 
     - name: Generate Prisma clients
-      if: inputs.operation == 'prepare' || inputs.operation == 'bootstrap'
+      if: inputs.operation == 'bootstrap'
       shell: bash
       working-directory: ${{ inputs.teable-ee-path }}
       run: |
@@ -59,7 +59,7 @@ runs:
         pnpm -F @teable/db-data-prisma prisma-generate-ci
 
     - name: Install perf cases
-      if: inputs.operation == 'prepare' || inputs.operation == 'bootstrap'
+      if: inputs.operation == 'bootstrap'
       shell: bash
       run: |
         set -euo pipefail

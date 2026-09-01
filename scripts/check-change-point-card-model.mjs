@@ -34,6 +34,7 @@ const pointOf = ({
   afterCommit = "bbbbbbbb22222222",
   alsoPossible,
   unmeasuredBetween = 0,
+  historyCompatibility,
 } = {}) => ({
   caseId,
   ratio,
@@ -43,6 +44,7 @@ const pointOf = ({
   afterCommit,
   alsoPossible: alsoPossible ?? [beforeCommit, afterCommit],
   unmeasuredBetween,
+  historyCompatibility,
   ...(before === undefined || after === undefined
     ? {}
     : { v2Level: { before, after } }),
@@ -231,6 +233,27 @@ assert.match(
 // The number that says the named commit ends a range rather than answering the
 // question. Silent when zero; a "0 个未测" on every row is noise.
 assert.doesNotMatch(formatChangePointLine(pointOf(), ""), /未测/);
+assert.match(
+  formatChangePointLine(
+    pointOf({ historyCompatibility: "legacy-fallback" }),
+    "",
+  ),
+  /迁移回退/,
+);
+assert.match(
+  formatStandingLine(
+    {
+      caseId: "standing/legacy",
+      v2Then: 100,
+      v2Now: 200,
+      controlledDrift: 2,
+      points: 40,
+      historyCompatibility: "legacy-fallback",
+    },
+    "",
+  ),
+  /迁移回退/,
+);
 assert.match(
   formatChangePointLine(pointOf({ unmeasuredBetween: 252 }), ""),
   /区间内 252 个 commit 未测/,

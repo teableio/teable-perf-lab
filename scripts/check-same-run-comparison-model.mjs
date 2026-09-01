@@ -30,6 +30,37 @@ assert.equal(SAME_RUN_HISTORY_POINTS, 60);
 assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
 
 {
+  const legacyRows = Array.from({ length: 60 }, (_, index) => ({
+    caseId: "strict/outside-window",
+    value: index + 101,
+    startedAt: new Date(Date.UTC(2026, 4, 1 + index)).toISOString(),
+  }));
+  const strictRows = Array.from({ length: 55 }, (_, index) => ({
+    caseId: "strict/outside-window",
+    value: index + 1,
+    startedAt: new Date(Date.UTC(2025, 0, 1 + index)).toISOString(),
+    measurement: JSON.stringify({
+      contract: { id: "contract-a" },
+      environment: { class: "runner:Linux:X64:postgres-e2e" },
+    }),
+  }));
+  const result = comparableHistoryByCaseFromRows(legacyRows, {
+    strictRows,
+    identityByCase: {
+      "strict/outside-window": {
+        contractId: "contract-a",
+        environmentClass: "runner:Linux:X64:postgres-e2e",
+      },
+    },
+  });
+  assert.equal(
+    result.compatibilityByCase["strict/outside-window"].mode,
+    "strict",
+  );
+  assert.equal(result.valuesByCase["strict/outside-window"].length, 55);
+}
+
+{
   const history = historyByCaseFromRows([
     { caseId: "a", value: 10, startedAt: "2026-08-01T00:00:00.000Z" },
     { caseId: "a", value: 30, startedAt: "2026-08-03T00:00:00.000Z" },
@@ -184,6 +215,27 @@ assert.equal(
     /"Measurement_JSON" AS j/,
   );
   assert.equal(buildSameRunHistorySql({ caseIds: [] }), undefined);
+  const strictSql = buildSameRunHistorySql({
+    caseIds: ["lookup/a"],
+    includeMeasurement: true,
+    strictOnly: true,
+    identityByCase: {
+      "lookup/a": {
+        contractId: "contract-a",
+        environmentClass: "runner:Linux:X64:postgres-e2e",
+      },
+    },
+  });
+  assert.match(strictSql, /contract,id/);
+  assert.match(strictSql, /environment,class/);
+  assert.equal(
+    buildSameRunHistorySql({
+      caseIds: ["lookup/a"],
+      includeMeasurement: false,
+      strictOnly: true,
+    }),
+    undefined,
+  );
 }
 
 console.log("same-run comparison model checks passed");

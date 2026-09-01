@@ -48,7 +48,7 @@ const median = (values) => {
  */
 export const cohortDifferenceSeries = ({ v2 = [], v1 = [] } = {}) => {
   const control = new Map(v1.map(([ordinal, value]) => [ordinal, value]));
-  const paired = [];
+  const alignedDifferences = [];
   let unpaired = 0;
   for (const [ordinal, value] of v2) {
     const reference = control.get(ordinal);
@@ -56,15 +56,10 @@ export const cohortDifferenceSeries = ({ v2 = [], v1 = [] } = {}) => {
       unpaired += 1;
       continue;
     }
-    paired.push([ordinal, Math.log(value) - Math.log(reference)]);
+    alignedDifferences.push([ordinal, Math.log(value) - Math.log(reference)]);
   }
-  return { points: paired, unpaired };
+  return { points: alignedDifferences, unpaired };
 };
-
-// Compatibility for offline notebooks written before the execution topology
-// was audited. New detection code must use `cohortDifferenceSeries` by name so
-// it cannot accidentally claim these observations were made on one runner.
-export const pairedSeries = cohortDifferenceSeries;
 
 /**
  * How much slower everything was at each commit, as a median over cases.

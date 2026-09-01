@@ -731,7 +731,7 @@ export const buildPerfSummaryMarkdown = ({
     (tier) => `${tier.label} ${comparison.tiers[tier.key]}`,
   ).join(" · ");
   const sameRunLine = sameRun?.available
-    ? `- Same-run candidates: ${sameRun.counts.judged} judged · ${sameRun.counts.flagged} candidates · ${sameRun.counts.skipped} skipped · ${sameRun.compatibility?.strict ?? 0} strict-contract`
+    ? `- Same-run candidates: ${sameRun.counts.judged} judged · ${sameRun.counts.flagged} candidates · ${sameRun.counts.skipped} skipped · ${sameRun.compatibility?.strict ?? 0} strict-contract · ${sameRun.compatibility?.legacyFallback ?? 0} labelled fallback · ${sameRun.compatibility?.legacy ?? 0} legacy`
     : "- Same-run: history was not read; no per-case quantile judgement";
 
   const heading = [

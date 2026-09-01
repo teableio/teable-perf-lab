@@ -76,7 +76,8 @@ export const SHADOW_SEEN_FILE_NAME = "shadow-seen.json";
 // value. The seen-set will then absorb the new boundaries once before alerts
 // resume, rather than presenting an algorithm migration as a burst of code
 // regressions.
-export const CONFIRMED_DETECTOR_REVISION = "v2-global-run-effect-v1";
+export const CONFIRMED_DETECTOR_REVISION =
+  "v2-global-run-effect-contract-environment-v1";
 
 const median = (values) => {
   const sorted = [...values].sort((left, right) => left - right);
@@ -106,6 +107,12 @@ const longestSegment = (entry) =>
     (longest, segment) => (segment.length > longest.length ? segment : longest),
     [],
   );
+
+export const comparableSegment = (entry) =>
+  Number.isInteger(entry.preferredSegmentIndex) &&
+  entry.segments[entry.preferredSegmentIndex]
+    ? entry.segments[entry.preferredSegmentIndex]
+    : longestSegment(entry);
 
 /**
  * Spawn a child, hand it `input` on stdin, and give back its stdout.
@@ -423,14 +430,14 @@ export const analyse = (
       .filter((entry) => entry.engine === "v2")
       .map((entry) => [
         entry.caseId,
-        longestSegment(entry).map(([ordinal, value]) => [ordinal, value]),
+        comparableSegment(entry).map(([ordinal, value]) => [ordinal, value]),
       ]),
   );
   const globalEffects = runEffects({ seriesByCase: v2SeriesByCase });
 
   for (const [key, entry] of Object.entries(series)) {
     if (entry.engine !== "v2") continue;
-    const segment = longestSegment(entry);
+    const segment = comparableSegment(entry);
     const values = segment.map(([, value]) => value);
 
     // Hoisted above the measurability screen on purpose. The screen decides
@@ -441,7 +448,7 @@ export const analyse = (
     // case a full-history scan still cannot reach.
     const control = series[`${entry.caseId}::v1`];
     const controlSegment = control
-      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
+      ? comparableSegment(control).map(([ordinal, value]) => [ordinal, value])
       : [];
     const controlledPoints = applyRunEffect({
       points: segment.map(([ordinal, value]) => [ordinal, value]),
@@ -460,7 +467,11 @@ export const analyse = (
         v2: segment.map(([, value]) => value),
       });
       if (isStanding(drift)) {
-        standing.push({ caseId: entry.caseId, ...drift });
+        standing.push({
+          caseId: entry.caseId,
+          historyCompatibility: entry.compatibilityMode ?? "legacy",
+          ...drift,
+        });
       }
     }
 
@@ -533,6 +544,7 @@ export const analyse = (
       points.push({
         caseId: entry.caseId,
         evidenceLevel: "confirmed_shift",
+        historyCompatibility: entry.compatibilityMode ?? "legacy",
         beforeCommit: commitAt(beforeOrdinal) ?? `#${beforeOrdinal}`,
         afterCommit: commitAt(afterOrdinal) ?? `#${afterOrdinal}`,
         beforeOrdinal,
@@ -573,6 +585,21 @@ export const analyse = (
     unjudged,
     tested,
     candidates: points.length,
+    historyCompatibility: Object.values(series)
+      .filter((entry) => entry.engine === "v2")
+      .reduce(
+        (counts, entry) => {
+          const mode = entry.compatibilityMode ?? "legacy";
+          counts[mode] = (counts[mode] ?? 0) + 1;
+          return counts;
+        },
+        {
+          strict: 0,
+          "legacy-fallback": 0,
+          "strict-insufficient": 0,
+          legacy: 0,
+        },
+      ),
     // Sorted here rather than at the card, so the artifact and the card agree
     // on what "worst" means without either having to re-derive it.
     //
@@ -1024,6 +1051,7 @@ const main = async () => {
       v2Then: Number(row.v2Then.toFixed(1)),
       v2Now: Number(row.v2Now.toFixed(1)),
       points: row.points,
+      historyCompatibility: row.historyCompatibility,
       // Which commit stepped it up, when the confirmed layer can say — and when
       // it cannot, why not. Carried in the artifact rather than re-derived at
       // the card, so the audit trail and the message name the same commit.

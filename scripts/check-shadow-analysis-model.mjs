@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   analyse,
+  comparableSegment,
   CONFIRMED_DETECTOR_REVISION,
   DEFAULT_ANALYSIS_WINDOW,
   reseedDecision,
@@ -26,6 +27,20 @@ const flat = (n, value) => Array.from({ length: n }, () => value);
 // Enough points that the fast layer has the 40 past deviations it needs before
 // it will judge anything at all.
 const LONG = 60;
+
+assert.deepEqual(
+  comparableSegment({
+    segments: [
+      [[0, 100]],
+      [
+        [1, 200],
+        [2, 200],
+      ],
+    ],
+    preferredSegmentIndex: 0,
+  }),
+  [[0, 100]],
+);
 
 // --- reading this run's own measurements ------------------------------------
 
@@ -171,6 +186,7 @@ const LONG = 60;
   assert.equal(analysis.confirmed.length, 1);
   const [point] = analysis.confirmed;
   assert.equal(point.evidenceLevel, "confirmed_shift");
+  assert.equal(point.historyCompatibility, "legacy");
   assert.equal(point.afterCommit, commits.get(20));
   // Which engine moved, so nobody has to pull both series by hand.
   assert.equal(point.mover, "v2");

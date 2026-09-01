@@ -108,9 +108,10 @@ ready.
 - `scripts/paired-experiment-model.mjs`: same-host base/candidate statistics —
   balanced order, complete-pair filtering, paired bootstrap interval, practical
   regression test, FDR correction, MDE, and environment-control verdicts.
-- `scripts/run-paired-experiment.mjs`: destructive-but-scoped experiment adapter;
-  it restores only a dedicated `teable-postgres-paired-*` database, runs both
-  revisions sequentially, and writes plan, observations, verdict, and summary.
+- `scripts/evaluate-paired-experiment.mjs`: offline paired-artifact validator and
+  verdict writer. It never checks out or executes product code and never resets
+  infrastructure; a separately authorized trusted runner must collect the
+  observations.
 - `scripts/sync-performance-track-schema.mjs`: dry-run-by-default migration for
   optional owned result fields such as `Measurement JSON`; the manual workflow
   applies it only when explicitly requested.
@@ -136,8 +137,9 @@ ready.
   The detector is deliberately narrow — polling intervals, observed latencies,
   metric names, and superseded guardrails cited as history do not trip it — and
   self-tests before checking the repo.
-- `docs/adr/*.md`: architecture decision records — investigations that
-  concluded "leave this as it is", so a later review does not re-open them.
+- `docs/adr/*.md`: consequential architecture decisions, including both retained
+  and newly adopted designs, so later reviews do not rediscover or silently
+  reverse their constraints.
 - `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules

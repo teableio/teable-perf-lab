@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 
 export const PAIRED_SCHEMA_PATHS = [
+  "packages/db-main-prisma/prisma/template.prisma",
   "packages/db-main-prisma/prisma/postgres/schema.prisma",
   "packages/db-main-prisma/prisma/postgres/migrations",
+  "community/packages/db-main-prisma/prisma/template.prisma",
+  "community/packages/db-main-prisma/prisma/postgres/schema.prisma",
+  "community/packages/db-main-prisma/prisma/postgres/migrations",
   "community/packages/db-data-prisma/prisma/schema.prisma",
   "community/packages/db-data-prisma/prisma/migrations",
 ];

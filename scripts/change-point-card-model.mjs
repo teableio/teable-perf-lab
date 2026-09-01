@@ -164,7 +164,15 @@ export const formatStandingLine = (row, chartUrl) =>
   `**[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**\n` +
   `${formatRange(row.v2Then, row.v2Now)} · ` +
   `${formatRatioFactor(row.controlledDrift) ?? "—"} · ${row.points} 个历史点\n` +
-  [standingAttributionText(row), standingDurationText(row)]
+  [
+    standingAttributionText(row),
+    standingDurationText(row),
+    row.historyCompatibility === "legacy-fallback"
+      ? "历史兼容性：迁移回退"
+      : row.historyCompatibility === "legacy"
+        ? "历史兼容性：旧数据"
+        : undefined,
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -206,6 +214,11 @@ export const formatChangePointLine = (point, chartUrl) => {
   }
   if (Number.isFinite(point.pValue)) {
     parts.push(`p=${point.pValue}`);
+  }
+  if (point.historyCompatibility === "legacy-fallback") {
+    parts.push("历史兼容性：迁移回退");
+  } else if (point.historyCompatibility === "legacy") {
+    parts.push("历史兼容性：旧数据");
   }
   parts.push(
     `引入于 \`${shortSha(point.beforeCommit)}\`→\`${shortSha(point.afterCommit)}\``,

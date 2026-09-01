@@ -1,71 +1,107 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  assertImmutableSha,
-  assertSafeInputs,
+  assertPairedArtifactIdentities,
+  main,
   markdownOf,
-} from "./run-paired-experiment.mjs";
+} from "./evaluate-paired-experiment.mjs";
+import {
+  assertFullCommitSha,
+  buildPairedPlan,
+} from "./paired-experiment-model.mjs";
 
-assertImmutableSha("a".repeat(40), "base");
-assert.throws(() => assertImmutableSha("main", "base"), /full immutable/);
+const baseSha = "a".repeat(40);
+const candidateSha = "b".repeat(40);
+const perfLabSha = "c".repeat(40);
+assertFullCommitSha(baseSha, "base");
+assert.throws(() => assertFullCommitSha("main", "base"), /full immutable/);
 
-const root = await mkdtemp(join(tmpdir(), "paired-orchestration-"));
-const baseDir = join(root, "base");
-const candidateDir = join(root, "candidate");
-const dumpPath = join(root, "seed.dump");
-const artifactDir = join(root, "artifacts");
-for (const directory of [baseDir, candidateDir]) {
-  await mkdir(join(directory, ".git"), { recursive: true });
-  await writeFile(
-    join(directory, "pnpm-lock.yaml"),
-    "lockfileVersion: '9.0'\n",
-  );
-}
-await writeFile(dumpPath, "fixture");
-
-await assertSafeInputs({
-  baseDir,
-  candidateDir,
-  dumpPath,
-  containerName: "teable-postgres-paired-test",
-  cacheContainerName: "teable-cache-paired-test",
-  artifactDir,
+const plan = buildPairedPlan({
+  experimentId: "experiment-a",
+  baseSha,
+  candidateSha,
+  perfLabSha,
+  caseFilter: "record-read/*",
+  caseIds: ["record-read/example"],
+  pairs: 10,
+  schemaSignature: "schema-a",
 });
-await assert.rejects(
-  assertSafeInputs({
-    baseDir,
-    candidateDir,
-    dumpPath,
-    containerName: "teable-postgres",
-    cacheContainerName: "teable-cache-paired-test",
-    artifactDir: join(root, "unsafe-artifacts"),
-  }),
-  /Refusing database restore/,
+assert.equal(plan.order.length, 10);
+assert.equal(
+  plan.order.filter((pair) => pair.order === "base-candidate").length,
+  5,
 );
-await assert.rejects(
-  assertSafeInputs({
-    baseDir,
-    candidateDir,
-    dumpPath,
-    containerName: "teable-postgres-paired-test",
-    cacheContainerName: "teable-cache",
-    artifactDir: join(root, "unsafe-cache-artifacts"),
+
+const artifact = ({ variant, sha, pair = plan.order[0] }) => ({
+  caseId: "record-read/example",
+  engine: "v2",
+  measurement: {
+    contract: { seedSchemaSignature: "schema-a" },
+    execution: {
+      lane: "paired",
+      experimentId: "experiment-a",
+      variant,
+      teableEeSha: sha,
+      pairId: pair.pairId,
+      pairOrder: pair.order,
+      sampleIndex: pair.sampleIndex,
+      perfLabSha,
+      jobId: "paired-job",
+      shardId: "paired-single-host",
+    },
+  },
+});
+const singlePairPlan = { ...plan, order: [plan.order[0]] };
+assert.doesNotThrow(() =>
+  assertPairedArtifactIdentities({
+    payloads: [
+      artifact({ variant: "base", sha: baseSha }),
+      artifact({ variant: "candidate", sha: candidateSha }),
+    ],
+    plan: singlePairPlan,
   }),
-  /Refusing cache reset/,
 );
-await writeFile(join(artifactDir, "stale.json"), "{}\n");
-await assert.rejects(
-  assertSafeInputs({
-    baseDir,
-    candidateDir,
-    dumpPath,
-    containerName: "teable-postgres-paired-test",
-    cacheContainerName: "teable-cache-paired-test",
-    artifactDir,
-  }),
-  /non-empty artifact directory/,
+assert.throws(
+  () =>
+    assertPairedArtifactIdentities({
+      payloads: [artifact({ variant: "candidate", sha: baseSha })],
+      plan: singlePairPlan,
+    }),
+  /invalid variant or product SHA/,
+);
+assert.throws(
+  () =>
+    assertPairedArtifactIdentities({
+      payloads: [
+        { ...artifact({ variant: "base", sha: baseSha }), engine: "v1" },
+        artifact({ variant: "candidate", sha: candidateSha }),
+      ],
+      plan: singlePairPlan,
+    }),
+  /planned engine or schema contract/,
+);
+assert.throws(
+  () =>
+    assertPairedArtifactIdentities({
+      payloads: [
+        {
+          ...artifact({ variant: "base", sha: baseSha }),
+          measurement: {
+            ...artifact({ variant: "base", sha: baseSha }).measurement,
+            execution: {
+              ...artifact({ variant: "base", sha: baseSha }).measurement
+                .execution,
+              perfLabSha: "d".repeat(40),
+            },
+          },
+        },
+        artifact({ variant: "candidate", sha: candidateSha }),
+      ],
+      plan: singlePairPlan,
+    }),
+  /missing immutable execution provenance/,
 );
 
 const markdown = markdownOf({
@@ -82,11 +118,73 @@ const markdown = markdownOf({
       status: "inconclusive",
       pairs: 4,
       reason: "insufficient-pairs",
-      environment: { status: "stable", ratio: 1.01 },
+      environment: { status: "stable" },
     },
   ],
 });
 assert.match(markdown, /Only `regression` is evidence/);
 assert.match(markdown, /insufficient-pairs/);
+
+const artifactDir = await mkdtemp(join(tmpdir(), "paired-offline-verdict-"));
+for (let index = 0; index < 10; index += 1) {
+  const plannedPair = plan.order[index];
+  for (const variant of ["base", "candidate"]) {
+    const payload = {
+      caseId: "record-read/example",
+      engine: "v2",
+      result: "pass",
+      thresholds: [{ metric: "durationMs", actual: 100, passed: true }],
+      measurement: {
+        contract: {
+          id: "contract-a",
+          seedSchemaSignature: "schema-a",
+        },
+        environment: {
+          class: "runner:Linux:X64:postgres-e2e",
+          fingerprint: "environment-a",
+          cpuCanaryMs: 10,
+          databaseCanaryMs: 5,
+        },
+        execution: {
+          lane: "paired",
+          experimentId: "experiment-a",
+          variant,
+          pairId: plannedPair.pairId,
+          pairOrder: plannedPair.order,
+          sampleIndex: plannedPair.sampleIndex,
+          teableEeSha: variant === "base" ? baseSha : candidateSha,
+          perfLabSha,
+          jobId: "paired-job",
+          shardId: "paired-single-host",
+        },
+      },
+    };
+    await writeFile(
+      join(artifactDir, `${index}-${variant}.json`),
+      JSON.stringify(payload),
+    );
+  }
+}
+process.env.PERF_LAB_ARTIFACT_DIR = artifactDir;
+const planPath = join(artifactDir, "paired-plan.json");
+await writeFile(planPath, JSON.stringify(plan));
+process.env.PERF_LAB_PAIRED_PLAN_PATH = planPath;
+process.env.PERF_LAB_PAIRED_BASE_DIR = artifactDir;
+process.env.PERF_LAB_PAIRED_CANDIDATE_DIR = artifactDir;
+await main({
+  verifySchema: async () => ({ compatible: true, baseDigest: "schema-a" }),
+});
+const verdict = JSON.parse(
+  await readFile(join(artifactDir, "paired-verdict.json"), "utf8"),
+);
+assert.equal(verdict.status, "pass");
+assert.equal(verdict.experiment.baseSha, baseSha);
+assert.equal(verdict.experiment.perfLabSha, perfLabSha);
+assert.deepEqual(verdict.experiment.jobIds, ["paired-job"]);
+assert.deepEqual(verdict.experiment.pairOrders.sort(), [
+  "base-candidate",
+  "candidate-base",
+]);
+assert.deepEqual(verdict.cases[0].identity.contractIds, ["contract-a"]);
 
 console.log("paired orchestration checks passed");

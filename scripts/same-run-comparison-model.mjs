@@ -102,10 +102,11 @@ export const comparableHistoryByCaseFromRows = (
     identityByCase = {},
     limit = SAME_RUN_HISTORY_POINTS,
     strictMinPoints = SAME_RUN_STRICT_MIN_POINTS,
+    strictRows,
   } = {},
 ) => {
   const legacy = historyByCaseFromRows(rows, { limit });
-  const strictRows = rows.filter((row) => {
+  const compatibleRows = (strictRows ?? rows).filter((row) => {
     const expected = identityByCase[row.caseId];
     if (!expected?.contractId) return false;
     const measurement = parsedMeasurement(row.measurement);
@@ -115,11 +116,15 @@ export const comparableHistoryByCaseFromRows = (
       measurement?.environment?.class === expected.environmentClass
     );
   });
-  const strict = historyByCaseFromRows(strictRows, { limit });
+  const strict = historyByCaseFromRows(compatibleRows, { limit });
   const valuesByCase = {};
   const compatibilityByCase = {};
 
-  for (const [caseId, values] of Object.entries(legacy)) {
+  for (const caseId of new Set([
+    ...Object.keys(legacy),
+    ...Object.keys(strict),
+  ])) {
+    const values = legacy[caseId] ?? [];
     const strictValues = strict[caseId] ?? [];
     if (strictValues.length >= strictMinPoints) {
       valuesByCase[caseId] = strictValues;

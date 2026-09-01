@@ -356,26 +356,38 @@ The nightly confirmed layer is a historical V2 shift detector. It removes a
 well-supported global run effect and applies FDR correction. V1 is useful
 corroborating evidence, but its job ran on another hosted VM and is never called
 a paired control. Only the same-host base/candidate lane below can produce a
-`regression` verdict.
+`regression` verdict. Its corpus cuts at contract or environment-class changes;
+after 30 compatible points it selects the latest strict segment, otherwise it
+uses an explicitly labelled legacy segment when one exists. A strict segment
+with fewer than 30 points is recorded as insufficient rather than silently
+joined to another contract.
 
 ### Same-host base/candidate experiment
 
-`scripts/run-paired-experiment.mjs` is the reusable execution adapter. It
-requires two already-prepared `teable-ee` checkouts, one immutable seed dump,
-one dedicated PostgreSQL container whose name begins
-`teable-postgres-paired-`, one dedicated Redis container whose name begins
-`teable-cache-paired-`, a case filter, and the resolved base/candidate SHAs.
-Both SHAs must be full 40-character commit ids and must match the two checkout
-HEADs. `PERF_LAB_SEED_SCHEMA_SIGNATURE` must be the digest emitted by the schema
-compatibility check; the runner will not create observations without it.
-Before every base or candidate observation it drops and recreates only
-`e2e_test_teable`, restores the same dump, flushes only the dedicated paired
-Redis container, records CPU/database canaries, and runs one V2 sample. Pair
-order alternates deterministically to balance warm-up and time drift.
+`scripts/evaluate-paired-experiment.mjs` is the offline validation and verdict
+adapter. It consumes already-collected artifacts, requires full immutable
+base/candidate and perf-lab harness SHAs, rejects artifacts whose
+experiment/variant/SHA provenance does not match the
+`PERF_LAB_PAIRED_PLAN_PATH` plan, and writes the statistical verdict. It also
+rejects missing perf-lab SHA, job, shard, sample index, or unbalanced order
+metadata. `PERF_LAB_PAIRED_BASE_DIR` and
+`PERF_LAB_PAIRED_CANDIDATE_DIR` must be checkouts whose HEADs match the plan;
+the evaluator rechecks their schema digest before issuing a verdict. It never
+executes product code and never resets databases or caches.
+
+The collection side remains an explicit security boundary. A separately
+authorized trusted runner must compare checkout schemas with
+`scripts/check-paired-schema-compatibility.mjs`, embed the resulting digest as
+`PERF_LAB_SEED_SCHEMA_SIGNATURE`, restore the same isolated fixture and cache
+state before every observation, record CPU/database canaries, and follow the
+balanced order produced by `buildPairedPlan`. No public workflow may accept
+arbitrary refs while holding private-repository credentials.
 
 The output directory contains:
 
-- `paired-plan.json`: experiment identity and balanced execution order;
+- `paired-plan.json`: experiment identity, immutable base/candidate/harness
+  SHAs, and balanced execution order, including the resolved case IDs expected
+  from the trusted collector;
 - `observations/<pair>/<variant>/*.json`: ordinary perf artifacts with paired
   execution metadata;
 - `paired-verdict.json`: per-case effect, confidence interval, adjusted p-value,
@@ -386,14 +398,21 @@ Default policy is 10 complete pairs, a 10% practical regression budget, 95%
 paired-bootstrap interval, one-sided sign-flip test, and Benjamini-Hochberg
 q ≤ 0.05 across cases. A code regression requires both the lower confidence
 bound above 1.10x and the adjusted test to pass. Missing pairs, measurement
-contract mismatch, environment-class mismatch, or >20% canary drift is
-`inconclusive`, never pass. A schema digest mismatch is rejected before the
-experiment; schema-transition benchmarking needs its own fixture protocol.
+contract mismatch, environment-class mismatch, missing CPU/database controls,
+or >20% typical canary drift is `inconclusive`, never pass. The collector checks
+schema compatibility before collection and the evaluator verifies it again
+before the verdict; schema-transition benchmarking needs its own fixture
+protocol.
 
 Do not expose this adapter through a workflow that accepts arbitrary refs while
 holding private-repository credentials. A persistent CI entry point must accept
 only full immutable SHAs, require trusted/protected approval, exclude untrusted
-`repository_dispatch`, and use the dedicated container prefix above.
+`repository_dispatch`, and isolate every run in dedicated services. The
+collector contract reserves PostgreSQL names beginning
+`teable-postgres-paired-<run>` and Redis names beginning
+`teable-cache-paired-<run>`; they may not point at the historical lane or a
+developer's shared services, and only those run-scoped instances may be restored
+or flushed.
 
 ### Performance Track measurement schema
 

@@ -58,13 +58,15 @@ never passing.
 
 ## Operational boundary
 
-The reusable paired runner is committed, but a persistent GitHub workflow that
-checks out private product code is not enabled by this decision. Such a workflow
-must accept only immutable full commit SHAs, require a protected environment or
-equivalent trusted approval, avoid untrusted repository-dispatch payloads, and
-restore only into a dedicated `teable-postgres-paired-*` container and clear
-only a dedicated `teable-cache-paired-*` container. This keeps private-repository credentials from becoming an arbitrary-ref code-execution
-surface.
+The reusable order/statistics model, schema checker, artifact identity validator,
+and offline verdict writer are committed. The public repository does not contain
+an executor that checks out or runs private product code, inherits CI secrets,
+or resets state. That security boundary requires an explicitly authorized,
+trusted runner. It must accept only immutable full commit SHAs, require a
+protected environment or equivalent trusted approval, avoid untrusted
+repository-dispatch payloads, and restore only into dedicated experiment
+services. This keeps private-repository credentials from becoming an
+arbitrary-ref code-execution surface.
 
 ## Consequences
 
