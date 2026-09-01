@@ -1,9 +1,15 @@
 # Acceptance criteria: change-point perf alerting
 
-- Status: Accepted
+- Status: Historical calibration; superseded for causal claims by ADR 0003
 - Date: 2026-08-07
 - Decisions on record: coverage of 1.5x and above is accepted (see H); the fast
   layer runs at the 0.99 quantile operating point (see A2).
+
+> Methodology correction, 2026-09-01: V1 and V2 were separate GitHub-hosted
+> matrix jobs, not same-machine paired observations. Figures below describe the
+> detector that existed on the stated date and must not be used as calibration
+> or causal evidence for the current global-run-effect detector. See
+> [ADR 0003](adr/0003-separate-detection-from-causal-proof.md).
 
 ## What is being accepted
 

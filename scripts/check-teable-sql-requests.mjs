@@ -40,7 +40,13 @@ const server = createServer((request, response) => {
       body: Buffer.concat(chunks).toString("utf8"),
     });
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ success: true, rows: [] }));
+    response.end(
+      JSON.stringify(
+        request.method === "GET"
+          ? [{ name: "Measurement JSON" }]
+          : { success: true, rows: [] },
+      ),
+    );
   });
 });
 
@@ -99,9 +105,12 @@ try {
   // shape is what matters and it has already been sent by then.
 }
 assert.ok(received.length > 0, "build-perf-corpus sent no request");
-assert.equal(received[0].method, "POST");
-assert.match(received[0].url, /^\/api\/base\/[^/]+\/sql-query$/);
-assert.match(JSON.parse(received[0].body).sql, /percentile_disc/);
+const corpusRequest = received.find((request) =>
+  request.url.match(/^\/api\/base\/[^/]+\/sql-query$/),
+);
+assert.equal(corpusRequest.method, "POST");
+assert.match(JSON.parse(corpusRequest.body).sql, /percentile_disc/);
+assert.match(JSON.parse(corpusRequest.body).sql, /Measurement_JSON/);
 
 server.close();
 console.log("teable sql request checks passed");

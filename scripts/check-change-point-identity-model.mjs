@@ -199,7 +199,11 @@ const positionOf = (commit) => positions[commit];
     asOf: "2026-08-20T00:00:00Z",
   });
   assert.equal(open.open, true);
-  assert.equal(open.days, 19, "an open incident is measured to the newest commit");
+  assert.equal(
+    open.days,
+    19,
+    "an open incident is measured to the newest commit",
+  );
 
   // Same inputs, same answer, whenever it is read. The guard is against
   // reaching for `Date.now()` here, which would make every run disagree with
@@ -234,10 +238,12 @@ const positionOf = (commit) => positions[commit];
     ...point("read/a", "c1", "c2", 2.0),
     mover: "v1",
     v2Level: { before: 100, after: 101 },
+    historyCompatibility: "legacy-fallback",
   };
   const [incident] = describeIncidents([withMover], { positionOf });
   assert.equal(incident.mover, "v1");
   assert.deepEqual(incident.v2Level, { before: 100, after: 101 });
+  assert.equal(incident.historyCompatibility, "legacy-fallback");
 }
 
 // --- the duration a standing row is allowed to print ---------------------------

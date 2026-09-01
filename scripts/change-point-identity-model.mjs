@@ -174,7 +174,12 @@ const daysBetween = (from, to) => {
  */
 export const describeIncidents = (
   points = [],
-  { positionOf = () => undefined, dateOf = () => undefined, asOf, closingRatio } = {},
+  {
+    positionOf = () => undefined,
+    dateOf = () => undefined,
+    asOf,
+    closingRatio,
+  } = {},
 ) => {
   const paired = pairIncidents(points, { positionOf, closingRatio });
   const byKey = new Map(points.map((point) => [changePointKey(point), point]));
@@ -192,6 +197,7 @@ export const describeIncidents = (
       // that moved, without joining back to the change point list.
       mover: source?.mover,
       v2Level: source?.v2Level,
+      historyCompatibility: source?.historyCompatibility,
     };
   });
 };

@@ -190,6 +190,7 @@ const buildReportFields = async ({
   summaryMarkdown,
   artifactName,
   artifactUrlByName,
+  supportedFieldNames,
 }) => {
   const runId = env("GITHUB_RUN_ID");
   const engine = payload.engine || env("PERF_LAB_ENGINE", "local");
@@ -230,14 +231,22 @@ const buildReportFields = async ({
       runId,
       runAttempt: env("GITHUB_RUN_ATTEMPT"),
       engine,
-      jobId: env("PERF_LAB_JOB_ID") || env("GITHUB_JOB") || env("CI_JOB_ID"),
+      jobId:
+        payload.measurement?.execution?.jobId ||
+        env("PERF_LAB_JOB_ID") ||
+        env("GITHUB_JOB") ||
+        env("CI_JOB_ID"),
       workflow: env("GITHUB_WORKFLOW"),
-      teableEeRef: env("PERF_LAB_TEABLE_EE_REF"),
-      commitSha: env("GITHUB_SHA"),
+      teableEeRef:
+        payload.measurement?.execution?.teableEeSha ||
+        env("PERF_LAB_TEABLE_EE_REF"),
+      commitSha:
+        payload.measurement?.execution?.perfLabSha || env("GITHUB_SHA"),
       artifactName: resolvedArtifactName,
       artifactUrl,
       runUrl,
       traceUrl,
+      supportedFieldNames,
     },
   });
 };
@@ -272,7 +281,12 @@ const main = async () => {
       },
     }),
   );
-  await performanceTrack.assertContract();
+  const trackContract = await performanceTrack.assertContract();
+  if (!trackContract.optionalFieldNames.has("Measurement JSON")) {
+    console.warn(
+      'Performance Track has no "Measurement JSON" field; writing legacy-compatible rows without measurement identity.',
+    );
+  }
 
   const reportPayloads = payloads.filter(
     ({ payload }) => payload.engine !== "seed",
@@ -310,6 +324,7 @@ const main = async () => {
         summaryMarkdown,
         artifactName: env("PERF_LAB_ARTIFACT_NAME") || artifactName,
         artifactUrlByName,
+        supportedFieldNames: trackContract.fieldNames,
       });
     }),
   );

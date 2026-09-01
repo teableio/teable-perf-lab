@@ -6,9 +6,11 @@ import {
   openComputeWindow,
   toComputeMetrics,
 } from "./compute-span-sink";
+import { buildMeasurementMetadata } from "./measurement-contract";
 import { roundMetric } from "./metrics";
 import { normalizePerfError, toPerfTestFailure } from "./perf-error";
 import { executeRegisteredRunner } from "./runner-registry";
+import { thresholdDisposition } from "./threshold-disposition";
 import { deferPerfTraceDetails, resetPerfTraceRefs } from "./trace-collector";
 import { runWithWatchdog } from "./watchdog";
 import { PerfRunDiagnosticError } from "./types";
@@ -25,6 +27,17 @@ const evaluateThresholds = (
       actual: typeof actual === "number" ? actual : null,
       passed: typeof actual === "number" && actual <= threshold.max,
     };
+  });
+
+const measurementOf = (
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  thresholds: MetricThreshold[],
+) =>
+  buildMeasurementMetadata({
+    perfCase,
+    engine: context.engine,
+    primaryThreshold: thresholds[0],
   });
 
 export const runPerfCase = async (
@@ -90,8 +103,14 @@ export const runPerfCase = async (
     const metrics = { ...result.metrics, ...takeComputeMetrics() };
     const thresholdResults = evaluateThresholds(metrics, result.thresholds);
     const skipped = result.result === "skipped";
-    const passed =
-      skipped || thresholdResults.every((threshold) => threshold.passed);
+    const thresholdObserveOnly =
+      process.env.PERF_LAB_THRESHOLD_MODE === "observe";
+    const thresholdDispositionResult = thresholdDisposition({
+      skipped,
+      thresholds: thresholdResults,
+      observeOnly: thresholdObserveOnly,
+    });
+    const passed = thresholdDispositionResult.passed;
     const payload: PerfArtifactPayload = {
       caseId: perfCase.id,
       title: perfCase.title,
@@ -104,6 +123,7 @@ export const runPerfCase = async (
       durationMs: roundMetric(performance.now() - started),
       metrics,
       thresholds: thresholdResults,
+      measurement: measurementOf(perfCase, context, result.thresholds),
       phases: result.phases,
       details: await deferPerfTraceDetails({
         context,
@@ -115,10 +135,8 @@ export const runPerfCase = async (
     await writePerfArtifacts(context.artifactDir, perfCase, payload);
     payloadWritten = true;
 
-    const failedThreshold = thresholdResults.find(
-      (threshold) => !threshold.passed,
-    );
-    if (!skipped && failedThreshold) {
+    const { failedThreshold } = thresholdDispositionResult;
+    if (failedThreshold) {
       throw new Error(
         `${failedThreshold.metric}=${failedThreshold.actual} ${failedThreshold.unit} exceeded ${failedThreshold.max} ${failedThreshold.unit}`,
       );
@@ -146,6 +164,7 @@ export const runPerfCase = async (
         durationMs: roundMetric(performance.now() - started),
         metrics,
         thresholds: thresholdResults,
+        measurement: measurementOf(perfCase, context, error.result.thresholds),
         phases: error.result.phases,
         details: await deferPerfTraceDetails({
           context,
@@ -171,6 +190,7 @@ export const runPerfCase = async (
       durationMs: roundMetric(performance.now() - started),
       metrics: { ...takeComputeMetrics() },
       thresholds: [],
+      measurement: measurementOf(perfCase, context, []),
       details: await deferPerfTraceDetails({
         context,
         perfCase,

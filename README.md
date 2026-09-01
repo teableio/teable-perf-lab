@@ -50,6 +50,9 @@ ready.
   job-tail flush/settle/fetch with shared budgets and per-case manifests.
 - `framework/artifacts.ts`: case payload/summary writes and the trace-only rewrite
   used after bounded job-tail collection finishes.
+- `framework/measurement-contract.ts`: versioned workload/metric comparability,
+  environment fingerprinting, and execution provenance embedded in every new
+  result artifact.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
 - `scripts/full-run-shard-model.mjs`: authoritative full-run selection policy,
@@ -102,6 +105,20 @@ ready.
   `scripts/send-feishu-perf-summary.mjs`.
 - `scripts/same-run-comparison-model.mjs`: this run's V2 versus each case's
   own recent history through `fast-check-model.mjs`. The header verdict.
+- `scripts/paired-experiment-model.mjs`: same-host base/candidate statistics —
+  balanced order, complete-pair filtering, paired bootstrap interval, practical
+  regression test, FDR correction, MDE, and environment-control verdicts.
+- `scripts/create-paired-plan.mjs`: safe paired-plan generator — resolves an
+  explicit catalog case list, requires matching base/candidate contract
+  preflights, pins a clean perf-lab HEAD, and writes a versioned balanced plan
+  without executing product code.
+- `scripts/evaluate-paired-experiment.mjs`: offline paired-artifact validator and
+  verdict writer. It never checks out or executes product code and never resets
+  infrastructure; a separately authorized trusted runner must collect the
+  observations.
+- `scripts/sync-performance-track-schema.mjs`: dry-run-by-default migration for
+  optional owned result fields such as `Measurement JSON`; the manual workflow
+  applies it only when explicitly requested.
 - `scripts/full-run-comparison-model.mjs`: pure two-point comparison of this
   run against the released build — per-case ratios and exclusive
   `>1.2x / >1.5x / >2x` bands. Folded on the card; not the header.
@@ -124,8 +141,9 @@ ready.
   The detector is deliberately narrow — polling intervals, observed latencies,
   metric names, and superseded guardrails cited as history do not trip it — and
   self-tests before checking the repo.
-- `docs/adr/*.md`: architecture decision records — investigations that
-  concluded "leave this as it is", so a later review does not re-open them.
+- `docs/adr/*.md`: consequential architecture decisions, including both retained
+  and newly adopted designs, so later reviews do not rediscover or silently
+  reverse their constraints.
 - `.agents/*.md`: agent workflow and implementation rules.
 
 ## Hard Rules

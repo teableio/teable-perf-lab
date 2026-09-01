@@ -130,6 +130,8 @@ try {
     m: "duration_ms",
     v: String(100 + index),
     n: "1",
+    k: "contract-a",
+    h: "runner:Linux:X64:postgres-e2e",
   }));
 
   const queries = [];
@@ -137,6 +139,11 @@ try {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
+      if (request.method === "GET") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify([{ name: "Measurement JSON" }]));
+        return;
+      }
       const { sql } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       queries.push(sql);
 
@@ -217,6 +224,11 @@ try {
 
   // And the corpus came out the far end with the series intact.
   assert.equal(corpus.seriesCount, 1);
+  assert.equal(corpus.measurementIdentityAvailable, true);
+  assert.equal(
+    corpus.series["demo::v2"].compatibilityMode,
+    "strict-insufficient",
+  );
   assert.deepEqual(
     corpus.series["demo::v2"].segments[0].map(([ordinal, value]) => [
       ordinal,
@@ -235,7 +247,8 @@ try {
   // reason.
   const listings = queries.filter((sql) => /SELECT DISTINCT/.test(sql));
   assert.equal(
-    listings.filter((sql) => /SELECT DISTINCT "Teable_EE_Ref"/.test(sql)).length,
+    listings.filter((sql) => /SELECT DISTINCT "Teable_EE_Ref"/.test(sql))
+      .length,
     1,
   );
   assert.equal(
@@ -246,6 +259,11 @@ try {
     queries.filter((sql) => /percentile_disc/.test(sql)).length,
     1,
     "one page covers this fixture; more means the paging loop is not terminating on a short page",
+  );
+  assert.match(
+    queries.find((sql) => /percentile_disc/.test(sql)),
+    /ORDER BY 1, 2, 3, 4, 5, 6 NULLS FIRST, 7 NULLS FIRST/,
+    "OFFSET pagination must use every grouped identity column as a stable total order",
   );
 
   // --- a missing clone says so ------------------------------------------------

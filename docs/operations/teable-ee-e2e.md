@@ -313,7 +313,7 @@ passing V2 case versus the median of its own last 12 measurements, flagged
 only if that deviation exceeds the case's own 0.99 quantile of historical
 deviations (`fast-check-model.mjs`). Unmeasurable series (jitter above 1.4x)
 and differential overhead metrics are not judged. The header colour and title
-come from this panel: `性能异常 · 相对近期 N`, or `性能正常` when history was
+come from this panel: `性能候选 · 相对近期 N`, or `性能正常` when history was
 read and nothing flagged. It says "look at this", not "this is a confirmed
 regression". Confirmed change points stay on the nightly second card
 (`send-feishu-change-point-summary.mjs`).
@@ -343,6 +343,132 @@ worse than that case's own recent median. The panel is absent on a run with
 no V1 leg.
 
 The GitHub summary carries the same split.
+
+### Evidence labels and comparability
+
+`相对近期` is now a **candidate** surface. New artifacts carry a measurement
+contract, environment identity, and execution provenance in `measurement`.
+History first requires the same contract id and environment class. Until a case
+has 52 compatible points, the existing case-id history is used only as a
+labelled migration fallback; the card must not describe that fallback as proof.
+
+The nightly confirmed layer is a historical V2 shift detector. It removes a
+well-supported global run effect and applies FDR correction. V1 is useful
+corroborating evidence, but its job ran on another hosted VM and is never called
+a paired control. Only the same-host base/candidate lane below can produce a
+`regression` verdict. Its corpus cuts at contract or environment-class changes;
+after 30 compatible points it selects the latest strict segment, otherwise it
+uses an explicitly labelled legacy segment when one exists. A strict segment
+with fewer than 30 points is recorded as insufficient rather than silently
+joined to another contract.
+
+### Same-host base/candidate experiment
+
+Create the immutable collection plan from a clean perf-lab checkout before the
+trusted collector starts:
+
+```bash
+PERF_LAB_PAIRED_EXPERIMENT_ID=pr-123-attempt-1 \
+PERF_LAB_PAIRED_BASE_SHA=<40-char-base-sha> \
+PERF_LAB_PAIRED_CANDIDATE_SHA=<40-char-candidate-sha> \
+PERF_LAB_SHA=<40-char-current-perf-lab-sha> \
+PERF_LAB_PAIRED_CASE_IDS=record-read/10k-50fields-filter-formula-greater-half \
+PERF_LAB_COMPUTED_UPDATE_MODE=sync \
+PERF_LAB_PAIRED_SAMPLE_COUNT=1 \
+PERF_LAB_SEED_SCHEMA_SIGNATURE=<schema-digest> \
+PERF_LAB_PAIRED_CONTRACT_MANIFEST_PATH=artifacts/paired-contract-preflight.json \
+PERF_LAB_PAIRED_PLAN_PATH=artifacts/paired-plan.json \
+pnpm paired:plan
+```
+
+The trusted collector produces the preflight manifest before any timed sample.
+Each immutable checkout emits contracts without booting the application or
+executing a case. Point `PERF_LAB_PAIRED_BASE_CONTRACT_PATH` and
+`PERF_LAB_PAIRED_CANDIDATE_CONTRACT_PATH` at those documents and run `pnpm
+paired:preflight`. The command independently recomputes every contract ID,
+checks the checkout and harness identities embedded by each variant, and
+refuses missing or unequal contracts.
+
+The trusted collector copies `paired-contract-preflight.spec.ts` beside the
+installed harness and runs it with `vitest-perf-contract.config.ts`. That config
+has no e2e setup files, so contract discovery cannot connect to PostgreSQL,
+Redis, or the Nest application.
+For every selected case it records both the base and candidate measurement
+contracts under `cases.<caseId>.base` and `.candidate`, plus the immutable
+base/candidate/perf-lab SHAs and the global protocol inputs. Plan creation fails
+unless both variants produce the same self-consistent contract and the manifest
+envelope exactly matches the requested experiment. This is necessary because
+some workload configuration is resolved through `@teable/*` at runtime and
+cannot be inferred reliably by parsing the public case source.
+
+The command refuses wildcards, `all`, duplicate/unknown cases, cases that skip
+the selected engine, tracked changes in the perf-lab checkout, a
+moving/mismatched `PERF_LAB_SHA`, and overwriting an existing plan. The plan
+also fixes the protocol revision, computed-update mode, sample count, and schema
+signature. The collector must project those fields into every artifact's
+measurement contract. An unknown plan revision or contract mismatch fails
+closed.
+
+`scripts/evaluate-paired-experiment.mjs` is the offline validation and verdict
+adapter. It consumes already-collected artifacts, requires full immutable
+base/candidate and perf-lab harness SHAs, rejects artifacts whose
+experiment/variant/SHA provenance does not match the
+`PERF_LAB_PAIRED_PLAN_PATH` plan, and writes the statistical verdict. It also
+rejects missing perf-lab SHA, job, shard, sample index, or unbalanced order
+metadata. `PERF_LAB_PAIRED_BASE_DIR` and
+`PERF_LAB_PAIRED_CANDIDATE_DIR` must be checkouts whose HEADs match the plan;
+the evaluator rechecks their schema digest and verifies its own tracked-clean
+checkout HEAD matches the planned perf-lab SHA before issuing a verdict. It
+never executes product code and never resets databases or caches.
+
+The collection side remains an explicit security boundary. A separately
+authorized trusted runner must compare checkout schemas with
+`scripts/check-paired-schema-compatibility.mjs`, embed the resulting digest as
+`PERF_LAB_SEED_SCHEMA_SIGNATURE`, restore the same isolated fixture and cache
+state before every observation, record CPU/database canaries, and follow the
+balanced order produced by `buildPairedPlan`. No public workflow may accept
+arbitrary refs while holding private-repository credentials.
+
+The output directory contains:
+
+- `paired-contract-preflight.json`: untimed base/candidate contracts for every
+  selected case;
+- `paired-plan.json`: experiment identity, immutable base/candidate/harness
+  SHAs, exact per-case contracts, and balanced execution order, including the
+  resolved case IDs expected from the trusted collector;
+- `observations/<pair>/<variant>/*.json`: ordinary perf artifacts with paired
+  execution metadata;
+- `paired-verdict.json`: per-case effect, confidence interval, adjusted p-value,
+  pair exclusions, MDE, environment verdict, and overall status;
+- `paired-summary.md`: human-readable audit summary.
+
+Default policy is 10 complete pairs, a 10% practical regression budget, 95%
+paired-bootstrap interval, one-sided sign-flip test, and Benjamini-Hochberg
+q ≤ 0.05 across cases. A code regression requires both the lower confidence
+bound above 1.10x and the adjusted test to pass. Missing pairs, measurement
+contract mismatch, environment-class mismatch, missing CPU/database controls,
+or >20% typical canary drift is `inconclusive`, never pass. The collector checks
+schema compatibility before collection and the evaluator verifies it again
+before the verdict; schema-transition benchmarking needs its own fixture
+protocol.
+
+Do not expose this adapter through a workflow that accepts arbitrary refs while
+holding private-repository credentials. A persistent CI entry point must accept
+only full immutable SHAs, require trusted/protected approval, exclude untrusted
+`repository_dispatch`, and isolate every run in dedicated services. The
+collector contract reserves PostgreSQL names beginning
+`teable-postgres-paired-<run>` and Redis names beginning
+`teable-cache-paired-<run>`; they may not point at the historical lane or a
+developer's shared services, and only those run-scoped instances may be restored
+or flushed.
+
+### Performance Track measurement schema
+
+`Measurement JSON` is an optional long-text field owned by perf-lab. Existing
+tables remain writable while it is absent; reports warn and use migration-mode
+history. Inspect the schema plan with the manual **Sync Performance Track
+schema** workflow and set its `apply` input only for an intentional migration.
+The synchronizer is idempotent and refuses an existing field of the wrong type.
 
 ### Release baseline
 

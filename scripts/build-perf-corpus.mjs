@@ -31,6 +31,8 @@ import {
   isPinnedCommit,
   segmentSeries,
 } from "./commit-order-model.mjs";
+import { preferredCorpusSegment } from "./corpus-compatibility-model.mjs";
+import { loadTeableFieldNames } from "./teable-field-read.mjs";
 
 export const PERF_CORPUS_FILE_NAME = "perf-corpus.json";
 
@@ -140,8 +142,20 @@ const substitution = (column) => {
     : `CASE ${cases.join(" ")} ELSE ${fallback} END`;
 };
 
-const pageQuery = ({ table, limit, offset }) => `
-  SELECT c, e, r, p, m,
+export const buildPerfCorpusPageSql = ({
+  table,
+  limit,
+  offset,
+  includeMeasurement = false,
+}) => {
+  const contractColumn = includeMeasurement
+    ? `NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}'`
+    : "NULL::text";
+  const environmentColumn = includeMeasurement
+    ? `NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}'`
+    : "NULL::text";
+  return `
+  SELECT c, e, r, p, m, k, h,
          percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v,
          COUNT(*) AS n
   FROM (
@@ -150,16 +164,19 @@ const pageQuery = ({ table, limit, offset }) => `
            LEFT("Teable_EE_Ref", 12) AS r,
            LEFT("Commit_SHA", 12) AS p,
            ${substitution("metric")} AS m,
-           ${substitution("value")} AS v
+           ${substitution("value")} AS v,
+           ${contractColumn} AS k,
+           ${environmentColumn} AS h
     FROM ${table}
     WHERE "Status" = 'pass'
       AND "Engine" <> 'seed'
       AND LENGTH("Teable_EE_Ref") = 40
   ) t
   WHERE v > 0
-  GROUP BY 1, 2, 3, 4, 5
-  ORDER BY 1, 2, 3, 4
+  GROUP BY 1, 2, 3, 4, 5, 6, 7
+  ORDER BY 1, 2, 3, 4, 5, 6 NULLS FIRST, 7 NULLS FIRST
   LIMIT ${limit} OFFSET ${offset}`;
+};
 
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
@@ -194,7 +211,8 @@ const main = async () => {
   const token = env("TEABLE_PERF_LAB_TOKEN");
   const endpoint = env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT);
   const baseId = env("TEABLE_PERF_LAB_BASE_ID", DEFAULT_BASE_ID);
-  const table = `"${baseId}"."${env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE)}"`;
+  const tableId = env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE);
+  const table = `"${baseId}"."${tableId}"`;
   const outputPath = resolve(env("PERF_CORPUS_PATH", PERF_CORPUS_FILE_NAME));
 
   const order = await readJson(
@@ -209,6 +227,8 @@ const main = async () => {
     ...Object.keys(order.excluded),
   ]);
   const perfIndex = prefixIndex(Object.keys(digests.byCommit));
+  const fieldNames = await loadTeableFieldNames({ endpoint, token, tableId });
+  const includeMeasurement = fieldNames.has("Measurement JSON");
 
   const rows = [];
   let pageSize = Number(
@@ -224,7 +244,12 @@ const main = async () => {
           endpoint,
           token,
           baseId,
-          sql: pageQuery({ table, limit: pageSize, offset }),
+          sql: buildPerfCorpusPageSql({
+            table,
+            limit: pageSize,
+            offset,
+            includeMeasurement,
+          }),
         });
         break;
       } catch (error) {
@@ -276,6 +301,8 @@ const main = async () => {
       result: "pass",
       runId: String(row.n),
       digest: snapshot?.[row.c],
+      contractId: row.k || undefined,
+      environmentClass: row.h || undefined,
     });
   }
 
@@ -288,26 +315,62 @@ const main = async () => {
   // The digest belongs to the measurement, not to the teable-ee commit, so it
   // is carried on the expanded rows and re-attached here by (case, commit).
   const digestByPoint = new Map();
+  const identityByPoint = new Map();
   for (const row of expanded) {
     const key = `${row.caseId}::${row.engine}::${row.commit}`;
     if (!digestByPoint.has(key)) {
       digestByPoint.set(key, new Set());
     }
     digestByPoint.get(key).add(row.digest);
+    if (!identityByPoint.has(key)) {
+      identityByPoint.set(key, new Set());
+    }
+    const identity =
+      row.contractId && row.environmentClass
+        ? {
+            mode: "strict",
+            contractId: row.contractId,
+            environmentClass: row.environmentClass,
+          }
+        : { mode: "legacy" };
+    identityByPoint.get(key).add(JSON.stringify(identity));
   }
 
   const out = {};
   let cut = 0;
   for (const [key, entry] of series) {
+    const compatibilityAt = (commit) => {
+      const seen = identityByPoint.get(
+        `${entry.caseId}::${entry.engine}::${commit}`,
+      );
+      return seen && seen.size === 1 ? JSON.parse([...seen][0]) : undefined;
+    };
     const digestAt = (commit) => {
       const seen = digestByPoint.get(
         `${entry.caseId}::${entry.engine}::${commit}`,
       );
       // One commit measured under two different workloads is not comparable
       // with either neighbour, so it reads as unknown and cuts the series.
-      return seen && seen.size === 1 ? [...seen][0] : undefined;
+      const workload = seen && seen.size === 1 ? [...seen][0] : undefined;
+      const compatibility = compatibilityAt(commit);
+      return workload && compatibility
+        ? JSON.stringify({ workload, measurement: compatibility })
+        : undefined;
     };
     const segments = segmentSeries(entry.points, { digestAt });
+    const segmentCompatibility = segments.map((segment) => {
+      const identities = new Set(
+        segment.map((point) => JSON.stringify(compatibilityAt(point.commit))),
+      );
+      const identity =
+        identities.size === 1 ? JSON.parse([...identities][0]) : undefined;
+      return identity?.mode === "strict" ? "strict" : "legacy";
+    });
+    const preferred = preferredCorpusSegment({
+      segments,
+      segmentCompatibility,
+      measurementIdentityAvailable: includeMeasurement,
+    });
     if (segments.length > 1) cut += 1;
     out[key] = {
       caseId: entry.caseId,
@@ -316,6 +379,9 @@ const main = async () => {
       // duration from a clamped difference, and the guard that refuses one
       // reads `undefined` and passes everything.
       metric: entry.metric,
+      compatibilityMode: preferred.mode,
+      segmentCompatibility,
+      preferredSegmentIndex: preferred.index,
       segments: segments.map((segment) =>
         segment.map((point) => [point.ordinal, point.value, point.runs]),
       ),
@@ -333,6 +399,7 @@ const main = async () => {
     outputPath,
     `${JSON.stringify({
       rowCount: rows.length,
+      measurementIdentityAvailable: includeMeasurement,
       seriesCount: Object.keys(out).length,
       dropped: { ...dropped, unknownEeRef: unknownEe },
       series: out,

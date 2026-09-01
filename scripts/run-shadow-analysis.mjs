@@ -27,20 +27,14 @@
 import { spawn } from "node:child_process";
 import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { env } from "./env.mjs";
 import {
   benjaminiHochberg,
   detectChangePointsWindowed,
 } from "./change-point-model.mjs";
-import { pairedSeries } from "./control-channel-model.mjs";
+import { applyRunEffect, runEffects } from "./control-channel-model.mjs";
 import {
   attributeStanding,
   driftOf,
@@ -78,6 +72,13 @@ export const SHADOW_RESULT_FILE_NAME = "shadow-analysis.json";
 // and a standing inventory.
 export const SHADOW_SEEN_FILE_NAME = "shadow-seen.json";
 
+// Changes to the statistical meaning of the confirmed series must change this
+// value. The seen-set will then absorb the new boundaries once before alerts
+// resume, rather than presenting an algorithm migration as a burst of code
+// regressions.
+export const CONFIRMED_DETECTOR_REVISION =
+  "v2-global-run-effect-contract-environment-v1";
+
 const median = (values) => {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = sorted.length >> 1;
@@ -106,6 +107,12 @@ const longestSegment = (entry) =>
     (longest, segment) => (segment.length > longest.length ? segment : longest),
     [],
   );
+
+export const comparableSegment = (entry) =>
+  Number.isInteger(entry.preferredSegmentIndex) &&
+  entry.segments[entry.preferredSegmentIndex]
+    ? entry.segments[entry.preferredSegmentIndex]
+    : longestSegment(entry);
 
 /**
  * Spawn a child, hand it `input` on stdin, and give back its stdout.
@@ -297,6 +304,9 @@ const windowLabel = (window) =>
  */
 export const seenMetricsOf = (parsed) => parsed?.metrics ?? "primary-metric";
 
+export const seenDetectorOf = (parsed) =>
+  parsed?.detector ?? "v1-v2-separate-runner-difference";
+
 /**
  * Whether this run has to re-seed, and what to say about it.
  *
@@ -328,6 +338,8 @@ export const reseedDecision = ({
   analysisWindow = DEFAULT_ANALYSIS_WINDOW,
   cachedMetrics,
   metrics = corpusMetricRevision(),
+  cachedDetector,
+  detector = CONFIRMED_DETECTOR_REVISION,
   freshCount = 0,
   knownCount = 0,
 } = {}) => {
@@ -342,6 +354,11 @@ export const reseedDecision = ({
   if (cachedMetrics !== undefined && cachedMetrics !== metrics) {
     changed.push(
       `the corpus changed which metric it records (${cachedMetrics} → ${metrics})`,
+    );
+  }
+  if (cachedDetector !== undefined && cachedDetector !== detector) {
+    changed.push(
+      `the confirmed detector changed (${cachedDetector} → ${detector})`,
     );
   }
   if (changed.length === 0) {
@@ -362,9 +379,11 @@ export const reseedDecision = ({
  * Both layers over the corpus.
  *
  * The fast layer judges this run's own measurement of each case against that
- * case's history. The confirmed layer looks at the whole series, on the
- * V1-paired values where a control exists, and applies one FDR correction
- * across every hypothesis tested.
+ * case's history. The confirmed layer looks at the whole V2 series after
+ * removing a well-supported global run effect, and applies one FDR correction
+ * across every hypothesis tested. Historical V1 measurements come from
+ * separate matrix VMs; they are corroborating evidence, never a paired
+ * subtraction.
  *
  * `measured` is what this run actually measured, as `caseId -> value`. Without
  * it the fast layer falls back to the last point in the corpus, which is only
@@ -406,9 +425,19 @@ export const analyse = (
   let notMeasured = 0;
   let tested = 0;
 
+  const v2SeriesByCase = Object.fromEntries(
+    Object.values(series)
+      .filter((entry) => entry.engine === "v2")
+      .map((entry) => [
+        entry.caseId,
+        comparableSegment(entry).map(([ordinal, value]) => [ordinal, value]),
+      ]),
+  );
+  const globalEffects = runEffects({ seriesByCase: v2SeriesByCase });
+
   for (const [key, entry] of Object.entries(series)) {
     if (entry.engine !== "v2") continue;
-    const segment = longestSegment(entry);
+    const segment = comparableSegment(entry);
     const values = segment.map(([, value]) => value);
 
     // Hoisted above the measurability screen on purpose. The screen decides
@@ -419,14 +448,12 @@ export const analyse = (
     // case a full-history scan still cannot reach.
     const control = series[`${entry.caseId}::v1`];
     const controlSegment = control
-      ? longestSegment(control).map(([ordinal, value]) => [ordinal, value])
+      ? comparableSegment(control).map(([ordinal, value]) => [ordinal, value])
       : [];
-    const pairedPoints = control
-      ? pairedSeries({
-          v2: segment.map(([ordinal, value]) => [ordinal, value]),
-          v1: controlSegment,
-        }).points
-      : [];
+    const controlledPoints = applyRunEffect({
+      points: segment.map(([ordinal, value]) => [ordinal, value]),
+      effects: globalEffects,
+    });
     // A metric that is already a difference cannot say "the case got slower":
     // on both cases this reached the card for, the difference grew because the
     // baseline got 30% faster. Counted rather than dropped silently, because a
@@ -434,18 +461,17 @@ export const analyse = (
     // cannot support.
     if (!carriesDrift(entry.metric)) {
       driftless += 1;
-    } else if (pairedPoints.length > 0) {
-      // Only the V2 points that found a control, in the same order, so the two
-      // series the drift compares describe the same commits.
-      const pairedOrdinals = new Set(pairedPoints.map(([ordinal]) => ordinal));
+    } else if (controlledPoints.length > 0) {
       const drift = driftOf({
-        paired: pairedPoints.map(([, value]) => value),
-        v2: segment
-          .filter(([ordinal]) => pairedOrdinals.has(ordinal))
-          .map(([, value]) => value),
+        controlled: controlledPoints.map(([, value]) => value),
+        v2: segment.map(([, value]) => value),
       });
       if (isStanding(drift)) {
-        standing.push({ caseId: entry.caseId, ...drift });
+        standing.push({
+          caseId: entry.caseId,
+          historyCompatibility: entry.compatibilityMode ?? "legacy",
+          ...drift,
+        });
       }
     }
 
@@ -480,9 +506,7 @@ export const analyse = (
       notMeasured += 1;
     }
 
-    const analysed = control
-      ? pairedPoints
-      : segment.map(([ordinal, value]) => [ordinal, Math.log(value)]);
+    const analysed = controlledPoints;
 
     if (analysed.length < 30) continue;
     const recent = analysed.slice(-analysisWindow);
@@ -498,11 +522,8 @@ export const analyse = (
       const beforeOrdinal = recent[point.index - 1]?.[0];
       const afterOrdinal = recent[point.index]?.[0];
 
-      // Which engine actually moved, on the raw values rather than the paired
-      // ones. The reported ratio is the ratio of `v2/v1`, so a control that
-      // moved reads identically to a V2 regression until someone pulls both
-      // series by hand — which is four wasted triages per seventy-five change
-      // points, measured.
+      // Which engine actually moved, on the raw values. V1 is a separate-runner
+      // cohort and therefore only corroborating evidence for the V2 boundary.
       const movement = attributeMovement({
         v2: segment.map(([ordinal, value]) => [ordinal, value]),
         v1: controlSegment,
@@ -522,13 +543,16 @@ export const analyse = (
 
       points.push({
         caseId: entry.caseId,
+        evidenceLevel: "confirmed_shift",
+        historyCompatibility: entry.compatibilityMode ?? "legacy",
         beforeCommit: commitAt(beforeOrdinal) ?? `#${beforeOrdinal}`,
         afterCommit: commitAt(afterOrdinal) ?? `#${afterOrdinal}`,
         beforeOrdinal,
         afterOrdinal,
         ratio: Math.exp(point.shift),
         pValue: point.pValue,
-        paired: Boolean(control),
+        controlMode: "global-run-effect",
+        v1Comparison: control ? "separate-runner-cohort" : "unavailable",
         mover: movement.mover,
         v2Ratio: movement.v2 ? Number(movement.v2.ratio.toFixed(3)) : undefined,
         v1Ratio: movement.v1 ? Number(movement.v1.ratio.toFixed(3)) : undefined,
@@ -561,6 +585,21 @@ export const analyse = (
     unjudged,
     tested,
     candidates: points.length,
+    historyCompatibility: Object.values(series)
+      .filter((entry) => entry.engine === "v2")
+      .reduce(
+        (counts, entry) => {
+          const mode = entry.compatibilityMode ?? "legacy";
+          counts[mode] = (counts[mode] ?? 0) + 1;
+          return counts;
+        },
+        {
+          strict: 0,
+          "legacy-fallback": 0,
+          "strict-insufficient": 0,
+          legacy: 0,
+        },
+      ),
     // Sorted here rather than at the card, so the artifact and the card agree
     // on what "worst" means without either having to re-derive it.
     //
@@ -574,7 +613,7 @@ export const analyse = (
     driftless,
     standing: attributeStanding({
       standing: standing.sort(
-        (left, right) => right.pairedDrift - left.pairedDrift,
+        (left, right) => right.controlledDrift - left.controlledDrift,
       ),
       confirmed,
       unjudged,
@@ -787,7 +826,10 @@ export const readRecoveredSeen = async (dir) => {
  * thing, which is nothing — the wipe on 2026-08-09 passed through a green step
  * and a well-formed artifact, and was found four days later by reading logs.
  */
-export const reportSeenSources = ({ cached, recovered, seen }, log = console) => {
+export const reportSeenSources = (
+  { cached, recovered, seen },
+  log = console,
+) => {
   const repaired = seen.length - (cached?.length ?? 0);
   if (cached === undefined && recovered.length > 0) {
     log.warn(
@@ -920,11 +962,13 @@ const main = async () => {
   let cached;
   let cachedWindow;
   let cachedMetrics;
+  let cachedDetector;
   try {
     const parsed = JSON.parse(await readFile(seenPath, "utf8"));
     cached = parsed.known ?? [];
     cachedWindow = seenWindowOf(parsed);
     cachedMetrics = seenMetricsOf(parsed);
+    cachedDetector = seenDetectorOf(parsed);
   } catch {
     cached = undefined;
   }
@@ -940,6 +984,7 @@ const main = async () => {
   const reseed = reseedDecision({
     cachedWindow,
     cachedMetrics,
+    cachedDetector,
     freshCount: separated.fresh.length,
     knownCount: separated.known.length,
   });
@@ -963,7 +1008,10 @@ const main = async () => {
     positionOf: (sha) => order.ordinals?.[sha],
     dateOf: (sha) => order.committedAt?.[sha],
     asOf: order.headCommittedAt,
-  });
+  }).map((incident) => ({
+    ...incident,
+    evidenceLevel: "confirmed_shift",
+  }));
 
   const reconciliation = reconcileRun({
     oldFlagged,
@@ -998,11 +1046,12 @@ const main = async () => {
     // while the problem stood.
     standing: (analysis.standing ?? []).map((row) => ({
       caseId: row.caseId,
-      pairedDrift: Number(row.pairedDrift.toFixed(3)),
+      controlledDrift: Number(row.controlledDrift.toFixed(3)),
       v2Drift: Number(row.v2Drift.toFixed(3)),
       v2Then: Number(row.v2Then.toFixed(1)),
       v2Now: Number(row.v2Now.toFixed(1)),
       points: row.points,
+      historyCompatibility: row.historyCompatibility,
       // Which commit stepped it up, when the confirmed layer can say — and when
       // it cannot, why not. Carried in the artifact rather than re-derived at
       // the card, so the audit trail and the message name the same commit.
@@ -1032,6 +1081,7 @@ const main = async () => {
       : null,
     // And which metric the corpus recorded, for the same reason.
     corpusMetrics: corpusMetricRevision(),
+    detectorRevision: CONFIRMED_DETECTOR_REVISION,
     reseeded: reseed.reseeding || undefined,
     // How many change points were already on the record when this run started.
     // Zero means the seen-set was empty and every change point below is a first
@@ -1065,6 +1115,7 @@ const main = async () => {
           ? DEFAULT_ANALYSIS_WINDOW
           : null,
         metrics: corpusMetricRevision(),
+        detector: CONFIRMED_DETECTOR_REVISION,
       },
       null,
       2,

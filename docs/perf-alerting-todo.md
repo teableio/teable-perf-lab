@@ -953,3 +953,13 @@ third clamped metric cannot be added on one side only.
   known non-regressions. It was dropped because a full-history scan already
   recovers 6 of the 7 genuine drifters and names the commit as well, so the
   alert would have added a row to the card and no information.
+
+# Historical implementation log
+
+> Methodology correction, 2026-09-01: passages below that call historical V1/V2
+> results "paired" describe the old implementation. The jobs ran on separate
+> GitHub-hosted VMs, so V1 is now treated as a corroborating cohort and the
+> confirmed V2 detector uses a global run effect. The causal lane is the
+> same-host base/candidate experiment in
+> [ADR 0003](adr/0003-separate-detection-from-causal-proof.md). Historical
+> measurements are retained rather than silently rewritten.

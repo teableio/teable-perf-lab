@@ -8,16 +8,14 @@
 // together by a median of 1.16x, across form-submit, record-duplicate,
 // record-undo and record-delete.
 //
-// Two controls, because each is blind where the other sees.
+// There are two signals, but only one is a control.
 //
-// **V1, paired.** V1 and V2 run in the same job, on the same machine, against
-// the same seeded data, and V1's code barely moves between runs. So V1's
-// movement is the environment's movement, measured for that exact case. Working
-// on log(v2) - log(v1) removes it. This is a paired design, which is the
-// strongest form of control available here and something no single canary case
-// can match: cases differ in how sensitive they are to a busy machine — an
-// IO-bound case and a CPU-bound one react differently to the same noisy
-// neighbour — and one global scalar cannot hold that.
+// **V1, a separate-runner cohort.** Historical V1 and V2 jobs share a commit
+// and seed dump, but GitHub schedules the matrix jobs on separate VMs. Their
+// values can corroborate a broad movement; subtracting one from the other does
+// not create a paired observation and must not be used as the primary detector.
+// A real paired experiment lives in `paired-experiment-model.mjs` and executes
+// base/candidate observations sequentially on one runner.
 //
 // **The run effect, global.** The median log deviation across every case
 // measured at a commit. Weaker, and it cannot separate a genuine across-the-
@@ -25,17 +23,9 @@
 // it needs nothing, so it covers the ~5% of case-commit pairs with no V1
 // measurement and the v2-only cases.
 //
-// The two are also each other's alarm. They estimate the same quantity by
-// different routes, so when they disagree the assumption underneath one of them
-// has broken — V1's code moved, or the seeded data diverged between engines.
-// That disagreement is itself worth reporting, and is why the global estimate is
-// computed even where V1 is available.
-//
-// What this costs: a change point on a paired series means "V2 moved relative to
-// V1", so a regression that hit both engines equally is invisible here. That is
-// the right trade — a change in shared infrastructure is not a V2 regression —
-// but it means the unpaired v2 series stays worth detecting on as a second
-// opinion, not thrown away.
+// The V1/V2 cohort difference remains available for historical audit and
+// movement attribution. Its name is deliberately explicit: it is useful
+// evidence, not causal proof.
 
 const median = (values) => {
   const sorted = [...values].sort((left, right) => left - right);
@@ -56,9 +46,9 @@ const median = (values) => {
  * Points are `[ordinal, value]`. The result carries the same ordinals so a
  * change point maps back to the same commit boundary.
  */
-export const pairedSeries = ({ v2 = [], v1 = [] } = {}) => {
+export const cohortDifferenceSeries = ({ v2 = [], v1 = [] } = {}) => {
   const control = new Map(v1.map(([ordinal, value]) => [ordinal, value]));
-  const paired = [];
+  const alignedDifferences = [];
   let unpaired = 0;
   for (const [ordinal, value] of v2) {
     const reference = control.get(ordinal);
@@ -66,9 +56,9 @@ export const pairedSeries = ({ v2 = [], v1 = [] } = {}) => {
       unpaired += 1;
       continue;
     }
-    paired.push([ordinal, Math.log(value) - Math.log(reference)]);
+    alignedDifferences.push([ordinal, Math.log(value) - Math.log(reference)]);
   }
-  return { points: paired, unpaired };
+  return { points: alignedDifferences, unpaired };
 };
 
 /**
@@ -111,7 +101,7 @@ export const runEffects = ({ seriesByCase = {}, window = 12 } = {}) => {
 };
 
 /**
- * Remove the run effect from a series that has no paired control.
+ * Remove the run effect from a V2 series.
  *
  * Only commits with enough supporting cases are corrected. Where support is
  * thin the point is left alone rather than adjusted by a number built from

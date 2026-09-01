@@ -11,8 +11,7 @@ import {
 import { buildEngineComparison } from "./engine-comparison-model.mjs";
 import { RELEASE_BASELINE_FILE_NAME } from "./release-baseline-model.mjs";
 import { loadEnginePairHistory } from "./resolve-engine-pair-history.mjs";
-import { loadSameRunHistory } from "./resolve-same-run-history.mjs";
-import { buildSameRunComparison } from "./same-run-comparison-model.mjs";
+import { resolveSameRunComparison } from "./resolve-same-run-history.mjs";
 
 const DEFAULT_CHART_URL = "https://ppm.teable.app";
 const DEFAULT_TEABLE_RESULTS_URL =
@@ -140,21 +139,10 @@ const main = async () => {
   // vs-one-release-run list is still computed, but it is not the verdict.
   let sameRun;
   try {
-    const caseIds = [
-      ...new Set(
-        payloads
-          .filter(
-            (payload) => payload.engine === "v2" && payload.result === "pass",
-          )
-          .map((payload) => payload.caseId)
-          .filter(Boolean),
-      ),
-    ];
-    const historyByCase = await loadSameRunHistory({
-      caseIds,
+    sameRun = await resolveSameRunComparison({
+      payloads,
       currentRunId: context.runId,
     });
-    sameRun = buildSameRunComparison({ payloads, historyByCase });
   } catch (error) {
     console.warn(
       `Could not load same-run history: ${
