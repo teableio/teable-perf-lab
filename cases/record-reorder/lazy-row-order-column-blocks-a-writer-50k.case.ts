@@ -25,7 +25,7 @@ export default definePerfCase({
     },
     threshold: {
       metric: "blockedWriterMs",
-      maxMs: 60_000,
+      maxMs: 6_000,
     },
   },
 });

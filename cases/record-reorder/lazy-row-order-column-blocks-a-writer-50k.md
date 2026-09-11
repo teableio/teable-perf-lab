@@ -58,7 +58,7 @@ nothing concurrent happened in it.
 Read `blockedWriterRatio` — `blockedWriterMs` over `blockedWriterBaselineMs` —
 not `blockedWriterMs` alone. An absolute threshold on a latency this dependent
 on disk would encode the runner's hardware; the ratio encodes the blocking. The
-`maxMs` guardrail exists to catch a stall that runs away entirely.
+`maxMs` guardrail, 6,000 ms, exists to catch a stall that runs away entirely.
 
 `lockObserved` describes the run, but it is not the verdict, and it is worth
 being precise about why. Seeing the lock only means the watch caught the trigger
@@ -75,6 +75,18 @@ Measured locally at 50k rows, V2, three samples per commit, against
 | ----------- | --------------- | ------------------ | ------------------ | ------------------ | --------- |
 | `0ad204535` | 76 / 79 / 87 ms | 627 / 613 / 689 ms | 8.25 / 7.78 / 7.95 | 651 / 638 / 721 ms | 3 of 3    |
 | `develop`   | 91 / 82 / 84 ms | 79 / 102 / 78 ms   | 0.87 / 1.23 / 0.93 | 650 / 739 / 683 ms | 1 of 3    |
+
+Accepted in CI against `develop`, run 34575420378, both engines:
+
+| engine | baseline | bystander | ratio | trigger | lock seen |
+| ------ | -------- | --------- | ----- | ------- | --------- |
+| V1     | 156 ms   | 900 ms    | 5.77  | 910 ms  | yes       |
+| V2     | 137 ms   | 123 ms    | 0.89  | 1179 ms | no        |
+
+The contrast reproduces on the runner's hardware, and so does the timing the
+case depends on: the trigger lived 910–1179 ms there, well clear of the 150 ms
+release window, so the bystander was released mid-trigger on both engines.
+That was the one assumption a local run could not check.
 
 V1 is kept rather than skipped, and it is green: one sample at the same scale
 measured baseline 110 ms, bystander 763 ms, ratio 6.94, trigger 459 ms, lock
@@ -99,8 +111,12 @@ site-wide 5xx waves).
 - The 150 ms lock grace is shorter than the trigger on both sides of the fix
   and long enough for the pre-fix `ALTER TABLE` to take hold. It is a release
   timer, not a deadline.
-- The 60-second `maxMs` is a runaway guard, not a benchmark. Tighten it against
-  the ratio once CI history exists.
+- `maxMs` is 6,000 ms, calibrated from run 34575420378 at roughly 6.7x the
+  slower engine's 900 ms. It is a runaway guard for a stall that escapes
+  entirely — the production incident held the lock for minutes — not a
+  benchmark, and the ratio remains the reading. One acceptance observation is
+  thin for a metric whose value tracks the trigger's backfill, so widen it
+  rather than chase a flake if CI history disagrees.
 - The V1 column is reported without routing evidence: this runner asserts none,
   so the artifact cannot prove which engine served a request and the V1 reading
   rests on the harness's engine selection alone. Worth adding if that column is
