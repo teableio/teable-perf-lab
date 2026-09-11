@@ -93,9 +93,10 @@ contention ratio lands in the same 5–8 band seen locally, which is the number
 this case is actually about. The V1/V2 gap in that run is one observation and
 should not be read as a finding.
 
-T7180 (`e656be5c3c`) and T7181 (`74e773822e`) are the same family and stay open
-in `docs/triage-ledger.md`. They should reuse this runner rather than start
-over.
+T7180 (`e656be5c3c`) was then measured on this same runner, with the write load
+its sibling case adds, and separated even less than this one did. T7181
+(`74e773822e`) remains untried and is the smallest saving of the three on a path
+where the largest already sits at the noise floor.
 
 ## Open Assumptions
 

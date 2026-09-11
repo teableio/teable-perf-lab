@@ -3,7 +3,11 @@ import { roundMetric } from "./metrics";
 
 export interface PollStormRequest {
   url: string;
+  method?: "GET" | "PATCH" | "POST";
   headers?: Record<string, string>;
+  // Sent on every round with __VIEWER__ and __ROUND__ substituted, so a write
+  // load changes a different value each time instead of rewriting one.
+  bodyTemplate?: unknown;
   // Independent pollers, each keeping one request in flight — the shape a
   // table open in N browser tabs produces.
   viewers: number;

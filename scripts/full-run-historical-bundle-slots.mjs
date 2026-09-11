@@ -4,6 +4,7 @@
 // shared affinities and singleton bundles so unrelated edits preserve slots.
 export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:compute-activity/poll-storm-20-viewers-10k": 6,
+  "case:compute-activity/poll-storm-under-write-load-10k": 1,
   "case:csv-import/mixed-10k-20fields-create-table-import": 2,
   "case:csv-import/mixed-10k-20fields-inplace-import": 8,
   "case:csv-import/mixed-1k-20fields-create-table-import": 7,

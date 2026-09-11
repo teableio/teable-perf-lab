@@ -11,9 +11,13 @@ import { parentPort, workerData } from "node:worker_threads";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const pollOnce = async (url, headers) => {
+const pollOnce = async (url, headers, method, body) => {
   const startedAt = performance.now();
-  const response = await fetch(url, { method: "GET", headers });
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   // Drain the body: a latency that stops at the headers is not the latency the
   // viewer experienced.
   await response.text();
@@ -21,12 +25,23 @@ const pollOnce = async (url, headers) => {
 };
 
 const runViewer = async (viewer) => {
-  const { url, headers, rounds, thinkTimeMs, stopAt } = workerData;
+  const { url, headers, method, rounds, thinkTimeMs, stopAt, bodyTemplate } =
+    workerData;
   const samples = [];
   for (let round = 0; round < rounds; round += 1) {
     if (stopAt && performance.now() > stopAt) break;
     try {
-      const result = await pollOnce(url, headers);
+      // Each round gets its own body so a write load actually changes
+      // something; a loop that rewrites one value is not work the engine has
+      // to propagate.
+      const body = bodyTemplate
+        ? JSON.parse(
+            JSON.stringify(bodyTemplate)
+              .replaceAll("__VIEWER__", String(viewer))
+              .replaceAll("__ROUND__", String(round)),
+          )
+        : undefined;
+      const result = await pollOnce(url, headers, method, body);
       samples.push({ viewer, round, ...result });
     } catch (error) {
       samples.push({
