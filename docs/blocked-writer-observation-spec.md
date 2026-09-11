@@ -1,7 +1,8 @@
 # Blocked-writer observation spec
 
-Status: proposed. Owner: perf-lab. Target: a second measured session, and the
-cases that need one.
+Status: implemented, with two corrections from the first case built on it —
+see "What the first case changed". Owner: perf-lab. Target: a second measured
+session, and the cases that need one.
 
 ## Why
 
@@ -84,28 +85,16 @@ a green run proves the trap was armed rather than proving nothing happened.
 
 ### 2. Arming the trap at all
 
-This is the part that blocks T7251 specifically, and it is worth stating plainly
-because it is not obvious from the fix.
+**This turned out not to apply. Kept because the reasoning was wrong in an
+instructive way — see the correction below.**
 
 The state the fix needs is a grid view whose `__row_<viewId>` column does not
-exist. Adding a grid view through the API does not produce that state:
-`visitTableAddView` creates the column, backfills it and indexes it as part of
-the view-add schema statements. So the lazy creation path on the record write
-side — the path the fix moved online — is reached only by a table whose view
-predates the column, which is what made this a regression "present since
-`fb1c78ef2f`" rather than a new bug.
-
-The fix's own e2e resolves this by dropping the column with raw SQL before the
-measured write. This lab cannot: `queryPerfDb` refuses anything that is not a
-`SELECT`, deliberately, and that restriction is doing real work — it is why a
-perf case cannot quietly manufacture a state the product cannot reach and then
-report a number about it.
-
-So T7251 needs a second capability beside the second session: a narrow,
-declared, auditable fixture-DDL seam, in the shape of teable-e2e-lab's
-`fixture-db` — a case that uses it says so in its description, and what it did
-is in the artifact. Widening `queryPerfDb` in place is the wrong move; the
-SELECT-only guarantee is worth more than the convenience.
+exist. `visitTableAddView` creates, backfills and indexes that column as part
+of a view-add, so the expectation here was that a case would have to reach
+around the product API — as the fix's own e2e does, dropping the column with
+raw SQL — and that `queryPerfDb` refusing anything but a `SELECT` would block
+it. That would have wanted a declared fixture-DDL seam in the shape of
+teable-e2e-lab's `fixture-db`.
 
 ## What is measurable today, and why it is not this case
 
@@ -121,6 +110,34 @@ is not a T7251 case: it measures the window the fix chose to keep, and it would
 read identically on `0ad204535` and on `develop`. Anyone building it should say
 that in the case description, or the next reader will take a flat line as proof
 the fix works.
+
+## What the first case changed
+
+`record-reorder/lazy-row-order-column-blocks-a-writer-50k` was built on this
+spec and settled two of its guesses by measurement.
+
+**The trap needs no DDL.** A view only gets row-order storage when something
+actually needs manual sort order. A table that was seeded and read but never
+reordered has no `__row_<viewId>` column at all — the local database has zero
+such columns across every table in it. So the state the fix needs is not a
+contrived one the API refuses to produce; it is the ordinary state of a table
+nobody has dragged a row in, which is exactly why this was a production
+regression rather than a bug someone had to construct. The case asserts the
+column is absent before the trigger rather than arranging for it, and a
+fixture-DDL seam was written and then deleted unused. `queryPerfDb` stays
+SELECT-only.
+
+**Seeing the lock is not the verdict.** The post-fix engine still takes an
+`AccessExclusiveLock` — `ADD COLUMN IF NOT EXISTS` on a nullable column with no
+default is metadata-only — it just does not hold it across the backfill. One
+`develop` sample caught that lock at a 20 ms poll and its bystander was not
+blocked. So `lockObserved` describes a run; the ratio judges it. A harness that
+had gated on the lock alone would have called that sample a regression.
+
+The shape that did hold is the important one: across six samples the trigger
+cost 637–739 ms regardless of commit, while the bystander went 8x on the
+parent and ~1x on `develop`. A lab that timed the causing request would have
+found both columns healthy.
 
 ## What this unlocks beyond T7251
 
