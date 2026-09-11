@@ -160,6 +160,7 @@ export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:record-paste/mixed-10k-20fields-complex-copy-paste": 7,
   "case:record-redo/delete-10k": 8,
   "case:record-reorder/10k-move-last-1k-to-front": 7,
+  "case:record-reorder/lazy-row-order-column-blocks-a-writer-50k": 3,
   "case:record-restore/restore-1k": 3,
   "case:record-restore/restore-50k": 4,
   "case:record-undo/delete-1k": 2,

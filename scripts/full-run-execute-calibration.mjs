@@ -1545,6 +1545,18 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 13008.1,
     traceMs: 0,
   },
+  // Provisional: no observation yet. The fixture is a plain 50k single-table
+  // seed, so cold seed copies the closest same-shape seed rather than a
+  // computed one. Execute is dominated by the trigger's own backfill, which
+  // measured ~0.65s on both sides of the fix locally; the padding is for the
+  // control write, the lock watch and the readback. The case is not cached, so
+  // every run pays the seed. Overwritten by the next full-run refresh.
+  "record-reorder/lazy-row-order-column-blocks-a-writer-50k": {
+    coldSeedMs: 30000,
+    v1Ms: 8000,
+    v2Ms: 8000,
+    traceMs: 500,
+  },
   "record-reorder/10k-move-last-1k-to-front": {
     coldSeedMs: 22275.21,
     v1Ms: 3033.52,

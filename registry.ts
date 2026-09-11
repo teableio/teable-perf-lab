@@ -39,6 +39,7 @@ import conditionalRollupGroupSumFanout10_10kCase from "./cases/rollup/conditiona
 import conditionalRollupCompositeKeySumFanout10_10kCase from "./cases/rollup/conditional-composite-key-sum-fanout10-10k.case";
 import conditionalRollupCompositeKeySumUpdate1kFanout10_10kCase from "./cases/rollup/conditional-composite-key-sum-update-1k-fanout10-10k.case";
 import conditionalRollupGroupTextTop3_10kCase from "./cases/rollup/conditional-group-text-top3-10k.case";
+import lazyRowOrderColumnBlocksAWriter50kCase from "./cases/record-reorder/lazy-row-order-column-blocks-a-writer-50k.case";
 import dualLinkComputedFirstLink4kCase from "./cases/lookup/dual-link-computed-first-link-4k.case";
 import dualLinkComputedFirstLink1of4kGetRecordCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-record.case";
 import dualLinkComputedFirstLink1of4kGetRecordsCase from "./cases/lookup/dual-link-computed-first-link-1of4k-get-records.case";
@@ -423,6 +424,7 @@ const cases = [
   conditionalRollupGroupCountallFanout10_10kCase,
   conditionalRollupGroupSumFanout10_10kCase,
   conditionalRollupCompositeKeySumFanout10_10kCase,
+  lazyRowOrderColumnBlocksAWriter50kCase,
   conditionalRollupGroupAverageFanout10_10kCase,
   conditionalRollupGroupActiveMax10kCase,
   conditionalRollupGroupActiveSumFanout10_10kCase,

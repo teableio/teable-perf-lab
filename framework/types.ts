@@ -13,6 +13,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-lookup-record-create": ConditionalLookupRecordCreateCaseConfig;
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
+  "blocked-writer": BlockedWriterCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "circular-link-propagation": CircularLinkPropagationCaseConfig;
   "computed-chain-mutation": ComputedChainMutationCaseConfig;
@@ -371,6 +372,43 @@ export type ConditionalQueryCaseConfig = ConditionalQueryBaseCaseConfig &
         };
       }
   );
+
+// Measures a bystander: an ordinary write issued by a second session while a
+// first session is inside the operation under test. Every other runner here
+// times the request it sent; this one times a request it did not send, because
+// the class of incident it exists for is the one where the request that
+// suffers is not the request that causes the problem (T7251).
+//
+// The primary metric is only readable next to its own control, which the case
+// collects in the same run on the same fixture. See
+// docs/blocked-writer-observation-spec.md.
+export interface BlockedWriterCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  recordCount: number;
+  batchSize: number;
+  trigger: {
+    // Anchored record create on a grid view whose row-order column has been
+    // removed, which sends the product down its lazy-creation path.
+    kind: "lazy-row-order-column";
+    // Lock modes that count as the trigger having taken hold. Named by the
+    // case because which lock the operation takes is part of what it claims.
+    lockModes: string[];
+    // How long to look for that lock before releasing the bystander anyway.
+    // Not a deadline: an engine that never takes the lock for long is the
+    // outcome the case reports, not a failure to measure.
+    lockWaitTimeoutMs: number;
+  };
+  bystander: {
+    // One cell on one row of the same table, chosen to touch nothing else so
+    // a lock wait cannot hide under compute.
+    kind: "single-cell-update";
+  };
+  threshold: {
+    metric: "blockedWriterMs";
+    maxMs: number;
+  };
+}
 
 // Mirrors (a bounded version of) the customer "orders" schema to stress the V2
 // async-compute pipeline on a data write. The orders host table has two many-one
