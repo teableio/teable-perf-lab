@@ -14,6 +14,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-rollup": ConditionalRollupCaseConfig;
   "conditional-query": ConditionalQueryCaseConfig;
   "blocked-writer": BlockedWriterCaseConfig;
+  "compute-activity-poll": ComputeActivityPollCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "circular-link-propagation": CircularLinkPropagationCaseConfig;
   "computed-chain-mutation": ComputedChainMutationCaseConfig;
@@ -406,6 +407,34 @@ export interface BlockedWriterCaseConfig {
   };
   threshold: {
     metric: "blockedWriterMs";
+    maxMs: number;
+  };
+}
+
+// Many viewers polling one table's compute-activity projection at once — the
+// shape behind T7180, T7272 and T7181, where the quantity that moves is
+// per-poll server work rather than any one answer.
+//
+// The primary metric is the storm's p50, not its p95. Measured over four
+// alternating A/B pairs on one binary, the median poll and the throughput moved
+// in the same direction in every pair while the tail percentiles overlapped:
+// removing per-poll work shows up as what a typical viewer waits, and the tail
+// is dominated by scheduling noise at this sample size.
+export interface ComputeActivityPollCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  recordCount: number;
+  batchSize: number;
+  // Computed fields so the projection reports something. A poll that reads an
+  // empty projection is not the poll production pays for.
+  formulaFieldCount: number;
+  warmupRounds: number;
+  viewers: number;
+  rounds: number;
+  thinkTimeMs: number;
+  budgetMs: number;
+  threshold: {
+    metric: "pollP50Ms";
     maxMs: number;
   };
 }

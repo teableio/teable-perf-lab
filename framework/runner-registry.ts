@@ -50,6 +50,7 @@ import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runImportBaseCase } from "./runners/import-base.runner";
 import { seedImportBaseCase } from "./runners/import-base.runner";
 import { runBlockedWriterCase } from "./runners/blocked-writer.runner";
+import { runComputeActivityPollCase } from "./runners/compute-activity-poll.runner";
 import { runLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { seedLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import {
@@ -229,6 +230,13 @@ const runnerInventory = {
     },
     execute: runConditionalQueryCase,
     seed: seedConditionalQueryCase,
+  },
+  "compute-activity-poll": {
+    implementation: { mode: "direct" },
+    execute: runComputeActivityPollCase,
+    // No reusable seed: the fixture is small and the case is about the read
+    // path, not about what it took to build the table.
+    seed: (perfCase) => seedlessRunner(perfCase),
   },
   "blocked-writer": {
     implementation: {

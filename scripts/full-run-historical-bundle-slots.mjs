@@ -3,6 +3,7 @@
 // that calibration after the 46-case stable-pause selection update. It covers
 // shared affinities and singleton bundles so unrelated edits preserve slots.
 export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
+  "case:compute-activity/poll-storm-20-viewers-10k": 6,
   "case:csv-import/mixed-10k-20fields-create-table-import": 2,
   "case:csv-import/mixed-10k-20fields-inplace-import": 8,
   "case:csv-import/mixed-1k-20fields-create-table-import": 7,
