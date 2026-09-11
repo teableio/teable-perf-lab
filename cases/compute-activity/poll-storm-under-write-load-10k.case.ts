@@ -26,7 +26,7 @@ export default definePerfCase({
     },
     threshold: {
       metric: "pollP50Ms",
-      maxMs: 5_000,
+      maxMs: 2_000,
     },
   },
 });

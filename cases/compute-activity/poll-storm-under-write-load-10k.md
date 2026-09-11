@@ -50,6 +50,17 @@ Read this against its idle sibling `compute-activity/poll-storm-20-viewers-10k`,
 which holds the same fixture and the same storm with no writers. The pair is the
 measurement; either alone is a hardware reading.
 
+Accepted in CI against `develop`, run 34582061316, both engines in hybrid mode
+with no failed poll or write:
+
+| engine | `pollP50Ms` | poll p95 | poll throughput | `writeP50Ms` | contention ratio |
+| ------ | ----------- | -------- | --------------- | ------------ | ---------------- |
+| V1     | 188 ms      | 245 ms   | 103/s           | 292 ms       | 7.73             |
+| V2     | 194 ms      | 255 ms   | 99/s            | 189 ms       | 9.69             |
+
+Polls cost roughly twice what they do on the idle sibling in the same
+environment, which is the effect this case exists to hold a line under.
+
 ### What this case can and cannot settle
 
 It was built to reach T7180 (`e656be5c3c`), which lowered the default outbox
@@ -88,4 +99,7 @@ that resolves better than a wall clock, not more concurrency.
 - Hybrid computed-update mode is required for this case to mean anything. In
   sync mode the outbox workers never run and the concurrency setting has no
   effect at all.
-- The 5-second `maxMs` is a runaway guard and has not been run in CI.
+- `maxMs` is 2,000 ms, about 10x the slower engine in run 34582061316, matching
+  the bound its idle sibling carries. The guard is for the read path collapsing
+  under load, which would land in seconds; a contended median moves too much
+  with the runner for a tighter bound to buy anything but flakes.
