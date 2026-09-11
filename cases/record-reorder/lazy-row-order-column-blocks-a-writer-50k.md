@@ -76,6 +76,13 @@ Measured locally at 50k rows, V2, three samples per commit, against
 | `0ad204535` | 76 / 79 / 87 ms | 627 / 613 / 689 ms | 8.25 / 7.78 / 7.95 | 651 / 638 / 721 ms | 3 of 3    |
 | `develop`   | 91 / 82 / 84 ms | 79 / 102 / 78 ms   | 0.87 / 1.23 / 0.93 | 650 / 739 / 683 ms | 1 of 3    |
 
+V1 is kept rather than skipped, and it is green: one sample at the same scale
+measured baseline 110 ms, bystander 763 ms, ratio 6.94, trigger 459 ms, lock
+seen. The fix was V2-only, so that roughly sevenfold block is a standing
+property of the V1 engine rather than a regression signal — which makes this
+case a direct V1/V2 comparison of the same operation, one engine blocking a
+bystander and the other not.
+
 The trigger costs the same on both — every sample lands between 637 ms and
 739 ms regardless of commit. That is the whole point of the case: before
 `daf0c3ca1e` the cost was paid by whoever else was writing, and a lab that timed
@@ -94,3 +101,7 @@ site-wide 5xx waves).
   timer, not a deadline.
 - The 60-second `maxMs` is a runaway guard, not a benchmark. Tighten it against
   the ratio once CI history exists.
+- The V1 column is reported without routing evidence: this runner asserts none,
+  so the artifact cannot prove which engine served a request and the V1 reading
+  rests on the harness's engine selection alone. Worth adding if that column is
+  ever used as more than context.
