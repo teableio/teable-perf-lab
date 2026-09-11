@@ -49,6 +49,7 @@ import { seedFormSubmitCase } from "./runners/form-submit.runner";
 import { runHttpEndpointCase } from "./runners/http-endpoint.runner";
 import { runImportBaseCase } from "./runners/import-base.runner";
 import { seedImportBaseCase } from "./runners/import-base.runner";
+import { runBlockedWriterCase } from "./runners/blocked-writer.runner";
 import { runLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import { seedLinkComputedPropagationCase } from "./runners/link-computed-propagation.runner";
 import {
@@ -228,6 +229,16 @@ const runnerInventory = {
     },
     execute: runConditionalQueryCase,
     seed: seedConditionalQueryCase,
+  },
+  "blocked-writer": {
+    implementation: {
+      mode: "lifecycle",
+      drivers: ["record-mutation-lifecycle"],
+    },
+    execute: runBlockedWriterCase,
+    // No reusable seed: execute removes a physical column and lets the product
+    // rebuild it, so a warm fixture would carry a trap of unknown state.
+    seed: (perfCase) => seedlessRunner(perfCase),
   },
   "link-computed-propagation": {
     implementation: {
