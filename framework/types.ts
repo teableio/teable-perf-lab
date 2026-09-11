@@ -433,6 +433,19 @@ export interface ComputeActivityPollCaseConfig {
   rounds: number;
   thinkTimeMs: number;
   budgetMs: number;
+  // Optional concurrent write load driving computed work while the storm runs.
+  // T7180's fix reduces contention between computed workers and HTTP
+  // consumers sharing one process and database pool; without writes in flight
+  // that contention does not exist during the measurement, and the poll
+  // numbers describe an idle engine.
+  writeLoad?: {
+    writers: number;
+    rounds: number;
+    thinkTimeMs: number;
+    // Records touched per write. Each carries a value derived from the writer
+    // and round, so every write is real work to propagate.
+    recordsPerWrite: number;
+  };
   threshold: {
     metric: "pollP50Ms";
     maxMs: number;

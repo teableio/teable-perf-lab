@@ -323,6 +323,9 @@ workload.
 - `compute-activity/poll-storm-20-viewers-10k`: Measure what a table's
   compute-activity poll costs when twenty viewers of that table all want the same
   projection at once.
+- `compute-activity/poll-storm-under-write-load-10k`: Measure what a table's
+  compute-activity poll costs when twenty viewers want the projection at once
+  **and** the engine is busy propagating writes to the same table.
 - `rollup/conditional-group-average-fanout10-10k`: Measure adding a conditional
   numeric average over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-active-max-10k`: Measure adding a conditional

@@ -1561,6 +1561,14 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
   // five formula fields; execute is 420 bounded polls, which measured ~2-3s
   // locally. Padded for a slower runner. Overwritten by the next full-run
   // refresh.
+  // Provisional: same fixture as its idle sibling plus a concurrent write
+  // load, so execute costs more. Overwritten by the next full-run refresh.
+  "compute-activity/poll-storm-under-write-load-10k": {
+    coldSeedMs: 12000,
+    v1Ms: 12000,
+    v2Ms: 12000,
+    traceMs: 500,
+  },
   "compute-activity/poll-storm-20-viewers-10k": {
     coldSeedMs: 12000,
     v1Ms: 6000,

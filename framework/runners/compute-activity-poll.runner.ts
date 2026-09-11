@@ -25,6 +25,8 @@ const AMOUNT_FIELD = "Amount";
 type Fixture = {
   tableId: string;
   tableName: string;
+  amountFieldId: string;
+  recordIds: string[];
   formulaFieldIds: string[];
   seedBuildMs: number;
 };
@@ -51,13 +53,19 @@ const prepareFixture = async (
       [AMOUNT_FIELD]: index + 1,
     },
   }));
+  const recordIds: string[] = [];
   for (const batch of chunk(rows, c.batchSize)) {
-    await withPerfTraceStep(context, perfCase, "seedBatch", () =>
-      createRecords(table.id, {
-        fieldKeyType: FieldKeyType.Name,
-        records: batch,
-      }),
+    const response = await withPerfTraceStep(
+      context,
+      perfCase,
+      "seedBatch",
+      () =>
+        createRecords(table.id, {
+          fieldKeyType: FieldKeyType.Name,
+          records: batch,
+        }),
     );
+    for (const record of response.records) recordIds.push(record.id);
   }
   // Computed fields give the activity projection something to report. A table
   // with none still answers the endpoint, but it answers about nothing, and a
@@ -86,6 +94,8 @@ const prepareFixture = async (
   return {
     tableId: table.id,
     tableName,
+    amountFieldId,
+    recordIds,
     formulaFieldIds,
     seedBuildMs: performance.now() - startedAt,
   };
@@ -139,6 +149,33 @@ export const runComputeActivityPollCase = async (
       );
     }
 
+    // The write load runs alongside the storm rather than before it. The
+    // contention under test is between computed workers and HTTP consumers
+    // sharing one process, so both have to be in flight at once or the polls
+    // are describing an idle engine.
+    const writeUrl = `${context.appUrl}/api/table/${fixture.tableId}/record`;
+    const writePromise = c.writeLoad
+      ? runPollStorm({
+          url: writeUrl,
+          method: "PATCH",
+          headers: { ...headers, "content-type": "application/json" },
+          bodyTemplate: {
+            fieldKeyType: FieldKeyType.Id,
+            typecast: false,
+            records: fixture.recordIds
+              .slice(0, c.writeLoad.recordsPerWrite)
+              .map((recordId, index) => ({
+                id: recordId,
+                fields: { [fixture.amountFieldId]: `__ROUND__${index}` },
+              })),
+          },
+          viewers: c.writeLoad.writers,
+          rounds: c.writeLoad.rounds,
+          thinkTimeMs: c.writeLoad.thinkTimeMs,
+          budgetMs: performance.now() + c.budgetMs,
+        })
+      : undefined;
+
     const storm = await measureAsync("pollStorm", () =>
       runPollStorm({
         url,
@@ -149,6 +186,10 @@ export const runComputeActivityPollCase = async (
         budgetMs: performance.now() + c.budgetMs,
       }),
     );
+    const writeResult = writePromise ? await writePromise : undefined;
+    const writeSummary = writeResult
+      ? summarizePollStorm(writeResult)
+      : undefined;
     const summary = summarizePollStorm(storm.result);
     if (summary.errorCount > 0) {
       throw new Error(
@@ -166,6 +207,15 @@ export const runComputeActivityPollCase = async (
         soloPollP95Ms: soloSummary.pollP95Ms,
         soloPollThroughputPerSec: soloSummary.pollThroughputPerSec,
         ...summary,
+        ...(writeSummary
+          ? {
+              writeCount: writeSummary.pollCount,
+              writeOkCount: writeSummary.okCount,
+              writeErrorCount: writeSummary.errorCount,
+              writeP50Ms: writeSummary.pollP50Ms,
+              writeThroughputPerSec: writeSummary.pollThroughputPerSec,
+            }
+          : {}),
         // What the storm costs a viewer over what one viewer alone pays. A
         // coalescer that removes per-poll server work should flatten this;
         // reading p95 alone would mostly report the hardware.
@@ -191,6 +241,15 @@ export const runComputeActivityPollCase = async (
           thinkTimeMs: c.thinkTimeMs,
         },
         solo: soloSummary,
+        writeLoad: c.writeLoad
+          ? { ...c.writeLoad, summary: writeSummary }
+          : undefined,
+        // The axis T7180 is read on: outbox worker concurrency, which the fix
+        // lowered from 8 to 2 and which this variable overrides.
+        outboxWorkerConcurrency:
+          process.env.V2_COMPUTED_OUTBOX_TRIGGER_CONCURRENCY ?? "(default)",
+        computedUpdateMode:
+          process.env.V2_COMPUTED_UPDATE_MODE ?? "(unset: hybrid)",
         // The coalescer this case exists to observe is configured by
         // environment, not by the case, so the run has to say what it saw.
         readCacheMs: process.env.COMPUTED_ACTIVITY_READ_CACHE_MS ?? "(default)",
