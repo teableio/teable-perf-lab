@@ -80,6 +80,19 @@ coalescer is present.** It is a floor guard — it would catch the read path
 regressing by a lot, and its harness is the reusable part — not a T7272
 regression detector. Treat a single run's shift as unproven unless it is large.
 
+Accepted in CI against `develop`, run 34578769875, both engines, 400 polls each
+with no failures:
+
+| engine | solo p95 | `pollP50Ms` | p95    | throughput | contention ratio |
+| ------ | -------- | ----------- | ------ | ---------- | ---------------- |
+| V1     | 33 ms    | 153 ms      | 223 ms | 125/s      | 6.82             |
+| V2     | 33 ms    | 178 ms      | 259 ms | 103/s      | 7.84             |
+
+The runner is roughly twice as slow as the development machine, and the
+contention ratio lands in the same 5–8 band seen locally, which is the number
+this case is actually about. The V1/V2 gap in that run is one observation and
+should not be read as a finding.
+
 T7180 (`e656be5c3c`) and T7181 (`74e773822e`) are the same family and stay open
 in `docs/triage-ledger.md`. They should reuse this runner rather than start
 over.
@@ -91,5 +104,9 @@ over.
   2.4 requests per second per pod, with half the polls repeating the same
   table within a second — so this case exaggerates on purpose and should not be
   read as a capacity model.
-- The 5-second `maxMs` is a runaway guard against the median poll collapsing,
-  not a benchmark, and nothing has yet run it in CI.
+- `maxMs` is 2,000 ms, about 11x the slower engine in run 34578769875. That is
+  deliberately looser than the ratio a lock-wait case can afford: a contended
+  median moves with whatever else the runner is doing, and this guard exists to
+  catch the read path collapsing — a poll that starts doing real per-request
+  work again would land in seconds, not in hundreds of milliseconds. Chasing a
+  tighter bound here would buy flakes, not sensitivity.

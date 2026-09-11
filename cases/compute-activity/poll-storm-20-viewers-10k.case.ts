@@ -20,7 +20,7 @@ export default definePerfCase({
     budgetMs: 120_000,
     threshold: {
       metric: "pollP50Ms",
-      maxMs: 5_000,
+      maxMs: 2_000,
     },
   },
 });
