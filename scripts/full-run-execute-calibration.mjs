@@ -1557,6 +1557,16 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 8000,
     traceMs: 500,
   },
+  // Provisional: no observation yet. The fixture is a 10k single table plus
+  // five formula fields; execute is 420 bounded polls, which measured ~2-3s
+  // locally. Padded for a slower runner. Overwritten by the next full-run
+  // refresh.
+  "compute-activity/poll-storm-20-viewers-10k": {
+    coldSeedMs: 12000,
+    v1Ms: 6000,
+    v2Ms: 6000,
+    traceMs: 500,
+  },
   "record-reorder/10k-move-last-1k-to-front": {
     coldSeedMs: 22275.21,
     v1Ms: 3033.52,

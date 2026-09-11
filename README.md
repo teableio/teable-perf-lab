@@ -320,6 +320,9 @@ workload.
 - `record-reorder/lazy-row-order-column-blocks-a-writer-50k`: Measure how long
   an ordinary one-cell save takes while somebody else's insert is building a
   view's row-order storage on the same 50,000-row table.
+- `compute-activity/poll-storm-20-viewers-10k`: Measure what a table's
+  compute-activity poll costs when twenty viewers of that table all want the same
+  projection at once.
 - `rollup/conditional-group-average-fanout10-10k`: Measure adding a conditional
   numeric average over 10 matching source rows for every row of a 10k host.
 - `rollup/conditional-group-active-max-10k`: Measure adding a conditional
