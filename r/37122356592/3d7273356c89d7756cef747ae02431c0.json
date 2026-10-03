@@ -1,0 +1,1331 @@
+{
+  "traceId": "3d7273356c89d7756cef747ae02431c0",
+  "spans": [
+    {
+      "id": "4cb1c436eb2a822f",
+      "name": "DELETE",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995650000,
+      "durationUs": 29515,
+      "tags": {
+        "http.request.method": "DELETE",
+        "http.response.status_code": "200",
+        "network.peer.address": "127.0.0.1",
+        "network.peer.port": "42895",
+        "network.protocol.version": "1.1",
+        "otel.scope.name": "@opentelemetry/instrumentation-http",
+        "otel.scope.version": "0.221.0",
+        "server.address": "127.0.0.1",
+        "server.port": "42895",
+        "span.kind": "client",
+        "url.full": "http://127.0.0.1:42895/api/base/bseTestBaseId/table/tblQn3XA1pHqtuDZ78Z"
+      }
+    },
+    {
+      "id": "9a38d62d5ceab64d",
+      "parentId": "4cb1c436eb2a822f",
+      "name": "DELETE /api/base/:baseId/table/:tableId",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995651000,
+      "durationUs": 28814,
+      "tags": {
+        "client.address": "::ffff:127.0.0.1",
+        "http.method": "DELETE",
+        "http.request.method": "DELETE",
+        "http.response.status_code": "200",
+        "http.route": "/api/base/:baseId/table/:tableId",
+        "http.status_code": "200",
+        "http.target": "/api/base/bseTestBaseId/table/tblQn3XA1pHqtuDZ78Z",
+        "http.url": "http://127.0.0.1:42895/api/base/bseTestBaseId/table/tblQn3XA1pHqtuDZ78Z",
+        "nest.controller": "TableController",
+        "nest.handler": "archiveTable",
+        "network.peer.address": "::ffff:127.0.0.1",
+        "network.peer.port": "53324",
+        "network.protocol.version": "1.1",
+        "otel.scope.name": "@opentelemetry/instrumentation-http",
+        "otel.scope.version": "0.221.0",
+        "responseStatusCode": "200",
+        "server.address": "127.0.0.1",
+        "server.port": "42895",
+        "span.kind": "server",
+        "teable.app.id": "",
+        "teable.client": "",
+        "teable.request.attribution": "v2",
+        "teable.route.controller": "TableController",
+        "teable.route.full": "DELETE /api/base/:baseId/table/:tableId",
+        "teable.route.handler": "archiveTable",
+        "teable.space.id": "spcTestSpaceId",
+        "teable.space.plan": "free",
+        "teable.user.id": "usrTestUserId",
+        "teable.user.is_api": "false",
+        "teable.user.is_app": "false",
+        "teable.v2.enabled": "true",
+        "teable.v2.feature": "deleteTable",
+        "teable.v2.reason": "env_force_v2_all",
+        "url.path": "/api/base/bseTestBaseId/table/tblQn3XA1pHqtuDZ78Z",
+        "url.scheme": "http",
+        "user_agent.original": "axios/1.20.0"
+      }
+    },
+    {
+      "id": "4a49ab191339220b",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995652000,
+      "durationUs": 944,
+      "tags": {
+        "method": "findUnique",
+        "model": "Base",
+        "name": "Base.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "dd4e37a2a6e51188",
+      "parentId": "4a49ab191339220b",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995652942,
+      "durationUs": 652,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ef68e4843eb9592e",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995653000,
+      "durationUs": 721,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5f27717e3e3aedac",
+      "parentId": "dd4e37a2a6e51188",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995653086,
+      "durationUs": 464,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\", \"public\".\"base\".\"name\", \"public\".\"base\".\"order\", \"public\".\"base\".\"icon\", \"public\".\"base\".\"schema_pass\", \"public\".\"base\".\"v2_enabled\", \"public\".\"base\".\"provision_state\"::text, \"public\".\"base\".\"deleted_time\", \"public\".\"base\".\"created_time\", \"public\".\"base\".\"created_by\", \"public\".\"base\".\"last_modified_by\", \"public\".\"base\".\"last_modified_time\" FROM \"public\".\"base\" WHERE (\"public\".\"base\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "689e48706eccd2c7",
+      "parentId": "ef68e4843eb9592e",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995653935,
+      "durationUs": 498,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "adc7e738533f0387",
+      "parentId": "689e48706eccd2c7",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995654045,
+      "durationUs": 360,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "76029a0ef891412e",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995655000,
+      "durationUs": 755,
+      "tags": {
+        "method": "findUnique",
+        "model": "Space",
+        "name": "Space.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8002a556a50f2a1f",
+      "parentId": "76029a0ef891412e",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995655241,
+      "durationUs": 534,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "cc4ef57936a5e5bf",
+      "parentId": "8002a556a50f2a1f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995655352,
+      "durationUs": 393,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space\".\"id\", \"public\".\"space\".\"name\", \"public\".\"space\".\"avatar\", \"public\".\"space\".\"credit\", \"public\".\"space\".\"deleted_time\", \"public\".\"space\".\"created_time\", \"public\".\"space\".\"created_by\", \"public\".\"space\".\"last_modified_by\", \"public\".\"space\".\"last_modified_time\", \"public\".\"space\".\"is_template\" FROM \"public\".\"space\" WHERE (\"public\".\"space\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9849feecffa08798",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995656000,
+      "durationUs": 752,
+      "tags": {
+        "method": "findUnique",
+        "model": "Base",
+        "name": "Base.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8b79244d1e1947be",
+      "parentId": "9849feecffa08798",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995656401,
+      "durationUs": 501,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8559d6ad8d488751",
+      "parentId": "8b79244d1e1947be",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995656506,
+      "durationUs": 380,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE (\"public\".\"base\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "060572b4b48d8bf1",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995657000,
+      "durationUs": 822,
+      "tags": {
+        "method": "findFirst",
+        "model": "BaseDataDbMoveJob",
+        "name": "BaseDataDbMoveJob.findFirst",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b5cc781d79f5f159",
+      "parentId": "060572b4b48d8bf1",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995657216,
+      "durationUs": 612,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e7839a932390007b",
+      "parentId": "b5cc781d79f5f159",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995657357,
+      "durationUs": 449,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base_data_db_move_job\".\"id\", \"public\".\"base_data_db_move_job\".\"state\"::text FROM \"public\".\"base_data_db_move_job\" WHERE (\"public\".\"base_data_db_move_job\".\"base_id\" = $1 AND \"public\".\"base_data_db_move_job\".\"state\" IN (CAST($2::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($3::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($4::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($5::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($6::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($7::text AS \"public\".\"BaseDataDbMoveJobState\"))) LIMIT $8 OFFSET $9",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "606b6abcf6331196",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995658000,
+      "durationUs": 772,
+      "tags": {
+        "method": "findFirst",
+        "model": "SpaceDataDbMigrationJob",
+        "name": "SpaceDataDbMigrationJob.findFirst",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "2df1690bbd656753",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995658000,
+      "durationUs": 754,
+      "tags": {
+        "method": "findMany",
+        "model": "SpaceDataDbMigrationJob",
+        "name": "SpaceDataDbMigrationJob.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "82b738be2d48e7d5",
+      "parentId": "606b6abcf6331196",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995658098,
+      "durationUs": 554,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7c41ad6f76d150a7",
+      "parentId": "82b738be2d48e7d5",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995658236,
+      "durationUs": 388,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_migration_job\".\"id\", \"public\".\"space_data_db_migration_job\".\"state\"::text FROM \"public\".\"space_data_db_migration_job\" WHERE (\"public\".\"space_data_db_migration_job\".\"space_id\" = $1 AND \"public\".\"space_data_db_migration_job\".\"switch_on_completion\" = $2 AND \"public\".\"space_data_db_migration_job\".\"state\" IN (CAST($3::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($4::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($5::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($6::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($7::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($8::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($9::text AS \"public\".\"SpaceDataDbMigrationJobState\"))) LIMIT $10 OFFSET $11",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9c6d20c4ccc02d69",
+      "parentId": "2df1690bbd656753",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995658898,
+      "durationUs": 545,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "814ff120113ef99d",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995659000,
+      "durationUs": 901,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5f620fc9a28d3edb",
+      "parentId": "9c6d20c4ccc02d69",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995659023,
+      "durationUs": 398,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_migration_job\".\"id\", \"public\".\"space_data_db_migration_job\".\"state\"::text, \"public\".\"space_data_db_migration_job\".\"space_id\", \"public\".\"space_data_db_migration_job\".\"inventory\" FROM \"public\".\"space_data_db_migration_job\" WHERE (\"public\".\"space_data_db_migration_job\".\"switch_on_completion\" = $1 AND \"public\".\"space_data_db_migration_job\".\"state\" IN (CAST($2::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($3::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($4::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($5::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($6::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($7::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($8::text AS \"public\".\"SpaceDataDbMigrationJobState\"))) OFFSET $9",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "fb3821dfdb6ef9f3",
+      "parentId": "814ff120113ef99d",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995659721,
+      "durationUs": 692,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "dfe41a20f69edc54",
+      "parentId": "fb3821dfdb6ef9f3",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995659862,
+      "durationUs": 533,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "8e5cf1caeb0b4f75",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "teable.command.DeleteTableCommand",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995660000,
+      "durationUs": 18033,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.command": "DeleteTableCommand",
+        "teable.component": "command",
+        "teable.operation": "command.DeleteTableCommand",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "ddfed01a0f6b2e83",
+      "parentId": "43bc910d93741c5d",
+      "name": "pg.query:SELECT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995661000,
+      "durationUs": 1194,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "select \"table_meta\".\"id\", \"table_meta\".\"name\", \"table_meta\".\"description\", \"table_meta\".\"icon\", \"table_meta\".\"base_id\", \"table_meta\".\"db_table_name\", \"table_meta\".\"search_index\", \"fields\".\"fields\", \"views\".\"views\", exists (\n  select 1\n  from reference r\n  inner join field f_from on f_from.id = r.from_field_id\n  inner join field f_to on f_to.id = r.to_field_id\n  where f_from.table_id = table_meta.id\n    and f_from.deleted_time is null\n    and f_to.deleted_time is null\n) as \"has_outbound_reference\" from \"table_meta\" left join lateral (select (select coalesce(json_agg(agg), '[]') from (select \"id\", \"name\", \"description\", \"type\", \"options\", \"meta\", \"ai_config\", \"cell_value_type\", \"is_multiple_cell_value\", \"not_null\", \"unique\", \"is_primary\", \"is_computed\", \"is_lookup\", \"is_conditional_lookup\", \"has_error\", \"lookup_linked_field_id\", \"lookup_options\", \"db_field_name\", \"db_field_type\", \"version\", \"is_pending\" from \"field\" where \"field\".\"table_id\" = \"table_meta\".\"id\" and \"deleted_time\" is null order by \"is_primary\" is null asc, \"is_primary\", \"order\", \"created_time\") as agg) as \"fields\") as \"fields\" on true left join lateral (select (select coalesce(json_agg(agg), '[]') from (select \"id\", \"name\", \"description\", \"type\", \"options\", \"order\", \"version\", \"column_meta\", \"sort\", \"filter\", \"group\", \"is_locked\", \"enable_share\", \"share_id\", \"share_meta\", \"created_time\", \"last_modified_time\", \"created_by\", \"last_modified_by\" from \"view\" where \"view\".\"table_id\" = \"table_meta\".\"id\" and \"deleted_time\" is null order by \"order\") as agg) as \"views\") as \"views\" on true where ((\"deleted_time\" is null and \"base_id\" = $1) and \"id\" = $2)",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "43bc910d93741c5d",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.PostgresTableRepository.findOne",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995661000,
+      "durationUs": 2029,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.base_id": "bseTestBaseId",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "AndSpec",
+        "teable.operation": "PostgresTableRepository.findOne",
+        "teable.table_id": "tblQn3XA1pHqtuDZ78Z",
+        "teable.table_spec": "TableByIdSpec",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "3b6e12bcfe36b45c",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "teable.DeleteTableHandler.handle",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995661000,
+      "durationUs": 17956,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "DeleteTableHandler",
+        "teable.message": "DeleteTableCommand",
+        "teable.operation": "DeleteTableHandler.handle",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "3d53099f8c711fb1",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.PostgresTableRepository.setProvisionState",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995663000,
+      "durationUs": 623,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "Table",
+        "teable.operation": "PostgresTableRepository.setProvisionState",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "90607042ac3c1d60",
+      "parentId": "3d53099f8c711fb1",
+      "name": "teable.PostgresTableRepository.setProvisionStateMany",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995663000,
+      "durationUs": 610,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "Array",
+        "teable.operation": "PostgresTableRepository.setProvisionStateMany",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "b4123b1092e4cb15",
+      "parentId": "90607042ac3c1d60",
+      "name": "pg.query:UPDATE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995663000,
+      "durationUs": 258,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n        UPDATE \"table_meta\"\n        SET\n          \"provision_state\" = $1,\n          \"last_modified_time\" = $2,\n          \"last_modified_by\" = $3\n        WHERE \"id\" IN ($4)\n      ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "9b79f69369f3c7fb",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:BEGIN e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995663000,
+      "durationUs": 145,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "begin",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "576ecf3d4ecab80d",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:COMMIT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995664000,
+      "durationUs": 6163,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "commit",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "d6ed85e01f462ab6",
+      "parentId": "90607042ac3c1d60",
+      "name": "pg.query:INSERT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995664000,
+      "durationUs": 283,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n        INSERT INTO \"schema_operation\" (\n          \"id\",\n          \"type\",\n          \"status\",\n          \"phase\",\n          \"resource_type\",\n          \"resource_id\",\n          \"base_id\",\n          \"table_id\",\n          \"idempotency_key\",\n          \"payload\",\n          \"result\",\n          \"attempts\",\n          \"max_attempts\",\n          \"next_run_at\",\n          \"last_error\",\n          \"created_time\",\n          \"created_by\",\n          \"last_modified_time\",\n          \"last_modified_by\"\n        )\n        VALUES (\n          $1,\n          $2,\n          $3,\n          $4,\n          $5,\n          $6,\n          $7,\n          $8,\n          $9,\n          $10::jsonb,\n          NULL,\n          $11,\n          $12,\n          $13,\n          $14,\n          $15,\n          $16,\n          $17,\n          $18\n        )\n        ON CONFLICT (\"idempotency_key\")\n        DO UPDATE SET\n          \"type\" = EXCLUDED.\"type\",\n          \"status\" = EXCLUDED.\"status\",\n          \"phase\" = EXCLUDED.\"phase\",\n          \"resource_type\" = EXCLUDED.\"resource_type\",\n          \"resource_id\" = EXCLUDED.\"resource_id\",\n          \"base_id\" = EXCLUDED.\"base_id\",\n          \"table_id\" = EXCLUDED.\"table_id\",\n          \"payload\" = COALESCE(EXCLUDED.\"payload\", \"schema_operation\".\"payload\"),\n          \"result\" = COALESCE(EXCLUDED.\"result\", \"schema_operation\".\"result\"),\n          \"attempts\" = CASE\n            WHEN EXCLUDED.\"status\" = 'error' THEN \"schema_operation\".\"attempts\" + 1\n            ELSE \"schema_operation\".\"attempts\"\n          END,\n          \"max_attempts\" = EXCLUDED.\"max_attempts\",\n          \"next_run_at\" = EXCLUDED.\"next_run_at\",\n          \"last_error\" = EXCLUDED.\"last_error\",\n          \"last_modified_time\" = EXCLUDED.\"last_modified_time\",\n          \"last_modified_by\" = EXCLUDED.\"last_modified_by\"\n      ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "8a7ed415befe456f",
+      "parentId": "03e3e2ea83641c61",
+      "name": "teable.PostgresTableRepository.find",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995670000,
+      "durationUs": 3937,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "AndSpec",
+        "teable.operation": "PostgresTableRepository.find",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "c693edbeb060a870",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:BEGIN e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995670000,
+      "durationUs": 97,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "begin",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "03e3e2ea83641c61",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.TableDeletionSideEffectService.execute",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995670000,
+      "durationUs": 4186,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "TableDeletionSideEffectService",
+        "teable.message": "Object",
+        "teable.operation": "TableDeletionSideEffectService.execute",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "f42ca58100e69894",
+      "parentId": "8a7ed415befe456f",
+      "name": "pg.query:SELECT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995671000,
+      "durationUs": 3578,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "select \"table_meta\".\"id\", \"table_meta\".\"name\", \"table_meta\".\"description\", \"table_meta\".\"icon\", \"table_meta\".\"base_id\", \"table_meta\".\"db_table_name\", \"table_meta\".\"search_index\", \"fields\".\"fields\", \"views\".\"views\", exists (\n  select 1\n  from reference r\n  inner join field f_from on f_from.id = r.from_field_id\n  inner join field f_to on f_to.id = r.to_field_id\n  where f_from.table_id = table_meta.id\n    and f_from.deleted_time is null\n    and f_to.deleted_time is null\n) as \"has_outbound_reference\" from \"table_meta\" left join lateral (select (select coalesce(json_agg(agg), '[]') from (select \"id\", \"name\", \"description\", \"type\", \"options\", \"meta\", \"ai_config\", \"cell_value_type\", \"is_multiple_cell_value\", \"not_null\", \"unique\", \"is_primary\", \"is_computed\", \"is_lookup\", \"is_conditional_lookup\", \"has_error\", \"lookup_linked_field_id\", \"lookup_options\", \"db_field_name\", \"db_field_type\", \"version\", \"is_pending\" from \"field\" where \"field\".\"table_id\" = \"table_meta\".\"id\" and \"deleted_time\" is null order by \"is_primary\" is null asc, \"is_primary\", \"order\", \"created_time\") as agg) as \"fields\") as \"fields\" on true left join lateral (select (select coalesce(json_agg(agg), '[]') from (select \"id\", \"name\", \"description\", \"type\", \"options\", \"order\", \"version\", \"column_meta\", \"sort\", \"filter\", \"group\", \"is_locked\", \"enable_share\", \"share_id\", \"share_meta\", \"created_time\", \"last_modified_time\", \"created_by\", \"last_modified_by\" from \"view\" where \"view\".\"table_id\" = \"table_meta\".\"id\" and \"deleted_time\" is null order by \"order\") as agg) as \"views\") as \"views\" on true where (((\"deleted_time\" is null and \"table_meta\".\"provision_state\" = 'ready') and \n      exists (\n        select 1\n        from \"reference\"\n        inner join \"field\" as \"source_field\" on \"source_field\".\"id\" = \"reference\".\"from_field_id\"\n        inner join \"field\" as \"target_field\" on \"target_field\".\"id\" = \"reference\".\"to_field_id\"\n        where \"source_field\".\"table_id\" = $1\n          and \"target_field\".\"deleted_time\" is null\n          and \"target_field\".\"table_id\" = \"table_…[+119 bytes]",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "1dc27bd2e03977fa",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.PostgresTableSchemaRepository.delete",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995674000,
+      "durationUs": 61,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableSchemaRepository",
+        "teable.message": "Table",
+        "teable.operation": "PostgresTableSchemaRepository.delete",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "5f1d89aafe83b252",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:BEGIN e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995675000,
+      "durationUs": 84,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "begin",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "df5b9b6a3da489f6",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:UPDATE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995675000,
+      "durationUs": 652,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "update \"field\" set \"deleted_time\" = $1, \"last_modified_time\" = $2, \"last_modified_by\" = $3 where \"table_id\" = $4 and \"deleted_time\" is null",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "ab177184c10f3f74",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:UPDATE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995675000,
+      "durationUs": 264,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "update \"table_meta\" set \"deleted_time\" = $1, \"last_modified_time\" = $2, \"last_modified_by\" = $3 where \"id\" = $4 and \"deleted_time\" is null",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "b9304231d0028b2f",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.PostgresTableRepository.delete",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995675000,
+      "durationUs": 2340,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "Table",
+        "teable.operation": "PostgresTableRepository.delete",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "02a581fe88f18cd4",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:COMMIT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995675000,
+      "durationUs": 132,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "commit",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "534704992d38ba87",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:UPDATE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995676000,
+      "durationUs": 249,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "update \"view\" set \"deleted_time\" = $1, \"last_modified_time\" = $2, \"last_modified_by\" = $3 where \"table_id\" = $4 and \"deleted_time\" is null",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "270b44b2f527dffe",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:SELECT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995676000,
+      "durationUs": 176,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "SELECT to_regclass($1) IS NOT NULL as \"exists\"",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "339e437ddb9e8c6d",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:COMMIT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995677000,
+      "durationUs": 213,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "commit",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "41b6b12716b52544",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:DELETE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995677000,
+      "durationUs": 306,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n          DELETE FROM \"trash\"\n          WHERE \"resource_id\" = $1 AND \"resource_type\" = 'table'\n        ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "45032f5a2554f777",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:BEGIN e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995677000,
+      "durationUs": 92,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "begin",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "53b0b009dec50937",
+      "parentId": "b9304231d0028b2f",
+      "name": "pg.query:INSERT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995677000,
+      "durationUs": 268,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n          INSERT INTO \"trash\" (\n            \"id\",\n            \"resource_type\",\n            \"resource_id\",\n            \"parent_id\",\n            \"deleted_time\",\n            \"deleted_by\"\n          )\n          VALUES (\n            $1,\n            'table',\n            $2,\n            $3,\n            $4,\n            $5\n          )\n        ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "4794ba4f74a1f02c",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "teable.PostgresTableRepository.setProvisionState",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995678000,
+      "durationUs": 503,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "Table",
+        "teable.operation": "PostgresTableRepository.setProvisionState",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "22be7a57ea18d710",
+      "parentId": "49c20af5409b2efb",
+      "name": "pg.query:UPDATE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995678000,
+      "durationUs": 195,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n        UPDATE \"table_meta\"\n        SET\n          \"provision_state\" = $1,\n          \"last_modified_time\" = $2,\n          \"last_modified_by\" = $3\n        WHERE \"id\" IN ($4)\n      ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "c5fbb01ac2f2ffda",
+      "parentId": "49c20af5409b2efb",
+      "name": "pg.query:INSERT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995678000,
+      "durationUs": 247,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "\n        INSERT INTO \"schema_operation\" (\n          \"id\",\n          \"type\",\n          \"status\",\n          \"phase\",\n          \"resource_type\",\n          \"resource_id\",\n          \"base_id\",\n          \"table_id\",\n          \"idempotency_key\",\n          \"payload\",\n          \"result\",\n          \"attempts\",\n          \"max_attempts\",\n          \"next_run_at\",\n          \"last_error\",\n          \"created_time\",\n          \"created_by\",\n          \"last_modified_time\",\n          \"last_modified_by\"\n        )\n        VALUES (\n          $1,\n          $2,\n          $3,\n          $4,\n          $5,\n          $6,\n          $7,\n          $8,\n          $9,\n          NULL,\n          NULL,\n          $10,\n          $11,\n          $12,\n          $13,\n          $14,\n          $15,\n          $16,\n          $17\n        )\n        ON CONFLICT (\"idempotency_key\")\n        DO UPDATE SET\n          \"type\" = EXCLUDED.\"type\",\n          \"status\" = EXCLUDED.\"status\",\n          \"phase\" = EXCLUDED.\"phase\",\n          \"resource_type\" = EXCLUDED.\"resource_type\",\n          \"resource_id\" = EXCLUDED.\"resource_id\",\n          \"base_id\" = EXCLUDED.\"base_id\",\n          \"table_id\" = EXCLUDED.\"table_id\",\n          \"payload\" = COALESCE(EXCLUDED.\"payload\", \"schema_operation\".\"payload\"),\n          \"result\" = COALESCE(EXCLUDED.\"result\", \"schema_operation\".\"result\"),\n          \"attempts\" = CASE\n            WHEN EXCLUDED.\"status\" = 'error' THEN \"schema_operation\".\"attempts\" + 1\n            ELSE \"schema_operation\".\"attempts\"\n          END,\n          \"max_attempts\" = EXCLUDED.\"max_attempts\",\n          \"next_run_at\" = EXCLUDED.\"next_run_at\",\n          \"last_error\" = EXCLUDED.\"last_error\",\n          \"last_modified_time\" = EXCLUDED.\"last_modified_time\",\n          \"last_modified_by\" = EXCLUDED.\"last_modified_by\"\n      ",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "42e3388b6a40c9d4",
+      "parentId": "3b6e12bcfe36b45c",
+      "name": "pg.query:COMMIT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995678000,
+      "durationUs": 232,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "commit",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "49c20af5409b2efb",
+      "parentId": "4794ba4f74a1f02c",
+      "name": "teable.PostgresTableRepository.setProvisionStateMany",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995678000,
+      "durationUs": 492,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "handler",
+        "teable.handler": "PostgresTableRepository",
+        "teable.message": "Array",
+        "teable.operation": "PostgresTableRepository.setProvisionStateMany",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "e5f0c60561568bfd",
+      "parentId": "9be4a93505f9028e",
+      "name": "teable.V2TableTrashedProjection.handle",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995681000,
+      "durationUs": 5150,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.event.name": "TableTrashed",
+        "teable.event.role": "projection",
+        "teable.handler": "V2TableTrashedProjection",
+        "teable.message": "TableTrashed",
+        "teable.operation": "V2TableTrashedProjection.handle",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "2f3bc96260c3d094",
+      "parentId": "9be4a93505f9028e",
+      "name": "teable.TableDeletedRealtimeProjection.handle",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995681000,
+      "durationUs": 957,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.event.name": "TableTrashed",
+        "teable.event.role": "projection",
+        "teable.handler": "TableDeletedRealtimeProjection",
+        "teable.message": "TableTrashed",
+        "teable.operation": "TableDeletedRealtimeProjection.handle",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "9be4a93505f9028e",
+      "parentId": "9a38d62d5ceab64d",
+      "name": "teable.AsyncMemoryEventBus.projectionGroup",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995681000,
+      "durationUs": 5710,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.event.group_mode": "concurrent",
+        "teable.event.handler_count": "4",
+        "teable.event.name": "TableTrashed",
+        "teable.event.role": "projection",
+        "teable.handler": "AsyncMemoryEventBus",
+        "teable.message": "TableTrashed",
+        "teable.operation": "AsyncMemoryEventBus.projectionGroup",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "f218c6ed2372ab60",
+      "parentId": "9be4a93505f9028e",
+      "name": "teable.V2TableDeleteAuditLogProjection.handle",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995681000,
+      "durationUs": 357,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.event.name": "TableTrashed",
+        "teable.event.role": "projection",
+        "teable.handler": "V2TableDeleteAuditLogProjection",
+        "teable.message": "TableTrashed",
+        "teable.operation": "V2TableDeleteAuditLogProjection.handle",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "e1ad635c4e1bdd9e",
+      "parentId": "9be4a93505f9028e",
+      "name": "teable.V2TableBaseNodeProjection.handle",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995681000,
+      "durationUs": 875,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.event.name": "TableTrashed",
+        "teable.event.role": "projection",
+        "teable.handler": "V2TableBaseNodeProjection",
+        "teable.message": "TableTrashed",
+        "teable.operation": "V2TableBaseNodeProjection.handle",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "717173fe434fc003",
+      "parentId": "e5f0c60561568bfd",
+      "name": "pg.query:SELECT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995682000,
+      "durationUs": 632,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "select \"id\" from \"trash\" where \"resource_id\" = $1 and \"resource_type\" = $2",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "becf7adf5ca73382",
+      "parentId": "e5f0c60561568bfd",
+      "name": "pg.query:SELECT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995682000,
+      "durationUs": 703,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "select \"base_id\", \"deleted_time\" from \"table_meta\" where \"id\" = $1",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "bdd192bf33dacfa5",
+      "parentId": "2f3bc96260c3d094",
+      "name": "teable.TableDeletedRealtimeProjection.background",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995682000,
+      "durationUs": 573,
+      "tags": {
+        "otel.scope.name": "v2-core",
+        "span.kind": "internal",
+        "teable.code.layer": "core",
+        "teable.code.ownership": "v2",
+        "teable.code.path": "community/packages/v2",
+        "teable.component": "projection",
+        "teable.event.async": "true",
+        "teable.handler": "TableDeletedRealtimeProjection",
+        "teable.operation": "TableDeletedRealtimeProjection.background",
+        "teable.version": "v2"
+      }
+    },
+    {
+      "id": "707faa1b14b420f6",
+      "parentId": "e5f0c60561568bfd",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995683000,
+      "durationUs": 2143,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f247c5b91ae228de",
+      "parentId": "707faa1b14b420f6",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995683802,
+      "durationUs": 1724,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "540b59de072e38b0",
+      "parentId": "f247c5b91ae228de",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995684035,
+      "durationUs": 883,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\", \"public\".\"table_meta\".\"name\", \"public\".\"table_meta\".\"description\", \"public\".\"table_meta\".\"icon\", \"public\".\"table_meta\".\"db_table_name\", \"public\".\"table_meta\".\"db_view_name\", \"public\".\"table_meta\".\"search_index\", \"public\".\"table_meta\".\"provision_state\"::text, \"public\".\"table_meta\".\"version\", \"public\".\"table_meta\".\"order\", \"public\".\"table_meta\".\"created_time\", \"public\".\"table_meta\".\"last_modified_time\", \"public\".\"table_meta\".\"deleted_time\", \"public\".\"table_meta\".\"created_by\", \"public\".\"table_meta\".\"last_modified_by\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2a540cbc8666b1f2",
+      "parentId": "f247c5b91ae228de",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995684993,
+      "durationUs": 440,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\", \"public\".\"base\".\"name\", \"public\".\"base\".\"order\", \"public\".\"base\".\"icon\", \"public\".\"base\".\"schema_pass\", \"public\".\"base\".\"v2_enabled\", \"public\".\"base\".\"provision_state\"::text, \"public\".\"base\".\"deleted_time\", \"public\".\"base\".\"created_time\", \"public\".\"base\".\"created_by\", \"public\".\"base\".\"last_modified_by\", \"public\".\"base\".\"last_modified_time\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2001e62277c956b7",
+      "parentId": "e5f0c60561568bfd",
+      "name": "pg.query:DELETE e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995685000,
+      "durationUs": 294,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "delete from \"table_trash\" where \"table_id\" = $1 and \"resource_type\" = $2",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    },
+    {
+      "id": "5ae4921143d05169",
+      "parentId": "e5f0c60561568bfd",
+      "name": "pg.query:INSERT e2e_test_teable",
+      "service": "teable-perf-v2-sync-shard-4-of-8-v2",
+      "startUs": 1791029995686000,
+      "durationUs": 368,
+      "tags": {
+        "db.namespace": "e2e_test_teable",
+        "db.query.text": "insert into \"table_trash\" (\"id\", \"table_id\", \"resource_type\", \"snapshot\", \"created_by\", \"created_time\") values ($1, $2, $3, $4, $5, $6)",
+        "db.system.name": "postgresql",
+        "otel.scope.name": "@opentelemetry/instrumentation-pg",
+        "otel.scope.version": "0.73.0",
+        "server.address": "127.0.0.1",
+        "server.port": "25432",
+        "span.kind": "client",
+        "teable.db.role": "meta",
+        "teable.db.source": "PRISMA_META_DATABASE_URL",
+        "teable.db.url": "postgresql://teable@127.0.0.1:25432/e2e_test_teable"
+      }
+    }
+  ],
+  "spanCount": 71,
+  "droppedSpanCount": 0,
+  "droppedTagBytes": 119,
+  "runId": "37122356592",
+  "case": {
+    "caseId": "table-restore/50k-20f-link-1k",
+    "title": "Restore a 50k-record 20-field table owning a populated link field from trash",
+    "engine": "v2",
+    "result": "pass",
+    "durationMs": 26.84,
+    "stepId": "deleteSetup-sample-01",
+    "url": "http://127.0.0.1:42895/base/bseTestBaseId/table/tblQn3XA1pHqtuDZ78Z",
+    "runUrl": "https://github.com/teableio/teable-perf-lab/actions/runs/37122356592"
+  }
+}
