@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Teable perf traces</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1b1f24;
+        --muted: #5b6572;
+        --line: #d8dee6;
+        --link: #3f7fd6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1216;
+          --fg: #e6edf3;
+          --muted: #9aa7b4;
+          --line: #263038;
+          --link: #58a6ff;
+        }
+      }
+      body {
+        margin: 0 auto;
+        max-width: 900px;
+        padding: 28px 18px 60px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.6 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      h1 {
+        font-size: 16px;
+      }
+      h2 {
+        font-size: 14px;
+        margin-top: 28px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+      }
+      p {
+        color: var(--muted);
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      li {
+        padding: 5px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      a {
+        color: var(--link);
+        text-decoration: none;
+      }
+      .muted {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Teable perf traces</h1>
+    <p>
+      Traces selected by each perf run, published straight from the run that
+      produced them. The site keeps the newest runs that fit its byte budget and
+      evicts oldest-first; pinned traces are never evicted.
+    </p>
+
+    <h2>Runs <span class="muted" id="usage"></span></h2>
+    <ul id="runs">
+      <li class="muted">Loading…</li>
+    </ul>
+
+    <h2>Pinned</h2>
+    <ul id="pinned">
+      <li class="muted">Loading…</li>
+    </ul>
+
+    <script>
+      const render = async (path, target, build) => {
+        const list = document.getElementById(target);
+        try {
+          const response = await fetch(path, { cache: "no-cache" });
+          if (!response.ok) throw new Error(String(response.status));
+          const entries = build(await response.json());
+          list.replaceChildren(...entries);
+          if (!entries.length) {
+            const empty = document.createElement("li");
+            empty.className = "muted";
+            empty.append(document.createTextNode("Nothing published."));
+            list.append(empty);
+          }
+        } catch {
+          const failed = document.createElement("li");
+          failed.className = "muted";
+          failed.append(document.createTextNode("Nothing published."));
+          list.replaceChildren(failed);
+        }
+      };
+
+      const item = (href, label, suffix) => {
+        const entry = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = href;
+        link.append(document.createTextNode(label));
+        entry.append(link);
+        if (suffix) {
+          const tail = document.createElement("span");
+          tail.className = "muted";
+          tail.append(document.createTextNode(` ${suffix}`));
+          entry.append(tail);
+        }
+        return entry;
+      };
+
+      const mb = (bytes) =>
+        typeof bytes === "number" ? `${(bytes / 1e6).toFixed(1)} MB` : "?";
+
+      render("runs.json", "runs", (index) => {
+        if (index.usedBytes != null) {
+          document.getElementById("usage").textContent =
+            `— ${mb(index.usedBytes)} of ${mb(index.budgetBytes)}`;
+        }
+        return (index.runs ?? []).map((run) =>
+          item(
+            `trace.html?run=${encodeURIComponent(run.runId)}`,
+            `run ${run.runId}`,
+            `· ${run.traceCount ?? 0} traces · ${mb(run.bytes)} · ${run.publishedAt ?? ""} · ${run.teableEeRef ?? ""}`,
+          ),
+        );
+      });
+
+      render("pinned/index.json", "pinned", (index) =>
+        (index.traces ?? []).map((trace) =>
+          item(
+            `trace.html?pinned=${encodeURIComponent(trace.traceId)}`,
+            `${trace.caseId ?? trace.traceId} · ${trace.engine ?? ""}`,
+            `· pinned ${trace.pinnedAt ?? ""} · from run ${trace.runId ?? "?"}`,
+          ),
+        ),
+      );
+    </script>
+  </body>
+</html>

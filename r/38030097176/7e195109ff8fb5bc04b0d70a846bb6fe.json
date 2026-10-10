@@ -1,0 +1,161 @@
+{
+  "traceId": "7e195109ff8fb5bc04b0d70a846bb6fe",
+  "spans": [
+    {
+      "id": "a5010daf5fda3e2a",
+      "name": "GET",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881338000,
+      "durationUs": 18539,
+      "tags": {
+        "http.request.method": "GET",
+        "http.response.status_code": "200",
+        "network.peer.address": "127.0.0.1",
+        "network.peer.port": "39683",
+        "network.protocol.version": "1.1",
+        "otel.scope.name": "@opentelemetry/instrumentation-http",
+        "otel.scope.version": "0.223.0",
+        "server.address": "127.0.0.1",
+        "server.port": "39683",
+        "span.kind": "client",
+        "url.full": "http://127.0.0.1:39683/api/auth/user/me"
+      }
+    },
+    {
+      "id": "706963e1dcbf6851",
+      "parentId": "a5010daf5fda3e2a",
+      "name": "GET /api/auth/user/me",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881339000,
+      "durationUs": 16901,
+      "tags": {
+        "client.address": "::ffff:127.0.0.1",
+        "http.method": "GET",
+        "http.request.method": "GET",
+        "http.response.status_code": "200",
+        "http.route": "/api/auth/user/me",
+        "http.status_code": "200",
+        "http.target": "/api/auth/user/me",
+        "http.url": "http://127.0.0.1:39683/api/auth/user/me",
+        "nest.controller": "AuthController",
+        "nest.handler": "me",
+        "network.peer.address": "::ffff:127.0.0.1",
+        "network.peer.port": "60750",
+        "network.protocol.version": "1.1",
+        "otel.scope.name": "@opentelemetry/instrumentation-http",
+        "otel.scope.version": "0.223.0",
+        "responseStatusCode": "200",
+        "server.address": "127.0.0.1",
+        "server.port": "39683",
+        "span.kind": "server",
+        "teable.app.id": "",
+        "teable.client": "",
+        "teable.route.controller": "AuthController",
+        "teable.route.full": "GET /api/auth/user/me",
+        "teable.route.handler": "me",
+        "teable.user.id": "usrTestUserId",
+        "teable.user.is_api": "false",
+        "teable.user.is_app": "false",
+        "url.path": "/api/auth/user/me",
+        "url.scheme": "http",
+        "user_agent.original": "axios/1.20.0"
+      }
+    },
+    {
+      "id": "d9724eebabf0235c",
+      "parentId": "706963e1dcbf6851",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881345000,
+      "durationUs": 2217,
+      "tags": {
+        "method": "findUnique",
+        "model": "User",
+        "name": "User.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "13d5a3d3be8059ff",
+      "parentId": "d9724eebabf0235c",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881345462,
+      "durationUs": 1506,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "09877bf97ba52b04",
+      "parentId": "13d5a3d3be8059ff",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881345900,
+      "durationUs": 988,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"users\".\"id\", \"public\".\"users\".\"name\", \"public\".\"users\".\"password\", \"public\".\"users\".\"salt\", \"public\".\"users\".\"phone\", \"public\".\"users\".\"email\", \"public\".\"users\".\"avatar\", \"public\".\"users\".\"is_system\", \"public\".\"users\".\"is_admin\", \"public\".\"users\".\"is_trial_used\", \"public\".\"users\".\"lang\", \"public\".\"users\".\"notify_meta\", \"public\".\"users\".\"last_sign_time\", \"public\".\"users\".\"deactivated_time\", \"public\".\"users\".\"created_time\", \"public\".\"users\".\"deleted_time\", \"public\".\"users\".\"last_modified_time\", \"public\".\"users\".\"permanent_deleted_time\", \"public\".\"users\".\"ref_meta\" FROM \"public\".\"users\" WHERE (\"public\".\"users\".\"id\" = $1 AND \"public\".\"users\".\"deleted_time\" IS NULL) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "e1dabf926f1c4ebe",
+      "parentId": "706963e1dcbf6851",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881349000,
+      "durationUs": 3091,
+      "tags": {
+        "method": "findUnique",
+        "model": "OrganizationUser",
+        "name": "OrganizationUser.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ac10078e8ddd975d",
+      "parentId": "e1dabf926f1c4ebe",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881350759,
+      "durationUs": 1138,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "652ddfe6cdc8e9c2",
+      "parentId": "ac10078e8ddd975d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v2-sync-shard-6-of-8-v2",
+      "startUs": 1791612881350896,
+      "durationUs": 979,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"organization_user\".\"id\", \"public\".\"organization_user\".\"is_admin\", \"public\".\"organization_user\".\"organization_id\" FROM \"public\".\"organization_user\" WHERE (\"public\".\"organization_user\".\"user_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    }
+  ],
+  "spanCount": 8,
+  "droppedSpanCount": 0,
+  "droppedTagBytes": 0,
+  "runId": "38030097176",
+  "case": {
+    "caseId": "smoke/auth-user-burst-100",
+    "title": "Authenticated user profile endpoint over 100 sequential samples",
+    "engine": "v2",
+    "result": "pass",
+    "durationMs": 8,
+    "stepId": "warmup",
+    "url": "http://127.0.0.1:39683/auth/user/me",
+    "runUrl": "https://github.com/teableio/teable-perf-lab/actions/runs/38030097176"
+  }
+}
