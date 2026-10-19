@@ -33,13 +33,15 @@ runs:
       if: inputs.operation == 'bootstrap'
       uses: pnpm/action-setup@v5
       with:
-        version: 9.13.0
+        # The pnpm teable-ee pins (packageManager) at the commit under test:
+        # a fixed version here breaks every run the day teable-ee moves on.
+        package_json_file: ${{ inputs.teable-ee-path }}/package.json
 
     - name: Setup Node.js
       if: inputs.operation == 'bootstrap'
       uses: actions/setup-node@v5
       with:
-        node-version: 22.18.0
+        node-version: 24.19.0
         cache: pnpm
         cache-dependency-path: ${{ inputs.teable-ee-path }}/pnpm-lock.yaml
 
