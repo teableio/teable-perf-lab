@@ -1,0 +1,32 @@
+{
+  "id": "ds_medium_v1",
+  "name": "medium",
+  "description": "Load and search: 1M rows, 60 columns, high cardinality and mixed types. Prefer direct DB/devtools seeding; API seeding is slow.",
+  "rows": 1000000,
+  "method": "devtools",
+  "table": {
+    "name": "stress_medium",
+    "fields": [
+      { "name": "Name", "type": "singleLineText" },
+      { "name": "Email", "type": "singleLineText" },
+      { "name": "Status", "type": "singleSelect", "options": { "choices": [{ "name": "Todo" }, { "name": "InProgress" }, { "name": "Done" }, { "name": "Blocked" }] } },
+      { "name": "Priority", "type": "singleSelect", "options": { "choices": [{ "name": "P0" }, { "name": "P1" }, { "name": "P2" }, { "name": "P3" }] } },
+      { "name": "Tags", "type": "multipleSelect", "options": { "choices": [{ "name": "Red" }, { "name": "Green" }, { "name": "Blue" }, { "name": "Yellow" }] } },
+      { "name": "Amount", "type": "number" },
+      { "name": "Quantity", "type": "number" },
+      { "name": "Score", "type": "rating", "options": { "icon": "star", "color": "yellowBright", "max": 5 } },
+      { "name": "DueDate", "type": "date" },
+      { "name": "Active", "type": "checkbox" },
+      { "name": "Notes", "type": "longText" },
+      { "name": "Region", "type": "singleSelect", "options": { "choices": [{ "name": "APAC" }, { "name": "EMEA" }, { "name": "AMER" }] } }
+    ],
+    "repeat": [
+      { "count": 24, "namePrefix": "Metric", "type": "number" },
+      { "count": 12, "namePrefix": "Text", "type": "singleLineText" },
+      { "count": 6, "namePrefix": "Flag", "type": "checkbox" },
+      { "count": 6, "namePrefix": "Date", "type": "date" }
+    ]
+  },
+  "generation": { "batchSize": 500, "seed": 42 },
+  "checks": { "rowCount": 1000000, "sampleSize": 100 }
+}

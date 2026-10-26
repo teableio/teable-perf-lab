@@ -1,10 +1,10 @@
 # BYODB stress runbook
 
 Use this recipe after selecting a live canonical row from
-[the case catalog](byodb-stress-case-catalog.md). Product load scripts are owned
-by `teableio/teable-ee/stress-tests/`; provider and deployment procedures are
-owned by `teableio/teable-infra/scripts/loadtest/`; this repository owns schema,
-analysis, deterministic verdicts, and evidence writes.
+[the case catalog](byodb-stress-case-catalog.md). Product load scripts and the
+deployment-level harness live in `stress-tests/`; provider and deployment
+procedures are owned by `teableio/teable-infra/scripts/loadtest/`; this
+repository owns schema, analysis, deterministic verdicts, and evidence writes.
 
 ## Prepare
 
@@ -28,8 +28,7 @@ analysis, deterministic verdicts, and evidence writes.
    Require `ok=true` and classification `empty` for first binding or
    `teable-managed-compatible` for reuse.
 6. Provision spaces/bases/tables through the supported product APIs documented
-   by `teableio/teable-ee/stress-tests/`; the application does not provision a
-   PostgreSQL database.
+   by `stress-tests/`; the application does not provision a PostgreSQL database.
 7. Seed deterministic data, verify counts directly, and checksum every generated
    k6 input. Empty sampled IDs are a hard failure.
 
@@ -40,14 +39,13 @@ customer-DB computed outbox backlog, due, active, stale, seed-origin, and dead
 letter counts are zero, and oldest age is below five seconds for two consecutive
 minutes. A 15-minute timeout is `inconclusive`; do not start the timed step.
 
-The k6 command and scenario path come from
-`teableio/teable-ee/stress-tests/`. Always set an explicit target environment,
-canonical run/scenario identity, profile, arrival rate, and duration. Do not put
-secrets on the command line or in saved output.
+The k6 command and scenario path come from `stress-tests/`. Always set an
+explicit target environment, canonical run/scenario identity, profile, arrival
+rate, and duration. Do not put secrets on the command line or in saved output.
 
 Collect per-step raw k6 summary, service telemetry, correctness samples, and
 provider metrics. Raw k6 output is normalized beside the load scenario by
-`teableio/teable-ee/stress-tests/tools/k6-summary.mjs`, producing the documented
+`stress-tests/tools/k6-summary.mjs`, producing the documented
 `c0-k6-summary/v2` document. Preserve that normalized document in the bundle;
 do not reimplement the normalizer here.
 

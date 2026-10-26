@@ -138,8 +138,8 @@ metadata and keep `scripts/stress/evidence-schema.mjs` aligned.
 ## Normalization and recording
 
 Raw k6 output is normalized beside the load scenario by
-`teableio/teable-ee/stress-tests/tools/k6-summary.mjs`, which emits the
-documented `c0-k6-summary/v2` document. This repository consumes that shape in
+`stress-tests/tools/k6-summary.mjs`, which emits the documented
+`c0-k6-summary/v2` document. This repository consumes that shape in
 `scripts/stress/c0-analyze.py`; it does not produce it.
 
 Record a complete bundle only after correctness and cleanup:

@@ -65,6 +65,5 @@ with an array body; filter and sort are separate PUT operations.
 Write normalized bundles through `scripts/stress/record-run.mjs` rather than
 maintaining a second evidence-key implementation. Validate canonical key
 uniqueness with `scripts/stress/check-evidence-keys.mjs`. Raw k6 summaries are
-produced as `c0-k6-summary/v2` by
-`teableio/teable-ee/stress-tests/tools/k6-summary.mjs` and consumed by
-`scripts/stress/c0-analyze.py`.
+produced as `c0-k6-summary/v2` by `stress-tests/tools/k6-summary.mjs` and
+consumed by `scripts/stress/c0-analyze.py`.

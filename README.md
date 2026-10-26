@@ -51,18 +51,21 @@ ready.
   short reading checklist.
 - `docs/operations/byodb-stress-teable-evidence-api.md`: evidence table IDs and
   safe API request patterns.
+- `stress-tests/`: deployment-level k6 workload, API seeders, datasets, C0
+  breakpoint/convergence tools, and their focused tests. Run them with
+  `pnpm check:stress-harness`.
 - `scripts/stress/evidence-schema.mjs`, `scripts/stress/evidence-gate.mjs`,
   `scripts/stress/record-run.mjs`, and `scripts/stress/check-evidence-keys.mjs`:
   schema, key generation, deterministic gate, bundle recorder, and key audit.
 - `scripts/stress/c0-analyze.py`: requires `--run-id`, `--k6`
   (`c0-k6-summary/v2` or raw), `--step`, `--target`, `--start`, and `--end`.
   It consumes the documented `c0-k6-summary/v2` document produced by
-  `teableio/teable-ee/stress-tests/tools/k6-summary.mjs`, normalized RDS metrics
+  `stress-tests/tools/k6-summary.mjs`, normalized RDS metrics
   from `teableio/teable-infra/scripts/loadtest/collect-rds-metrics.py`,
   PostgreSQL sample JSONL from
   `teableio/teable-infra/scripts/loadtest/samplers/db-sampler.sh`, and explicit
   SigNoz connection flags.
-- `scripts/stress/test/`: focused JS and Python tests run by
+- `scripts/stress/test/`: focused control-plane JS/Python tests run by
   `pnpm check:stress-js`, `pnpm check:stress-python`, and `pnpm check:stress-cli`.
 - `framework/runners/*.runner.ts`: runner implementations.
 - `framework/runners/*-model.ts`: pure workload models for runner-owned naming,

@@ -413,8 +413,8 @@ def parse_k6_tags(name):
 def normalise_k6(path):
     """Accept the compact ``c0-k6-summary/v2`` document or a raw k6 dump.
 
-    The compact document is produced outside this repository by
-    ``teableio/teable-ee/stress-tests/tools/k6-summary.mjs``.
+    The compact document is produced by
+    ``stress-tests/tools/k6-summary.mjs``.
     """
     with open(path) as handle:
         raw = json.load(handle)

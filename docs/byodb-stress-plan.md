@@ -1,9 +1,9 @@
 # BYODB long-running stress plan
 
-Status: operating plan. This plan extends the deployment-level k6 harness in
-`teableio/teable-ee/stress-tests/`; the evidence control plane, deterministic
-verdict, analysis, and documentation are owned here. Every measured claim must
-join to a canonical scenario and a `Run_ID` in the evidence base.
+Status: operating plan. This plan owns the deployment-level k6 harness in
+`stress-tests/`, the evidence control plane, deterministic verdict, analysis,
+and documentation. Every measured claim must join to a canonical scenario and a
+`Run_ID` in the evidence base.
 
 ## Purpose and boundaries
 
@@ -14,12 +14,12 @@ latency.
 
 Ownership is intentionally split:
 
-- Product-facing load generation and API behavior:
-  `teableio/teable-ee/stress-tests/k6/`.
+- Workload generation and public API behavior: `stress-tests/k6/` and
+  `stress-tests/tools/`.
 - Stress control plane, evidence schema, recording, and analysis:
-  `teableio/teable-perf-lab/scripts/stress/`. Raw k6 normalization is produced
-  by `teableio/teable-ee/stress-tests/tools/k6-summary.mjs` as the documented
-  `c0-k6-summary/v2` document consumed by `scripts/stress/c0-analyze.py`.
+  `scripts/stress/`. Raw k6 normalization is produced by
+  `stress-tests/tools/k6-summary.mjs` as the documented `c0-k6-summary/v2`
+  document consumed by `scripts/stress/c0-analyze.py`.
 - Environment provisioning, deployment, and provider samplers:
   `teableio/teable-infra/scripts/loadtest/`.
 

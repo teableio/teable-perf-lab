@@ -365,7 +365,7 @@ class RdsMetricsLoaderTests(unittest.TestCase):
 
 class K6AndDbSampleNormalizationTests(unittest.TestCase):
     def test_raw_k6_summary_is_compactable(self):
-        # Raw handleSummary shape; teable-ee/stress-tests/tools/k6-summary.mjs
+        # Raw handleSummary shape; stress-tests/tools/k6-summary.mjs
         # owns the compact c0-k6-summary/v2 producer.
         k6 = c0.normalise_k6(str(FIXTURES / "k6-summary.json"))
         self.assertEqual(k6["shape"], "raw")

@@ -1,0 +1,28 @@
+{
+  "id": "ds_small_v1",
+  "name": "small",
+  "description": "Smoke and fast regression: 100k rows, 30 columns, mixed plain fields.",
+  "rows": 100000,
+  "method": "api",
+  "table": {
+    "name": "stress_small",
+    "fields": [
+      { "name": "Name", "type": "singleLineText" },
+      { "name": "Email", "type": "singleLineText" },
+      { "name": "Status", "type": "singleSelect", "options": { "choices": [{ "name": "Todo" }, { "name": "InProgress" }, { "name": "Done" }, { "name": "Blocked" }] } },
+      { "name": "Priority", "type": "singleSelect", "options": { "choices": [{ "name": "P0" }, { "name": "P1" }, { "name": "P2" }, { "name": "P3" }] } },
+      { "name": "Tags", "type": "multipleSelect", "options": { "choices": [{ "name": "Red" }, { "name": "Green" }, { "name": "Blue" }] } },
+      { "name": "Amount", "type": "number" },
+      { "name": "Quantity", "type": "number" },
+      { "name": "Score", "type": "rating", "options": { "icon": "star", "color": "yellowBright", "max": 5 } },
+      { "name": "DueDate", "type": "date" },
+      { "name": "Active", "type": "checkbox" },
+      { "name": "Notes", "type": "longText" }
+    ],
+    "repeat": [
+      { "count": 19, "namePrefix": "Metric", "type": "number" }
+    ]
+  },
+  "generation": { "batchSize": 500, "seed": 42 },
+  "checks": { "rowCount": 100000, "sampleSize": 100 }
+}
