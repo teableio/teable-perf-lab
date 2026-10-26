@@ -180,8 +180,33 @@ carrying `FX_Rate` plus `FX_AsOf`. A partial component sum is not total cost.
 ## Security and environment handoff
 
 Secrets remain in environment variables or the repository-approved secret
-store and must never be printed or placed in a bundle. Test-only TLS or SSRF
-concessions are recorded verbatim in the environment baseline. Provisioning,
-network access, provider cleanup, and provider-specific metrics are supplied by
-`teableio/teable-infra/scripts/loadtest/`; this repository consumes only the
-normalized outputs and per-resource receipts.
+store and must never be printed or placed in a bundle. New runs allow only a
+private VPC RDS DNS endpoint with `sslmode=verify-full`; public-IP literals,
+`PubliclyAccessible=true`, inbound SSH/world ingress, and `sslmode=no-verify`
+are prohibited. A private-connectivity failure blocks the run; do not trade
+security for “getting something to run.” Historical no-verify/public-IP
+limitations remain reportable only as dated history.
+
+AWS provisioning defaults to **TeableDev `716189571018`** in `us-west-2`.
+Production `649941507946` is hard-denied and cannot be approved. Any other
+account requires a named approval artifact (approver `Nee`/`Boris`, reason,
+expiry, account/VPC) and the procedural gate
+`teableio/teable-infra/scripts/loadtest/aws_safety.py`; there is no `--force`
+or environment bypass. Validate intended state before the first mutation and
+live resources after creation:
+
+```bash
+python3 <teable-infra>/scripts/loadtest/aws_safety.py preflight \
+  --fixture <intended>.json --today "$(date -u +%F)" --run-id "$RUN_ID" --json
+python3 <teable-infra>/scripts/loadtest/aws_safety.py aws-preflight \
+  --profile "$AWS_PROFILE" --region "$AWS_REGION" --run-id "$RUN_ID" --json
+```
+
+IAC and identity policies are in
+`teableio/teable-infra/scripts/loadtest/iam/`; the full SSO/provisioning
+runbook is
+`teableio/teable-infra/docs/loadtest-teabledev-access-and-byodb-provisioning.md`.
+The 2026-10-26 incident record is
+`teableio/teable-infra/docs/loadtest-account-safety-incident-2026-10-26.md`.
+This repository consumes normalized provider artifacts and receipts; it does
+not own cloud permissions, provisioning, or cluster commands.

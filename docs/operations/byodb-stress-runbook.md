@@ -17,6 +17,13 @@ analysis, deterministic verdicts, and evidence writes.
 4. Obtain environment and provision receipts using
    `teableio/teable-infra/scripts/loadtest/`. Keep credentials in approved
    environment variables and do not print connection URLs or tokens.
+   AWS steps are additionally gated by
+   `teableio/teable-infra/scripts/loadtest/aws_safety.py require-account`.
+   Default account is TeableDev `716189571018`; production is never
+   approvable; any other account requires a named approval file. The gate is
+   procedural: run it before the first mutation, then `aws-preflight` on the
+   live resources. Full runbook:
+   `teableio/teable-infra/docs/loadtest-teabledev-access-and-byodb-provisioning.md`.
 5. Preflight every customer database from the target application environment.
    Require `ok=true` and classification `empty` for first binding or
    `teable-managed-compatible` for reuse.

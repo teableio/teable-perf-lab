@@ -78,6 +78,9 @@ A publishable report contains, in order:
    and config URI/digest.
 2. Environment/topology: app and ingress, shared/customer DB tier and version,
    pool settings, mapping, RTT, and explicit test-only security concessions.
+   New runs use private RDS DNS + `sslmode=verify-full`; public IP and
+   `sslmode=no-verify` are historical-only and must link the incident note in
+   `teableio/teable-infra/docs/loadtest-account-safety-incident-2026-10-26.md`.
 3. Load profile: model, target/achieved RPS, phase duration, and dropped
    iterations per step.
 4. Per-operation headline values with sample count, CI, errors by class, and
