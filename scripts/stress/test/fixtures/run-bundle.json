@@ -1,0 +1,90 @@
+{
+  "run": {
+    "runId": "lst_fixture_20261019T140000Z_staging_readmix_abc1234",
+    "environment": "staging",
+    "category": "core",
+    "testType": "load",
+    "scenarioSet": "readmix_v1",
+    "status": "success",
+    "verdict": "pass",
+    "datasetKey": "ds_small_v1",
+    "loadModel": "open_arrival",
+    "targetRps": 50,
+    "peakRps": 51.2,
+    "totalRequests": 60000,
+    "successRate": 99.83,
+    "p95": 420,
+    "p99": 900,
+    "errorBudgetBurn": 0.2,
+    "startTime": "2026-10-19T14:00:00Z",
+    "endTime": "2026-10-19T14:20:00Z",
+    "windowStart": "2026-10-19T14:00:00Z",
+    "windowEnd": "2026-10-19T14:20:00Z",
+    "codeVersion": "abc1234",
+    "environmentBaseline": "staging; 1M rows; pool 20; Redis on",
+    "conclusion": "read path passes at 50 RPS",
+    "bottleneckSummary": "none",
+    "collectionStatus": "observed",
+    "schemaVersion": "stress-evidence-v1",
+    "budgetStatus": "not_applicable"
+  },
+  "scenarios": [
+    {
+      "catalogId": "core.crud.list_plain",
+      "scenario": "record_list",
+      "category": "core",
+      "loadModel": "open_arrival",
+      "targetRps": 50,
+      "vus": 20,
+      "durationSec": 1200,
+      "requests": 60000,
+      "success": 59900,
+      "failed": 100,
+      "successRate": 99.83,
+      "p50": 80,
+      "p95": 420,
+      "p99": 900,
+      "p999": 1800,
+      "serverP95": 380,
+      "serverP99": 850,
+      "errorRate": 0.17,
+      "errorDistribution": "client_error=80, server_error=20",
+      "saturatedResource": "none",
+      "verdict": "pass",
+      "evidenceUrl": "https://signoz.example/trace/abc",
+      "notes": "smoke rehearsal"
+    }
+  ],
+  "metrics": [
+    {
+      "scenario": "record_list",
+      "metric": "teable.database.client.pool.waiting",
+      "metricType": "saturation",
+      "environment": "staging",
+      "serviceInstance": "all",
+      "windowStart": "2026-10-19T14:00:00Z",
+      "windowEnd": "2026-10-19T14:20:00Z",
+      "value": 0,
+      "threshold": 1,
+      "overThreshold": false,
+      "unit": "count",
+      "samples": 240,
+      "status": "healthy",
+      "collectionStatus": "observed",
+      "source": "signoz",
+      "queryReceipt": "max over 5m",
+      "sourceUrl": "https://signoz.example/metrics",
+      "category": "core"
+    }
+  ],
+  "bottlenecks": [
+    {
+      "id": "BTL-001",
+      "scenario": "record_list",
+      "category": "core",
+      "symptom": "none",
+      "status": "open",
+      "priority": "P2"
+    }
+  ]
+}

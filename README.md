@@ -24,6 +24,11 @@ ready.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
   owns trigger commands and workflow inputs.
+- Running or reviewing deployment-level BYODB stress: read
+  [docs/byodb-stress-plan.md](docs/byodb-stress-plan.md), then
+  [docs/operations/byodb-stress-runbook.md](docs/operations/byodb-stress-runbook.md).
+  Use the case catalog, evidence contract, evidence migration guide, and report
+  guide under `docs/operations/byodb-stress-*.md` as the reference set.
 
 ## File Map
 
@@ -31,6 +36,34 @@ ready.
 - `registry.ts`: registered runnable cases and manual aliases.
 - `cases/**/*.case.ts`: typed case configs.
 - `cases/**/*.md`: same-name case descriptions used by registry sync.
+- `docs/byodb-stress-plan.md`: BYODB hypotheses, factors, canonical/sweep
+  scenarios, load model, guardrails, and ownership boundaries.
+- `docs/operations/byodb-stress-runbook.md`: environment handoff, preflight,
+  C0 analysis flags, abort/cleanup, and recording commands.
+- `docs/operations/byodb-stress-case-catalog.md`: stable scenario identities,
+  lifecycle/budget selection, and the live registry read.
+- `docs/operations/byodb-stress-evidence-contract.md`: evidence tables, keys,
+  required rows, deterministic verdict, and cost/cleanup rules.
+- `docs/operations/byodb-stress-evidence-migration.md`: identity, key, verdict,
+  receipt, and cost repair for historical evidence.
+- `docs/operations/byodb-stress-report-guide.md` and
+  `docs/operations/byodb-stress-report-reading.md`: publication rules and the
+  short reading checklist.
+- `docs/operations/byodb-stress-teable-evidence-api.md`: evidence table IDs and
+  safe API request patterns.
+- `scripts/stress/evidence-schema.mjs`, `scripts/stress/evidence-gate.mjs`,
+  `scripts/stress/record-run.mjs`, and `scripts/stress/check-evidence-keys.mjs`:
+  schema, key generation, deterministic gate, bundle recorder, and key audit.
+- `scripts/stress/c0-analyze.py`: requires `--run-id`, `--k6`
+  (`c0-k6-summary/v2` or raw), `--step`, `--target`, `--start`, and `--end`.
+  It consumes the documented `c0-k6-summary/v2` document produced by
+  `teableio/teable-ee/stress-tests/tools/k6-summary.mjs`, normalized RDS metrics
+  from `teableio/teable-infra/scripts/loadtest/collect-rds-metrics.py`,
+  PostgreSQL sample JSONL from
+  `teableio/teable-infra/scripts/loadtest/samplers/db-sampler.sh`, and explicit
+  SigNoz connection flags.
+- `scripts/stress/test/`: focused JS and Python tests run by
+  `pnpm check:stress-js`, `pnpm check:stress-python`, and `pnpm check:stress-cli`.
 - `framework/runners/*.runner.ts`: runner implementations.
 - `framework/runners/*-model.ts`: pure workload models for runner-owned naming,
   fixture shape, expected values, and config validation. Keep Teable I/O in the
