@@ -1,0 +1,776 @@
+# Executes the migrated v2 headless benchmark against an exact teable-ee commit.
+# Product source, compiled runtime, logs, and benchmark receipts stay out of this
+# repository and are transported through the private teable-ci-logs repository.
+
+name: Headless benchmark
+run-name: "Headless benchmark — ${{ inputs.source_sha }}${{ inputs.pr_number && format(' (PR #{0})', inputs.pr_number) || '' }}"
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact 40-character source commit SHA
+        required: true
+        type: string
+      harness_sha:
+        description: Exact 40-character teable-perf-lab commit SHA
+        required: true
+        type: string
+      source_repository:
+        description: Source repository in owner/name form
+        required: false
+        default: teableio/teable-ee
+        type: string
+      pr_number:
+        description: Optional source pull request number for private log metadata
+        required: false
+        default: ""
+        type: string
+      log_tag:
+        description: Optional existing teable-ci-logs release tag
+        required: false
+        default: ""
+        type: string
+      check_run_id:
+        description: Optional source check run to conclude and include in the callback
+        required: false
+        default: ""
+        type: string
+    secrets:
+      RCI_APP_ID:
+        required: false
+      RCI_APP_PRIVATE_KEY:
+        required: false
+      TEABLE_EE_CHECKOUT_SSH_KEY:
+        required: false
+    outputs:
+      result:
+        description: Overall runtime, matrix, and report result
+        value: ${{ jobs.actions.outputs.result }}
+      report_asset:
+        description: Run-attempt-specific private report asset name
+        value: ${{ jobs.report.outputs.report_asset }}
+      log_tag:
+        description: Private teable-ci-logs release tag
+        value: ${{ jobs.report.outputs.log_tag }}
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character source commit SHA
+        required: true
+        type: string
+      harness_sha:
+        description: Exact 40-character teable-perf-lab commit SHA
+        required: true
+        type: string
+      source_repository:
+        description: Source repository in owner/name form
+        required: false
+        default: teableio/teable-ee
+        type: string
+      pr_number:
+        description: Optional source pull request number for private log metadata
+        required: false
+        default: ""
+        type: string
+      log_tag:
+        description: Optional existing teable-ci-logs release tag
+        required: false
+        default: ""
+        type: string
+      check_run_id:
+        description: Optional source check run to conclude and include in the callback
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: headless-bench-${{ inputs.source_repository }}-${{ inputs.pr_number || inputs.source_sha }}
+  cancel-in-progress: true
+
+env:
+  CI: "1"
+  LOG_DIR: /tmp/ci-logs
+  LOGS_REPO: teableio/teable-ci-logs
+  LOG_TAG: ${{ inputs.log_tag || format('headless-bench-{0}', github.run_id) }}
+  PR_NUMBER: ${{ inputs.pr_number }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+  HARNESS_SHA: ${{ inputs.harness_sha }}
+  BENCH_REPORT_ASSET: bench-unified-${{ github.run_id }}-${{ github.run_attempt }}.md
+  RUNTIME_RELEASE_TAG: headless-bench-runtime-v2-${{ github.run_id }}-${{ github.run_attempt }}
+  RUNTIME_ASSET: headless-bench-runtime-${{ github.run_id }}-${{ github.run_attempt }}.tar.zst
+  TEABLE_BENCH_OUT_DIR: /tmp/teable-headless-bench
+
+jobs:
+  runtime:
+    name: Build benchmark runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      checkout_sha: ${{ steps.verify-source.outputs.sha }}
+      runtime_tag: ${{ env.RUNTIME_RELEASE_TAG }}
+      runtime_asset: ${{ env.RUNTIME_ASSET }}
+    env:
+      TEABLE_TSDOWN_DISABLE_DTS: "1"
+      HAS_APP: ${{ secrets.RCI_APP_ID != '' && secrets.RCI_APP_PRIVATE_KEY != '' }}
+      HAS_SOURCE_SSH: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY != '' }}
+    steps:
+      - name: Validate immutable inputs
+        env:
+          CHECK_RUN_ID: ${{ inputs.check_run_id }}
+          REQUESTED_LOG_TAG: ${{ inputs.log_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_sha must be an exact lowercase 40-character commit SHA"; exit 1; }
+          [[ "$HARNESS_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::harness_sha must be an exact lowercase 40-character commit SHA"; exit 1; }
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::source_repository must be owner/name"; exit 1; }
+          [[ -z "$CHECK_RUN_ID" || "$CHECK_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::check_run_id must be numeric"; exit 1; }
+          [[ -z "$REQUESTED_LOG_TAG" || "$REQUESTED_LOG_TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::log_tag contains unsupported characters"; exit 1; }
+          if [ "$HAS_APP" != "true" ]; then
+            echo "::error::RCI App credentials are required for the private runtime and log channel"
+            exit 1
+          fi
+          echo "owner=${SOURCE_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "repo=${SOURCE_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+        id: inputs
+
+      - name: Mint source checkout token
+        id: source-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: ${{ steps.inputs.outputs.owner }}
+          repositories: ${{ steps.inputs.outputs.repo }}
+          permission-contents: read
+
+      - name: Require source checkout credentials
+        if: steps.source-token.outputs.token == '' && env.HAS_SOURCE_SSH != 'true'
+        run: |
+          echo "::error::The App cannot read the source repository and no TEABLE_EE_CHECKOUT_SSH_KEY fallback is configured"
+          exit 1
+
+      - name: Mint private log token
+        id: logs-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: teableio
+          repositories: teable-ci-logs
+          permission-contents: write
+
+      - name: Checkout exact benchmark harness
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-perf-lab
+          ref: ${{ inputs.harness_sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact source with App token
+        if: steps.source-token.outputs.token != ''
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          path: source
+          token: ${{ steps.source-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Checkout exact source with SSH fallback
+        if: steps.source-token.outputs.token == '' && env.HAS_SOURCE_SSH == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          path: source
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+          persist-credentials: false
+
+      - name: Verify exact checkouts
+        id: verify-source
+        run: |
+          set -euo pipefail
+          actual_harness=$(git -C harness rev-parse HEAD)
+          actual_source=$(git -C source rev-parse HEAD)
+          [ "$actual_harness" = "$HARNESS_SHA" ] || { echo "::error::Harness checkout did not resolve to harness_sha"; exit 1; }
+          [ "$actual_source" = "$SOURCE_SHA" ] || { echo "::error::Source checkout did not resolve to source_sha"; exit 1; }
+          echo "sha=$actual_source" >> "$GITHUB_OUTPUT"
+
+      - name: Use Node.js 24.22.2
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.22.2
+
+      - name: Install harness dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR"
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            corepack enable
+            corepack prepare pnpm@9.13.0 --activate
+            pnpm --dir harness install --frozen-lockfile
+          ) >> "$LOG_DIR/bench-runtime.log" 2>&1
+          status=$?
+          set -e
+          echo "harness install exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Test migrated runtime and report tools
+        run: |
+          set -euo pipefail
+          status=0
+          node --test \
+            harness/headless/scripts/benchmark-unified-report.test.mjs \
+            harness/headless/scripts/bench-runtime-archive.test.mjs \
+            >> "$LOG_DIR/bench-runtime.log" 2>&1 || status=$?
+          echo "tool tests exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Prepare source workspace
+        run: |
+          set -euo pipefail
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            node harness/headless/scripts/prepare-workspace.mjs \
+              --source-root source \
+              --source-repository "$SOURCE_REPOSITORY" \
+              --source-sha "$SOURCE_SHA" \
+              --harness-sha "$HARNESS_SHA"
+            mkdir -p "$TEABLE_BENCH_OUT_DIR"
+            cp source/.headless-bench-source.json "$TEABLE_BENCH_OUT_DIR/source.json"
+          ) >> "$LOG_DIR/bench-runtime.log" 2>&1
+          status=$?
+          set -e
+          echo "workspace prepare exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Activate source pnpm version
+        id: source-package-manager
+        run: |
+          set -euo pipefail
+          package_manager=$(node -e 'const value=require("./source/package.json").packageManager; if (!/^pnpm@[0-9]+\.[0-9]+\.[0-9]+$/.test(value || "")) process.exit(1); process.stdout.write(value)')
+          corepack prepare "$package_manager" --activate >> "$LOG_DIR/bench-runtime.log" 2>&1
+          expected=${package_manager#pnpm@}
+          actual=$(pnpm --version)
+          [ "$actual" = "$expected" ] || { echo "::error::Source pnpm version differs from packageManager"; exit 1; }
+          echo "spec=$package_manager" >> "$GITHUB_OUTPUT"
+
+      - name: Install source benchmark closure
+        working-directory: source
+        run: |
+          set -euo pipefail
+          status=0
+          pnpm install --frozen-lockfile --filter @teable/v2-headless-bench... \
+            >> "$LOG_DIR/bench-runtime.log" 2>&1 || status=$?
+          echo "source install exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Build and pack benchmark runtime
+        working-directory: source
+        run: |
+          set -euo pipefail
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            pnpm -r --filter @teable/v2-headless-bench... build
+            node ../harness/headless/scripts/bench-runtime-archive.mjs create \
+              --root . \
+              --archive "/tmp/$RUNTIME_ASSET" \
+              --sha "$SOURCE_SHA" \
+              --harness-sha "$HARNESS_SHA"
+          ) >> "$LOG_DIR/bench-runtime.log" 2>&1
+          status=$?
+          set -e
+          echo "runtime build exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Publish private run-scoped runtime
+        env:
+          GH_TOKEN: ${{ steps.logs-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            cutoff=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+            stale_releases=$(mktemp)
+            gh api --paginate "repos/$LOGS_REPO/releases?per_page=100" \
+              --jq '.[] | select((.tag_name | startswith("headless-bench-runtime-v2-")) and .published_at != null) | [.tag_name, .published_at] | @tsv' \
+              > "$stale_releases"
+            while IFS=$'\t' read -r tag published; do
+              [ -n "$tag" ] || continue
+              if [[ "$published" < "$cutoff" ]]; then
+                gh release delete "$tag" -R "$LOGS_REPO" --cleanup-tag --yes
+              fi
+            done < "$stale_releases"
+            gh release create "$RUNTIME_RELEASE_TAG" -R "$LOGS_REPO" --prerelease \
+              --title "Temporary headless benchmark runtime ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" \
+              --notes "source_sha=$SOURCE_SHA harness_sha=$HARNESS_SHA run=$RUN_URL cleanup=next-producer-after-24h"
+            gh release upload "$RUNTIME_RELEASE_TAG" "/tmp/$RUNTIME_ASSET" -R "$LOGS_REPO"
+          ) >> "$LOG_DIR/bench-runtime.log" 2>&1
+          status=$?
+          set -e
+          echo "runtime publish exit=$status ($(wc -l < "$LOG_DIR/bench-runtime.log") private log lines)"
+          exit "$status"
+
+      - name: Ship runtime producer log
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.logs-token.outputs.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR"
+          [ -f "$LOG_DIR/bench-runtime.log" ] || echo "(runtime producer failed before its first logged step)" > "$LOG_DIR/bench-runtime.log"
+          gh release create "$LOG_TAG" -R "$LOGS_REPO" \
+            --title "Headless benchmark $LOG_TAG${PR_NUMBER:+ (PR #$PR_NUMBER)}" \
+            --notes "source_sha=$SOURCE_SHA harness_sha=$HARNESS_SHA run=$RUN_URL" 2>/dev/null || true
+          gh release upload "$LOG_TAG" "$LOG_DIR/bench-runtime.log" "$TEABLE_BENCH_OUT_DIR/source.json" \
+            -R "$LOGS_REPO" --clobber 2>/dev/null || \
+            gh release upload "$LOG_TAG" "$LOG_DIR/bench-runtime.log" -R "$LOGS_REPO" --clobber
+          if [ "$JOB_STATUS" != "success" ]; then
+            echo failed > "$LOG_DIR/bench-runtime.failed"
+            gh release upload "$LOG_TAG" "$LOG_DIR/bench-runtime.failed" -R "$LOGS_REPO" --clobber
+          else
+            # The evidence tag spans attempts, so a passing rerun must clear its old marker.
+            gh release delete-asset "$LOG_TAG" bench-runtime.failed -R "$LOGS_REPO" --yes 2>/dev/null || true
+          fi
+
+  bench:
+    name: V2 Benchmarks (${{ matrix.family }})
+    needs: runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        family:
+          - storage-query
+          - write
+          - formula
+          - lookup
+          - rollup
+          - conditional-link
+          - propagation
+          - api-limit
+          - headless-http
+          - core-operations
+          - core-extra
+          - core-scale
+          - core-transitions
+          - core-views
+          - core-computed-changes
+          - core-query-cases
+          - core-relation-cases
+          - core-field-transitions
+          - core-fanout-deletion
+          - core-volume-cases
+          - complexity-score
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: teable_bench
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d teable_bench"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      HAS_SOURCE_SSH: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY != '' }}
+      PRISMA_DATABASE_URL: postgres://postgres@127.0.0.1:5432/teable_bench
+      TEABLE_BENCH_SAMPLES: "100"
+      TEABLE_BENCH_FAMILIES: ${{ matrix.family }}
+    steps:
+      - name: Resolve source repository
+        id: source-repo
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$HARNESS_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          echo "owner=${SOURCE_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "repo=${SOURCE_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint source checkout token
+        id: source-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: ${{ steps.source-repo.outputs.owner }}
+          repositories: ${{ steps.source-repo.outputs.repo }}
+          permission-contents: read
+
+      - name: Require source checkout credentials
+        if: steps.source-token.outputs.token == '' && env.HAS_SOURCE_SSH != 'true'
+        run: |
+          echo "::error::The App cannot read the source repository and no SSH fallback is configured"
+          exit 1
+
+      - name: Mint private runtime read token
+        id: logs-read
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: teableio
+          repositories: teable-ci-logs
+          permission-contents: read
+
+      - name: Mint private log write token
+        id: logs-write
+        if: always()
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: teableio
+          repositories: teable-ci-logs
+          permission-contents: write
+
+      - name: Checkout exact benchmark harness
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-perf-lab
+          ref: ${{ inputs.harness_sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact source with App token
+        if: steps.source-token.outputs.token != ''
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ needs.runtime.outputs.checkout_sha }}
+          path: source
+          token: ${{ steps.source-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Checkout exact source with SSH fallback
+        if: steps.source-token.outputs.token == '' && env.HAS_SOURCE_SSH == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ needs.runtime.outputs.checkout_sha }}
+          path: source
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+          persist-credentials: false
+
+      - name: Verify exact checkouts
+        run: |
+          set -euo pipefail
+          [ "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA" ] || { echo "::error::Harness checkout differs from harness_sha"; exit 1; }
+          [ "$(git -C source rev-parse HEAD)" = "${{ needs.runtime.outputs.checkout_sha }}" ] || { echo "::error::Benchmark checkout differs from built runtime"; exit 1; }
+
+      - name: Use Node.js 24.22.2
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.22.2
+
+      - name: Install harness dependencies and prepare source
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR" "$TEABLE_BENCH_OUT_DIR"
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            corepack enable
+            corepack prepare pnpm@9.13.0 --activate
+            pnpm --dir harness install --frozen-lockfile
+            node harness/headless/scripts/prepare-workspace.mjs \
+              --source-root source \
+              --source-repository "$SOURCE_REPOSITORY" \
+              --source-sha "$SOURCE_SHA" \
+              --harness-sha "$HARNESS_SHA"
+            cp source/.headless-bench-source.json "$TEABLE_BENCH_OUT_DIR/source.json"
+            source_package_manager=$(node -e 'const value=require("./source/package.json").packageManager; if (!/^pnpm@[0-9]+\.[0-9]+\.[0-9]+$/.test(value || "")) process.exit(1); process.stdout.write(value)')
+            corepack prepare "$source_package_manager" --activate
+            [ "$(pnpm --version)" = "${source_package_manager#pnpm@}" ]
+          ) >> "$LOG_DIR/bench.log" 2>&1
+          status=$?
+          set -e
+          echo "workspace prepare exit=$status family=$TEABLE_BENCH_FAMILIES ($(wc -l < "$LOG_DIR/bench.log") private log lines)"
+          exit "$status"
+
+      - name: Restore private benchmark runtime
+        env:
+          GH_TOKEN: ${{ steps.logs-read.outputs.token }}
+        run: |
+          set -euo pipefail
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            gh release download "${{ needs.runtime.outputs.runtime_tag }}" -R "$LOGS_REPO" \
+              -D /tmp --pattern "${{ needs.runtime.outputs.runtime_asset }}" --clobber
+            node harness/headless/scripts/bench-runtime-archive.mjs restore \
+              --root source \
+              --archive "/tmp/${{ needs.runtime.outputs.runtime_asset }}" \
+              --sha "$SOURCE_SHA" \
+              --harness-sha "$HARNESS_SHA"
+            sync
+          ) >> "$LOG_DIR/bench.log" 2>&1
+          status=$?
+          set -e
+          echo "runtime restore exit=$status family=$TEABLE_BENCH_FAMILIES ($(wc -l < "$LOG_DIR/bench.log") private log lines)"
+          exit "$status"
+
+      - name: Run bounded PostgreSQL benchmark catalogue
+        working-directory: source
+        run: |
+          mkdir -p "$LOG_DIR" "$TEABLE_BENCH_OUT_DIR"
+          status=0
+          set +e
+          (
+            set -euo pipefail
+            case "$TEABLE_BENCH_FAMILIES" in
+              headless-http) pnpm --filter @teable/v2-headless-bench bench:http-ci ;;
+              complexity-score) DATABASE_URL="$PRISMA_DATABASE_URL" pnpm --filter @teable/v2-headless-bench bench:complexity-ci gate --samples 100 --out-dir "$TEABLE_BENCH_OUT_DIR" --runner github-ubuntu-latest-node24-postgres16 --calibration budgets/complexity.calibration.json --calibration-sha256 ec24ef31d3638f2e85b65b2be47c11780f43e1b1eac522eec2a80282ddca0111 --json "$TEABLE_BENCH_OUT_DIR/summary.json" --markdown "$TEABLE_BENCH_OUT_DIR/summary.md" ;;
+              core-*) TEABLE_BENCH_TRACK="$TEABLE_BENCH_FAMILIES" pnpm --filter @teable/v2-headless-bench bench:core-ci ;;
+              *) pnpm --filter @teable/v2-headless-bench bench:ci ;;
+            esac
+            cat "$TEABLE_BENCH_OUT_DIR/summary.json"
+          ) >> "$LOG_DIR/bench.log" 2>&1
+          status=$?
+          set -e
+          echo "bench exit=$status family=$TEABLE_BENCH_FAMILIES ($(wc -l < "$LOG_DIR/bench.log") private log lines)"
+          exit "$status"
+
+      - name: Ship private family log and evidence
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.logs-write.outputs.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$LOG_DIR"
+          LOG_FILE="$LOG_DIR/bench-${{ matrix.family }}.log"
+          [ -f "$LOG_DIR/bench.log" ] || echo "(no log produced; job failed before its first logged step)" > "$LOG_DIR/bench.log"
+          mv "$LOG_DIR/bench.log" "$LOG_FILE"
+          gh release create "$LOG_TAG" -R "$LOGS_REPO" \
+            --title "Headless benchmark $LOG_TAG${PR_NUMBER:+ (PR #$PR_NUMBER)}" \
+            --notes "source_sha=$SOURCE_SHA harness_sha=$HARNESS_SHA run=$RUN_URL" 2>/dev/null || true
+          gh release upload "$LOG_TAG" "$LOG_FILE" -R "$LOGS_REPO" --clobber
+          if [ -d "$TEABLE_BENCH_OUT_DIR" ]; then
+            tar -C "$TEABLE_BENCH_OUT_DIR" -czf "$LOG_DIR/headless-bench-${{ matrix.family }}.tgz" .
+            gh release upload "$LOG_TAG" "$LOG_DIR/headless-bench-${{ matrix.family }}.tgz" -R "$LOGS_REPO" --clobber
+          fi
+          if [ "$JOB_STATUS" != "success" ]; then
+            echo failed > "$LOG_DIR/bench-${{ matrix.family }}.failed"
+            gh release upload "$LOG_TAG" "$LOG_DIR/bench-${{ matrix.family }}.failed" -R "$LOGS_REPO" --clobber
+          else
+            # The evidence tag spans attempts, so a passing rerun must clear its old marker.
+            gh release delete-asset "$LOG_TAG" "bench-${{ matrix.family }}.failed" -R "$LOGS_REPO" --yes 2>/dev/null || true
+          fi
+
+  report:
+    name: Consolidate private benchmark report
+    needs: [runtime, bench]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      report_status: ${{ steps.report.outcome }}
+      report_asset: ${{ env.BENCH_REPORT_ASSET }}
+      log_tag: ${{ env.LOG_TAG }}
+    steps:
+      - name: Mint private report token
+        id: logs-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: teableio
+          repositories: teable-ci-logs
+          permission-contents: write
+
+      - name: Checkout exact benchmark harness
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-perf-lab
+          ref: ${{ inputs.harness_sha }}
+          path: harness
+          persist-credentials: false
+
+      - name: Verify exact harness checkout
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$HARNESS_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [ "$(git -C harness rev-parse HEAD)" = "$HARNESS_SHA" ] || { echo "::error::Harness checkout differs from harness_sha"; exit 1; }
+
+      - name: Use Node.js 24.22.2
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.22.2
+
+      - name: Consolidate benchmark report into private release
+        id: report
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.logs-token.outputs.token }}
+          RUNTIME_STATUS: ${{ needs.runtime.result }}
+          BENCH_STATUS: ${{ needs.bench.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p bench-evidence
+          gh release create "$LOG_TAG" -R "$LOGS_REPO" \
+            --title "Headless benchmark $LOG_TAG${PR_NUMBER:+ (PR #$PR_NUMBER)}" \
+            --notes "source_sha=$SOURCE_SHA harness_sha=$HARNESS_SHA run=$RUN_URL" 2>/dev/null || true
+          gh release download "$LOG_TAG" -R "$LOGS_REPO" -D bench-evidence \
+            --pattern 'headless-bench-*.tgz' --clobber || true
+          for archive in bench-evidence/headless-bench-*.tgz; do
+            [ -f "$archive" ] || continue
+            dir="bench-evidence/$(basename "$archive" .tgz)"
+            mkdir -p "$dir"
+            tar -xzf "$archive" -C "$dir" || true
+          done
+          status=0
+          node harness/headless/scripts/benchmark-unified-report.mjs \
+            --root bench-evidence \
+            --families 'storage-query,write,formula,lookup,rollup,conditional-link,propagation,api-limit,headless-http,core-operations,core-extra,core-scale,core-transitions,core-views,core-computed-changes,core-query-cases,core-relation-cases,core-field-transitions,core-fanout-deletion,core-volume-cases,complexity-score' \
+            --source-sha "$SOURCE_SHA" \
+            --harness-sha "$HARNESS_SHA" \
+            --runtime-status "$RUNTIME_STATUS" \
+            --bench-status "$BENCH_STATUS" \
+            --output "bench-evidence/$BENCH_REPORT_ASSET" || status=$?
+          if [ "$status" -gt 1 ] || [ ! -s "bench-evidence/$BENCH_REPORT_ASSET" ]; then
+            printf '## Unified benchmark report\n\nOverall verdict: **FAIL**.\n\nThe report process failed (exit %s) before publishing complete evidence. No performance pass is available for this attempt.\n' "$status" > "bench-evidence/$BENCH_REPORT_ASSET"
+            status=1
+          fi
+          {
+            printf '# Headless benchmark %s.%s\n\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            printf -- '- Source: `%s@%s`\n' "$SOURCE_REPOSITORY" "$SOURCE_SHA"
+            printf -- '- Harness: `teableio/teable-perf-lab@%s`\n' "$HARNESS_SHA"
+            printf -- '- Run: %s\n\n' "$RUN_URL"
+            cat "bench-evidence/$BENCH_REPORT_ASSET"
+          } > bench-evidence/release-notes.md
+          gh release upload "$LOG_TAG" "bench-evidence/$BENCH_REPORT_ASSET" -R "$LOGS_REPO" --clobber
+          gh release edit "$LOG_TAG" -R "$LOGS_REPO" --notes-file bench-evidence/release-notes.md
+          exit "$status"
+
+      - name: Resolve source callback repository
+        if: always() && inputs.check_run_id != '' && github.repository == 'teableio/teable-perf-lab'
+        id: callback-repo
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
+          [[ "${{ inputs.check_run_id }}" =~ ^[0-9]+$ ]] || exit 1
+          echo "owner=${SOURCE_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "repo=${SOURCE_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint source callback token
+        if: always() && inputs.check_run_id != '' && github.repository == 'teableio/teable-perf-lab'
+        id: callback-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RCI_APP_ID }}
+          private-key: ${{ secrets.RCI_APP_PRIVATE_KEY }}
+          owner: ${{ steps.callback-repo.outputs.owner }}
+          repositories: ${{ steps.callback-repo.outputs.repo }}
+          permission-contents: write
+          permission-checks: write
+
+      - name: Checkout source conclusion action
+        if: always() && inputs.check_run_id != '' && github.event_name == 'repository_dispatch' && github.repository == 'teableio/teable-perf-lab'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_sha }}
+          path: source-callback
+          token: ${{ steps.callback-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/remote-ci-conclude
+
+      - name: Conclude repository-dispatch check run
+        if: always() && inputs.check_run_id != '' && github.event_name == 'repository_dispatch' && github.repository == 'teableio/teable-perf-lab'
+        uses: ./source-callback/.github/actions/remote-ci-conclude
+        with:
+          suite: bench
+          results: "runtime=${{ needs.runtime.result }} bench=${{ needs.bench.result }} report=${{ steps.report.outcome }}"
+          app-token: ${{ steps.callback-token.outputs.token }}
+          logs-token: ${{ steps.logs-token.outputs.token }}
+
+      - name: Conclude explicit standalone check run
+        if: always() && inputs.check_run_id != '' && github.event_name == 'workflow_dispatch' && github.repository == 'teableio/teable-perf-lab'
+        env:
+          GH_TOKEN: ${{ steps.callback-token.outputs.token }}
+          CHECK_RUN_ID: ${{ inputs.check_run_id }}
+          RESULTS: runtime=${{ needs.runtime.result }} bench=${{ needs.bench.result }} report=${{ steps.report.outcome }}
+        run: |
+          set -euo pipefail
+          conclusion=success
+          [ "${{ needs.runtime.result }}" = success ] && \
+            [ "${{ needs.bench.result }}" = success ] && \
+            [ "${{ steps.report.outcome }}" = success ] || conclusion=failure
+          summary=$(mktemp)
+          printf '**Verdict:** %s\n\n`%s`\n\nPrivate report: `%s` in `%s`\n' "$conclusion" "$RESULTS" "$BENCH_REPORT_ASSET" "$LOGS_REPO" > "$summary"
+          jq -n --arg conclusion "$conclusion" --arg url "$RUN_URL" --arg title "bench: $conclusion" --rawfile summary "$summary" \
+            '{status:"completed", conclusion:$conclusion, details_url:$url, output:{title:$title, summary:$summary}}' | \
+            gh api -X PATCH "repos/$SOURCE_REPOSITORY/check-runs/$CHECK_RUN_ID" --input - > /dev/null
+
+      - name: Dispatch private report callback
+        if: always() && inputs.check_run_id != '' && github.repository == 'teableio/teable-perf-lab'
+        env:
+          GH_TOKEN: ${{ steps.callback-token.outputs.token }}
+        run: |
+          gh api "repos/$SOURCE_REPOSITORY/dispatches" \
+            -f event_type=ee-remote-ci-done \
+            -f 'client_payload[suite]=bench' \
+            -f "client_payload[pr_number]=$PR_NUMBER" \
+            -f "client_payload[ee_sha]=$SOURCE_SHA" \
+            -f "client_payload[log_tag]=$LOG_TAG" \
+            -f "client_payload[report_asset]=$BENCH_REPORT_ASSET" \
+            -f "client_payload[remote_run_url]=$RUN_URL" \
+            -f "client_payload[check_run_id]=${{ inputs.check_run_id }}" \
+            -f "client_payload[results]=runtime=${{ needs.runtime.result }} bench=${{ needs.bench.result }} report=${{ steps.report.outcome }}"
+
+  actions:
+    name: Headless benchmark result
+    needs: [runtime, bench, report]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      result: ${{ steps.verdict.outputs.result }}
+    steps:
+      - name: Enforce complete benchmark result
+        id: verdict
+        env:
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+          BENCH_RESULT: ${{ needs.bench.result }}
+          REPORT_JOB_RESULT: ${{ needs.report.result }}
+          REPORT_RESULT: ${{ needs.report.outputs.report_status }}
+        run: |
+          set -euo pipefail
+          result=success
+          [ "$RUNTIME_RESULT" = success ] && \
+            [ "$BENCH_RESULT" = success ] && \
+            [ "$REPORT_JOB_RESULT" = success ] && \
+            [ "$REPORT_RESULT" = success ] || result=failure
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" != success ]; then
+            echo "::error::Headless benchmark failed: runtime=$RUNTIME_RESULT bench=$BENCH_RESULT report-job=$REPORT_JOB_RESULT report=$REPORT_RESULT"
+            exit 1
+          fi

@@ -1,0 +1,700 @@
+{
+  "schema": "tea-bench-budgets/2",
+  "headroom": 3,
+  "floorMs": 5,
+  "provenance": {
+    "source": "GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg api-limit; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg conditional-link; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg formula; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg lookup; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg propagation; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg rollup; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg storage-query; GitHub ubuntu-latest Node 24.19.0 PostgreSQL 16 calibration run 41378239834 catalogue leg write",
+    "backend": "postgres",
+    "measurementProtocol": {
+      "version": 2,
+      "warmupStrategy": "fresh-full-workload-per-pass",
+      "timingScope": "workload-operation-only",
+      "statistic": "nearest-rank-p95"
+    },
+    "warmup": 1,
+    "repetitions": 1,
+    "samples": 100,
+    "calibratedAt": "2026-11-02T02:45:08.201Z"
+  },
+  "cases": {
+    "scn_024ebc14e1b7f0905ddcb1a23298a03aa5f5116bcc5d85cb2c1d3b056f52b47c": {
+      "ruleId": "R-QUERY-005",
+      "caseId": "sha256:e322b8dc7becf4e9062a2fb23519e2957c8ab9c2f01fcdb13bee4ffae2b1f300",
+      "maxP95Ms": 17.74,
+      "operations": {
+        "transition-1-structured-query": {
+          "maxP95Ms": 17.74
+        }
+      }
+    },
+    "scn_04a03d804b1e812075c54468c577a3a0c19de9cd2985b3fc673974ddbdb1db00": {
+      "ruleId": "R-FORMULA-003",
+      "caseId": "sha256:95f5b22b5ee364273bfcfc896161246e97e129c52002f2839b0332166edb9c99",
+      "maxP95Ms": 955.43,
+      "operations": {
+        "transition-1-normal-source": {
+          "maxP95Ms": 62.81
+        },
+        "transition-1-flush-normal": {
+          "maxP95Ms": 11.27
+        },
+        "transition-2-trigger-error": {
+          "maxP95Ms": 91.38
+        },
+        "transition-2-flush-error": {
+          "maxP95Ms": 307.37
+        },
+        "transition-3-recover-source": {
+          "maxP95Ms": 104.36
+        },
+        "transition-3-flush-recovered": {
+          "maxP95Ms": 378.24
+        }
+      }
+    },
+    "scn_0aab25619f41bbb230d400b84ea745d31be769956eb2ba1df06d50735405d375": {
+      "ruleId": "R-ROLLUP-002",
+      "caseId": "sha256:7c5a2d1c1fdb2d1925d00477a287bcab0e5d86eb617df648c063a832e8684a85",
+      "maxP95Ms": 3311.07,
+      "operations": {
+        "transition-1-establish-many": {
+          "maxP95Ms": 650.97
+        },
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 524.82
+        },
+        "transition-2-update-child": {
+          "maxP95Ms": 204
+        },
+        "transition-2-flush": {
+          "maxP95Ms": 496.57
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 16.16
+        },
+        "transition-3-clear-child": {
+          "maxP95Ms": 210.45
+        },
+        "transition-3-flush": {
+          "maxP95Ms": 456.27
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 16.02
+        },
+        "transition-4-restore-child": {
+          "maxP95Ms": 205.55
+        },
+        "transition-4-flush": {
+          "maxP95Ms": 514.19
+        },
+        "transition-4-checkpoint-flush": {
+          "maxP95Ms": 16.07
+        }
+      }
+    },
+    "scn_27876e3da2f03785b0ccd8a38e2260c7b924ed164c6282d8753c4dd92c09c81c": {
+      "ruleId": "R-WRITE-007",
+      "caseId": "sha256:be21021e6c673fb0078581d3574567afd03235b782782398d284d41d29935617",
+      "maxP95Ms": 197.63,
+      "operations": {
+        "transition-1-initial": {
+          "maxP95Ms": 57.35
+        },
+        "transition-2-clear": {
+          "maxP95Ms": 72.04
+        },
+        "transition-3-restore": {
+          "maxP95Ms": 68.24
+        }
+      }
+    },
+    "scn_30454a8c85bad6b3a8e6e2fe4d4405eee871f413dfb3992daf428f6ad46eb994": {
+      "ruleId": "R-WRITE-002",
+      "caseId": "sha256:17f26d7a1aaf01563142b8b8ebcc490ec9475ead6e131a434c7db03c00986001",
+      "maxP95Ms": 187.97,
+      "operations": {
+        "transition-1-update": {
+          "maxP95Ms": 150.95
+        },
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.84
+        },
+        "transition-2-read-new-value": {
+          "maxP95Ms": 26.18
+        }
+      }
+    },
+    "scn_3133279da4f697fed7960268221709a76234621119ba3d9c7e0b1d6067626ac5": {
+      "ruleId": "R-WRITE-003",
+      "caseId": "sha256:7ed3e987dfe5dc059968fc21242ba109c79ddea210664dea95aed17dd1195d62",
+      "maxP95Ms": 271.12,
+      "operations": {
+        "transition-1-create": {
+          "maxP95Ms": 137.84
+        },
+        "transition-2-delete-existing": {
+          "maxP95Ms": 85.79
+        },
+        "transition-2-delete-last-row": {
+          "maxP95Ms": 47.49
+        }
+      }
+    },
+    "scn_409d7b7670522fb4c8daa22c779ca60ed5d9c07c335105797b87dbff21086128": {
+      "ruleId": "R-COND-002",
+      "caseId": "sha256:7983cbd3a8c0c9a47a127cc21f506a526451240c688e853f1bc64553b0b7dc00",
+      "maxP95Ms": 992.21,
+      "operations": {
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.91
+        },
+        "transition-2-empty": {
+          "maxP95Ms": 78.23
+        },
+        "transition-2-flush": {
+          "maxP95Ms": 347.07
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 10.21
+        },
+        "transition-3-one-match": {
+          "maxP95Ms": 145.03
+        },
+        "transition-3-flush": {
+          "maxP95Ms": 389.47
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 11.29
+        }
+      }
+    },
+    "scn_42602bc0208077b04055b109fe227e5283b44dd462ac45ca3cfa5af998797cee": {
+      "ruleId": "R-FORMULA-002",
+      "caseId": "sha256:7b495a0a21b0d4018e2f31f8ade1ff5af31a2a7ef716efe9320b387505c68b29",
+      "maxP95Ms": 591.09,
+      "operations": {
+        "transition-1-clear-source": {
+          "maxP95Ms": 85.33
+        },
+        "transition-1-flush-null": {
+          "maxP95Ms": 224.86
+        },
+        "transition-2-restore-source": {
+          "maxP95Ms": 88.37
+        },
+        "transition-2-flush-restored": {
+          "maxP95Ms": 192.52
+        }
+      }
+    },
+    "scn_430d0b2a4f504b7c28f95e8f415ad03615a6f8406f0e9a63341373a452f0a315": {
+      "ruleId": "R-FORMULA-005",
+      "caseId": "sha256:8a15e9168e24cf7de742842b6ff5a77c756d56c9938e68f5b5a1a3c80a5f5c40",
+      "maxP95Ms": 314.41,
+      "operations": {
+        "transition-1-update-shared-source": {
+          "maxP95Ms": 92.56
+        },
+        "transition-2-wait-computed": {
+          "maxP95Ms": 221.85
+        }
+      }
+    },
+    "scn_5464f8ea5bf9a8f5084fc313adfe2f4aa7f8341a5dfe073f34bd76cd29ecb8b4": {
+      "ruleId": "R-QUERY-003",
+      "caseId": "sha256:23be6d4272d29502d0504706caed9f471b869e5bf4093ff30cc5e670a61fd23c",
+      "maxP95Ms": 32.8,
+      "operations": {
+        "transition-1-sort-one-column": {
+          "maxP95Ms": 17.27
+        },
+        "transition-2-sort-two-columns": {
+          "maxP95Ms": 15.53
+        }
+      }
+    },
+    "scn_5e5c17a2f18059e528bdbcfd19250dbedef6c1f38046aae565f34d44f37baa31": {
+      "ruleId": "R-QUERY-004",
+      "caseId": "sha256:7ff77636844e702aa112b9fb3de92933412976ca16b3251013e59c03f30e3f70",
+      "maxP95Ms": 37.8,
+      "operations": {
+        "transition-1-first-page": {
+          "maxP95Ms": 14.5
+        },
+        "transition-2-cursor-page": {
+          "maxP95Ms": 11.88
+        },
+        "transition-3-last-page": {
+          "maxP95Ms": 11.41
+        }
+      }
+    },
+    "scn_6473615ba1934f0dbc7d9178cf45b4160a08f4560c66c0bc15f877e48eaf46cb": {
+      "ruleId": "R-WRITE-005",
+      "caseId": "sha256:db28014dd9a5c015f95dfdc6ad119e13ac5da7867860bae69d59b2189636c3cc",
+      "maxP95Ms": 24.59,
+      "operations": {
+        "transition-2-reject-unconvertible-text": {
+          "maxP95Ms": 13.02
+        },
+        "transition-2-reject-out-of-range": {
+          "maxP95Ms": 11.57
+        }
+      }
+    },
+    "scn_7a0cb651b571d45835c85fc571dd198ea59b0c607666cf3819f91f299cd6bdfa": {
+      "ruleId": "R-LINK-001",
+      "caseId": "sha256:df442160b1fca41605cd3bcd98feeb9618f900d30e8a65a41b12c86e34be1008",
+      "maxP95Ms": 1401.85,
+      "operations": {
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.81
+        },
+        "transition-2-update-parent": {
+          "maxP95Ms": 1106.26
+        },
+        "transition-2-flush": {
+          "maxP95Ms": 252.37
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 11.12
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 21.29
+        }
+      }
+    },
+    "scn_7b4c60981db027390cb5c0e928861bff8d41b94eaa86c6acebe5b5523cc43796": {
+      "ruleId": "R-COND-001",
+      "caseId": "sha256:c14ad81d925e908ca190513b63d26302e54711042f968f39edaa3771e7e2b117",
+      "maxP95Ms": 1248.38,
+      "operations": {
+        "transition-1-exclude": {
+          "maxP95Ms": 46.64
+        },
+        "transition-1-flush": {
+          "maxP95Ms": 13.32
+        },
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.83
+        },
+        "transition-2-include": {
+          "maxP95Ms": 89.03
+        },
+        "transition-2-flush": {
+          "maxP95Ms": 605.31
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 11.22
+        },
+        "transition-3-exclude-again": {
+          "maxP95Ms": 74.69
+        },
+        "transition-3-flush": {
+          "maxP95Ms": 386.27
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 11.07
+        }
+      }
+    },
+    "scn_8356292ed34a5ac3470f090baa99a5e990ff256e94b438fff825710bf0a759c4": {
+      "ruleId": "R-FORMULA-001",
+      "caseId": "sha256:ae33ba4266b050aa84e6b7ac72bb41018f9682d4e6c6252158c5add35a0e3951",
+      "maxP95Ms": 635.23,
+      "operations": {
+        "transition-1-initial-source": {
+          "maxP95Ms": 96.74
+        },
+        "transition-1-flush": {
+          "maxP95Ms": 245.9
+        },
+        "transition-2-update-source": {
+          "maxP95Ms": 88.38
+        },
+        "transition-2-flush": {
+          "maxP95Ms": 191.6
+        },
+        "transition-3-wait-computed": {
+          "maxP95Ms": 12.61
+        }
+      }
+    },
+    "scn_86a140291442e28dd03d1e7c317d51aa0c4e1542034f2a76c010e9d363378aed": {
+      "ruleId": "R-FORMULA-004",
+      "caseId": "sha256:fa9ae5c3769c41d4eb0e3f9ec70bb7027f44af1b89bdf5b10c49473435c6e160",
+      "maxP95Ms": 366.47,
+      "operations": {
+        "transition-1-update-root": {
+          "maxP95Ms": 95.8
+        },
+        "transition-2-wait-computed": {
+          "maxP95Ms": 270.67
+        }
+      }
+    },
+    "scn_8e7083e876e3ebbfdf36819ce296028ea571509515ba2e3c5b4a09b26ce6f339": {
+      "ruleId": "R-LINK-003",
+      "caseId": "sha256:7dc0f3b87d7f2e1432388176e499a9cbcd90c7e5ad9e55bf4deef1647ed3ed93",
+      "maxP95Ms": 1323.36,
+      "operations": {
+        "transition-1-establish-many": {
+          "maxP95Ms": 373
+        },
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 415.03
+        },
+        "transition-2-clear-all": {
+          "maxP95Ms": 285.01
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 250.32
+        }
+      }
+    },
+    "scn_8fc595c12b66ba7adbd2ba7c305fd0896ec3261160ab2552acfc7851296ad08b": {
+      "ruleId": "R-LIMIT-002",
+      "caseId": "sha256:20dfeac6663806dc453065bcab18a0cf678b0b22c59ee82356d9e69d9ab1532d",
+      "maxP95Ms": 37.6,
+      "operations": {
+        "transition-1-page-limit-minus-one": {
+          "maxP95Ms": 18.2
+        },
+        "transition-1-page-limit": {
+          "maxP95Ms": 14.39
+        },
+        "transition-2-reject-page-limit-plus-one": {
+          "maxP95Ms": 5
+        }
+      }
+    },
+    "scn_95d627951d06e871201e7f31f1b2c588b2622bf665b217be2a3aa09350fddb7f": {
+      "ruleId": "R-QUERY-002",
+      "caseId": "sha256:dde2b93ea038b2499a5bc293e25bdf3d52ad0985323d54c71bda77cdbd9d332e",
+      "maxP95Ms": 49.06,
+      "operations": {
+        "transition-1-filter-equality": {
+          "maxP95Ms": 19.13
+        },
+        "transition-1-filter-range": {
+          "maxP95Ms": 15.31
+        },
+        "transition-1-filter-null": {
+          "maxP95Ms": 14.62
+        }
+      }
+    },
+    "scn_9e30bfb6cc7caec5aac6528d4f504c4ff8216840ab8d03e9134e0c14c654e5cd": {
+      "ruleId": "R-WRITE-001",
+      "caseId": "sha256:6c680b2a6c5878f0073cc311f6b637ed233753b9beea8ebf8ff4e554cbb2ae2d",
+      "maxP95Ms": 162.93,
+      "operations": {
+        "transition-1-create": {
+          "maxP95Ms": 150.05
+        },
+        "transition-2-read-created-state": {
+          "maxP95Ms": 12.88
+        }
+      }
+    },
+    "scn_b118d90ba3efa0c874b0e5a859e7ff14aaef76c84486edf8fe6f13b9169ccae8": {
+      "ruleId": "R-LIMIT-001",
+      "caseId": "sha256:1d315ab20979bd4b0e4c7caa4260d7acbe99847c8fd49d89a2417f58a9b07013",
+      "maxP95Ms": 13438.21,
+      "operations": {
+        "transition-1-create-19999": {
+          "maxP95Ms": 6610.36
+        },
+        "transition-2-create-20000": {
+          "maxP95Ms": 6603.61
+        },
+        "transition-3-reject-limit-plus-one": {
+          "maxP95Ms": 224.24
+        }
+      }
+    },
+    "scn_b646d17aaefd22d0964be6dfbe69b5ddd9f798e60813d628dbc1fdb75cff6db2": {
+      "ruleId": "R-PROP-002",
+      "caseId": "sha256:7e593fdd0ebcdef85b2ceb2907fc71241d590b5d153a6c0a2c17a82492de4f88",
+      "maxP95Ms": 1679.88,
+      "operations": {
+        "setup-left-source": {
+          "maxP95Ms": 98.49
+        },
+        "setup-right-source": {
+          "maxP95Ms": 68.76
+        },
+        "setup-join-left": {
+          "maxP95Ms": 128.85
+        },
+        "setup-join-right": {
+          "maxP95Ms": 120.66
+        },
+        "setup-flush-computed": {
+          "maxP95Ms": 761.83
+        },
+        "transition-1-update-shared-source": {
+          "maxP95Ms": 126.73
+        },
+        "transition-1-flush-computed": {
+          "maxP95Ms": 374.56
+        }
+      }
+    },
+    "scn_b7ef05ad8aa3b9612afc24388fa4d700270e52e3c1958b80ed32e06dcfc64743": {
+      "ruleId": "R-FORMULA-006",
+      "caseId": "sha256:08ff48d321e4ccde00c2ae24bc7e11c9a4697551c1bc4b9a8520a04b38ed03a3",
+      "maxP95Ms": 2433.01,
+      "operations": {
+        "transition-1-first-NumberSource": {
+          "maxP95Ms": 96.01
+        },
+        "transition-1-first-TextSource": {
+          "maxP95Ms": 89.93
+        },
+        "transition-1-first-DateSource": {
+          "maxP95Ms": 86.01
+        },
+        "transition-1-first-BooleanSource": {
+          "maxP95Ms": 79.38
+        },
+        "transition-1-first-SelectSource": {
+          "maxP95Ms": 84.11
+        },
+        "transition-1-flush-first": {
+          "maxP95Ms": 370.68
+        },
+        "transition-1-last-NumberSource": {
+          "maxP95Ms": 101
+        },
+        "transition-1-last-TextSource": {
+          "maxP95Ms": 99.3
+        },
+        "transition-1-last-DateSource": {
+          "maxP95Ms": 93.02
+        },
+        "transition-1-last-BooleanSource": {
+          "maxP95Ms": 84.87
+        },
+        "transition-1-last-SelectSource": {
+          "maxP95Ms": 89.39
+        },
+        "transition-1-flush-last": {
+          "maxP95Ms": 424.01
+        },
+        "transition-1-null-NumberSource": {
+          "maxP95Ms": 80.34
+        },
+        "transition-1-null-TextSource": {
+          "maxP95Ms": 111.23
+        },
+        "transition-1-null-DateSource": {
+          "maxP95Ms": 109.38
+        },
+        "transition-1-null-BooleanSource": {
+          "maxP95Ms": 76.97
+        },
+        "transition-1-null-SelectSource": {
+          "maxP95Ms": 77.98
+        },
+        "transition-1-flush-null": {
+          "maxP95Ms": 279.4
+        }
+      }
+    },
+    "scn_c8a376d7a208082e17f5a2efbd91181d524cb09d8405b0279e96552b893a03f8": {
+      "ruleId": "R-PROP-001",
+      "caseId": "sha256:9c990ad37c27a6d1ebb9d62ae4edf134bc28f808715cfa51fcccc47e509e90f4",
+      "maxP95Ms": 1738.43,
+      "operations": {
+        "setup-link-hop-1": {
+          "maxP95Ms": 71.1
+        },
+        "setup-link-hop-2": {
+          "maxP95Ms": 60.69
+        },
+        "setup-link-hop-3": {
+          "maxP95Ms": 56.91
+        },
+        "setup-link-hop-4": {
+          "maxP95Ms": 125.15
+        },
+        "setup-flush-computed": {
+          "maxP95Ms": 993.47
+        },
+        "transition-1-update-root": {
+          "maxP95Ms": 120.42
+        },
+        "transition-1-flush-computed": {
+          "maxP95Ms": 310.68
+        }
+      }
+    },
+    "scn_d6c69ddf285de041addfa7ff939278fd807719286877f96eb58885ee82c443bf": {
+      "ruleId": "R-QUERY-001",
+      "caseId": "sha256:11af1b244fc8734871dda9d8afd5a2428b7714c476e07fbc2ff6e9c50ab0a778",
+      "maxP95Ms": 20.81,
+      "operations": {
+        "transition-1-read-page": {
+          "maxP95Ms": 20.81
+        }
+      }
+    },
+    "scn_d81890552d537824d974b441989fe7a66849a9da45aa17f0ec9cd4ae2d9d3503": {
+      "ruleId": "R-LINK-002",
+      "caseId": "sha256:e4f629b7416c1594d7339c18820f44e8a260c0613af0244726b9d616216195dc",
+      "maxP95Ms": 3079.94,
+      "operations": {
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.12
+        },
+        "transition-2-add-first": {
+          "maxP95Ms": 367.96
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 244.5
+        },
+        "transition-3-add-many": {
+          "maxP95Ms": 395.41
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 265.05
+        },
+        "transition-4-remove-one": {
+          "maxP95Ms": 460.54
+        },
+        "transition-4-checkpoint-移除一个后的中间状态-flush": {
+          "maxP95Ms": 268.73
+        },
+        "transition-4-remove-next": {
+          "maxP95Ms": 369.78
+        },
+        "transition-4-checkpoint-移除倒数第二个后的状态-flush": {
+          "maxP95Ms": 253.81
+        },
+        "transition-4-remove-last": {
+          "maxP95Ms": 217.75
+        },
+        "transition-4-checkpoint-移除最后一个后的精确空集合-flush": {
+          "maxP95Ms": 226.29
+        }
+      }
+    },
+    "scn_dcb5875fa86bc53fadf145ee27827e653292e0f5db607e2d764f9db028eaea2d": {
+      "ruleId": "R-WRITE-006",
+      "caseId": "sha256:97be74557d244fe39f14fc5c9460e2d9e4fd763c7a298ae1e1bd281b49b6ddd6",
+      "maxP95Ms": 201.69,
+      "operations": {
+        "transition-2-write-minus-one": {
+          "maxP95Ms": 66.11
+        },
+        "transition-2-write-equal": {
+          "maxP95Ms": 73
+        },
+        "transition-2-write-plus-one": {
+          "maxP95Ms": 62.58
+        }
+      }
+    },
+    "scn_e446a601200ed40dee7a7f6eab8d6e5a0b483261f61065ee34349e3ad352bbfe": {
+      "ruleId": "R-ROLLUP-001",
+      "caseId": "sha256:72ba125bf9a113e7c52dfe7963cd4fd7c77d4117bb5e380838deb7f5e63251c4",
+      "maxP95Ms": 5110.21,
+      "operations": {
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 16.34
+        },
+        "transition-2-add-first": {
+          "maxP95Ms": 655.55
+        },
+        "transition-2-checkpoint-flush": {
+          "maxP95Ms": 404.2
+        },
+        "transition-3-add-many": {
+          "maxP95Ms": 692.81
+        },
+        "transition-3-checkpoint-flush": {
+          "maxP95Ms": 441.64
+        },
+        "transition-4-remove-one": {
+          "maxP95Ms": 677.4
+        },
+        "transition-4-checkpoint-移除一个后的中间状态-flush": {
+          "maxP95Ms": 428.1
+        },
+        "transition-4-remove-next": {
+          "maxP95Ms": 636.7
+        },
+        "transition-4-checkpoint-移除倒数第二个后的状态-flush": {
+          "maxP95Ms": 406.78
+        },
+        "transition-4-remove-last": {
+          "maxP95Ms": 384.08
+        },
+        "transition-4-checkpoint-移除最后一个后的精确空集合-flush": {
+          "maxP95Ms": 366.61
+        }
+      }
+    },
+    "scn_e5957d5a76865747e745eb0f92f5dee9d65855e4442d10b26bbb8980038a048b": {
+      "ruleId": "R-PROP-004",
+      "caseId": "sha256:0e496797ccba0ea91f9670732ea4e03e5f9a73041db23ad34163392973b40966",
+      "maxP95Ms": 289.73,
+      "operations": {
+        "transition-1-dataset-aggregate": {
+          "maxP95Ms": 13.1
+        },
+        "transition-2-budgeted-source-update": {
+          "maxP95Ms": 131.18
+        },
+        "transition-2-flush-computed": {
+          "maxP95Ms": 9.15
+        },
+        "transition-3-independent-aggregate": {
+          "maxP95Ms": 10.01
+        },
+        "cleanup-restore-source": {
+          "maxP95Ms": 117.25
+        },
+        "cleanup-flush-computed": {
+          "maxP95Ms": 9.04
+        }
+      }
+    },
+    "scn_f0a8598424edb5b186044af2adebe445699402a765d44ff59113463ace21f39f": {
+      "ruleId": "R-WRITE-004",
+      "caseId": "sha256:64dfd7ea42dc2594924a4880aec36c6ecec11b4ca7d41f5f78d73950fcfe7c5f",
+      "maxP95Ms": 170.95,
+      "operations": {
+        "transition-1-update": {
+          "maxP95Ms": 137.15
+        },
+        "transition-1-checkpoint-flush": {
+          "maxP95Ms": 10.43
+        },
+        "transition-2-read-new-value": {
+          "maxP95Ms": 23.37
+        }
+      }
+    },
+    "scn_fc84c49495945ed1145b89afbef7096ce440e5efbe50a7a3f340df706c9bf621": {
+      "ruleId": "R-PROP-003",
+      "caseId": "sha256:bd57ac10acfad9486e4504418f9e2c1d3f9821406d980a6952408d2437e5e5c5",
+      "maxP95Ms": 732.17,
+      "operations": {
+        "setup-fanout-links": {
+          "maxP95Ms": 168.08
+        },
+        "setup-flush-computed": {
+          "maxP95Ms": 239.92
+        },
+        "transition-1-update-shared-source": {
+          "maxP95Ms": 108.71
+        },
+        "transition-1-flush-computed": {
+          "maxP95Ms": 215.45
+        }
+      }
+    }
+  }
+}

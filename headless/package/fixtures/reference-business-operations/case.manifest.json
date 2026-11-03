@@ -1,0 +1,726 @@
+{
+  "caseId": "sha256:6cbf927470baddb78badc608ba8f9736d715576945fd80f92040cc098963bfb7",
+  "specVersion": 1,
+  "generatorVersion": "tea-bench/1",
+  "title": "reference-business-operations",
+  "dimensions": {
+    "motif": "reference-business-operations",
+    "rows": 1200,
+    "typecast": false,
+    "batchSize": 20,
+    "backend": "pglite"
+  },
+  "source": {
+    "tea": "fixture.tea",
+    "dataMode": "recipe"
+  },
+  "dataset": {
+    "rows": {
+      "Accounts": 20,
+      "Projects": 80,
+      "Work Items": 400,
+      "Time Entries": 1200
+    },
+    "seed": {
+      "schema": 20261027,
+      "data": 20261027,
+      "query": 20261027,
+      "schedule": 20261027
+    },
+    "recipe": {
+      "tables": {
+        "Accounts": {
+          "fields": {
+            "Name": {
+              "width": 11
+            },
+            "Notes": {
+              "width": 32
+            },
+            "Tier": {
+              "choices": ["Standard"]
+            }
+          }
+        },
+        "Projects": {
+          "fields": {
+            "Title": {
+              "width": 11
+            },
+            "Account": {
+              "link": {
+                "table": "Accounts",
+                "relationship": "manyOne"
+              }
+            },
+            "Budget": {
+              "distribution": "constant",
+              "min": 10000,
+              "max": 10000
+            },
+            "Status": {
+              "choices": ["Active", "Complete"]
+            }
+          }
+        },
+        "Work Items": {
+          "fields": {
+            "Title": {
+              "width": 11
+            },
+            "Details": {
+              "width": 48
+            },
+            "Project": {
+              "link": {
+                "table": "Projects",
+                "relationship": "manyOne"
+              }
+            },
+            "Status": {
+              "choices": ["Open"]
+            },
+            "Estimate": {
+              "distribution": "constant",
+              "min": 8,
+              "max": 8
+            },
+            "Time Entries": {
+              "link": {
+                "table": "Time Entries",
+                "relationship": "manyMany",
+                "fanout": 3
+              }
+            }
+          }
+        },
+        "Time Entries": {
+          "fields": {
+            "Entry": {
+              "width": 11
+            },
+            "Work Item": {
+              "link": {
+                "table": "Work Items",
+                "relationship": "manyOne"
+              }
+            },
+            "Hours": {
+              "distribution": "constant",
+              "min": 2,
+              "max": 2
+            }
+          }
+        }
+      }
+    },
+    "dataHash": "4fe2d7640b449a2868faef2eb64495bf55dffa2dd19525eaa8d2f418f56ad5aa"
+  },
+  "run": {
+    "backend": "pglite",
+    "samples": 5,
+    "warmup": 2,
+    "repetitions": 1,
+    "seedBatchSize": 1000,
+    "actorId": "usr_headless"
+  },
+  "workload": [
+    {
+      "key": "query-project-budget",
+      "kind": "query-core",
+      "table": "Projects",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "filterSet": [
+            {
+              "fieldId": "Budget",
+              "operator": "isGreater",
+              "value": 9999
+            }
+          ]
+        },
+        "sort": [
+          {
+            "fieldId": "Title",
+            "order": "asc"
+          }
+        ],
+        "projection": ["Title", "Budget", "Budget Reserve"],
+        "limit": 3,
+        "includeTotal": true
+      }
+    },
+    {
+      "key": "check-project-budget",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/query-project-budget",
+        "description": "前三个项目保留确定性标题、预算与公式储备金",
+        "obligationIds": ["basic-query-filter-sort-projection", "formula-literal-value"],
+        "kind": "query-values",
+        "operations": ["query-project-budget"],
+        "ordered": true,
+        "expected": [
+          {
+            "Title": "text-000000",
+            "Budget": 10000,
+            "Budget Reserve": 1000
+          },
+          {
+            "Title": "text-000001",
+            "Budget": 10000,
+            "Budget Reserve": 1000
+          },
+          {
+            "Title": "text-000002",
+            "Budget": 10000,
+            "Budget Reserve": 1000
+          }
+        ]
+      }
+    },
+    {
+      "key": "query-time-cost",
+      "kind": "query-structured",
+      "definition": {
+        "version": 1,
+        "kind": "records",
+        "tableId": "Time Entries",
+        "filter": {
+          "fieldId": "Hours",
+          "operator": "isGreater",
+          "value": 1
+        },
+        "sort": [
+          {
+            "fieldId": "Entry",
+            "order": "asc"
+          }
+        ],
+        "page": {
+          "limit": 3,
+          "offset": 0,
+          "includeTotal": true
+        },
+        "select": [
+          {
+            "fieldId": "Entry",
+            "alias": "entry"
+          },
+          {
+            "fieldId": "Hours",
+            "alias": "hours"
+          },
+          {
+            "fieldId": "Cost",
+            "alias": "cost"
+          }
+        ]
+      }
+    },
+    {
+      "key": "check-time-cost",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/query-time-cost",
+        "description": "结构化查询返回确定性的工时与成本公式值",
+        "obligationIds": ["structured-query", "formula-literal-value"],
+        "kind": "query-values",
+        "operations": ["query-time-cost"],
+        "ordered": true,
+        "expected": [
+          {
+            "entry": "text-000000",
+            "hours": 2,
+            "cost": 200
+          },
+          {
+            "entry": "text-000001",
+            "hours": 2,
+            "cost": 200
+          },
+          {
+            "entry": "text-000002",
+            "hours": 2,
+            "cost": 200
+          }
+        ]
+      }
+    },
+    {
+      "key": "create-work-items",
+      "kind": "write-create",
+      "table": "Work Items",
+      "rows": 2,
+      "batchSize": 20,
+      "typecast": false
+    },
+    {
+      "key": "flush-after-create",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "check-work-item-create-count",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/create-work-items",
+        "description": "新增两个工作项后共有 402 条",
+        "obligationIds": ["record-create"],
+        "kind": "row-count",
+        "table": "Work Items",
+        "expected": 402
+      }
+    },
+    {
+      "key": "update-work-estimate",
+      "kind": "write-update",
+      "table": "Work Items",
+      "field": "Estimate",
+      "rows": 2,
+      "batchSize": 20,
+      "typecast": false,
+      "selection": "first",
+      "value": {
+        "kind": "literal",
+        "value": 10
+      }
+    },
+    {
+      "key": "flush-after-estimate",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "query-updated-work",
+      "kind": "query-core",
+      "table": "Work Items",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "filterSet": [
+            {
+              "fieldId": "Estimate",
+              "operator": "is",
+              "value": 10
+            }
+          ]
+        },
+        "sort": [
+          {
+            "fieldId": "Title",
+            "order": "asc"
+          }
+        ],
+        "projection": ["Title", "Estimate", "Planned Effort"],
+        "limit": 2,
+        "includeTotal": true
+      }
+    },
+    {
+      "key": "check-updated-work",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/update-work-items",
+        "description": "修改工时估算后公式值从 16 变为 20",
+        "obligationIds": ["record-update", "formula-transition"],
+        "kind": "query-values",
+        "operations": ["query-updated-work"],
+        "ordered": true,
+        "expected": [
+          {
+            "Title": "text-000000",
+            "Estimate": 10,
+            "Planned Effort": 20
+          },
+          {
+            "Title": "text-000001",
+            "Estimate": 10,
+            "Planned Effort": 20
+          }
+        ]
+      }
+    },
+    {
+      "key": "clear-time-membership",
+      "kind": "write-update",
+      "table": "Work Items",
+      "field": "Time Entries",
+      "rows": 1,
+      "batchSize": 20,
+      "typecast": false,
+      "selection": "first",
+      "value": {
+        "kind": "link-targets",
+        "table": "Time Entries",
+        "indices": []
+      }
+    },
+    {
+      "key": "flush-after-clear-membership",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "query-cleared-membership",
+      "kind": "query-core",
+      "table": "Work Items",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "filterSet": [
+            {
+              "fieldId": "Total Hours",
+              "operator": "is",
+              "value": 0
+            }
+          ]
+        },
+        "projection": ["Title", "Total Hours"],
+        "limit": 2,
+        "includeTotal": true
+      }
+    },
+    {
+      "key": "check-cleared-membership",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/clear-membership",
+        "description": "清空第一个工作项关联后汇总工时为 0",
+        "obligationIds": ["link-clear", "rollup-transition"],
+        "kind": "query-values",
+        "operations": ["query-cleared-membership"],
+        "ordered": true,
+        "expected": [
+          {
+            "Title": "text-000000",
+            "Total Hours": 0
+          }
+        ]
+      }
+    },
+    {
+      "key": "restore-time-membership",
+      "kind": "write-update",
+      "table": "Work Items",
+      "field": "Time Entries",
+      "rows": 1,
+      "batchSize": 20,
+      "typecast": false,
+      "selection": "first",
+      "value": {
+        "kind": "link-targets",
+        "table": "Time Entries",
+        "indices": [0, 1, 2]
+      }
+    },
+    {
+      "key": "flush-after-restore-membership",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "query-restored-membership",
+      "kind": "query-core",
+      "table": "Work Items",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "filterSet": [
+            {
+              "fieldId": "Total Hours",
+              "operator": "is",
+              "value": 6
+            }
+          ]
+        },
+        "limit": 402,
+        "includeTotal": true
+      }
+    },
+    {
+      "key": "check-restored-membership",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/restore-membership",
+        "description": "恢复三个关联后，402 个工作项的汇总工时均为 6",
+        "obligationIds": ["link-restore", "rollup-transition"],
+        "kind": "query-record-ids",
+        "operations": ["query-restored-membership"],
+        "table": "Work Items",
+        "expectedTotal": 402
+      }
+    },
+    {
+      "key": "clear-account-active",
+      "kind": "write-update",
+      "table": "Accounts",
+      "field": "Active",
+      "rows": 20,
+      "batchSize": 20,
+      "typecast": false,
+      "value": {
+        "kind": "literal",
+        "value": null
+      }
+    },
+    {
+      "key": "flush-after-clear-active",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "check-cleared-active",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/clear-active",
+        "description": "清空全部账户复选框后每个 Active 字段都为空",
+        "obligationIds": ["checkbox-clear"],
+        "kind": "field-values",
+        "table": "Accounts",
+        "field": "Active",
+        "expected": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "key": "restore-account-active",
+      "kind": "write-update",
+      "table": "Accounts",
+      "field": "Active",
+      "rows": 20,
+      "batchSize": 20,
+      "typecast": false,
+      "value": {
+        "kind": "literal",
+        "value": true
+      }
+    },
+    {
+      "key": "flush-after-restore-active",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "check-restored-active",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/restore-active",
+        "description": "恢复全部账户后每个 Active 字段都为 true",
+        "obligationIds": ["checkbox-restore"],
+        "kind": "field-values",
+        "table": "Accounts",
+        "field": "Active",
+        "expected": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "key": "cycle-project-status",
+      "kind": "write-update",
+      "table": "Projects",
+      "field": "Status",
+      "rows": 4,
+      "batchSize": 20,
+      "typecast": false,
+      "value": {
+        "kind": "select-cycle",
+        "choices": ["Active", "Complete"]
+      }
+    },
+    {
+      "key": "flush-after-project-status",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "reject-invalid-budget",
+      "kind": "expect-error",
+      "checkId": "reference/reject-invalid-budget",
+      "description": "严格更新拒绝非数字预算，且首个预算保持不变",
+      "obligationIds": ["invalid-update-atomic"],
+      "expectedCode": "validation.field.invalid_value",
+      "unchanged": {
+        "table": "Projects",
+        "field": "Budget",
+        "selection": "first",
+        "rows": 1
+      },
+      "step": {
+        "kind": "write-update",
+        "table": "Projects",
+        "field": "Budget",
+        "rows": 1,
+        "batchSize": 1,
+        "typecast": false,
+        "value": {
+          "kind": "literal",
+          "value": "not-a-number"
+        }
+      }
+    },
+    {
+      "key": "flush-after-rejected-budget",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "check-before-delete-recompute",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/pre-delete-full-recompute",
+        "description": "删除前增量状态与完整重算状态一致",
+        "obligationIds": ["full-recompute"],
+        "kind": "full-recompute",
+        "tables": ["Accounts", "Projects", "Work Items", "Time Entries"],
+        "maxRows": 5000
+      }
+    },
+    {
+      "key": "delete-time-entry",
+      "kind": "write-delete",
+      "table": "Time Entries",
+      "rows": 1,
+      "batchSize": 20,
+      "selection": "first"
+    },
+    {
+      "key": "flush-after-delete",
+      "kind": "flush-computed"
+    },
+    {
+      "key": "check-time-entry-delete-count",
+      "kind": "checkpoint",
+      "check": {
+        "checkId": "reference/delete-time-entry",
+        "description": "最后一次写入删除一条工时记录，剩余 1199 条",
+        "obligationIds": ["record-delete"],
+        "kind": "row-count",
+        "table": "Time Entries",
+        "expected": 1199
+      }
+    }
+  ],
+  "oracle": [
+    {
+      "key": "reference-final-invariants",
+      "kind": "invariant",
+      "checkId": "reference/final-invariants",
+      "description": "四表行数、主键、关联与计算字段满足最终业务状态",
+      "obligationIds": ["row-counts", "unique-primary", "links", "computed-fields"],
+      "checks": [
+        {
+          "type": "row-count",
+          "table": "Accounts",
+          "expected": 20
+        },
+        {
+          "type": "row-count",
+          "table": "Projects",
+          "expected": 80
+        },
+        {
+          "type": "row-count",
+          "table": "Work Items",
+          "expected": 402
+        },
+        {
+          "type": "row-count",
+          "table": "Time Entries",
+          "expected": 1199
+        },
+        {
+          "type": "unique-primary",
+          "table": "Accounts"
+        },
+        {
+          "type": "unique-primary",
+          "table": "Projects"
+        },
+        {
+          "type": "unique-primary",
+          "table": "Work Items"
+        },
+        {
+          "type": "unique-primary",
+          "table": "Time Entries"
+        },
+        {
+          "type": "link-count",
+          "table": "Projects",
+          "field": "Account",
+          "expected": 80
+        },
+        {
+          "type": "link-count",
+          "table": "Work Items",
+          "field": "Project",
+          "expected": 402
+        },
+        {
+          "type": "link-count",
+          "table": "Time Entries",
+          "field": "Work Item",
+          "expected": 1199
+        },
+        {
+          "type": "computed-not-null",
+          "table": "Projects",
+          "fields": ["Account Tier", "Budget Reserve"]
+        },
+        {
+          "type": "computed-not-null",
+          "table": "Work Items",
+          "fields": ["Project Budget", "Planned Effort", "Total Hours"]
+        },
+        {
+          "type": "computed-not-null",
+          "table": "Time Entries",
+          "fields": ["Work Estimate", "Cost"]
+        }
+      ]
+    },
+    {
+      "key": "reference-final-full-recompute",
+      "kind": "full-recompute",
+      "checkId": "reference/final-full-recompute",
+      "description": "最终增量状态与同一引擎的全新完整重算状态一致",
+      "obligationIds": ["full-recompute"],
+      "tables": ["Accounts", "Projects", "Work Items", "Time Entries"],
+      "maxRows": 5000
+    }
+  ]
+}

@@ -55,6 +55,10 @@ ready.
   result artifact.
 - `.github/workflows/teable-ee-e2e-perf.yml`: seed job, execute jobs, artifacts,
   report, and Teable registry sync.
+- `headless/`: v2 Core microbenchmarks, deterministic `.tea` fixtures, correctness
+  oracles, fixed budgets, CLI and report rendering. See [headless/README.md](headless/README.md).
+  The harness is mounted into an independently pinned product checkout at execution time;
+  product sources and private runtime archives are never committed to this repository.
 - `scripts/full-run-shard-model.mjs`: authoritative full-run selection policy,
   including scale replacements and stable pauses, plus accepted legacy
   fixture-affinity bundles and the scalar eight-shard baseline used to reject a
