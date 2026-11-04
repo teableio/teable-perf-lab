@@ -8,6 +8,12 @@
 // Batched because the SQL endpoint caps a response at 50k characters. Eight
 // cases × 60 points stays under that; a full run is a few dozen small
 // queries rather than one that the API silently truncates.
+//
+// Default to one ranked pass in both modes. Explicit rollout opt-in enables
+// bounded non-strict branches only, after index approval and plan verification.
+// Strict JSON eligibility always keeps one ranked query: per-case branches can
+// choose repeated full scans even with a case/timestamp index. The operations
+// guide owns the query contract and the PostgreSQL proof command.
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -37,46 +43,60 @@ export const buildSameRunHistorySql = ({
   includeMeasurement = false,
   identityByCase = {},
   strictOnly = false,
+  branched = false,
 } = {}) => {
   const ids = [...new Set((caseIds ?? []).filter(Boolean))];
   if (ids.length === 0) {
     return undefined;
   }
-  const inList = ids.map(sqlLiteral).join(", ");
   const runClause = currentRunId
     ? ` AND "Run_ID" <> ${sqlLiteral(currentRunId)}`
     : "";
   const measurementColumn = includeMeasurement
     ? `, "Measurement_JSON" AS j`
     : ", NULL AS j";
-  const strictClauses = ids
-    .map((caseId) => {
-      const identity = identityByCase[caseId];
-      if (!identity?.contractId || !identity?.environmentClass)
-        return undefined;
-      return (
-        `("Case_ID" = ${sqlLiteral(caseId)} ` +
-        `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${sqlLiteral(identity.contractId)} ` +
-        `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${sqlLiteral(identity.environmentClass)})`
-      );
-    })
-    .filter(Boolean);
-  if (strictOnly && (!includeMeasurement || strictClauses.length === 0)) {
-    return undefined;
+  if (!branched || strictOnly) {
+    let compatibilityClause = "";
+    if (strictOnly) {
+      if (!includeMeasurement) return undefined;
+      const strictClauses = ids.flatMap((caseId) => {
+        const identity = identityByCase[caseId];
+        if (!identity?.contractId || !identity?.environmentClass) return [];
+        return [
+          `("Case_ID" = ${sqlLiteral(caseId)} ` +
+            `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${sqlLiteral(identity.contractId)} ` +
+            `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${sqlLiteral(identity.environmentClass)})`,
+        ];
+      });
+      if (strictClauses.length === 0) return undefined;
+      compatibilityClause = ` AND (${strictClauses.join(" OR ")})`;
+    }
+    // Preserve the original single pass by default. Strict JSON predicates are
+    // not covered by the case/timestamp index: splitting the strict read into
+    // eight LIMIT branches measured eight full scans, so never opt it in.
+    return (
+      `SELECT c, v, t, j FROM (` +
+      `SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn}, ` +
+      `row_number() OVER (PARTITION BY "Case_ID" ORDER BY "Started_At" DESC) AS rn ` +
+      `FROM "${baseId}"."${tableId}" ` +
+      `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
+      `AND "Primary_Metric_Value" > 0 ` +
+      `AND "Case_ID" IN (${ids.map(sqlLiteral).join(", ")})${runClause}${compatibilityClause}` +
+      `) x WHERE rn <= ${Number(perCase)}`
+    );
   }
-  const compatibilityClause = strictOnly
-    ? ` AND (${strictClauses.join(" OR ")})`
-    : "";
-  return (
-    `SELECT c, v, t, j FROM (` +
-    `SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn}, ` +
-    `row_number() OVER (PARTITION BY "Case_ID" ORDER BY "Started_At" DESC) AS rn ` +
-    `FROM "${baseId}"."${tableId}" ` +
-    `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
-    `AND "Primary_Metric_Value" > 0 ` +
-    `AND "Case_ID" IN (${inList})${runClause}${compatibilityClause}` +
-    `) x WHERE rn <= ${Number(perCase)}`
+  const queries = ids.map(
+    (caseId) =>
+      // Every eligibility predicate stays before the limit. Started_At ties
+      // remain unspecified, just as in the original row_number query.
+      `(SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn} ` +
+      `FROM "${baseId}"."${tableId}" ` +
+      `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
+      `AND "Primary_Metric_Value" > 0 ` +
+      `AND "Case_ID" = ${sqlLiteral(caseId)}${runClause} ` +
+      `ORDER BY "Started_At" DESC LIMIT ${Math.max(0, Math.floor(Number(perCase)))})`,
   );
+  return `SELECT c, v, t, j FROM (${queries.join(" UNION ALL ")}) history`;
 };
 
 const sqlQuery = async ({ endpoint, token, baseId, sql }) => {
@@ -151,6 +171,7 @@ export const loadSameRunHistory = async ({
     tableId,
   });
   const includeMeasurement = fieldNames.has("Measurement JSON");
+  const branched = env("PERF_LAB_SAME_RUN_HISTORY_BRANCHED") === "true";
   const rows = [];
   const strictRows = [];
 
@@ -161,6 +182,7 @@ export const loadSameRunHistory = async ({
       baseId,
       tableId,
       includeMeasurement,
+      branched,
     });
     const page = await sqlQuery({ endpoint, token, baseId, sql });
     rows.push(...rowsFromSqlResult(page));
@@ -172,6 +194,7 @@ export const loadSameRunHistory = async ({
       includeMeasurement,
       identityByCase,
       strictOnly: true,
+      branched,
     });
     if (strictSql) {
       const strictPage = await sqlQuery({

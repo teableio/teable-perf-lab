@@ -352,6 +352,83 @@ History first requires the same contract id and environment class. Until a case
 has 52 compatible points, the existing case-id history is used only as a
 labelled migration fallback; the card must not describe that fallback as proof.
 
+The history producer (`scripts/resolve-same-run-history.mjs`) keeps the newest
+60 eligible rows **per case**, in eight-case response batches. **By default,
+both non-strict and strict reads retain the original single ranked pass.**
+Merging or deploying this code does not activate per-case branches. After
+separate index approval and real-cardinality plan verification, explicitly set
+`PERF_LAB_SAME_RUN_HISTORY_BRANCHED=true` to opt in the **non-strict read only**.
+Unset it or use any other value to retain the default. The pure SQL builder
+accepts `branched: true`; it never reads environment variables itself.
+
+The opt-in non-strict read uses bounded `UNION ALL` branches: each applies
+`Status = pass`, `Engine = v2`, positive metric, case identity, and current-run
+exclusion **before** `ORDER BY Started_At DESC LIMIT 60`. Strict always keeps
+one ranked query with the same eligibility and OR-ed contract/environment JSON
+predicates **before** `row_number()`, then cuts at rank 60 per case. Filtering
+compatibility after the cutoff can silently lose valid older history. The
+separate legacy/strict reads and 52-point fallback threshold are unchanged. No
+history is deleted or cached by this optimization.
+
+The order contract is still only `Started_At DESC` (including PostgreSQL's
+default `NULLS FIRST`); equal timestamps have no defined secondary order or
+unique winner at the cutoff. Do not add a record-id tie breaker as a performance
+change. Output row order across cases is not a contract.
+
+The opt-in non-strict branches can stop after 60 eligible rows on an ordered
+access path. A `(Case_ID, Started_At DESC)` B-tree provides both equality and
+ordering; a case-id trigram index alone does not. Without that composite index,
+per-case branches may repeat index/heap walks. **Do not enable the flag** until
+the index is separately approved and measured plans at real tenant cardinality
+show bounded work. The producer neither creates indexes nor assumes they exist.
+
+The strict query deliberately does **not** use per-case LIMIT branches. The
+JSON contract predicates are not covered by that case/timestamp index. In the
+equal-scale PostgreSQL smoke, the planner chose repeated full scans for the
+strict per-case shape, regressing even after the composite index was added.
+Retaining one ranked query lets PostgreSQL process all strict case predicates
+in one pass, exactly as before. Scarce compatible history can still require a
+long scan; this change claims no strict-mode improvement. The smoke measures
+both modes independently. Neither query shape nor synthetic timing proves a
+production speedup.
+
+History classification from git log/blame/show: the window-ranking form was
+introduced with the first producer (`2321067`); `bb5e703` only added the strict
+JSON read and identity predicates. Treat this as a long-standing cost that grows
+with history, not a proven recent Teable regression.
+
+For an isolated real-PostgreSQL differential check (requires `psql` and a
+disposable local database), run:
+
+```bash
+SAME_RUN_HISTORY_PG_URL=postgresql://localhost:5432/perf_query_check \
+  node scripts/check-same-run-history-postgres.mjs
+SAME_RUN_HISTORY_PG_URL=postgresql://localhost:5432/perf_query_check \
+  node scripts/check-same-run-history-postgres.mjs --perf
+```
+
+The script permits loopback connections only, creates a unique neutral schema,
+and drops only that schema in `finally`. It compares normalized **complete
+projected rows**, not just counts, for default, explicitly disabled, and
+opted-in builder options against the frozen window-query oracle (without
+mutating the process environment):
+mixed eligibility, missing/wrong JSON identities, multiple partitions, more
+than 60 eligible rows, scarce history, null timestamps, and ties. The main
+fixture keeps unique timestamps so varying quotas compare exactly. A separate
+identical-projection tie crosses the cutoff deterministically. A non-identical
+tie crossing a varying quota is checked as an **admissible set plus exact
+quota** for both queries — every returned row is eligible, newer unique rows are
+never displaced by older ties, and no winner is asserted where the old contract
+had none. The optional smoke uses
+631,872 synthetic rows, 33 columns, eight cases, and the same data for both
+queries, first with only the timestamp index and then with an ordered composite.
+The smoke compares the frozen original with `branched: true` (strict remains
+ranked). Both non-strict and strict modes get one warmup and six interleaved
+timed samples each. JSON output includes every `EXPLAIN (ANALYZE, BUFFERS)` plan, execution
+times, shared hit/read blocks, and temporary read/write blocks. Cardinalities
+match the motivating baseline, but synthetic payload widths are not a replay of
+customer storage or a production latency claim.
+
 The nightly confirmed layer is a historical V2 shift detector. It removes a
 well-supported global run effect and applies FDR correction. V1 is useful
 corroborating evidence, but its job ran on another hosted VM and is never called

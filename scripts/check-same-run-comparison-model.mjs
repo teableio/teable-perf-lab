@@ -198,36 +198,9 @@ assert.equal(
 }
 
 {
-  const sql = buildSameRunHistorySql({
-    caseIds: ["lookup/a", "lookup/b"],
-    currentRunId: "32927375813",
-  });
-  assert.match(sql, /row_number\(\) OVER \(PARTITION BY "Case_ID"/);
-  assert.match(sql, /"Engine" = 'v2'/);
-  assert.match(sql, /"Run_ID" <> '32927375813'/);
-  assert.match(sql, /lookup\/a/);
-  assert.match(sql, /NULL AS j/);
-  assert.match(
-    buildSameRunHistorySql({
-      caseIds: ["lookup/a"],
-      includeMeasurement: true,
-    }),
-    /"Measurement_JSON" AS j/,
-  );
+  // Contract semantics only. SQL escaping and eligibility behavior are proven
+  // against a real PostgreSQL database in check-same-run-history-postgres.mjs.
   assert.equal(buildSameRunHistorySql({ caseIds: [] }), undefined);
-  const strictSql = buildSameRunHistorySql({
-    caseIds: ["lookup/a"],
-    includeMeasurement: true,
-    strictOnly: true,
-    identityByCase: {
-      "lookup/a": {
-        contractId: "contract-a",
-        environmentClass: "runner:Linux:X64:postgres-e2e",
-      },
-    },
-  });
-  assert.match(strictSql, /contract,id/);
-  assert.match(strictSql, /environment,class/);
   assert.equal(
     buildSameRunHistorySql({
       caseIds: ["lookup/a"],
