@@ -1,105 +1,89 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { buildSameRunHistorySql } from "./resolve-same-run-history.mjs";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { buildSameRunHistorySql, rowsFromSqlResult } from "./resolve-same-run-history.mjs";
+import { buildSameRunComparison, comparableHistoryByCaseFromRows } from "./same-run-comparison-model.mjs";
 
 // Only disposable, local PostgreSQL is accepted. No Teable/API credentials used.
 const databaseUrl = process.env.SAME_RUN_HISTORY_PG_URL;
-assert.ok(
-  databaseUrl,
-  "Set SAME_RUN_HISTORY_PG_URL to a disposable local PostgreSQL database",
-);
+assert.ok(databaseUrl, "Set SAME_RUN_HISTORY_PG_URL to a disposable local PostgreSQL database");
 const url = new URL(databaseUrl);
-assert.ok(
-  ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname),
-  "Only loopback PostgreSQL hosts are allowed",
-);
+assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname), "Only loopback PostgreSQL hosts are allowed");
 assert.equal(url.search, "", "Connection query options are not accepted");
 const schema = `history_query_check_${process.pid}_${randomUUID().replaceAll("-", "")}`;
 let created = false;
 const table = `"${schema}"."history"`;
 const literal = (value) => `'${String(value).replaceAll("'", "''")}'`;
-const psql = (sql) =>
-  execFileSync("psql", ["-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-c", sql], {
-    env: {
-      ...process.env,
-      PGHOST: url.hostname.replaceAll(/[\[\]]/g, ""),
-      PGPORT: url.port || "5432",
-      PGDATABASE: decodeURIComponent(url.pathname.slice(1)),
-      PGUSER: url.username
-        ? decodeURIComponent(url.username)
-        : (process.env.PGUSER ?? ""),
-      PGPASSWORD: url.password ? decodeURIComponent(url.password) : "",
-    },
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+const psql = (sql) => execFileSync("psql", ["-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-c", sql], {
+  env: {
+    ...process.env,
+    PGHOST: url.hostname.replaceAll(/[\[\]]/g, ""),
+    PGPORT: url.port || "5432",
+    PGDATABASE: decodeURIComponent(url.pathname.slice(1)),
+    PGUSER: url.username ? decodeURIComponent(url.username) : (process.env.PGUSER ?? ""),
+    PGPASSWORD: url.password ? decodeURIComponent(url.password) : "",
+  },
+  encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+}).trim();
 const jsonQuery = (sql) => JSON.parse(psql(sql));
+const outputArgument = process.argv.indexOf("--output");
+const outputPath = outputArgument < 0 ? undefined : process.argv[outputArgument + 1];
+if (outputArgument >= 0) {
+  assert.ok(outputPath && !outputPath.startsWith("--"), "--output requires a JSONL file path");
+  writeFileSync(outputPath, "");
+}
 
 // Frozen pre-change implementation: do not derive this oracle from the new SQL.
-const oldSql = ({
-  caseIds,
-  currentRunId,
-  perCase = 60,
-  includeMeasurement = false,
-  identityByCase = {},
-  strictOnly = false,
-}) => {
+const oldSql = ({ caseIds, currentRunId, perCase = 60, includeMeasurement = false, identityByCase = {}, strictOnly = false }) => {
   const ids = [...new Set(caseIds.filter(Boolean))];
   if (!ids.length) return undefined;
   const clauses = ids.flatMap((id) => {
     const identity = identityByCase[id];
     return identity?.contractId && identity?.environmentClass
-      ? [
-          `("Case_ID" = ${literal(id)} AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${literal(identity.contractId)} AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${literal(identity.environmentClass)})`,
-        ]
+      ? [`("Case_ID" = ${literal(id)} AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${literal(identity.contractId)} AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${literal(identity.environmentClass)})`]
       : [];
   });
   if (strictOnly && (!includeMeasurement || !clauses.length)) return undefined;
   return `SELECT c, v, t, j FROM (SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t, ${includeMeasurement ? '"Measurement_JSON"' : "NULL"} AS j, row_number() OVER (PARTITION BY "Case_ID" ORDER BY "Started_At" DESC) AS rn FROM ${table} WHERE "Status" = 'pass' AND "Engine" = 'v2' AND "Primary_Metric_Value" > 0 AND "Case_ID" IN (${ids.map(literal).join(", ")})${currentRunId ? ` AND "Run_ID" <> ${literal(currentRunId)}` : ""}${strictOnly ? ` AND (${clauses.join(" OR ")})` : ""}) x WHERE rn <= ${Number(perCase)}`;
 };
-const newSql = (options) =>
-  buildSameRunHistorySql({ ...options, baseId: schema, tableId: "history" });
-const readRows = (sql) =>
-  sql
-    ? jsonQuery(`SELECT COALESCE(json_agg(x), '[]'::json) FROM (${sql}) x`)
-    : [];
-const normalized = (rows) =>
-  rows.map((row) => JSON.stringify([row.c, row.v, row.t, row.j])).sort();
+const referenceSql = (options) => oldSql({ ...options, includeMeasurement: true });
+const newSql = (options) => buildSameRunHistorySql({ ...options, baseId: schema, tableId: "history" });
+const readRows = (sql) => sql ? jsonQuery(`SELECT COALESCE(json_agg(x), '[]'::json) FROM (${sql}) x`) : [];
+const referenceRows = (rows) => rows.map(({ c, v, t, j }) => {
+  const measurement = j ? JSON.parse(j) : null;
+  return { c, v, t, k: measurement?.contract?.id ?? null, h: measurement?.environment?.class ?? null };
+});
+// Compare logical data, not the obsolete long JSON projection or SQL spelling.
+const normalized = (rows) => rows.map(({ c, v, t, k, h }) => JSON.stringify([c, v, t, k, h])).sort();
 const compare = (options) => {
-  const before = readRows(oldSql(options));
-  let after;
-  for (const branched of [undefined, false, true]) {
-    after = readRows(newSql({ ...options, branched }));
-    assert.deepEqual(
-      normalized(after),
-      normalized(before),
-      `Complete row mismatch: ${JSON.stringify({ ...options, branched })}`,
-    );
-  }
+  const before = referenceRows(readRows(referenceSql(options)));
+  const after = readRows(newSql(options));
+  assert.deepEqual(normalized(after), normalized(before), `Complete logical row mismatch: ${JSON.stringify(options)}`);
   return after;
 };
-const identity = {
-  contractId: "contract-neutral",
-  environmentClass: "local-disposable",
-};
-const caseIds = [
-  "case-alpha",
-  "case-beta",
-  "case-scarce",
-  "case-no-identity",
-  "case'quoted",
-  "case-empty",
-];
-const identityByCase = Object.fromEntries(
-  caseIds.filter((id) => id !== "case-no-identity").map((id) => [id, identity]),
-);
-const common = {
-  caseIds,
-  currentRunId: "run-current",
-  includeMeasurement: true,
-  identityByCase,
+// This fixture backfill intentionally derives the new columns from historical
+// synthetic JSON, including independent NULL/incomplete keys; it is not a
+// test of the production backfill runner.
+const backfillFixture = () => psql(`UPDATE ${table} SET
+  "Contract_ID" = NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}',
+  "Environment_Class" = NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}'; ANALYZE ${table}`);
+const identity = { contractId: "contract-neutral", environmentClass: "local-disposable" };
+const caseIds = ["case-alpha", "case-beta", "case-scarce", "case-no-identity", "case'quoted", "case-empty", "case-no-eligible"];
+const identityByCase = Object.fromEntries(caseIds.filter((id) => id !== "case-no-identity").map((id) => [id, identity]));
+const common = { caseIds, currentRunId: "run-current", identityByCase };
+const assertModelEquivalent = (options) => {
+  const model = (query, adapt) => comparableHistoryByCaseFromRows(rowsFromSqlResult(adapt(readRows(query({ ...options, strictOnly: false })))), {
+    identityByCase: options.identityByCase,
+    strictRows: rowsFromSqlResult(adapt(readRows(query({ ...options, strictOnly: true })))),
+  });
+  const before = model(referenceSql, referenceRows);
+  const after = model(newSql, (rows) => rows);
+  assert.deepEqual(after, before);
+  const payloads = options.caseIds.map((caseId) => ({ caseId, engine: "v2", result: "pass", thresholds: [{ metric: "duration_ms", actual: 100, max: 1000 }] }));
+  const result = (history) => buildSameRunComparison({ payloads, historyByCase: history.valuesByCase, historyCompatibilityByCase: history.compatibilityByCase });
+  assert.deepEqual(result(after), result(before));
+  return after;
 };
 
 try {
@@ -108,183 +92,181 @@ try {
   psql(`CREATE TABLE ${table} (
     "Case_ID" text, "Primary_Metric_Value" double precision, "Started_At" timestamptz,
     "Measurement_JSON" text, "Status" text, "Engine" text, "Run_ID" text,
-    ${Array.from({ length: 26 }, (_, index) => `"Neutral_${index}" text`).join(", ")}
+    ${Array.from({ length: 26 }, (_, index) => `"Neutral_${index}" text`).join(", ")},
+    "Contract_ID" text, "Environment_Class" text
   )`);
-  // Recent ineligible rows outnumber the cap; applying LIMIT before any filter
-  // loses old eligible rows. JSON variants cover NULL, empty, wrong, and
-  // missing identity keys.
+  // Recent ineligible rows outnumber the cap. NULL timestamp has PostgreSQL's
+  // existing DESC/NULLS FIRST semantics; all other timestamps are unique.
   psql(`INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID")
     SELECT c, CASE WHEN variant = 3 THEN NULL WHEN variant = 4 THEN 0 WHEN variant = 5 THEN -1 ELSE n END,
       CASE WHEN variant = 0 AND n = 1 THEN NULL ELSE '2026-01-01'::timestamptz + (n + variant * 1000) * interval '1 second' END,
       CASE WHEN variant = 8 THEN NULL WHEN variant = 9 THEN ''
         WHEN variant = 14 THEN '{}' WHEN variant = 15 THEN 'null'
         WHEN variant = 16 THEN '{"contract":{"id":"contract-neutral"}}'
+        WHEN variant = 17 THEN '{"environment":{"class":"local-disposable"}}'
         ELSE jsonb_build_object(
-        'contract', jsonb_build_object('id', CASE WHEN variant = 6 THEN 'wrong-contract' ELSE 'contract-neutral' END),
-        'environment', jsonb_build_object('class', CASE WHEN variant = 7 THEN 'wrong-environment' ELSE 'local-disposable' END),
-        'sample', n, 'case', c)::text END,
+          'contract', jsonb_build_object('id', CASE WHEN variant = 6 OR c = 'case-no-eligible' THEN 'wrong-contract' ELSE 'contract-neutral' END),
+          'environment', jsonb_build_object('class', CASE WHEN variant = 7 THEN 'wrong-environment' ELSE 'local-disposable' END),
+          'sample', n, 'case', c)::text END,
       CASE WHEN variant = 1 THEN 'fail' WHEN variant = 11 THEN NULL ELSE 'pass' END,
       CASE WHEN variant = 2 THEN 'v1' WHEN variant = 12 THEN NULL ELSE 'v2' END,
       CASE WHEN variant = 10 THEN 'run-current' WHEN variant = 13 THEN NULL ELSE 'run-history' END
-    FROM unnest(ARRAY['case-alpha', 'case-beta', 'case-scarce', 'case-no-identity', 'case''quoted']) c
-    CROSS JOIN generate_series(1, 95) n CROSS JOIN generate_series(0, 16) variant
-    WHERE c <> 'case-scarce' OR n <= 8;
-    ANALYZE ${table}`);
+    FROM unnest(ARRAY['case-alpha', 'case-beta', 'case-scarce', 'case-no-identity', 'case''quoted', 'case-no-eligible']) c
+    CROSS JOIN generate_series(1, 95) n CROSS JOIN generate_series(0, 17) variant
+    WHERE c <> 'case-scarce' OR n <= 8`);
+  backfillFixture();
   const strict = compare({ ...common, strictOnly: true });
-  const counts = Object.fromEntries(
-    caseIds.map((id) => [id, strict.filter((row) => row.c === id).length]),
-  );
-  assert.deepEqual(counts, {
-    "case-alpha": 60,
-    "case-beta": 60,
-    "case-scarce": 8,
-    "case-no-identity": 0,
-    "case'quoted": 60,
-    "case-empty": 0,
+  assert.deepEqual(Object.fromEntries(caseIds.map((id) => [id, strict.filter((row) => row.c === id).length])), {
+    "case-alpha": 60, "case-beta": 60, "case-scarce": 8, "case-no-identity": 0,
+    "case'quoted": 60, "case-empty": 0, "case-no-eligible": 0,
   });
-  assert.ok(strict.every((row) => caseIds.includes(row.c)));
+  assert.ok(strict.every((row) => row.k === identity.contractId && row.h === identity.environmentClass));
+  assert.ok(strict.some((row) => row.t === null));
+  const mixed = compare({ ...common, perCase: 120 });
+  assert.ok(mixed.some((row) => row.k === null && row.h === identity.environmentClass));
+  assert.ok(mixed.some((row) => row.k === identity.contractId && row.h === null));
   for (const strictOnly of [false, true]) {
-    for (const perCase of [0, -2, 1, 2.9, 60, 120])
-      compare({ ...common, strictOnly, perCase });
+    for (const perCase of [0, -2, 1, 2.9, 60, 120]) compare({ ...common, strictOnly, perCase });
   }
   compare({ ...common, currentRunId: undefined });
-  compare({ ...common, includeMeasurement: false });
-  compare({ ...common, includeMeasurement: false, strictOnly: true });
   compare({ ...common, caseIds: ["case-alpha", "case-alpha", "case'quoted"] });
   compare({ ...common, caseIds: [] });
-  // Crossing a timestamp tie cannot have a unique row identity under the old
-  // contract. Identical complete projections make the deterministic equality
-  // assertion valid without imposing a new tie breaker on production results.
+  compare({ ...common, identityByCase: {}, strictOnly: true });
+  compare({ ...common, identityByCase: { "case-alpha": { contractId: identity.contractId } }, strictOnly: true });
+  assertModelEquivalent(common);
+
+  // Older matching rows must remain accessible beyond the legacy top 60.
+  psql(`TRUNCATE ${table}; INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID")
+    SELECT 'case-alpha', n, '2026-01-01'::timestamptz + n * interval '1 second',
+      jsonb_build_object('contract', jsonb_build_object('id', CASE WHEN n <= 60 THEN 'contract-neutral' ELSE 'wrong-contract' END), 'environment', jsonb_build_object('class', 'local-disposable'))::text,
+      'pass', 'v2', 'run-history' FROM generate_series(1, 160) n`);
+  backfillFixture();
+  const olderHistory = assertModelEquivalent({ ...common, caseIds: ["case-alpha"] });
+  assert.equal(olderHistory.compatibilityByCase["case-alpha"].mode, "strict");
+  assert.deepEqual(olderHistory.valuesByCase["case-alpha"], Array.from({ length: 60 }, (_, index) => index + 1));
+
+  // Identical logical projections permit complete equality even across ties.
   psql(`TRUNCATE ${table}; INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID")
     SELECT 'case-alpha', 42, '2026-01-01'::timestamptz, '{"contract":{"id":"contract-neutral"},"environment":{"class":"local-disposable"}}', 'pass', 'v2', 'run-history' FROM generate_series(1, 65)`);
+  backfillFixture();
   assert.equal(compare({ ...common, strictOnly: true }).length, 60);
 
-  // A non-identical tie crossing a varying quota has no defined winner under
-  // the old contract. Assert the admissible set and exact quota for both
-  // queries instead of a selection the contract never promised.
+  // A non-identical cutoff tie has no promised winner. Check exact quota,
+  // complete identities, timestamps, newer prefix, and admissible tied values.
   psql(`TRUNCATE ${table};
     INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID")
-      SELECT 'case-tie', n, '2026-02-01'::timestamptz, '{"contract":{"id":"contract-neutral"},"environment":{"class":"local-disposable"}}', 'pass', 'v2', 'run-history'
-      FROM generate_series(1, 5) n;
+      SELECT 'case-tie', n, '2026-02-01'::timestamptz, '{"contract":{"id":"contract-neutral"},"environment":{"class":"local-disposable"}}', 'pass', 'v2', 'run-history' FROM generate_series(1, 5) n;
     INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID")
-      SELECT 'case-tie', 100 + n, '2026-03-01'::timestamptz + n * interval '1 second', '{"contract":{"id":"contract-neutral"},"environment":{"class":"local-disposable"}}', 'pass', 'v2', 'run-history'
-      FROM generate_series(1, 3) n;
-    ANALYZE ${table}`);
-  const tieIdentity = { "case-tie": identity };
-  const newerValues = [101, 102, 103];
+      SELECT 'case-tie', 100 + n, '2026-03-01'::timestamptz + n * interval '1 second', '{"contract":{"id":"contract-neutral"},"environment":{"class":"local-disposable"}}', 'pass', 'v2', 'run-history' FROM generate_series(1, 3) n`);
+  backfillFixture();
   for (const strictOnly of [false, true]) {
     for (const perCase of [1, 2, 4, 5, 8]) {
-      const tieOptions = {
-        caseIds: ["case-tie"],
-        currentRunId: "run-current",
-        includeMeasurement: true,
-        identityByCase: tieIdentity,
-        strictOnly,
-        perCase,
-      };
-      for (const rows of [
-        readRows(oldSql(tieOptions)),
-        readRows(newSql({ ...tieOptions, branched: false })),
-        readRows(newSql({ ...tieOptions, branched: true })),
-      ]) {
+      const options = { caseIds: ["case-tie"], currentRunId: "run-current", identityByCase: { "case-tie": identity }, strictOnly, perCase };
+      for (const rows of [referenceRows(readRows(referenceSql(options))), readRows(newSql(options))]) {
         assert.equal(rows.length, perCase);
         const values = rows.map((row) => row.v);
         assert.equal(new Set(values).size, perCase);
-        assert.ok(rows.every((row) => row.c === "case-tie"));
-        assert.ok(
-          values.every(
-            (value) =>
-              (value >= 1 && value <= 5) || newerValues.includes(value),
-          ),
-        );
+        assert.ok(rows.every((row) => row.c === "case-tie" && row.k === identity.contractId && row.h === identity.environmentClass));
+        const newerValues = [101, 102, 103];
+        assert.ok(values.every((value) => (value >= 1 && value <= 5) || newerValues.includes(value)));
         const expectedNewer = Math.min(newerValues.length, perCase);
-        assert.deepEqual(
-          values.filter((value) => newerValues.includes(value)).sort(),
-          newerValues.slice(-expectedNewer),
-        );
-        assert.equal(
-          values.filter((value) => value <= 5).length,
-          perCase - expectedNewer,
-        );
-        const timestamps = rows.map((row) => Date.parse(row.t));
-        assert.ok(timestamps.every(Number.isFinite));
-        assert.deepEqual(
-          timestamps,
-          [...timestamps].sort((left, right) => right - left),
-        );
+        assert.deepEqual(values.filter((value) => newerValues.includes(value)).sort(), newerValues.slice(-expectedNewer));
+        assert.equal(values.filter((value) => value <= 5).length, perCase - expectedNewer);
+        for (const row of rows) {
+          const expected = row.v <= 5 ? Date.parse("2026-02-01T00:00:00Z") : Date.parse("2026-03-01T00:00:00Z") + (row.v - 100) * 1000;
+          assert.equal(Date.parse(row.t), expected);
+        }
       }
     }
   }
-  console.log("PostgreSQL complete-row history equivalence checks passed");
+  console.log("PostgreSQL complete-logical-row and model history equivalence checks passed");
 
   if (process.argv.includes("--perf")) {
-    // Same row/field cardinality as the motivating baseline, with entirely
-    // synthetic payloads. This is not a customer-data or byte-layout replay.
+    // 631872 rows, 33 original user columns + 2 new scalar columns. Payloads
+    // are neutral synthetic wide JSON, not customer data or a byte-layout replay.
     psql(`TRUNCATE ${table}; INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID", "Neutral_0")
       SELECT 'perf-' || (n % 8), n, '2026-01-01'::timestamptz + n * interval '1 second',
-        jsonb_build_object('contract', jsonb_build_object('id', CASE WHEN n % 11 = 0 THEN 'wrong-contract' ELSE 'contract-neutral' END), 'environment', jsonb_build_object('class', 'local-disposable'), 'padding', repeat(md5(n::text), 8))::text,
+        jsonb_build_object('contract', jsonb_build_object('id', CASE
+          WHEN n % 8 = 0 AND n > 640 THEN 'wrong-contract'
+          WHEN n % 8 = 1 THEN 'wrong-contract'
+          WHEN n % 8 = 2 AND n > 64 THEN 'wrong-contract'
+          WHEN n % 8 NOT IN (0, 1, 2) AND n % 11 = 0 THEN 'wrong-contract'
+          ELSE 'contract-neutral' END), 'environment', jsonb_build_object('class', 'local-disposable'), 'padding', repeat(md5(n::text), 8))::text,
         CASE WHEN n % 19 = 0 THEN 'fail' ELSE 'pass' END, CASE WHEN n % 23 = 0 THEN 'v1' ELSE 'v2' END,
         CASE WHEN n % 29 = 0 THEN 'run-current' ELSE 'run-history' END, repeat(md5(n::text), 8)
       FROM generate_series(1, 631872) n;
-      CREATE INDEX ON ${table} ("Started_At"); ANALYZE ${table}`);
+      CREATE INDEX history_started_at ON ${table} ("Started_At")`);
+    backfillFixture();
     const perfCases = Array.from({ length: 8 }, (_, index) => `perf-${index}`);
-    const options = {
-      ...common,
-      caseIds: perfCases,
-      identityByCase: Object.fromEntries(perfCases.map((id) => [id, identity])),
+    const options = { ...common, caseIds: perfCases, identityByCase: Object.fromEntries(perfCases.map((id) => [id, identity])) };
+    const explain = (sql) => jsonQuery(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`)[0];
+    const nodes = (plan) => [plan, ...(plan.Plans ?? []).flatMap(nodes)];
+    const scannedHistoryRows = (plan) => nodes(plan.Plan)
+      .filter((node) => node["Relation Name"] === "history" && /Scan/.test(node["Node Type"]))
+      .reduce((sum, node) => sum + ((node["Actual Rows"] ?? 0) + (node["Rows Removed by Filter"] ?? 0) + (node["Rows Removed by Index Recheck"] ?? 0)) * (node["Actual Loops"] ?? 0), 0);
+    const median = (values) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return (sorted[Math.floor((sorted.length - 1) / 2)] + sorted[Math.floor(sorted.length / 2)]) / 2;
     };
-    for (const indexMode of ["started-at-only", "case-started-at"]) {
-      if (indexMode === "case-started-at")
-        psql(
-          `CREATE INDEX ON ${table} ("Case_ID", "Started_At" DESC); ANALYZE ${table}`,
-        );
+    const statistics = (values) => ({ raw: values, median: median(values), p95: [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1] });
+    for (const indexMode of ["started-at-only", "identity-and-case-ordered"]) {
+      if (indexMode === "identity-and-case-ordered") psql(`
+        CREATE INDEX history_identity_ordered ON ${table} ("Case_ID", "Contract_ID", "Environment_Class", "Started_At" DESC);
+        CREATE INDEX history_case_ordered ON ${table} ("Case_ID", "Started_At" DESC); ANALYZE ${table}`);
       for (const strictOnly of [false, true]) {
-        compare({ ...options, strictOnly });
-        const queries = {
-          old: oldSql({ ...options, strictOnly }),
-          new: newSql({ ...options, strictOnly, branched: true }),
-        };
-        const explain = (sql) =>
-          jsonQuery(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`)[0];
-        // One warmup each, then six interleaved samples with reversed order.
-        for (const sql of Object.values(queries)) explain(sql);
-        const samples = { old: [], new: [] };
-        for (let repeat = 0; repeat < 6; repeat++) {
-          for (const label of repeat % 2 ? ["new", "old"] : ["old", "new"])
-            samples[label].push(explain(queries[label]));
+        const correctRows = compare({ ...options, strictOnly });
+        if (strictOnly) {
+          assert.equal(correctRows.filter((row) => row.c === "perf-0").length, 60);
+          assert.equal(correctRows.filter((row) => row.c === "perf-1").length, 0);
+          assert.ok(correctRows.filter((row) => row.c === "perf-2").length > 0 && correctRows.filter((row) => row.c === "perf-2").length < 60);
         }
-        const summary = Object.fromEntries(
-          Object.entries(samples).map(([label, plans]) => [
-            label,
-            {
-              executionMs: plans.map((plan) => plan["Execution Time"]),
-              sharedHitBlocks: plans.map(
-                (plan) => plan.Plan["Shared Hit Blocks"] ?? 0,
-              ),
-              sharedReadBlocks: plans.map(
-                (plan) => plan.Plan["Shared Read Blocks"] ?? 0,
-              ),
-              tempReadBlocks: plans.map(
-                (plan) => plan.Plan["Temp Read Blocks"] ?? 0,
-              ),
-              tempWrittenBlocks: plans.map(
-                (plan) => plan.Plan["Temp Written Blocks"] ?? 0,
-              ),
-            },
-          ]),
-        );
-        console.log(
-          JSON.stringify({
-            indexMode,
-            strictOnly,
-            rows: 631872,
-            fields: 33,
-            warmups: 1,
-            repetitions: 6,
-            summary,
-            samples,
-          }),
-        );
+        const queries = { oldJson: referenceSql({ ...options, strictOnly }), newScalar: newSql({ ...options, strictOnly }) };
+        for (const sql of Object.values(queries)) explain(sql);
+        const samples = { oldJson: [], newScalar: [] };
+        for (let repeat = 0; repeat < 6; repeat++) {
+          for (const label of repeat % 2 ? ["newScalar", "oldJson"] : ["oldJson", "newScalar"]) samples[label].push(explain(queries[label]));
+        }
+        const summary = Object.fromEntries(Object.entries(samples).map(([label, plans]) => [label, {
+          executionMs: statistics(plans.map((plan) => plan["Execution Time"])),
+          sharedHitBlocks: statistics(plans.map((plan) => plan.Plan["Shared Hit Blocks"] ?? 0)),
+          sharedReadBlocks: statistics(plans.map((plan) => plan.Plan["Shared Read Blocks"] ?? 0)),
+          rootSharedBlocks: statistics(plans.map((plan) => (plan.Plan["Shared Hit Blocks"] ?? 0) + (plan.Plan["Shared Read Blocks"] ?? 0))),
+          tempReadBlocks: statistics(plans.map((plan) => plan.Plan["Temp Read Blocks"] ?? 0)),
+          tempWrittenBlocks: statistics(plans.map((plan) => plan.Plan["Temp Written Blocks"] ?? 0)),
+          indexesUsed: plans.map((plan) => [...new Set(nodes(plan.Plan).map((node) => node["Index Name"]).filter(Boolean))]),
+        }]));
+        const candidate = indexMode === "identity-and-case-ordered" && strictOnly;
+        const bufferDecrease = summary.newScalar.rootSharedBlocks.median < summary.oldJson.rootSharedBlocks.median;
+        const identityIndexUsed = samples.newScalar.every((plan) => nodes(plan.Plan).some((node) => node["Index Name"] === "history_identity_ordered"));
+        const boundedIdentityScan = samples.newScalar.every((plan) => scannedHistoryRows(plan) < 2000);
+        // A final batch can contain one case. A plan that only works for an
+        // eight-row targets relation still starves sparse singleton lookups.
+        const singletonPlans = candidate ? Object.fromEntries(["perf-0", "perf-1", "perf-2", "perf-3"].map((caseId) => {
+          const singleton = { ...options, strictOnly: true, caseIds: [caseId] };
+          compare(singleton);
+          return [caseId, explain(newSql(singleton))];
+        })) : {};
+        const singletonSummary = Object.fromEntries(Object.entries(singletonPlans).map(([caseId, plan]) => [caseId, {
+          returnedRows: plan.Plan["Actual Rows"],
+          scannedHistoryRows: scannedHistoryRows(plan),
+          rootSharedBlocks: (plan.Plan["Shared Hit Blocks"] ?? 0) + (plan.Plan["Shared Read Blocks"] ?? 0),
+          indexesUsed: [...new Set(nodes(plan.Plan).map((node) => node["Index Name"]).filter(Boolean))],
+        }]));
+        const boundedSingletonScans = Object.values(singletonSummary).every((entry) => entry.scannedHistoryRows < 2000 && entry.indexesUsed.includes("history_identity_ordered"));
+        // Persist raw plans synchronously before any acceptance assertion: a
+        // failed assertion must not truncate buffered stdout evidence.
+        const report = { indexMode, strictOnly, rows: 631872, oldFields: 33, addedScalarFields: 2, fields: 35,
+          warmups: 1, repetitions: 6, interleaved: true, plannerForced: false,
+          performanceAcceptance: candidate ? { bufferDecrease, identityIndexUsed, boundedIdentityScan, boundedSingletonScans, passed: bufferDecrease && identityIndexUsed && boundedIdentityScan && boundedSingletonScans } : null,
+          summary, singletonSummary };
+        appendFileSync(outputPath ?? 1, `${JSON.stringify({ ...report, samples, singletonPlans })}\n`);
+        if (outputPath) appendFileSync(1, `${JSON.stringify({ ...report, rawPlansPath: outputPath })}\n`);
+        if (candidate) {
+          assert.ok(bufferDecrease, "Candidate strict scalar query must reduce root shared hit+read buffers");
+          assert.ok(identityIndexUsed, "Candidate strict scalar query must actually use the identity compound index");
+          assert.ok(boundedIdentityScan, "Candidate strict scalar index must not scan full wrong-identity histories");
+          assert.ok(boundedSingletonScans, "Singleton strict lookups must use the identity index without scanning full histories");
+        }
       }
     }
   }

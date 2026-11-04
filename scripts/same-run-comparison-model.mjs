@@ -79,16 +79,6 @@ export const historyByCaseFromRows = (
   return historyByCase;
 };
 
-const parsedMeasurement = (value) => {
-  if (value && typeof value === "object") return value;
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
-};
-
 /**
  * Prefer rows with the same explicit measurement contract and environment
  * class. During the schema rollout there are not yet 52 strict points (12 for
@@ -109,11 +99,10 @@ export const comparableHistoryByCaseFromRows = (
   const compatibleRows = (strictRows ?? rows).filter((row) => {
     const expected = identityByCase[row.caseId];
     if (!expected?.contractId) return false;
-    const measurement = parsedMeasurement(row.measurement);
-    if (measurement?.contract?.id !== expected.contractId) return false;
+    if (row.contractId !== expected.contractId) return false;
     return (
       !expected.environmentClass ||
-      measurement?.environment?.class === expected.environmentClass
+      row.environmentClass === expected.environmentClass
     );
   });
   const strict = historyByCaseFromRows(compatibleRows, { limit });

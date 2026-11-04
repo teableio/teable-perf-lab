@@ -9,11 +9,9 @@
 // cases × 60 points stays under that; a full run is a few dozen small
 // queries rather than one that the API silently truncates.
 //
-// Default to one ranked pass in both modes. Explicit rollout opt-in enables
-// bounded non-strict branches only, after index approval and plan verification.
-// Strict JSON eligibility always keeps one ranked query: per-case branches can
-// choose repeated full scans even with a case/timestamp index. The operations
-// guide owns the query contract and the PostgreSQL proof command.
+// Both reads use bounded per-case lookups over scalar identity columns. Deploy
+// only after the scalar writer, historical backfill and ordered indexes are ready.
+// Historical JSON remains evidence, not a filter or a projected comparison input.
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -23,7 +21,11 @@ import {
   buildSameRunComparison,
   comparableHistoryByCaseFromRows,
 } from "./same-run-comparison-model.mjs";
-import { loadTeableFieldNames } from "./teable-field-read.mjs";
+import { loadTeableFields } from "./teable-field-read.mjs";
+import {
+  extractMeasurementIdentity,
+  resolvePerformanceTrackIdentityColumns,
+} from "./performance-track-identity.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,6 +35,7 @@ const DEFAULT_TABLE = "tblwPqrcchUzvyEOqLo";
 const CASE_BATCH_SIZE = 8;
 
 const sqlLiteral = (value) => `'${String(value).replaceAll("'", "''")}'`;
+const sqlIdentifier = (value) => `"${String(value).replaceAll('"', '""')}"`;
 
 export const buildSameRunHistorySql = ({
   caseIds,
@@ -40,63 +43,40 @@ export const buildSameRunHistorySql = ({
   perCase = SAME_RUN_HISTORY_POINTS,
   baseId = DEFAULT_BASE_ID,
   tableId = DEFAULT_TABLE,
-  includeMeasurement = false,
+  identityColumns = { contractId: "Contract_ID", environmentClass: "Environment_Class" },
   identityByCase = {},
   strictOnly = false,
-  branched = false,
 } = {}) => {
   const ids = [...new Set((caseIds ?? []).filter(Boolean))];
-  if (ids.length === 0) {
-    return undefined;
-  }
-  const runClause = currentRunId
-    ? ` AND "Run_ID" <> ${sqlLiteral(currentRunId)}`
+  if (ids.length === 0) return undefined;
+  const runClause = currentRunId ? ` AND "Run_ID" <> ${sqlLiteral(currentRunId)}` : "";
+  const contract = sqlIdentifier(identityColumns.contractId);
+  const environment = sqlIdentifier(identityColumns.environmentClass);
+  const targets = ids.flatMap((caseId) => {
+    const identity = identityByCase[caseId];
+    if (strictOnly && (!identity?.contractId || !identity?.environmentClass)) return [];
+    return [strictOnly
+      ? `(${sqlLiteral(caseId)}, ${sqlLiteral(identity.contractId)}, ${sqlLiteral(identity.environmentClass)})`
+      : `(${sqlLiteral(caseId)})`];
+  });
+  if (targets.length === 0) return undefined;
+  const columns = strictOnly ? "c, k, h" : "c";
+  const identityClause = strictOnly
+    ? ` AND ${contract} = target.k AND ${environment} = target.h`
     : "";
-  const measurementColumn = includeMeasurement
-    ? `, "Measurement_JSON" AS j`
-    : ", NULL AS j";
-  if (!branched || strictOnly) {
-    let compatibilityClause = "";
-    if (strictOnly) {
-      if (!includeMeasurement) return undefined;
-      const strictClauses = ids.flatMap((caseId) => {
-        const identity = identityByCase[caseId];
-        if (!identity?.contractId || !identity?.environmentClass) return [];
-        return [
-          `("Case_ID" = ${sqlLiteral(caseId)} ` +
-            `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' = ${sqlLiteral(identity.contractId)} ` +
-            `AND NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' = ${sqlLiteral(identity.environmentClass)})`,
-        ];
-      });
-      if (strictClauses.length === 0) return undefined;
-      compatibilityClause = ` AND (${strictClauses.join(" OR ")})`;
-    }
-    // Preserve the original single pass by default. Strict JSON predicates are
-    // not covered by the case/timestamp index: splitting the strict read into
-    // eight LIMIT branches measured eight full scans, so never opt it in.
-    return (
-      `SELECT c, v, t, j FROM (` +
-      `SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn}, ` +
-      `row_number() OVER (PARTITION BY "Case_ID" ORDER BY "Started_At" DESC) AS rn ` +
-      `FROM "${baseId}"."${tableId}" ` +
-      `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
-      `AND "Primary_Metric_Value" > 0 ` +
-      `AND "Case_ID" IN (${ids.map(sqlLiteral).join(", ")})${runClause}${compatibilityClause}` +
-      `) x WHERE rn <= ${Number(perCase)}`
-    );
-  }
-  const queries = ids.map(
-    (caseId) =>
-      // Every eligibility predicate stays before the limit. Started_At ties
-      // remain unspecified, just as in the original row_number query.
-      `(SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, "Started_At" AS t${measurementColumn} ` +
-      `FROM "${baseId}"."${tableId}" ` +
-      `WHERE "Status" = 'pass' AND "Engine" = 'v2' ` +
-      `AND "Primary_Metric_Value" > 0 ` +
-      `AND "Case_ID" = ${sqlLiteral(caseId)}${runClause} ` +
-      `ORDER BY "Started_At" DESC LIMIT ${Math.max(0, Math.floor(Number(perCase)))})`,
-  );
-  return `SELECT c, v, t, j FROM (${queries.join(" UNION ALL ")}) history`;
+  // Keep the small target relation parameterized even for one case. Inlining
+  // its constants can make LIMIT choose a global time-index scan that never
+  // finds a missing identity. OFFSET 0 fences targets only, not history rows.
+  // The public SQL parser accepts this form but not CTE AS MATERIALIZED.
+  return `WITH target AS (SELECT * FROM (VALUES ${targets.join(", ")}) ` +
+    `AS wanted(${columns}) OFFSET 0) ` +
+    `SELECT history.c, history.v, history.t, history.k, history.h FROM target ` +
+    `CROSS JOIN LATERAL (SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, ` +
+    `"Started_At" AS t, ${contract} AS k, ${environment} AS h ` +
+    `FROM ${sqlIdentifier(baseId)}.${sqlIdentifier(tableId)} ` +
+    `WHERE "Status" = 'pass' AND "Engine" = 'v2' AND "Primary_Metric_Value" > 0 ` +
+    `AND "Case_ID" = target.c${runClause}${identityClause} ` +
+    `ORDER BY "Started_At" DESC LIMIT ${Math.max(0, Math.floor(Number(perCase)))}) history`;
 };
 
 const sqlQuery = async ({ endpoint, token, baseId, sql }) => {
@@ -140,7 +120,8 @@ export const rowsFromSqlResult = (rows = []) =>
     caseId: row.c ?? row.Case_ID,
     value: row.v ?? row.Primary_Metric_Value,
     startedAt: row.t ?? row.Started_At,
-    measurement: row.j ?? row.Measurement_JSON,
+    contractId: row.k ?? row.Contract_ID ?? null,
+    environmentClass: row.h ?? row.Environment_Class ?? null,
   }));
 
 const batchesOf = (items, size) => {
@@ -165,13 +146,8 @@ export const loadSameRunHistory = async ({
   const endpoint = env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT);
   const baseId = env("TEABLE_PERF_LAB_BASE_ID", DEFAULT_BASE_ID);
   const tableId = env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE);
-  const fieldNames = await loadTeableFieldNames({
-    endpoint,
-    token,
-    tableId,
-  });
-  const includeMeasurement = fieldNames.has("Measurement JSON");
-  const branched = env("PERF_LAB_SAME_RUN_HISTORY_BRANCHED") === "true";
+  const fields = await loadTeableFields({ endpoint, token, baseId, tableId });
+  const identityColumns = resolvePerformanceTrackIdentityColumns(fields);
   const rows = [];
   const strictRows = [];
 
@@ -181,8 +157,7 @@ export const loadSameRunHistory = async ({
       currentRunId,
       baseId,
       tableId,
-      includeMeasurement,
-      branched,
+      identityColumns,
     });
     const page = await sqlQuery({ endpoint, token, baseId, sql });
     rows.push(...rowsFromSqlResult(page));
@@ -191,10 +166,9 @@ export const loadSameRunHistory = async ({
       currentRunId,
       baseId,
       tableId,
-      includeMeasurement,
+      identityColumns,
       identityByCase,
       strictOnly: true,
-      branched,
     });
     if (strictSql) {
       const strictPage = await sqlQuery({
@@ -228,10 +202,7 @@ export const resolveSameRunComparison = async ({
       .filter((payload) => payload.measurement)
       .map((payload) => [
         payload.caseId,
-        {
-          contractId: payload.measurement.contract?.id,
-          environmentClass: payload.measurement.environment?.class,
-        },
+        extractMeasurementIdentity(payload.measurement),
       ]),
   );
   const history = await loadSameRunHistory({

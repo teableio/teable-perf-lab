@@ -33,4 +33,12 @@ export const PERFORMANCE_TRACK_CONTRACT_FIELDS = [
   "Trace Manifest JSON",
   "Summary Markdown",
   "Error",
-].map((name) => ({ name }));
+].map((name) => ({ name })).concat([
+  { name: "Measurement JSON", type: "longText" },
+  { name: "Contract ID", type: "singleLineText", dbFieldName: "Contract_ID" },
+  {
+    name: "Environment Class",
+    type: "singleLineText",
+    dbFieldName: "Environment_Class",
+  },
+]).map((field, index) => ({ ...field, id: `fld-fixture-${index}` }));

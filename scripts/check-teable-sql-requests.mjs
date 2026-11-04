@@ -1,116 +1,136 @@
-// The API path these scripts take in CI, exercised without a token.
-//
-// `list-corpus-refs.mjs` and `build-perf-corpus.mjs` each speak to Teable two
-// ways: the REST API when a service token is present, the signed-in CLI when it
-// is not. A developer machine has no token, so every local run takes the CLI
-// branch — and the API branch shipped with a wrong method and a wrong path,
-// answering 404 on its first and only execution, in CI, after everything else
-// had been declared working.
-//
-// So the request is asserted here rather than discovered in a run. `fetch` is
-// replaced, both scripts are invoked with a token set, and what they would have
-// sent is checked against the endpoint the API actually publishes:
-//
-//   POST /api/base/{baseId}/sql-query   with { sql } as the body
-//
-// Not a mock of convenience — the shape below is the one `teable search-api`
-// reports, and if the API changes this fails rather than the next CI run.
-
+// Real HTTP clients against a stateful local Teable stand-in. These checks
+// assert transport, output, and schema failures, not incidental SQL spelling.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
+import { loadSameRunHistory } from "./resolve-same-run-history.mjs";
+import { performanceTrackFieldsFixture } from "./fixtures/performance-track-fields.mjs";
 
 const execFileAsync = promisify(execFile);
-
-// A tiny server standing in for Teable: records what arrived, answers with an
-// empty result. Cheaper and stricter than replacing `fetch` inside a child
-// process, and it exercises the real HTTP client rather than a substitute.
-const { createServer } = await import("node:http");
-
+const workspace = await mkdtemp(join(tmpdir(), "teable-sql-requests-"));
 const received = [];
+let fields = performanceTrackFieldsFixture();
+let sqlResponses = [];
 const server = createServer((request, response) => {
   const chunks = [];
   request.on("data", (chunk) => chunks.push(chunk));
   request.on("end", () => {
-    received.push({
-      method: request.method,
-      url: request.url,
-      auth: request.headers.authorization,
-      contentType: request.headers["content-type"],
-      body: Buffer.concat(chunks).toString("utf8"),
-    });
+    received.push({ method: request.method, url: request.url, auth: request.headers.authorization,
+      contentType: request.headers["content-type"], body: Buffer.concat(chunks).toString("utf8") });
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(
-      JSON.stringify(
-        request.method === "GET"
-          ? [{ name: "Measurement JSON" }]
-          : { success: true, rows: [] },
-      ),
-    );
+    response.end(JSON.stringify(request.method === "GET" ? fields : (sqlResponses.shift() ?? { success: true, rows: [] })));
   });
 });
-
 await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
 const endpoint = `http://127.0.0.1:${server.address().port}`;
-
-const runScript = async (script, args = []) =>
-  execFileAsync("node", [`scripts/${script}`, ...args], {
-    env: {
-      ...process.env,
-      TEABLE_ENDPOINT: endpoint,
-      TEABLE_PERF_LAB_TOKEN: "test-token",
-      COMMIT_ORDER_PATH: "/dev/null",
-    },
-  });
-
-// --- list-corpus-refs -------------------------------------------------------
-
-await runScript("list-corpus-refs.mjs", ["--teable-ee"]);
-assert.equal(received.length, 1);
-{
-  const request = received[0];
-  // The whole point of this file. A GET with the statement in the query string
-  // is what shipped, and it 404s.
-  assert.equal(request.method, "POST");
-  assert.match(request.url, /^\/api\/base\/[^/]+\/sql-query$/);
-  assert.equal(request.auth, "Bearer test-token");
-  assert.equal(request.contentType, "application/json");
-  // The statement travels in the body, not the URL.
-  assert.match(JSON.parse(request.body).sql, /Teable_EE_Ref/);
-  assert.doesNotMatch(request.url, /SELECT/i);
-}
-
-received.length = 0;
-await runScript("list-corpus-refs.mjs", ["--perf-lab"]);
-assert.match(JSON.parse(received[0].body).sql, /Commit_SHA/);
-
-// --- build-perf-corpus ------------------------------------------------------
-
-// It reads two artifacts before its first query; an empty ordering is enough to
-// get one request out, which is all that is being checked here.
-received.length = 0;
+const environment = {
+  ...process.env, TEABLE_ENDPOINT: endpoint, TEABLE_PERF_LAB_TOKEN: "test-token",
+  COMMIT_ORDER_PATH: join(workspace, "order.json"), CASE_DIGESTS_PATH: join(workspace, "digests.json"),
+  PERF_CORPUS_PATH: join(workspace, "corpus.json"),
+};
+const runScript = (script, args = []) => execFileAsync("node", [`scripts/${script}`, ...args], { env: environment });
+const assertSqlTransport = (requests) => {
+  assert.ok(requests.length > 0, "expected SQL requests");
+  for (const request of requests) {
+    assert.equal(request.method, "POST");
+    assert.match(request.url, /^\/api\/base\/[^/]+\/sql-query$/);
+    assert.equal(request.auth, "Bearer test-token");
+    assert.equal(request.contentType, "application/json");
+    const body = JSON.parse(request.body);
+    assert.deepEqual(Object.keys(body), ["sql"]);
+    assert.equal(typeof body.sql, "string");
+    assert.ok(body.sql.trim().length > 0);
+    assert.doesNotMatch(request.url, /SELECT/i);
+  }
+};
+const assertMetadataTransport = () => {
+  const requests = received.filter((request) => request.method === "GET");
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /^\/api\/table\/[^/]+\/field$/);
+  assert.equal(requests[0].auth, "Bearer test-token");
+};
+// Keep abbreviated synthetic commit IDs unique just like real commit prefixes.
+const eeCommits = Array.from({ length: 30 }, (_, index) => (index + 1).toString(16).padStart(12, "0") + "0".repeat(28));
+const perfCommit = "a".repeat(40);
+const corpusRows = eeCommits.map((commit, index) => ({
+  c: "demo", e: "v2", r: commit.slice(0, 12), p: perfCommit.slice(0, 12),
+  m: "duration_ms", v: String(100 + index), n: "1", k: "contract-neutral", h: "local-disposable",
+}));
+const previousEnvironment = { TEABLE_ENDPOINT: process.env.TEABLE_ENDPOINT, TEABLE_PERF_LAB_TOKEN: process.env.TEABLE_PERF_LAB_TOKEN };
 try {
-  await execFileAsync("node", ["scripts/build-perf-corpus.mjs"], {
-    env: {
-      ...process.env,
-      TEABLE_ENDPOINT: endpoint,
-      TEABLE_PERF_LAB_TOKEN: "test-token",
-      COMMIT_ORDER_PATH: "scripts/fixtures/empty-commit-order.json",
-      CASE_DIGESTS_PATH: "scripts/fixtures/empty-case-digests.json",
-      PERF_CORPUS_PATH: "/dev/null",
-    },
-  });
-} catch {
-  // Writing to /dev/null or an empty corpus may fail downstream; the request
-  // shape is what matters and it has already been sent by then.
-}
-assert.ok(received.length > 0, "build-perf-corpus sent no request");
-const corpusRequest = received.find((request) =>
-  request.url.match(/^\/api\/base\/[^/]+\/sql-query$/),
-);
-assert.equal(corpusRequest.method, "POST");
-assert.match(JSON.parse(corpusRequest.body).sql, /percentile_disc/);
-assert.match(JSON.parse(corpusRequest.body).sql, /Measurement_JSON/);
+  await writeFile(environment.COMMIT_ORDER_PATH, JSON.stringify({ ordinals: Object.fromEntries(eeCommits.map((commit, index) => [commit, index])), excluded: {} }));
+  await writeFile(environment.CASE_DIGESTS_PATH, JSON.stringify({ byCommit: { [perfCommit]: "synthetic" }, snapshots: { synthetic: { demo: "workload-neutral" } } }));
+  for (const argument of ["--teable-ee", "--perf-lab"]) {
+    received.length = 0;
+    await runScript("list-corpus-refs.mjs", [argument]);
+    assert.equal(received.length, 1);
+    assertSqlTransport(received);
+  }
 
-server.close();
-console.log("teable sql request checks passed");
+  // Both scalar keys survive HTTP -> corpus segmentation. Thirty strict
+  // points qualify, twenty-nine do not; metrics values/metric names survive.
+  for (const count of [30, 29]) {
+    received.length = 0;
+    sqlResponses = [{ success: true, rows: corpusRows.slice(0, count) }];
+    await runScript("build-perf-corpus.mjs");
+    assertMetadataTransport();
+    assertSqlTransport(received.filter((request) => request.method !== "GET"));
+    assert.equal(received.filter((request) => request.method === "POST").length, 1);
+    const corpus = JSON.parse(await readFile(environment.PERF_CORPUS_PATH, "utf8"));
+    assert.equal(corpus.measurementIdentityAvailable, true);
+    assert.equal(corpus.seriesCount, 1);
+    assert.equal(corpus.series["demo::v2"].metric, "duration_ms");
+    assert.equal(corpus.series["demo::v2"].compatibilityMode, count === 30 ? "strict" : "strict-insufficient");
+    assert.deepEqual(corpus.series["demo::v2"].segmentCompatibility, ["strict"]);
+    assert.deepEqual(corpus.series["demo::v2"].segments[0], Array.from({ length: count }, (_, index) => [index, 100 + index, 1]));
+  }
+
+  process.env.TEABLE_ENDPOINT = endpoint;
+  process.env.TEABLE_PERF_LAB_TOKEN = "test-token";
+  const historyOptions = { caseIds: ["demo"], currentRunId: "run-current", identityByCase: { demo: { contractId: "contract-neutral", environmentClass: "local-disposable" } } };
+  received.length = 0;
+  const historyRows = Array.from({ length: 60 }, (_, index) => ({ c: "demo", v: index + 1, t: new Date(Date.UTC(2026, 0, index + 1)).toISOString(), k: "contract-neutral", h: "local-disposable" }));
+  sqlResponses = [{ success: true, rows: historyRows }, { success: true, rows: historyRows }];
+  const history = await loadSameRunHistory(historyOptions);
+  assertMetadataTransport();
+  assertSqlTransport(received.filter((request) => request.method !== "GET"));
+  assert.equal(received.filter((request) => request.method === "POST").length, 2);
+  assert.equal(history.compatibilityByCase.demo.mode, "strict");
+  assert.deepEqual(history.valuesByCase.demo, Array.from({ length: 60 }, (_, index) => index + 1));
+
+  // A partial/wrong-type rollout must fail before issuing SQL, never silently
+  // downgrade to the legacy JSON path. No exact English error wording pinned.
+  for (const invalidFields of [
+    performanceTrackFieldsFixture().filter((field) => field.name !== "Environment Class"),
+    performanceTrackFieldsFixture().map((field) => field.name === "Contract ID" ? { ...field, type: "longText" } : field),
+  ]) {
+    fields = invalidFields;
+    received.length = 0;
+    await assert.rejects(loadSameRunHistory(historyOptions));
+    assertMetadataTransport();
+    assert.equal(received.filter((request) => request.method === "POST").length, 0);
+    received.length = 0;
+    await assert.rejects(runScript("build-perf-corpus.mjs"));
+    assertMetadataTransport();
+    assert.equal(received.filter((request) => request.method === "POST").length, 0);
+  }
+
+  fields = performanceTrackFieldsFixture();
+  received.length = 0;
+  sqlResponses = [{ success: false, error: "synthetic rejected query" }];
+  await assert.rejects(runScript("build-perf-corpus.mjs"));
+  assertMetadataTransport();
+  assert.equal(received.filter((request) => request.method === "POST").length, 1);
+  assertSqlTransport(received.filter((request) => request.method !== "GET"));
+  console.log("teable sql transport, scalar corpus/history, and schema failure checks passed");
+} finally {
+  for (const [key, value] of Object.entries(previousEnvironment)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  await new Promise((resolve) => server.close(resolve));
+  await rm(workspace, { recursive: true, force: true });
+}

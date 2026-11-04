@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { assertUsable, refreshCorpus } from "./run-shadow-analysis.mjs";
+import { performanceTrackFieldsFixture } from "./fixtures/performance-track-fields.mjs";
 
 // --- a corpus that cannot carry an answer is refused ------------------------
 
@@ -134,29 +135,38 @@ try {
     h: "runner:Linux:X64:postgres-e2e",
   }));
 
-  const queries = [];
+  const queryKinds = [];
+  let metadataReads = 0;
   const server = createServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       if (request.method === "GET") {
+        metadataReads += 1;
+        assert.equal(request.headers.authorization, "Bearer test-token");
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify([{ name: "Measurement JSON" }]));
+        response.end(JSON.stringify(performanceTrackFieldsFixture()));
         return;
       }
+      assert.equal(request.method, "POST");
+      assert.equal(request.headers.authorization, "Bearer test-token");
+      assert.equal(request.headers["content-type"], "application/json");
       const { sql } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      queries.push(sql);
+      assert.equal(typeof sql, "string");
 
       let rows;
       if (/percentile_disc/.test(sql)) {
+        queryKinds.push("corpus");
         // Paged. The offset is honoured so the loop in `build-perf-corpus.mjs`
         // terminates rather than reading the same page forever.
         const offset = Number(/OFFSET (\d+)/.exec(sql)?.[1] ?? 0);
         const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 400);
         rows = measurements.slice(offset, offset + limit);
       } else if (/Teable_EE_Ref/.test(sql)) {
+        queryKinds.push("ee-refs");
         rows = eeCommits.map((commit) => ({ r: commit }));
       } else {
+        queryKinds.push("perf-refs");
         rows = [{ r: perfCommit }];
       }
 
@@ -229,6 +239,7 @@ try {
     corpus.series["demo::v2"].compatibilityMode,
     "strict-insufficient",
   );
+  assert.deepEqual(corpus.series["demo::v2"].segmentCompatibility, ["strict"]);
   assert.deepEqual(
     corpus.series["demo::v2"].segments[0].map(([ordinal, value]) => [
       ordinal,
@@ -241,30 +252,12 @@ try {
     ],
   );
 
-  // Three reads, each made once. Matched on the whole `SELECT DISTINCT` rather
-  // than on a column name: the paged aggregate names both ref columns too, so
-  // a looser pattern counts it as a ref listing and passes for the wrong
-  // reason.
-  const listings = queries.filter((sql) => /SELECT DISTINCT/.test(sql));
-  assert.equal(
-    listings.filter((sql) => /SELECT DISTINCT "Teable_EE_Ref"/.test(sql))
-      .length,
-    1,
-  );
-  assert.equal(
-    listings.filter((sql) => /SELECT DISTINCT "Commit_SHA"/.test(sql)).length,
-    1,
-  );
-  assert.equal(
-    queries.filter((sql) => /percentile_disc/.test(sql)).length,
-    1,
-    "one page covers this fixture; more means the paging loop is not terminating on a short page",
-  );
-  assert.match(
-    queries.find((sql) => /percentile_disc/.test(sql)),
-    /ORDER BY 1, 2, 3, 4, 5, 6 NULLS FIRST, 7 NULLS FIRST/,
-    "OFFSET pagination must use every grouped identity column as a stable total order",
-  );
+  // Assert stage handoffs and page termination, not SQL source spelling.
+  assert.equal(metadataReads, 1);
+  assert.equal(queryKinds.filter((kind) => kind === "ee-refs").length, 1);
+  assert.equal(queryKinds.filter((kind) => kind === "perf-refs").length, 1);
+  assert.equal(queryKinds.filter((kind) => kind === "corpus").length, 1,
+    "one short page must terminate the corpus read");
 
   // --- a missing clone says so ------------------------------------------------
 

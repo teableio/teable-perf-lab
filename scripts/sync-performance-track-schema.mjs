@@ -31,8 +31,7 @@ const main = async () => {
     throw new Error(
       `Incompatible Performance Track fields: ${plan.incompatible
         .map(
-          ({ name, expectedType, actualType }) =>
-            `${name} is ${actualType}, expected ${expectedType}`,
+          ({ name, reason }) => `${name}: ${reason}`,
         )
         .join("; ")}`,
     );

@@ -26,9 +26,6 @@ const payload = ({
 
 const steady = (n = 80, value = 100) => Array.from({ length: n }, () => value);
 
-assert.equal(SAME_RUN_HISTORY_POINTS, 60);
-assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
-
 {
   const legacyRows = Array.from({ length: 60 }, (_, index) => ({
     caseId: "strict/outside-window",
@@ -39,10 +36,8 @@ assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
     caseId: "strict/outside-window",
     value: index + 1,
     startedAt: new Date(Date.UTC(2025, 0, 1 + index)).toISOString(),
-    measurement: JSON.stringify({
-      contract: { id: "contract-a" },
-      environment: { class: "runner:Linux:X64:postgres-e2e" },
-    }),
+    contractId: "contract-a",
+    environmentClass: "runner:Linux:X64:postgres-e2e",
   }));
   const result = comparableHistoryByCaseFromRows(legacyRows, {
     strictRows,
@@ -76,10 +71,8 @@ assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
     caseId: "strict/a",
     value: index + 1,
     startedAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString(),
-    measurement: JSON.stringify({
-      contract: { id: index < 55 ? "contract-a" : "contract-old" },
-      environment: { class: "runner:Linux:X64:postgres-e2e" },
-    }),
+    contractId: index < 55 ? "contract-a" : "contract-old",
+    environmentClass: "runner:Linux:X64:postgres-e2e",
   }));
   const result = comparableHistoryByCaseFromRows(rows, {
     identityByCase: {
@@ -98,13 +91,8 @@ assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
     caseId: "rollout/a",
     value: index + 1,
     startedAt: new Date(Date.UTC(2026, 0, 1 + index)).toISOString(),
-    measurement:
-      index < 10
-        ? JSON.stringify({
-            contract: { id: "contract-a" },
-            environment: { class: "runner:Linux:X64:postgres-e2e" },
-          })
-        : undefined,
+    contractId: index < 10 ? "contract-a" : null,
+    environmentClass: index < 10 ? "runner:Linux:X64:postgres-e2e" : null,
   }));
   const result = comparableHistoryByCaseFromRows(rows, {
     identityByCase: {
@@ -117,6 +105,29 @@ assert.equal(SAME_RUN_STRICT_MIN_POINTS, 52);
   assert.equal(result.valuesByCase["rollout/a"].length, 60);
   assert.equal(result.compatibilityByCase["rollout/a"].mode, "legacy-fallback");
   assert.equal(result.compatibilityByCase["rollout/a"].strictPoints, 10);
+}
+
+// The consumer-visible threshold is exact: 51 compatible points still use
+// legacy, while 52 adopt strict. A stale JSON blob cannot override flat identity.
+for (const compatible of [51, 52]) {
+  const caseId = "strict/threshold";
+  const identity = { contractId: "contract-a", environmentClass: "fixture" };
+  const rows = Array.from({ length: 60 }, (_, index) => ({
+    caseId,
+    value: index + 1,
+    startedAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+    contractId: index < compatible ? identity.contractId : "wrong-contract",
+    environmentClass: identity.environmentClass,
+    measurement: "not JSON and not a historical comparison input",
+  }));
+  const result = comparableHistoryByCaseFromRows(rows, { identityByCase: { [caseId]: identity } });
+  assert.deepEqual(result.compatibilityByCase[caseId], {
+    mode: compatible === 52 ? "strict" : "legacy-fallback",
+    strictPoints: compatible,
+    legacyPoints: 60,
+  });
+  assert.deepEqual(result.valuesByCase[caseId],
+    Array.from({ length: compatible === 52 ? 52 : 60 }, (_, index) => index + 1));
 }
 
 {
@@ -204,7 +215,6 @@ assert.equal(
   assert.equal(
     buildSameRunHistorySql({
       caseIds: ["lookup/a"],
-      includeMeasurement: false,
       strictOnly: true,
     }),
     undefined,

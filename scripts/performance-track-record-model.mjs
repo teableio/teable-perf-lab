@@ -4,6 +4,11 @@ import {
   numberOrUndefined,
   stringOrUndefined,
 } from "./perf-artifact-read-model.mjs";
+import {
+  PERFORMANCE_TRACK_IDENTITY_FIELDS,
+  extractMeasurementIdentity,
+  resolvePerformanceTrackIdentityColumns,
+} from "./performance-track-identity.mjs";
 
 const REQUIRED_FIELD_NAMES = [
   "Run Key",
@@ -38,18 +43,15 @@ const REQUIRED_FIELD_NAMES = [
   "Trace Manifest JSON",
   "Summary Markdown",
   "Error",
+  "Measurement JSON",
+  ...PERFORMANCE_TRACK_IDENTITY_FIELDS.map(({ name }) => name),
 ];
 
-export const OPTIONAL_PERFORMANCE_TRACK_FIELDS = [
+export const PERFORMANCE_TRACK_MEASUREMENT_FIELDS = [
   { name: "Measurement JSON", type: "longText" },
+  ...PERFORMANCE_TRACK_IDENTITY_FIELDS,
 ];
 
-const RUN_KEY_FIELD_ID = "fldBtUJjGxgsPWsqLua";
-// Filter by id, never by name. Teable does not reject a filter naming a field
-// that does not exist — it drops the condition, so a renamed column turns this
-// paged read of one run into a paged read of the whole table.
-const RUN_ID_FIELD_ID = "fldb344lzWE28AA2mvb";
-const RUN_ATTEMPT_FIELD_ID = "fldCIMp4dMco5zBBvJr";
 const PERFORMANCE_TRACK_READ_PAGE_SIZE = 1_000;
 
 export const DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES = 512 * 1024;
@@ -123,6 +125,23 @@ export const buildPerformanceTrackResultRecord = ({
   const traceManifestPath =
     stringOrUndefined(traces.manifestPath) ||
     stringOrUndefined(traceManifest?.manifestPath);
+  if (context.supportedFieldNames) {
+    const missing = PERFORMANCE_TRACK_MEASUREMENT_FIELDS.filter(
+      ({ name }) => !context.supportedFieldNames.has(name),
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing Teable report fields: ${missing.map(({ name }) => name).join(", ")}`,
+      );
+    }
+  }
+  const measurement =
+    payload.measurement &&
+    typeof payload.measurement === "object" &&
+    !Array.isArray(payload.measurement)
+      ? payload.measurement
+      : null;
+  const { contractId, environmentClass } = extractMeasurementIdentity(measurement);
 
   return {
     runKey,
@@ -162,9 +181,9 @@ export const buildPerformanceTrackResultRecord = ({
       "Trace Manifest JSON": jsonText(compactTraceManifest(traceManifest)),
       "Summary Markdown": summaryMarkdown,
       Error: payload.error ? jsonText(payload.error) : undefined,
-      ...(context.supportedFieldNames?.has("Measurement JSON")
-        ? { "Measurement JSON": jsonText(payload.measurement) }
-        : {}),
+      "Measurement JSON": measurement ? jsonText(measurement) : null,
+      "Contract ID": contractId,
+      "Environment Class": environmentClass,
     }),
   };
 };
@@ -234,21 +253,18 @@ export const createTeablePerformanceTrackAdapter = ({
 });
 
 export const createInMemoryPerformanceTrackAdapter = ({
-  fields = REQUIRED_FIELD_NAMES.map((name) => ({ name })),
+  fields = REQUIRED_FIELD_NAMES.map((name, index) => ({
+    ...(PERFORMANCE_TRACK_MEASUREMENT_FIELDS.find((field) => field.name === name) ?? { name }),
+    id: `fld-memory-${index}`,
+  })),
   records = [],
 } = {}) => {
   const storedRecords = records.map((record) => ({
     ...record,
     fields: { ...record.fields },
   }));
-  // Production filters address columns by id; the in-memory rows are keyed by
-  // name. Anything unmapped falls through as a name so a fixture can filter on
-  // one without registering an id for it.
-  const FIELD_NAMES_BY_ID = new Map([
-    [RUN_KEY_FIELD_ID, "Run Key"],
-    [RUN_ID_FIELD_ID, "Run ID"],
-    [RUN_ATTEMPT_FIELD_ID, "Run Attempt"],
-  ]);
+  // Resolve the fixture's actual metadata just as the product API does.
+  const FIELD_NAMES_BY_ID = new Map(fields.map(({ id, name }) => [id, name]));
   const fieldName = (fieldId) => FIELD_NAMES_BY_ID.get(fieldId) ?? fieldId;
 
   return {
@@ -346,48 +362,84 @@ const assertDesiredRunRecords = ({ records, runId, runAttempt }) => {
   }
 };
 
-const listExistingRunRecords = async (adapter, { runId, runAttempt }) => {
+const listExistingRunRecords = async (
+  adapter,
+  { runId, runAttempt },
+  fieldIds,
+  pageSize,
+) => {
   const records = [];
-  for (let skip = 0; ; skip += PERFORMANCE_TRACK_READ_PAGE_SIZE) {
+  for (let skip = 0; ; skip += pageSize) {
     const page = await adapter.findRecords({
-      take: PERFORMANCE_TRACK_READ_PAGE_SIZE,
+      take: pageSize,
       skip,
       projection: "Run Key",
       filter: {
         conjunction: "and",
         filterSet: [
-          { fieldId: RUN_ID_FIELD_ID, operator: "is", value: runId },
-          { fieldId: RUN_ATTEMPT_FIELD_ID, operator: "is", value: runAttempt },
+          { fieldId: fieldIds.runId, operator: "is", value: runId },
+          { fieldId: fieldIds.runAttempt, operator: "is", value: runAttempt },
         ],
       },
     });
     records.push(...page);
-    if (page.length < PERFORMANCE_TRACK_READ_PAGE_SIZE) {
+    if (page.length < pageSize) {
       return records;
     }
   }
 };
 
-export const createPerformanceTrackRecordModule = (adapter) => ({
-  async assertContract() {
+export const createPerformanceTrackRecordModule = (
+  adapter,
+  { readPageSize = PERFORMANCE_TRACK_READ_PAGE_SIZE } = {},
+) => {
+  if (!Number.isSafeInteger(readPageSize) || readPageSize <= 0) {
+    throw new Error(`Invalid Performance Track read page size: ${readPageSize}`);
+  }
+  let contract;
+  const assertContract = async () => {
+    if (contract) return contract;
     const fields = await adapter.listFields();
     const names = new Set((fields ?? []).map((field) => field.name));
     const missing = REQUIRED_FIELD_NAMES.filter((name) => !names.has(name));
     if (missing.length > 0) {
       throw new Error(`Missing Teable report fields: ${missing.join(", ")}`);
     }
-    return {
-      fieldNames: names,
-      optionalFieldNames: new Set(
-        OPTIONAL_PERFORMANCE_TRACK_FIELDS.map(({ name }) => name).filter(
-          (name) => names.has(name),
-        ),
-      ),
-    };
-  },
+    resolvePerformanceTrackIdentityColumns(fields);
+    const measurementFields = fields.filter(({ name }) => name === "Measurement JSON");
+    const [measurementField] = measurementFields;
+    if (
+      measurementFields.length !== 1 ||
+      measurementField.type !== "longText" ||
+      measurementField.isComputed ||
+      measurementField.isLookup
+    ) {
+      throw new Error(
+        'Incompatible Performance Track field Measurement JSON: expected noncomputed longText',
+      );
+    }
+    const fieldIds = {};
+    for (const [key, name] of [
+      ["runKey", "Run Key"], ["runId", "Run ID"], ["runAttempt", "Run Attempt"],
+    ]) {
+      const matches = fields.filter((field) => field.name === name);
+      if (matches.length !== 1 || typeof matches[0].id !== "string" || !matches[0].id.trim()) {
+        throw new Error(`Performance Track schema requires one ${name} field with a nonempty id`);
+      }
+      fieldIds[key] = matches[0].id;
+    }
+    if (new Set(Object.values(fieldIds)).size !== 3) {
+      throw new Error("Performance Track run filter fields must have distinct ids");
+    }
+    contract = { fieldNames: names, fieldIds };
+    return contract;
+  };
+  return {
+  assertContract,
 
   async upsertResult({ fields }) {
     const runKey = requireRunKey(fields);
+    const { fieldIds } = await assertContract();
     const records = await adapter.findRecords({
       take: 1,
       projection: "Run Key",
@@ -395,7 +447,7 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
         conjunction: "and",
         filterSet: [
           {
-            fieldId: RUN_KEY_FIELD_ID,
+            fieldId: fieldIds.runKey,
             operator: "is",
             value: runKey,
           },
@@ -422,7 +474,13 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
       return { total: 0, created: [], updated: [] };
     }
 
-    const existingRecords = await listExistingRunRecords(adapter, runContext);
+    const { fieldIds } = await assertContract();
+    const existingRecords = await listExistingRunRecords(
+      adapter,
+      runContext,
+      fieldIds,
+      readPageSize,
+    );
     const existingByRunKey = new Map();
     for (const existing of existingRecords) {
       const runKey = requireRunKey(existing.fields);
@@ -462,4 +520,5 @@ export const createPerformanceTrackRecordModule = (adapter) => ({
       })),
     };
   },
-});
+  };
+};
