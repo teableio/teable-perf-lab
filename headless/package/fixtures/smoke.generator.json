@@ -1,0 +1,269 @@
+{
+  "generatorVersion": "tea-bench/1",
+  "seed": 7,
+  "strength": 2,
+  "outDir": "generated",
+  "templates": [
+    {
+      "id": "formula-lookup-formula",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblcustformula0001",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldcustnameformula1",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              }
+            ],
+            "views": [{ "type": "grid", "name": "Grid" }]
+          },
+          {
+            "id": "tblordformula00001",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldordtitleformula1",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldordamountformula",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldordcustlinkform",
+                "name": "Customer",
+                "type": "link",
+                "options": {
+                  "relationship": "manyOne",
+                  "foreignTableId": "tblcustformula0001",
+                  "lookupFieldId": "fldcustnameformula1",
+                  "isOneWay": true
+                }
+              },
+              {
+                "id": "fldordcustnameform",
+                "name": "CustomerName",
+                "type": "lookup",
+                "lookupOptions": {
+                  "linkFieldId": "fldordcustlinkform",
+                  "foreignTableId": "tblcustformula0001",
+                  "lookupFieldId": "fldcustnameformula1"
+                }
+              },
+              {
+                "id": "fldordtaxformula01",
+                "name": "Tax",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": { "expression": "{fldordamountformula}*0.1" }
+              },
+              {
+                "id": "fldordtaxlabelform",
+                "name": "TaxLabel",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": { "expression": "{fldordtaxformula01}*2" }
+              }
+            ],
+            "views": [{ "type": "grid", "name": "Grid" }]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Orders": {
+            "fields": {
+              "Amount": { "min": 1, "max": 100 },
+              "Customer": {
+                "link": { "table": "Customers", "relationship": "manyOne" }
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "list-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": { "limit": 50 }
+        },
+        {
+          "key": "update-amount",
+          "kind": "write-update",
+          "table": "Orders",
+          "field": "Amount",
+          "rows": 5,
+          "batchSize": 5,
+          "typecast": false,
+          "value": { "kind": "number-increment", "start": 1, "step": 1 }
+        },
+        { "key": "flush", "kind": "flush-computed" }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            { "type": "row-count", "table": "Customers", "expected": 1 },
+            { "type": "row-count", "table": "Orders", "expected": 10 },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["Tax", "TaxLabel"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "select-lookup-formula",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblcustselect00001",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldcustnameselect01",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldcusttierselect01",
+                "name": "Tier",
+                "type": "singleSelect",
+                "options": {
+                  "choices": [
+                    { "name": "A", "color": "grayLight1" },
+                    { "name": "B", "color": "blueLight1" },
+                    { "name": "C", "color": "greenLight1" }
+                  ]
+                }
+              }
+            ],
+            "views": [{ "type": "grid", "name": "Grid" }]
+          },
+          {
+            "id": "tblordselect000001",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldordtitleselect01",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldordamountselect",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldordcustlinksele",
+                "name": "Customer",
+                "type": "link",
+                "options": {
+                  "relationship": "manyOne",
+                  "foreignTableId": "tblcustselect00001",
+                  "lookupFieldId": "fldcustnameselect01",
+                  "isOneWay": true
+                }
+              },
+              {
+                "id": "fldordtierlookup01",
+                "name": "TierLookup",
+                "type": "lookup",
+                "lookupOptions": {
+                  "linkFieldId": "fldordcustlinksele",
+                  "foreignTableId": "tblcustselect00001",
+                  "lookupFieldId": "fldcusttierselect01"
+                }
+              },
+              {
+                "id": "fldordtaxselect001",
+                "name": "Tax",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": { "expression": "{fldordamountselect}*0.1" }
+              },
+              {
+                "id": "fldordtaxlabelsele",
+                "name": "TaxLabel",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": { "expression": "{fldordtaxselect001}*2" }
+              }
+            ],
+            "views": [{ "type": "grid", "name": "Grid" }]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Customers": {
+            "fields": { "Tier": { "choices": ["A", "B", "C"] } }
+          },
+          "Orders": {
+            "fields": {
+              "Amount": { "min": 1, "max": 100 },
+              "Customer": {
+                "link": { "table": "Customers", "relationship": "manyOne" }
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "list-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": { "limit": 50 }
+        },
+        {
+          "key": "update-amount",
+          "kind": "write-update",
+          "table": "Orders",
+          "field": "Amount",
+          "rows": 5,
+          "batchSize": 5,
+          "typecast": false,
+          "value": { "kind": "number-increment", "start": 1, "step": 1 }
+        },
+        { "key": "flush", "kind": "flush-computed" }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            { "type": "row-count", "table": "Customers", "expected": 1 },
+            { "type": "row-count", "table": "Orders", "expected": 10 },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["Tax", "TaxLabel"]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "dimensions": {
+    "motif": ["formula-lookup-formula", "select-lookup-formula"],
+    "rows": [10, 100],
+    "typecast": [false, true],
+    "backend": ["pglite"]
+  }
+}

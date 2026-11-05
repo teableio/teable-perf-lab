@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": [
+    "../../eslint-config-bases/src/bases/typescript.json",
+    "../../eslint-config-bases/src/bases/sonar.json",
+    "../../eslint-config-bases/src/bases/regexp.json",
+    "../../eslint-config-bases/src/bases/jest.json"
+  ],
+  "ignorePatterns": [".*", "build", "dist", "storybook-static", "next-env.d.ts"],
+  "settings": { "import/resolver": { "typescript": {} } },
+  "overrides": [
+    {
+      "files": ["src/evidence/**/*.ts", "src/tea/**/*.ts"],
+      "rules": { "teable/naming-convention": "off" }
+    },
+    {
+      "files": [
+        "src/case/TeaCaseLoader.ts",
+        "src/case/loadSteps.ts",
+        "src/cli.ts",
+        "src/dataset/recipe.ts",
+        "src/generator/coveringArray.ts",
+        "src/generator/generate.ts",
+        "src/catalogue/templates.ts",
+        "src/oracle/expectedJson.ts",
+        "src/oracle/invariant.ts",
+        "src/oracle/fullRecompute.ts",
+        "src/report/fixtures/observedSmoke.ts",
+        "src/report/fromBenchRun.ts",
+        "src/report/renderMarkdown.ts",
+        "src/report/schema.ts",
+        "src/runner/BenchRunner.ts",
+        "src/runner/compare.ts"
+      ],
+      "rules": { "sonarjs/cognitive-complexity": "off" }
+    }
+  ]
+}

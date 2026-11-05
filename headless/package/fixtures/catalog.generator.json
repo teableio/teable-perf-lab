@@ -1,0 +1,833 @@
+{
+  "generatorVersion": "tea-bench/1",
+  "seed": 7,
+  "strength": 2,
+  "outDir": "generated",
+  "templates": [
+    {
+      "id": "formula-chain",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblchainOrders00000",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldchainTitle000000",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldchainAmount00000",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldchainDouble00000",
+                "name": "Doubled",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "{fldchainAmount00000}*2"
+                }
+              },
+              {
+                "id": "fldchainAdjusted000",
+                "name": "Adjusted",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "{fldchainDouble00000}+1"
+                }
+              },
+              {
+                "id": "fldchainResult00000",
+                "name": "Result",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "{fldchainAdjusted000}*3"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Orders": {
+            "fields": {
+              "Amount": {
+                "distribution": "constant",
+                "min": 7,
+                "max": 7
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "update-amount",
+          "kind": "write-update",
+          "table": "Orders",
+          "field": "Amount",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "number-increment",
+            "start": 100,
+            "step": 1
+          }
+        },
+        {
+          "key": "flush",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "read-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": {
+            "limit": 100,
+            "includeTotal": true
+          }
+        }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            {
+              "type": "row-count",
+              "table": "Orders",
+              "expected": 10
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["Doubled", "Adjusted", "Result"]
+            }
+          ]
+        },
+        {
+          "key": "recompute",
+          "kind": "full-recompute",
+          "tables": ["Orders"],
+          "maxRows": 1000
+        }
+      ]
+    },
+    {
+      "id": "lookup-of-formula",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblformulaCustomers",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldformulaName00000",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldformulaAmount000",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldformulaDouble000",
+                "name": "Doubled",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "{fldformulaAmount000}*2"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          },
+          {
+            "id": "tblformulaOrders000",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldformulaTitle0000",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldformulaCustomer0",
+                "name": "Customer",
+                "type": "link",
+                "options": {
+                  "relationship": "manyOne",
+                  "foreignTableId": "tblformulaCustomers",
+                  "lookupFieldId": "fldformulaName00000",
+                  "isOneWay": true
+                }
+              },
+              {
+                "id": "fldformulaLookup000",
+                "name": "ParentValue",
+                "type": "lookup",
+                "lookupOptions": {
+                  "linkFieldId": "fldformulaCustomer0",
+                  "foreignTableId": "tblformulaCustomers",
+                  "lookupFieldId": "fldformulaDouble000"
+                }
+              },
+              {
+                "id": "fldformulaResult000",
+                "name": "Result",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "SUM({fldformulaLookup000})*2"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Customers": {
+            "fields": {
+              "Amount": {
+                "distribution": "constant",
+                "min": 7,
+                "max": 7
+              }
+            }
+          },
+          "Orders": {
+            "fields": {
+              "Customer": {
+                "link": {
+                  "table": "Customers",
+                  "relationship": "manyOne"
+                }
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "update-parent-amount",
+          "kind": "write-update",
+          "table": "Customers",
+          "field": "Amount",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "number-increment",
+            "start": 100,
+            "step": 1
+          }
+        },
+        {
+          "key": "flush",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "read-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": {
+            "limit": 100,
+            "includeTotal": true
+          }
+        }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            {
+              "type": "row-count",
+              "table": "Customers",
+              "expected": 1
+            },
+            {
+              "type": "row-count",
+              "table": "Orders",
+              "expected": 10
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Customers",
+              "fields": ["Doubled"]
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["ParentValue", "Result"]
+            }
+          ]
+        },
+        {
+          "key": "recompute",
+          "kind": "full-recompute",
+          "tables": ["Customers", "Orders"],
+          "maxRows": 1000
+        }
+      ]
+    },
+    {
+      "id": "lookup-of-select",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblselectCustomers0",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldselectName000000",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldselectTier000000",
+                "name": "Tier",
+                "type": "singleSelect",
+                "options": {
+                  "choices": [
+                    {
+                      "name": "A",
+                      "color": "grayLight1"
+                    },
+                    {
+                      "name": "B",
+                      "color": "blueLight1"
+                    },
+                    {
+                      "name": "C",
+                      "color": "greenLight1"
+                    }
+                  ]
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          },
+          {
+            "id": "tblselectOrders0000",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldselectTitle00000",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldselectCustomer00",
+                "name": "Customer",
+                "type": "link",
+                "options": {
+                  "relationship": "manyOne",
+                  "foreignTableId": "tblselectCustomers0",
+                  "lookupFieldId": "fldselectName000000",
+                  "isOneWay": true
+                }
+              },
+              {
+                "id": "fldselectLookup0000",
+                "name": "TierLookup",
+                "type": "lookup",
+                "lookupOptions": {
+                  "linkFieldId": "fldselectCustomer00",
+                  "foreignTableId": "tblselectCustomers0",
+                  "lookupFieldId": "fldselectTier000000"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Customers": {
+            "fields": {
+              "Tier": {
+                "choices": ["A"]
+              }
+            }
+          },
+          "Orders": {
+            "fields": {
+              "Customer": {
+                "link": {
+                  "table": "Customers",
+                  "relationship": "manyOne"
+                }
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "update-parent-tier",
+          "kind": "write-update",
+          "table": "Customers",
+          "field": "Tier",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "select-cycle",
+            "choices": ["B", "C", "A"]
+          }
+        },
+        {
+          "key": "flush",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "read-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": {
+            "limit": 100,
+            "includeTotal": true
+          }
+        }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            {
+              "type": "row-count",
+              "table": "Customers",
+              "expected": 1
+            },
+            {
+              "type": "row-count",
+              "table": "Orders",
+              "expected": 10
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["TierLookup"]
+            }
+          ]
+        },
+        {
+          "key": "recompute",
+          "kind": "full-recompute",
+          "tables": ["Orders"],
+          "maxRows": 1000
+        }
+      ]
+    },
+    {
+      "id": "rollup-manyone",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblrollCustomers000",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldrollName00000000",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldrollOrdersLink00",
+                "name": "Orders",
+                "type": "link",
+                "options": {
+                  "relationship": "oneMany",
+                  "foreignTableId": "tblrollOrders000000",
+                  "lookupFieldId": "fldrollTitle0000000",
+                  "symmetricFieldId": "fldrollCustomer0000"
+                }
+              },
+              {
+                "id": "fldrollTotal0000000",
+                "name": "Total",
+                "type": "rollup",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "sum({values})"
+                },
+                "lookupOptions": {
+                  "linkFieldId": "fldrollOrdersLink00",
+                  "foreignTableId": "tblrollOrders000000",
+                  "lookupFieldId": "fldrollAmount000000"
+                }
+              },
+              {
+                "id": "fldrollCount0000000",
+                "name": "OrderCount",
+                "type": "rollup",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "countall({values})"
+                },
+                "lookupOptions": {
+                  "linkFieldId": "fldrollOrdersLink00",
+                  "foreignTableId": "tblrollOrders000000",
+                  "lookupFieldId": "fldrollAmount000000"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          },
+          {
+            "id": "tblrollOrders000000",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldrollTitle0000000",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldrollAmount000000",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldrollCustomer0000",
+                "name": "Customer",
+                "type": "link",
+                "options": {
+                  "relationship": "manyOne",
+                  "foreignTableId": "tblrollCustomers000",
+                  "lookupFieldId": "fldrollName00000000",
+                  "symmetricFieldId": "fldrollOrdersLink00"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Orders": {
+            "fields": {
+              "Amount": {
+                "distribution": "constant",
+                "min": 7,
+                "max": 7
+              },
+              "Customer": {
+                "link": {
+                  "table": "Customers",
+                  "relationship": "manyOne"
+                }
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "update-child-amount",
+          "kind": "write-update",
+          "table": "Orders",
+          "field": "Amount",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "number-increment",
+            "start": 100,
+            "step": 1
+          }
+        },
+        {
+          "key": "flush",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "read-customers",
+          "kind": "query-core",
+          "table": "Customers",
+          "query": {
+            "limit": 100,
+            "includeTotal": true
+          }
+        }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            {
+              "type": "row-count",
+              "table": "Customers",
+              "expected": 1
+            },
+            {
+              "type": "row-count",
+              "table": "Orders",
+              "expected": 10
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Customers",
+              "fields": ["Total", "OrderCount"]
+            }
+          ]
+        },
+        {
+          "key": "recompute",
+          "kind": "full-recompute",
+          "tables": ["Customers"],
+          "maxRows": 1000
+        }
+      ]
+    },
+    {
+      "id": "conditional-lookup",
+      "rootTable": "Orders",
+      "structure": {
+        "tables": [
+          {
+            "id": "tblconditionCust000",
+            "name": "Customers",
+            "fields": [
+              {
+                "id": "fldconditionName000",
+                "name": "Name",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldconditionAmount0",
+                "name": "Amount",
+                "type": "number"
+              },
+              {
+                "id": "fldconditionFlag000",
+                "name": "Eligible",
+                "type": "number"
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          },
+          {
+            "id": "tblconditionOrders0",
+            "name": "Orders",
+            "fields": [
+              {
+                "id": "fldconditionTitle00",
+                "name": "Title",
+                "type": "singleLineText",
+                "isPrimary": true
+              },
+              {
+                "id": "fldconditionLookup0",
+                "name": "EligibleAmounts",
+                "type": "conditionalLookup",
+                "lookupOptions": {
+                  "foreignTableId": "tblconditionCust000",
+                  "lookupFieldId": "fldconditionAmount0",
+                  "filter": {
+                    "conjunction": "and",
+                    "filterSet": [
+                      {
+                        "fieldId": "fldconditionFlag000",
+                        "operator": "isGreater",
+                        "value": 50
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "id": "fldconditionResult0",
+                "name": "EligibleTotal",
+                "type": "formula",
+                "cellValueType": "number",
+                "options": {
+                  "expression": "IF(COUNTA({fldconditionLookup0})>0,SUM({fldconditionLookup0}),0)"
+                }
+              }
+            ],
+            "views": [
+              {
+                "type": "grid",
+                "name": "Grid"
+              }
+            ]
+          }
+        ]
+      },
+      "dataset": {
+        "tables": {
+          "Customers": {
+            "fields": {
+              "Amount": {
+                "distribution": "constant",
+                "min": 7,
+                "max": 7
+              },
+              "Eligible": {
+                "distribution": "constant",
+                "min": 0,
+                "max": 0
+              }
+            }
+          }
+        }
+      },
+      "workload": [
+        {
+          "key": "exclude-parents",
+          "kind": "write-update",
+          "table": "Customers",
+          "field": "Eligible",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "literal",
+            "value": 0
+          }
+        },
+        {
+          "key": "flush-excluded",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "include-parents",
+          "kind": "write-update",
+          "table": "Customers",
+          "field": "Eligible",
+          "rows": 10,
+          "batchSize": 1,
+          "typecast": false,
+          "value": {
+            "kind": "literal",
+            "value": 100
+          }
+        },
+        {
+          "key": "flush-included",
+          "kind": "flush-computed"
+        },
+        {
+          "key": "read-orders",
+          "kind": "query-core",
+          "table": "Orders",
+          "query": {
+            "limit": 100,
+            "includeTotal": true
+          }
+        }
+      ],
+      "oracle": [
+        {
+          "key": "invariants",
+          "kind": "invariant",
+          "checks": [
+            {
+              "type": "row-count",
+              "table": "Customers",
+              "expected": 1
+            },
+            {
+              "type": "row-count",
+              "table": "Orders",
+              "expected": 10
+            },
+            {
+              "type": "computed-not-null",
+              "table": "Orders",
+              "fields": ["EligibleAmounts", "EligibleTotal"]
+            }
+          ]
+        },
+        {
+          "key": "recompute",
+          "kind": "full-recompute",
+          "tables": ["Orders"],
+          "maxRows": 1000
+        }
+      ]
+    }
+  ],
+  "dimensions": {
+    "motif": [
+      "formula-chain",
+      "lookup-of-formula",
+      "lookup-of-select",
+      "rollup-manyone",
+      "conditional-lookup"
+    ],
+    "rows": [10, 100],
+    "typecast": [false, true],
+    "backend": ["pglite"],
+    "batchSize": [1, 10]
+  }
+}

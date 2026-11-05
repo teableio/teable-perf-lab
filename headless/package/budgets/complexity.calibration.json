@@ -1,0 +1,1713 @@
+{
+  "schema": "tea-bench-complexity-score-calibration/3",
+  "mode": "calibrate",
+  "backend": "postgres",
+  "modelVersion": "tea-bench-complexity-score-budget/2",
+  "generatedAt": "2026-11-02T06:56:23.508Z",
+  "requestedSamplesPerPoint": 100,
+  "measurementProtocol": {
+    "version": 2,
+    "warmupStrategy": "fresh-full-workload-per-pass",
+    "timingScope": "workload-operation-only",
+    "statistic": "nearest-rank-p95",
+    "samplesPerPoint": 100,
+    "warmup": 1,
+    "repetitions": 1
+  },
+  "headroom": 3,
+  "provenance": {
+    "source": "GitHub ubuntu-latest Node 24.22.2 PostgreSQL 16 calibration run 41402060334 complexity leg",
+    "runner": "github-ubuntu-latest-node24-postgres16",
+    "calibratedAt": "2026-11-02T06:49:33.276Z"
+  },
+  "verdict": "pass",
+  "executionErrors": [],
+  "series": [
+    {
+      "ruleId": "R-FORMULA-004",
+      "operationKey": "transition-2-wait-computed",
+      "operationFamily": "R-FORMULA-004/transition-2-wait-computed",
+      "dimension": "graphDepth",
+      "requestedWorkUnits": {
+        "calibration": [2, 8],
+        "holdout": 6
+      },
+      "receipts": [
+        {
+          "role": "calibration",
+          "ruleId": "R-FORMULA-004",
+          "scenarioId": "scn_3f7ed2ae5779fb8ff527569ddfda6b887e4c89165b234793f8ca0d064af2a227",
+          "caseId": "sha256:d1a0ae8a27a2471574ed1e40d64f151201b2b69dd540b216bfb04366780292eb",
+          "runId": "b82debbbf7571ac3294de3a3fdbd431f58eb5cae200093929f2e2067ea4dbc62",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:49:33.297Z",
+            "completedAt": "2026-11-02T06:50:04.947Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-004/transition-2-wait-computed",
+          "workUnits": 2,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 4,
+            "computedFieldCount": 2,
+            "rowsByTable": {
+              "FormulaDepth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphDepth",
+              "workUnits": 2
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-root"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-root",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 22,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 19,
+              "dataWork": 33,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-root"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl7c634c68980792f2",
+                "changedFieldIds": ["fld0681e620cd92465b"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl7c634c68980792f2": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl7c634c68980792f2": "FormulaDepth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-root"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            61.77429600000005, 53.52826799999957, 55.45463900000004, 53.569728999999825,
+            51.940034000000196, 52.507431, 52.8967190000003, 75.48668199999975, 53.21859099999983,
+            54.18345499999941, 50.69819600000028, 55.52917600000001, 52.53030200000012,
+            52.89245300000039, 49.18687099999988, 56.619666999999936, 50.647031000000425,
+            50.380903999999646, 49.318615000000136, 54.29930999999942, 52.78187999999864,
+            52.05073900000025, 48.47805999999946, 48.76681500000086, 49.67745999999897,
+            49.10225700000046, 47.59969799999999, 52.759110000000874, 54.48782899999969,
+            51.21925999999985, 46.47395900000083, 48.80912399999943, 48.662758000000395,
+            48.710431000001336, 48.42818099999931, 47.73097600000074, 48.9306179999985,
+            49.65707099999963, 47.09231099999852, 48.26980000000003, 51.881438000000344,
+            47.21402499999931, 46.188201000000845, 46.42287699999906, 55.76763799999935,
+            48.158056999998735, 46.08877299999949, 46.06993099999818, 49.28290299999935,
+            51.02153299999918, 49.6126039999981, 47.404115000001184, 48.49283899999864,
+            50.21861500000159, 49.75946500000282, 47.31473499999993, 47.76952199999869,
+            45.173061000001326, 45.16954700000133, 53.50449200000003, 48.918971999999485,
+            47.845100000002276, 46.186987000000954, 44.083260999999766, 43.75871499999994,
+            49.74518099999841, 52.94730100000015, 48.46809700000085, 49.689916999999696,
+            46.97632000000158, 45.44547799999782, 44.31421499999851, 46.77600700000039,
+            46.4244120000003, 49.907351999998355, 49.25452100000257, 46.52971499999694,
+            46.77342099999805, 50.45607999999993, 69.12678900000174, 47.15640600000188,
+            48.45973800000138, 50.332527999999, 45.486479999999574, 44.277210000000196,
+            45.918477000002895, 44.99866299999849, 48.567605000000185, 47.61939999999959,
+            49.33552799999961, 85.51056399999652, 46.50202200000058, 47.43605599999864,
+            47.77990499999942, 49.86501700000008, 48.61455100000239, 47.547184999999445,
+            48.83317700000043, 48.84757600000012, 48.2402869999969
+          ],
+          "actualP95Ms": 55.76763799999935
+        },
+        {
+          "role": "calibration",
+          "ruleId": "R-FORMULA-004",
+          "scenarioId": "scn_2efc855539a1fdbde12f0e84ab6e7028132a37458db421ddb207ae6e64d6a3a4",
+          "caseId": "sha256:95abbb69ef38dae67e1c153679d3bc71ba7fc5c1cce87620d557ef599f522f19",
+          "runId": "108e6c8272571d55e8ce19b42952728f7bd6968e3fa609d0383efa9da6d995b3",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:50:04.955Z",
+            "completedAt": "2026-11-02T06:50:45.588Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-004/transition-2-wait-computed",
+          "workUnits": 8,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 10,
+            "computedFieldCount": 8,
+            "rowsByTable": {
+              "FormulaDepth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphDepth",
+              "workUnits": 8
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-root"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-root",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 34,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 42,
+              "dataWork": 41,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-root"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl7c634c68980792f2",
+                "changedFieldIds": ["fld0681e620cd92465b"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl7c634c68980792f2": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl7c634c68980792f2": "FormulaDepth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-root"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            59.02197300000262, 53.94937600000412, 60.68551299999672, 51.602117999995244,
+            61.03975500000524, 57.49930499999755, 57.071258999996644, 56.500622999999905,
+            56.63825999999972, 54.70107200000348, 56.76976999999897, 62.96923900000547,
+            62.44741599999543, 56.186979999998584, 58.35953899999731, 59.27640899999824,
+            57.85516199999984, 58.87011099999654, 61.73650999999518, 62.776262999999744,
+            59.98865500000102, 62.019571999997424, 60.52419000000373, 63.78294800000003,
+            61.12242400000105, 59.713918000001286, 62.74861200000305, 62.85570899999584,
+            59.35723400000279, 57.984810000001744, 59.73875499999849, 55.5185730000012,
+            59.45110199999908, 54.39984300000651, 57.69622900000104, 66.46180599999934,
+            60.96980899999471, 73.82837099999597, 56.59234599999763, 52.15006500000163,
+            62.26365800000349, 59.79066700000112, 59.36970899999869, 58.99926499999856,
+            57.79040099999838, 63.617858999998134, 57.44455900000321, 54.23080199999822,
+            56.44532499999332, 51.80330200000026, 58.20489099999395, 58.426375000002736,
+            55.14538700000412, 53.38594199999352, 53.08158199999889, 56.45599599999696,
+            55.546942000000854, 55.40054599999712, 54.390151999999944, 54.551071000001684,
+            54.20149300000048, 55.86818199999834, 54.61614299999928, 54.3360859999957,
+            53.210863000000245, 56.656317000000854, 54.68653400000039, 50.31402600000001,
+            53.50720900000306, 55.86496800000168, 56.54821899999661, 105.9059699999998,
+            54.25382600000012, 199.02945400000317, 53.55004999999801, 53.39424799999688,
+            54.35798899999645, 54.2216980000012, 52.99204199999804, 57.028746999996656,
+            56.21613999999681, 53.7731019999992, 55.37075899999763, 53.82475099999283,
+            54.865082000003895, 57.962429999999586, 56.740783999994164, 114.23451500000374,
+            54.37911699998949, 67.21620500000427, 56.06479200000467, 52.47683600000164,
+            56.276496999998926, 58.56160099999397, 55.69724699998915, 55.561788000006345,
+            56.87731700000586, 56.64789100000053, 54.087062999999034, 61.89743599999929
+          ],
+          "actualP95Ms": 66.46180599999934
+        },
+        {
+          "role": "holdout",
+          "ruleId": "R-FORMULA-004",
+          "scenarioId": "scn_ae893eeede43ab6a7e9fb54bfbc5ca8fa18df8c08740e2559c41a2ebf06a76de",
+          "caseId": "sha256:3c64d20321bf1667c731bf876d3b7908bfda29bfebfb7950f4283fca67cf5c55",
+          "runId": "89d5e5a508c68cc675084e6e9b00d62a64eb3db391180453ed8cccff4e5bf0fc",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:50:45.596Z",
+            "completedAt": "2026-11-02T06:51:24.210Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-004/transition-2-wait-computed",
+          "workUnits": 6,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 8,
+            "computedFieldCount": 6,
+            "rowsByTable": {
+              "FormulaDepth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphDepth",
+              "workUnits": 6
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-root"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-root",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 31,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 36,
+              "dataWork": 40,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-root"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl7c634c68980792f2",
+                "changedFieldIds": ["fld0681e620cd92465b"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl7c634c68980792f2": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl7c634c68980792f2": "FormulaDepth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-root"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            52.41575700000976, 55.21834900000249, 57.67603400000371, 55.19770800000697,
+            70.82552500000747, 53.591843999995035, 58.8417449999979, 51.3887309999991,
+            59.57316300000821, 56.01811499999894, 54.034396999995806, 51.72021600000153,
+            65.6919510000007, 58.23345600000175, 54.125308000002406, 53.20717799999693,
+            52.06936900000437, 49.413633000003756, 55.51071499999671, 54.55825200000254,
+            54.37928300000203, 59.325786000001244, 55.56524199999694, 55.12008500000229,
+            53.01885100000072, 55.4838860000018, 56.57999899999413, 52.97568499999761,
+            52.61347900000692, 53.3013260000007, 55.73359200000414, 51.55119100000593,
+            52.99645099999907, 52.40620099999069, 54.451937999998336, 54.397305999998935,
+            52.57381999999052, 55.511366999999154, 51.69657400000142, 53.51094200000807,
+            52.064349000007496, 52.80610899999738, 54.745943000001716, 55.78527199999371,
+            54.889783999999054, 102.89535200000682, 55.10310300000128, 60.430905000001076,
+            52.1028670000087, 54.62605500000063, 57.132996000000276, 50.555265999995754,
+            174.35639399998763, 58.27549099999305, 51.36520899999596, 52.05778000000282,
+            52.09814000000188, 54.35347499999625, 52.37973599998804, 57.565849999999045,
+            51.90086700000393, 53.868810999993, 124.22746700000425, 59.69251300000178,
+            54.04011000000173, 53.59293899999466, 54.56130000000121, 53.845003000009456,
+            49.42170500000066, 49.862609999996494, 53.34218099999998, 55.30358100000012,
+            52.58636499999557, 55.12739500000316, 50.183059000002686, 51.824634999997215,
+            55.61163500000839, 50.93538300000364, 57.02531199999794, 54.65146599999571,
+            52.57046600000467, 56.58213999999862, 55.280815999998595, 80.77481799999077,
+            53.003467000002274, 54.04059899999993, 51.631812999999966, 56.361000999997486,
+            53.78321500000311, 52.08422900000005, 53.9756139999954, 52.768814000010025,
+            60.17239400000835, 62.23364500000025, 54.83010500000091, 56.51840400000219,
+            49.88411499999347, 52.782769999990705, 51.11998399998993, 50.98387999999977
+          ],
+          "actualP95Ms": 65.6919510000007
+        }
+      ],
+      "calibration": {
+        "status": "calibrated",
+        "model": {
+          "modelVersion": "tea-bench-complexity-score-budget/2",
+          "inputKind": "actual-complexity-assessment-score",
+          "operationFamily": "R-FORMULA-004/transition-2-wait-computed",
+          "headroom": 3,
+          "headroomSelection": "preselected-before-independent-holdout",
+          "minimumSamplesPerPoint": 100,
+          "provenance": {
+            "source": "GitHub ubuntu-latest Node 24.22.2 PostgreSQL 16 calibration run 41402060334 complexity leg",
+            "runner": "github-ubuntu-latest-node24-postgres16",
+            "calibratedAt": "2026-11-02T06:49:33.276Z"
+          },
+          "scorePolicyVersion": "v2-complexity-policy-2",
+          "physicalDimension": "graphDepth",
+          "assumptions": {
+            "scoreMeaning": "ranking-only",
+            "interpolation": "empirical-p95-linear-with-monotone-envelope",
+            "extrapolation": "forbidden",
+            "syntheticChangeRate": "forbidden"
+          },
+          "range": {
+            "minimumScore": 22,
+            "maximumScore": 34
+          },
+          "points": [
+            {
+              "score": 22,
+              "physicalDimension": "graphDepth",
+              "physicalValue": 2,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 19,
+                  "dataWork": 33,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-root",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 55.76763799999935,
+              "boundedP95Ms": 55.76763799999935
+            },
+            {
+              "score": 34,
+              "physicalDimension": "graphDepth",
+              "physicalValue": 8,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 42,
+                  "dataWork": 41,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-root",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 66.46180599999934,
+              "boundedP95Ms": 66.46180599999934
+            }
+          ],
+          "validation": {
+            "independentHoldout": true,
+            "holdoutPointCount": 1,
+            "holdoutSampleCount": 100,
+            "maximumObservedToPredictedRatio": 1.029843844002423,
+            "points": [
+              {
+                "score": 31,
+                "physicalDimension": "graphDepth",
+                "physicalValue": 6,
+                "sampleCount": 100,
+                "observedP95Ms": 65.6919510000007,
+                "predictedP95Ms": 63.788263999999344,
+                "maxP95Ms": 191.36479199999803,
+                "predictionErrorMs": 1.903687000001355,
+                "observedToPredictedRatio": 1.029843844002423
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "ruleId": "R-FORMULA-005",
+      "operationKey": "transition-2-wait-computed",
+      "operationFamily": "R-FORMULA-005/transition-2-wait-computed",
+      "dimension": "graphWidth",
+      "requestedWorkUnits": {
+        "calibration": [4, 16],
+        "holdout": 12
+      },
+      "receipts": [
+        {
+          "role": "calibration",
+          "ruleId": "R-FORMULA-005",
+          "scenarioId": "scn_1efa5c43c12d3fa6ad41935111e12aaa4bd664f91ab4114b8a0742627fae333b",
+          "caseId": "sha256:ddc77e6e6c5076f758ee5a8a6ceb95d742e231ab334c8ce16b80ba42cc34fac5",
+          "runId": "7b7cf2daebdac6e31e8681d1f274117047bcd06b9e992bc3ade9a45e6f5979b1",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:51:24.217Z",
+            "completedAt": "2026-11-02T06:51:57.826Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-005/transition-2-wait-computed",
+          "workUnits": 4,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 6,
+            "computedFieldCount": 4,
+            "rowsByTable": {
+              "FormulaWidth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphWidth",
+              "workUnits": 4
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 26,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 25,
+              "dataWork": 37,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl393fe41e2c4a2a6b",
+                "changedFieldIds": ["fld7c58a529c2187fb1"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl393fe41e2c4a2a6b": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl393fe41e2c4a2a6b": "FormulaWidth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            53.21233300000313, 50.372280000010505, 51.69719599999371, 49.56808199999796,
+            52.13146599999163, 53.055349000002025, 50.855884999997215, 49.92755500000203,
+            53.92066999999224, 106.93236899998737, 59.8198790000024, 51.61897100000351,
+            51.497784000006504, 55.160015000001295, 54.414996000006795, 52.22135599999456,
+            50.48473900000681, 56.44902600000205, 53.978882999988855, 86.09861499999533,
+            51.84730700000364, 53.872314000007464, 72.29309999999532, 51.39684100000886,
+            55.94380799999635, 55.369711000006646, 59.151809000002686, 53.13294500000484,
+            52.728295000008075, 56.53526499999862, 53.24227000000246, 54.629235000000335,
+            56.214956000010716, 52.085241000007954, 55.88220400000864, 61.901595000003,
+            52.84290699999838, 135.57878700000583, 54.74939599999925, 52.45737600000575,
+            54.29658200000995, 53.068788999997196, 51.57086700000218, 55.17234499999904,
+            56.08431500000006, 56.94659199999296, 58.34131200000411, 54.43075400000089,
+            54.59738199999265, 59.227444999996806, 54.89503600000171, 51.13154200000281,
+            58.17231399999582, 57.232159000006504, 52.62610199999472, 53.28870600000664,
+            55.387314999999944, 55.691460000001825, 50.98099899999215, 51.63223600000492,
+            59.1934449999826, 57.11499699999695, 58.495446999993874, 57.69496500000241,
+            62.087985000020126, 52.364581999980146, 58.27361599999131, 52.245762000005925,
+            54.07850800000597, 72.31694900000002, 56.15722700001788, 52.25751100000343,
+            54.32250400001067, 54.33968399997684, 55.1203969999915, 51.68883299999288,
+            52.222655999998096, 55.525874999992084, 55.837238000007346, 52.75355500000296,
+            51.5211100000015, 53.47449200000847, 55.67648100000224, 57.718232999992324,
+            62.508889999997336, 55.67061299999477, 57.719745000009425, 51.689463999995496,
+            54.85568599999533, 52.27582799998345, 50.62447000000975, 49.29462299999432,
+            54.40770100001828, 52.694203999999445, 62.94045299998834, 52.256351999996696,
+            52.711478999990504, 59.31571900000563, 51.04505300000892, 53.243671999982325
+          ],
+          "actualP95Ms": 62.94045299998834
+        },
+        {
+          "role": "calibration",
+          "ruleId": "R-FORMULA-005",
+          "scenarioId": "scn_675b0ff2ae23b70f50d87642e249d2e53d5b2aee1074455812eb7f7459a0f1f0",
+          "caseId": "sha256:2d7bde6690bd12d72f876ab73b91c5b70a1675259e5a09f1ad2bfd6508bb252d",
+          "runId": "db92c91d1bfe0e2fa892f7aca2c84cf1602ec2bf102ec497a4cc8d647fcd107d",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:51:57.832Z",
+            "completedAt": "2026-11-02T06:52:42.927Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-005/transition-2-wait-computed",
+          "workUnits": 16,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 18,
+            "computedFieldCount": 16,
+            "rowsByTable": {
+              "FormulaWidth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphWidth",
+              "workUnits": 16
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 34,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 37,
+              "dataWork": 46,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl393fe41e2c4a2a6b",
+                "changedFieldIds": ["fld7c58a529c2187fb1"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl393fe41e2c4a2a6b": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl393fe41e2c4a2a6b": "FormulaWidth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            62.641405999980634, 66.87202399998205, 62.7479319999984, 64.33172600000398,
+            62.534113999980036, 67.04026800001157, 64.33861100001377, 62.57198699997389,
+            65.83657099999255, 62.00772200000938, 62.43429899998591, 66.37451700001839,
+            65.12980399999651, 65.40401699999347, 65.02528700002586, 61.9590179999941,
+            68.4869100000069, 63.94677500001853, 61.94358699998702, 63.223681000003126,
+            64.47533499999554, 63.87333599998965, 61.19754799999646, 59.334543999983,
+            139.1593550000107, 64.36634900001809, 63.21742100000847, 61.42726799999946,
+            64.22394399999757, 65.60600600001635, 61.95710100000724, 61.18059699999867,
+            60.59129499999108, 60.66674499999499, 60.15680099997553, 61.262203999998746,
+            59.24792399999569, 60.29312200000277, 60.61745900000096, 66.4719520000217,
+            61.08609999998589, 61.892525999981444, 69.77273399999831, 60.66861800002516,
+            58.35023499999079, 63.796455000003334, 59.15014099999098, 58.777307999989716,
+            59.09908399998676, 60.97171799998614, 65.16914499999257, 60.172793000005186,
+            64.73418700002367, 71.9827589999768, 58.61989000000176, 59.07147100000293,
+            60.58396999997785, 61.914727999974275, 64.39283200001228, 59.90445799997542,
+            62.46031200001016, 66.59984699997585, 61.18886199998087, 60.67801099998178,
+            77.56817199999932, 64.47196399999666, 67.07640300001367, 60.73269000000437,
+            64.52461399999447, 69.111665000004, 59.30847099999664, 60.612020999978995,
+            65.07357300000149, 61.077694000006886, 68.34434399998281, 65.74707399998442,
+            62.425241999997525, 64.23912400001427, 60.84810199998901, 60.865007000014884,
+            65.22855699999491, 61.77522700000554, 59.732174000004306, 66.20032699999865,
+            61.35016000000178, 59.312891000008676, 57.76489500000025, 59.934613999997964,
+            65.43104699999094, 60.627513999992516, 149.46299299999373, 59.99394799998845,
+            61.50249400001485, 61.78880999999819, 60.21639400001732, 65.14892799998051,
+            66.38407500000903, 57.73932700001751, 59.285608999984106, 57.322076999989804
+          ],
+          "actualP95Ms": 69.111665000004
+        },
+        {
+          "role": "holdout",
+          "ruleId": "R-FORMULA-005",
+          "scenarioId": "scn_150c732e77c7e35da30784b6d28436ff1c9788712cda33f57a32c830ed862a18",
+          "caseId": "sha256:b2182876dd944f0c61db98d0a1e76d9a92f8c727827bcba50cd3755506ce454a",
+          "runId": "1591f82dd064a4dd2732384625c589757642858b87d44c9fb19cca2c0f185feb",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:52:42.934Z",
+            "completedAt": "2026-11-02T06:53:21.827Z"
+          },
+          "operationKey": "transition-2-wait-computed",
+          "operationFamily": "R-FORMULA-005/transition-2-wait-computed",
+          "workUnits": 12,
+          "schemaSize": {
+            "tableCount": 1,
+            "fieldCount": 14,
+            "computedFieldCount": 12,
+            "rowsByTable": {
+              "FormulaWidth": 100
+            },
+            "totalRows": 100,
+            "groundedDimension": {
+              "name": "graphWidth",
+              "workUnits": 12
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 33,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 36,
+              "dataWork": 44,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tbl393fe41e2c4a2a6b",
+                "changedFieldIds": ["fld7c58a529c2187fb1"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tbl393fe41e2c4a2a6b": 100
+                },
+                "seedRecordCount": 100,
+                "linkFanout": {},
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tbl393fe41e2c4a2a6b": "FormulaWidth"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {},
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            86.27787099999841, 57.809691999980714, 55.390549000003375, 59.44240499997977,
+            65.59140400000615, 58.72982099998626, 56.92816599999787, 57.723085999983596,
+            57.560104999982286, 60.419189999985974, 67.9511310000089, 57.92601900000591,
+            55.262579000002006, 60.88983999998891, 56.03746200000751, 55.18894199997885,
+            58.377467999991495, 59.821902999974554, 60.14945699999225, 64.65225300000748,
+            58.46533800000907, 69.39686199999414, 57.18889499999932, 62.85664400001406,
+            59.06592299998738, 59.12917800000287, 59.95313300000271, 56.07741399999941,
+            56.66469499998493, 60.932612999982666, 57.46138299998711, 75.7693530000106,
+            69.97472299999208, 60.899875000002794, 57.43633399999817, 58.721223000000464,
+            56.800694000005024, 58.86704199999804, 56.97320999999647, 59.182838000007905,
+            60.7763580000028, 62.586596000008285, 57.57872399999178, 53.9021809999831,
+            56.06231599999592, 55.20559699999285, 57.39959299998009, 60.818141999974614,
+            56.33037300000433, 58.90299999999115, 61.309141000005184, 60.72773400001461,
+            57.469246000022395, 56.89280500001041, 61.53932400001213, 61.16979000001447,
+            57.321547999978065, 54.53946500000893, 56.363492999982554, 55.22661199999857,
+            58.033067000011215, 62.30930900000385, 60.016425000008894, 54.76374699998996,
+            56.10240800000611, 52.677525000006426, 64.34219199998188, 52.180850000004284,
+            57.85321400000248, 56.68863600000623, 54.66844700000365, 57.195745999983046,
+            61.05900699997437, 59.35072799999034, 58.11902899999404, 55.419484999991255,
+            59.93219500000123, 58.30006099998718, 56.3819380000059, 57.04921500000637,
+            57.39438099999097, 56.895363000017824, 55.290775999979815, 68.47012300000642,
+            60.995790999993915, 54.66415500000585, 65.61853100001463, 57.04454900001292,
+            56.42082100000698, 55.77293599999393, 56.558036000002176, 58.56850100000156,
+            63.95362800001749, 59.80997400000342, 55.60955599998124, 62.83393700001761,
+            53.60668500000611, 56.94922300000326, 56.363186999980826, 55.85462500000722
+          ],
+          "actualP95Ms": 67.9511310000089
+        }
+      ],
+      "calibration": {
+        "status": "calibrated",
+        "model": {
+          "modelVersion": "tea-bench-complexity-score-budget/2",
+          "inputKind": "actual-complexity-assessment-score",
+          "operationFamily": "R-FORMULA-005/transition-2-wait-computed",
+          "headroom": 3,
+          "headroomSelection": "preselected-before-independent-holdout",
+          "minimumSamplesPerPoint": 100,
+          "provenance": {
+            "source": "GitHub ubuntu-latest Node 24.22.2 PostgreSQL 16 calibration run 41402060334 complexity leg",
+            "runner": "github-ubuntu-latest-node24-postgres16",
+            "calibratedAt": "2026-11-02T06:49:33.276Z"
+          },
+          "scorePolicyVersion": "v2-complexity-policy-2",
+          "physicalDimension": "graphWidth",
+          "assumptions": {
+            "scoreMeaning": "ranking-only",
+            "interpolation": "empirical-p95-linear-with-monotone-envelope",
+            "extrapolation": "forbidden",
+            "syntheticChangeRate": "forbidden"
+          },
+          "range": {
+            "minimumScore": 26,
+            "maximumScore": 34
+          },
+          "points": [
+            {
+              "score": 26,
+              "physicalDimension": "graphWidth",
+              "physicalValue": 4,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 25,
+                  "dataWork": 37,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-shared-source",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 62.94045299998834,
+              "boundedP95Ms": 62.94045299998834
+            },
+            {
+              "score": 34,
+              "physicalDimension": "graphWidth",
+              "physicalValue": 16,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 37,
+                  "dataWork": 46,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-shared-source",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 69.111665000004,
+              "boundedP95Ms": 69.111665000004
+            }
+          ],
+          "validation": {
+            "independentHoldout": true,
+            "holdoutPointCount": 1,
+            "holdoutSampleCount": 100,
+            "maximumObservedToPredictedRatio": 0.9943059555222065,
+            "points": [
+              {
+                "score": 33,
+                "physicalDimension": "graphWidth",
+                "physicalValue": 12,
+                "sampleCount": 100,
+                "observedP95Ms": 67.9511310000089,
+                "predictedP95Ms": 68.34026350000204,
+                "maxP95Ms": 205.02079050000611,
+                "predictionErrorMs": -0.3891324999931385,
+                "observedToPredictedRatio": 0.9943059555222065
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "ruleId": "R-PROP-003",
+      "operationKey": "transition-1-flush-computed",
+      "operationFamily": "R-PROP-003/transition-1-flush-computed",
+      "dimension": "fanout",
+      "requestedWorkUnits": {
+        "calibration": [20, 100],
+        "holdout": 60
+      },
+      "receipts": [
+        {
+          "role": "calibration",
+          "ruleId": "R-PROP-003",
+          "scenarioId": "scn_4f48d2eab2f451aef5b39aa282d85d3ef61fbdec86385c5ed40d653bfb7765a5",
+          "caseId": "sha256:0b3b97ad520ffdbbf14f50c02aa5ce6b508d2ce1c3035f4f3d110da5a7516ac1",
+          "runId": "59e1636f2e655cc4d82bf3ac84fc2a36b9a780828e4ed300f5d45ff4d5f4e2b7",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:53:21.834Z",
+            "completedAt": "2026-11-02T06:54:20.400Z"
+          },
+          "operationKey": "transition-1-flush-computed",
+          "operationFamily": "R-PROP-003/transition-1-flush-computed",
+          "workUnits": 20,
+          "schemaSize": {
+            "tableCount": 2,
+            "fieldCount": 6,
+            "computedFieldCount": 2,
+            "rowsByTable": {
+              "FanoutSource": 10,
+              "FanoutTargets": 100
+            },
+            "totalRows": 110,
+            "groundedDimension": {
+              "name": "fanout",
+              "workUnits": 20
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 22,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 31,
+              "dataWork": 22,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tblf11f608cf878edf8",
+                "changedFieldIds": ["fld6a2149cc1ccc5484"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tblf11f608cf878edf8": 10,
+                  "tbl5ba211db36e86b69": 100
+                },
+                "seedRecordCount": 1,
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "mean": 20,
+                    "p50": 20,
+                    "p95": 20,
+                    "max": 20
+                  }
+                },
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tblf11f608cf878edf8": "FanoutSource",
+                    "tbl5ba211db36e86b69": "FanoutTargets"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "source": "deterministic-workload-link-state",
+                    "value": 20,
+                    "direction": "inbound-to-selected-source",
+                    "initialState": "recipe-without-link-config-is-empty",
+                    "sourceTableId": "tblf11f608cf878edf8",
+                    "targetTableId": "tbl5ba211db36e86b69",
+                    "sourceIndices": [0],
+                    "setupOperationKeys": ["setup-fanout-links"]
+                  }
+                },
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            53.7205660000036, 135.80283999998937, 52.87386699998751, 52.56586900001275,
+            51.17403399999603, 52.7870019999973, 51.89379899998312, 47.573497999983374,
+            52.8817600000184, 48.29154799997923, 49.071996000013314, 51.745094000012614,
+            52.66241499999887, 51.125348000001395, 51.72836000000825, 52.57885700001498,
+            50.35078799998155, 54.10995800001547, 53.127361000020755, 51.163480000017444,
+            50.31913100002566, 64.67710500000976, 49.684642999985954, 52.844192999997176,
+            51.510619000007864, 52.89764500001911, 48.42522400000598, 52.17211000001407,
+            53.29941500001587, 51.048618000000715, 52.454318000003695, 48.85537699999986,
+            55.660980999993626, 49.65796800001408, 54.79599100002088, 52.51548499998171,
+            50.68123200000264, 53.498374000017066, 52.49141999997664, 53.162080999987666,
+            51.42529899999499, 48.389383000001544, 50.39549100000295, 54.33700900000986,
+            50.67923000000883, 54.10814399999799, 49.14417700000922, 51.455987000023015,
+            53.43474900000729, 48.836275000008754, 51.712464999989606, 58.31826800000272,
+            52.82618999999249, 50.73436299999594, 57.68192299999646, 56.27191899996251,
+            55.37197699997341, 59.92303000000538, 56.109078999958, 59.548214000009466,
+            53.98291399999289, 55.519114000024274, 67.8694929999765, 49.25489700003527,
+            56.87695000000531, 53.41488799999934, 55.66744799999287, 57.85734200000297,
+            52.350872999988496, 56.74630599998636, 51.401860999991186, 57.65504300000612,
+            53.86970999999903, 55.3195640000049, 53.96858499996597, 52.478476999967825,
+            58.384573000017554, 50.78615100000752, 49.99841900001047, 49.562266000022646,
+            51.09234400000423, 47.719103000010364, 53.119013000046834, 55.49662900000112,
+            57.04368499998236, 55.51388800004497, 47.738982999988366, 53.96096300001955,
+            54.18547199998284, 53.55459299997892, 50.18764399999054, 59.72437399998307,
+            61.69978500000434, 45.83888900000602, 51.71926300000632, 53.533416000020225,
+            55.35239300003741, 47.31058300001314, 54.55706900003133, 57.36141499999212
+          ],
+          "actualP95Ms": 59.72437399998307
+        },
+        {
+          "role": "calibration",
+          "ruleId": "R-PROP-003",
+          "scenarioId": "scn_768852248cd73098233a3c1d024cc40d4186bf5e7f0fec57c057dee3a1294d8e",
+          "caseId": "sha256:b5d588cd8c8f18646d00ffd242de71fd0486433a89edd2a1c39dc2acc7c3e5d4",
+          "runId": "7368557784b24e51ebe137000687a574bf1bf4669fe70e1733d56bafe566bca7",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:54:20.406Z",
+            "completedAt": "2026-11-02T06:55:24.115Z"
+          },
+          "operationKey": "transition-1-flush-computed",
+          "operationFamily": "R-PROP-003/transition-1-flush-computed",
+          "workUnits": 100,
+          "schemaSize": {
+            "tableCount": 2,
+            "fieldCount": 6,
+            "computedFieldCount": 2,
+            "rowsByTable": {
+              "FanoutSource": 10,
+              "FanoutTargets": 100
+            },
+            "totalRows": 110,
+            "groundedDimension": {
+              "name": "fanout",
+              "workUnits": 100
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 26,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 31,
+              "dataWork": 32,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tblf11f608cf878edf8",
+                "changedFieldIds": ["fld6a2149cc1ccc5484"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tblf11f608cf878edf8": 10,
+                  "tbl5ba211db36e86b69": 100
+                },
+                "seedRecordCount": 1,
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "mean": 100,
+                    "p50": 100,
+                    "p95": 100,
+                    "max": 100
+                  }
+                },
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tblf11f608cf878edf8": "FanoutSource",
+                    "tbl5ba211db36e86b69": "FanoutTargets"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "source": "deterministic-workload-link-state",
+                    "value": 100,
+                    "direction": "inbound-to-selected-source",
+                    "initialState": "recipe-without-link-config-is-empty",
+                    "sourceTableId": "tblf11f608cf878edf8",
+                    "targetTableId": "tbl5ba211db36e86b69",
+                    "sourceIndices": [0],
+                    "setupOperationKeys": ["setup-fanout-links"]
+                  }
+                },
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            70.01759000000311, 71.38493900001049, 78.20020600000862, 70.70159300003434,
+            73.2000490000355, 75.3820120000164, 68.91875300003449, 67.21885200001998,
+            70.52305399999022, 72.41862000001129, 71.06048499996541, 70.74445699999342,
+            77.22370099998079, 69.89232300000731, 74.48227300000144, 68.27397199999541,
+            77.08869199996116, 68.52862900000764, 68.75246699998388, 73.12104399997042,
+            62.083233000012115, 67.14475100004347, 74.98827599996002, 71.05093900003703,
+            66.24091199995019, 63.410786999971606, 65.19042300002184, 65.15434800001094,
+            64.8268800000078, 77.84542999998666, 69.58101300004637, 70.38025799999014,
+            64.40917699999409, 68.8829830000177, 69.28951200004667, 67.00626699998975,
+            69.30027100001462, 67.42269300000044, 69.389617000008, 79.4801059999736,
+            72.0817120000138, 73.31080099998508, 67.82144500000868, 65.88431599998148,
+            64.47129399998812, 70.29036599997198, 63.75653600000078, 70.57479400001466,
+            68.64353000000119, 73.69101199996658, 71.32447699998738, 66.71855900000082,
+            55.78809099999489, 70.08520299999509, 70.14756100001978, 73.55165699997451,
+            63.44237499998417, 75.04123500001151, 70.34748799999943, 69.32221199997002,
+            69.06281500001205, 71.1366590000107, 72.00755899999058, 67.55318600003375,
+            66.1578360000276, 69.09763100004056, 69.27787900000112, 79.8703150000074,
+            69.61258399998769, 67.67234099999769, 67.86844200000633, 68.20816600002581,
+            64.75012099999003, 65.2157779999543, 68.76784300000872, 68.04673199995887,
+            72.25097499997355, 70.13467699999455, 69.14369100000476, 72.96020499995211,
+            67.79771100002108, 70.32460900000297, 74.18811200000346, 70.21679099998437,
+            69.17600999999559, 69.58948500000406, 67.65421399998013, 64.02579500002321,
+            61.50920299999416, 63.93647100002272, 70.11025399999926, 76.67613099998562,
+            127.46438899997156, 67.91185199999018, 72.07709299999988, 67.67158000002382,
+            73.35516999999527, 71.04213600000367, 67.60824400000274, 66.64012499997625
+          ],
+          "actualP95Ms": 77.22370099998079
+        },
+        {
+          "role": "holdout",
+          "ruleId": "R-PROP-003",
+          "scenarioId": "scn_247e41385edf0d8443216c1fc57ef9c35b45b9ad289d6b035ed6c1e6bab2b981",
+          "caseId": "sha256:fdb76ecfdcd6ccdba3b0e96d75329bb3a1de31a267229981f1389f2be99698ae",
+          "runId": "3b70bc1b17baac12c851e53b517c391038632e24f001a8919c7d6bae8ebb5d9c",
+          "backend": "postgres",
+          "measurementProtocol": {
+            "version": 2,
+            "warmupStrategy": "fresh-full-workload-per-pass",
+            "timingScope": "workload-operation-only",
+            "statistic": "nearest-rank-p95",
+            "samplesPerPoint": 100,
+            "warmup": 1,
+            "repetitions": 1
+          },
+          "runProvenance": {
+            "commit": "89266a0fb6a65365388e9aeebebf2f6aadc70213",
+            "node": "v24.22.2",
+            "platform": "linux",
+            "arch": "x64",
+            "runtime": "node v24.22.2",
+            "postgresVersion": "PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+            "startedAt": "2026-11-02T06:55:24.123Z",
+            "completedAt": "2026-11-02T06:56:23.506Z"
+          },
+          "operationKey": "transition-1-flush-computed",
+          "operationFamily": "R-PROP-003/transition-1-flush-computed",
+          "workUnits": 60,
+          "schemaSize": {
+            "tableCount": 2,
+            "fieldCount": 6,
+            "computedFieldCount": 2,
+            "rowsByTable": {
+              "FanoutSource": 10,
+              "FanoutTargets": 100
+            },
+            "totalRows": 110,
+            "groundedDimension": {
+              "name": "fanout",
+              "workUnits": 60
+            }
+          },
+          "complexityAssociation": {
+            "strategy": "writes-since-previous-flush",
+            "linkedWriteKeys": ["transition-1-update-shared-source"]
+          },
+          "complexityAssessmentCount": 1,
+          "complexityAssessment": {
+            "assessmentKey": "transition-1-update-shared-source",
+            "policyVersion": "v2-complexity-policy-2",
+            "score": 25,
+            "scoreSemantics": "nullable-ranking-index",
+            "scoreProvenance": {
+              "kind": "assumption-backed",
+              "assumption": "changeRate",
+              "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+              "declaredSource": "complexity-series-conservative-upper-bound",
+              "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+            },
+            "declaredChangeRate": 1,
+            "components": {
+              "structural": 31,
+              "dataWork": 29,
+              "risk": 5
+            },
+            "association": {
+              "strategy": "writes-since-previous-flush",
+              "linkedWriteKeys": ["transition-1-update-shared-source"]
+            },
+            "simulation": {
+              "kind": "workload-operation",
+              "operation": {
+                "kind": "update",
+                "tableId": "tblf11f608cf878edf8",
+                "changedFieldIds": ["fld6a2149cc1ccc5484"]
+              },
+              "assumptions": {
+                "rowCounts": {
+                  "tblf11f608cf878edf8": 10,
+                  "tbl5ba211db36e86b69": 100
+                },
+                "seedRecordCount": 1,
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "mean": 60,
+                    "p50": 60,
+                    "p95": 60,
+                    "max": 60
+                  }
+                },
+                "changeRate": 1
+              },
+              "provenance": {
+                "rowCounts": {
+                  "source": "manifest.dataset.rows",
+                  "tableNamesById": {
+                    "tblf11f608cf878edf8": "FanoutSource",
+                    "tbl5ba211db36e86b69": "FanoutTargets"
+                  }
+                },
+                "seedRecordCount": {
+                  "source": "manifest.workload.rows",
+                  "operationKey": "transition-1-update-shared-source"
+                },
+                "linkFanout": {
+                  "fld9333f7083963840a": {
+                    "source": "deterministic-workload-link-state",
+                    "value": 60,
+                    "direction": "inbound-to-selected-source",
+                    "initialState": "recipe-without-link-config-is-empty",
+                    "sourceTableId": "tblf11f608cf878edf8",
+                    "targetTableId": "tbl5ba211db36e86b69",
+                    "sourceIndices": [0],
+                    "setupOperationKeys": ["setup-fanout-links"]
+                  }
+                },
+                "changeRate": {
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "value": 1,
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                }
+              }
+            },
+            "assumptions": {
+              "scoreMeaning": "ranking-only",
+              "syntheticChangeRate": "forbidden"
+            }
+          },
+          "correctnessVerdict": "pass",
+          "operationFound": true,
+          "operationErrors": 0,
+          "sampleCount": 100,
+          "samplesMs": [
+            58.12343899998814, 50.24689999996917, 58.06265100004384, 49.41903099999763,
+            50.00120900000911, 56.67419200000586, 58.241380999970715, 51.002338999998756,
+            52.63775799999712, 55.55314500001259, 55.406033999985084, 50.84529800002929,
+            52.10645399999339, 56.365772999997716, 57.88624500000151, 56.81613800005289,
+            57.556572999979835, 49.92373699997552, 57.95167500001844, 59.65518300002441,
+            64.17770399997244, 50.6456650000182, 54.982010999985505, 55.24323500000173,
+            52.02900199999567, 57.54655799997272, 50.162209000031, 51.080245000019204,
+            51.90249100001529, 53.84156100003747, 50.620286000019405, 63.365898000018205,
+            50.54339599999366, 57.89513400004944, 58.63068800000474, 50.5768059999682,
+            52.33047600003192, 59.41557000001194, 51.55472099996405, 55.947019000013825,
+            56.63564299995778, 57.02289500000188, 57.99650000000838, 64.62951599998632,
+            57.64931499998784, 58.061902999994345, 68.43465699994704, 57.649345999991056,
+            58.729113000037614, 50.00957799999742, 51.55454500002088, 55.793303000042215,
+            51.62431500002276, 59.0749599999981, 50.72921399999177, 56.88793500000611,
+            54.70761600002879, 59.23670499998843, 52.277043999987654, 59.02561999997124,
+            51.09078299999237, 58.22707800002536, 49.70036500005517, 58.228208000015,
+            51.41581999999471, 53.664086999953724, 54.02671200002078, 56.83430899999803,
+            50.62199600000167, 60.49061400000937, 57.14305100002093, 57.35428900003899,
+            56.731187999947, 58.620905000017956, 50.643775999953505, 55.13117399998009,
+            57.736810000031255, 80.07918400003109, 57.44561699999031, 64.21045299997786,
+            61.46235500002513, 61.69743699999526, 50.05396499997005, 63.5993610000005,
+            58.14189400000032, 60.1678200000315, 53.22040799999377, 49.80706999998074,
+            50.808720999979414, 48.425365999981295, 58.288225000025705, 78.7309729999979,
+            57.10665400000289, 55.8005290000001, 51.04811199998949, 58.313518000009935,
+            55.955017999978736, 50.3907360000303, 60.97718400001759, 56.994839999999385
+          ],
+          "actualP95Ms": 64.17770399997244
+        }
+      ],
+      "calibration": {
+        "status": "calibrated",
+        "model": {
+          "modelVersion": "tea-bench-complexity-score-budget/2",
+          "inputKind": "actual-complexity-assessment-score",
+          "operationFamily": "R-PROP-003/transition-1-flush-computed",
+          "headroom": 3,
+          "headroomSelection": "preselected-before-independent-holdout",
+          "minimumSamplesPerPoint": 100,
+          "provenance": {
+            "source": "GitHub ubuntu-latest Node 24.22.2 PostgreSQL 16 calibration run 41402060334 complexity leg",
+            "runner": "github-ubuntu-latest-node24-postgres16",
+            "calibratedAt": "2026-11-02T06:49:33.276Z"
+          },
+          "scorePolicyVersion": "v2-complexity-policy-2",
+          "physicalDimension": "fanout",
+          "assumptions": {
+            "scoreMeaning": "ranking-only",
+            "interpolation": "empirical-p95-linear-with-monotone-envelope",
+            "extrapolation": "forbidden",
+            "syntheticChangeRate": "forbidden"
+          },
+          "range": {
+            "minimumScore": 22,
+            "maximumScore": 26
+          },
+          "points": [
+            {
+              "score": 22,
+              "physicalDimension": "fanout",
+              "physicalValue": 20,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 31,
+                  "dataWork": 22,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-shared-source",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 59.72437399998307,
+              "boundedP95Ms": 59.72437399998307
+            },
+            {
+              "score": 26,
+              "physicalDimension": "fanout",
+              "physicalValue": 100,
+              "scoreEvidence": {
+                "policyVersion": "v2-complexity-policy-2",
+                "scoreSemantics": "nullable-ranking-index",
+                "scoreProvenance": {
+                  "kind": "assumption-backed",
+                  "assumption": "changeRate",
+                  "source": "manifest.dimensions.complexityAssumptions.changeRateByOperation",
+                  "declaredSource": "complexity-series-conservative-upper-bound",
+                  "evidence": "Declared planning bound: score calibration assumes every dirty computed output changes; this is not an observed change rate."
+                },
+                "declaredChangeRate": 1,
+                "components": {
+                  "structural": 31,
+                  "dataWork": 32,
+                  "risk": 5
+                },
+                "assessmentKey": "transition-1-update-shared-source",
+                "association": "flush-preceding-write"
+              },
+              "sampleCount": 100,
+              "observedP95Ms": 77.22370099998079,
+              "boundedP95Ms": 77.22370099998079
+            }
+          ],
+          "validation": {
+            "independentHoldout": true,
+            "holdoutPointCount": 1,
+            "holdoutSampleCount": 100,
+            "maximumObservedToPredictedRatio": 0.8809704894628664,
+            "points": [
+              {
+                "score": 25,
+                "physicalDimension": "fanout",
+                "physicalValue": 60,
+                "sampleCount": 100,
+                "observedP95Ms": 64.17770399997244,
+                "predictedP95Ms": 72.84886924998136,
+                "maxP95Ms": 218.5466077499441,
+                "predictionErrorMs": -8.671165250008926,
+                "observedToPredictedRatio": 0.8809704894628664
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "name": "@teable/v2-headless-bench",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "@teable/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "budgets",
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsdown --tsconfig tsconfig.build.json && pnpm build:assets",
+    "build:assets": "node -e \"const fs=require('node:fs');const path=require('node:path');const dir=path.dirname(require.resolve('@electric-sql/pglite'));for(const file of ['pglite.data','pglite.wasm'])fs.copyFileSync(path.join(dir,file),path.join('dist',file))\"",
+    "dev": "tsdown --tsconfig tsconfig.build.json --watch",
+    "clean": "rimraf ./dist ./coverage ./tsconfig.tsbuildinfo ./tsconfig.build.tsbuildinfo",
+    "lint": "oxlint && oxfmt --check",
+    "typecheck": "tsc --project ./tsconfig.json --noEmit",
+    "test-unit": "vitest run --silent",
+    "test-unit-cover": "pnpm test-unit --coverage",
+    "bench": "pnpm build && pnpm bench:built",
+    "bench:built": "node dist/cli.js",
+    "bench:ci": "node dist/ci.js",
+    "bench:http-ci": "node dist/httpCi.js",
+    "bench:core-ci": "node dist/standaloneCi.js",
+    "bench:complexity-ci": "node dist/complexityCi.js",
+    "fix-all-files": "oxlint --fix && oxfmt"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.3.14",
+    "@effect/cli": "0.77.2",
+    "@hono/node-server": "1.19.17",
+    "@effect/platform-node": "0.108.3",
+    "@teable/v2-adapter-db-postgres-shared": "workspace:*",
+    "@teable/v2-adapter-table-repository-postgres": "workspace:*",
+    "@teable/v2-complexity": "workspace:*",
+    "@teable/v2-core": "workspace:*",
+    "@teable/v2-data-query": "workspace:*",
+    "@teable/v2-di": "workspace:*",
+    "@teable/v2-dottea": "workspace:*",
+    "@teable/v2-headless-http": "workspace:*",
+    "@teable/v2-headless-runtime": "workspace:*",
+    "effect": "3.22.3",
+    "fflate": "0.8.3",
+    "kysely": "0.28.17",
+    "neverthrow": "8.2.0",
+    "papaparse": "5.5.3",
+    "zod": "4.1.8"
+  },
+  "devDependencies": {
+    "@teable/eslint-config-bases": "workspace:^",
+    "@teable/v2-tsdown-config": "workspace:*",
+    "@types/node": "24.13.2",
+    "@types/papaparse": "5.3.15",
+    "@vitest/coverage-v8": "4.1.12",
+    "oxfmt": "0.74.0",
+    "oxlint": "1.89.0",
+    "rimraf": "5.0.5",
+    "tsdown": "0.23.1",
+    "tsx": "4.23.15",
+    "typescript": "catalog:",
+    "vitest": "4.1.12"
+  }
+}
