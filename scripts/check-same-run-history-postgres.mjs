@@ -23,6 +23,7 @@ const psql = (sql) => execFileSync("psql", ["-X", "-qAt", "-v", "ON_ERROR_STOP=1
     PGDATABASE: decodeURIComponent(url.pathname.slice(1)),
     PGUSER: url.username ? decodeURIComponent(url.username) : (process.env.PGUSER ?? ""),
     PGPASSWORD: url.password ? decodeURIComponent(url.password) : "",
+    PGTZ: "UTC", // Fixture timestamp literals and expected instants use UTC.
   },
   encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
 }).trim();
@@ -182,90 +183,155 @@ try {
   console.log("PostgreSQL complete-logical-row and model history equivalence checks passed");
 
   if (process.argv.includes("--perf")) {
-    // 631872 rows, 33 original user columns + 2 new scalar columns. Payloads
-    // are neutral synthetic wide JSON, not customer data or a byte-layout replay.
-    psql(`TRUNCATE ${table}; INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID", "Neutral_0")
-      SELECT 'perf-' || (n % 8), n, '2026-01-01'::timestamptz + n * interval '1 second',
-        jsonb_build_object('contract', jsonb_build_object('id', CASE
-          WHEN n % 8 = 0 AND n > 640 THEN 'wrong-contract'
-          WHEN n % 8 = 1 THEN 'wrong-contract'
-          WHEN n % 8 = 2 AND n > 64 THEN 'wrong-contract'
-          WHEN n % 8 NOT IN (0, 1, 2) AND n % 11 = 0 THEN 'wrong-contract'
-          ELSE 'contract-neutral' END), 'environment', jsonb_build_object('class', 'local-disposable'), 'padding', repeat(md5(n::text), 8))::text,
-        CASE WHEN n % 19 = 0 THEN 'fail' ELSE 'pass' END, CASE WHEN n % 23 = 0 THEN 'v1' ELSE 'v2' END,
-        CASE WHEN n % 29 = 0 THEN 'run-current' ELSE 'run-history' END, repeat(md5(n::text), 8)
-      FROM generate_series(1, 631872) n;
-      CREATE INDEX history_started_at ON ${table} ("Started_At")`);
-    backfillFixture();
-    const perfCases = Array.from({ length: 8 }, (_, index) => `perf-${index}`);
-    const options = { ...common, caseIds: perfCases, identityByCase: Object.fromEntries(perfCases.map((id) => [id, identity])) };
+    const originalCases = Array.from({ length: 8 }, (_, index) => `perf-${index}`);
+    const eligibilityCases = ["old-matching", "wrong-identity", "scarce-identity", "dense", "all-fail", "all-v1", "all-current", "scarce-pass", "scarce-v2", "scarce-history", "null-status", "null-engine", "all-zero", "scarce-positive", "null-run", "dense-other"];
+    const profiles = [
+      { name: "original-eight", cases: originalCases, sampleCases: originalCases },
+      { name: "eligibility-skew", cases: eligibilityCases, sampleCases: ["all-fail", "all-v1", "all-current", "scarce-pass", "scarce-v2", "scarce-history", "dense", "absent"] },
+    ];
     const explain = (sql) => jsonQuery(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`)[0];
     const nodes = (plan) => [plan, ...(plan.Plans ?? []).flatMap(nodes)];
-    const scannedHistoryRows = (plan) => nodes(plan.Plan)
-      .filter((node) => node["Relation Name"] === "history" && /Scan/.test(node["Node Type"]))
-      .reduce((sum, node) => sum + ((node["Actual Rows"] ?? 0) + (node["Rows Removed by Filter"] ?? 0) + (node["Rows Removed by Index Recheck"] ?? 0)) * (node["Actual Loops"] ?? 0), 0);
+    const rootBuffers = (plan) => (plan.Plan["Shared Hit Blocks"] ?? 0) + (plan.Plan["Shared Read Blocks"] ?? 0);
+    const indexesUsed = (plan) => [...new Set(nodes(plan.Plan).map((node) => node["Index Name"]).filter(Boolean))];
     const median = (values) => {
       const sorted = [...values].sort((a, b) => a - b);
       return (sorted[Math.floor((sorted.length - 1) / 2)] + sorted[Math.floor(sorted.length / 2)]) / 2;
     };
     const statistics = (values) => ({ raw: values, median: median(values), p95: [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1] });
-    for (const indexMode of ["started-at-only", "identity-and-case-ordered"]) {
-      if (indexMode === "identity-and-case-ordered") psql(`
-        CREATE INDEX history_identity_ordered ON ${table} ("Case_ID", "Contract_ID", "Environment_Class", "Started_At" DESC);
-        CREATE INDEX history_case_ordered ON ${table} ("Case_ID", "Started_At" DESC); ANALYZE ${table}`);
-      for (const strictOnly of [false, true]) {
-        const correctRows = compare({ ...options, strictOnly });
-        if (strictOnly) {
-          assert.equal(correctRows.filter((row) => row.c === "perf-0").length, 60);
-          assert.equal(correctRows.filter((row) => row.c === "perf-1").length, 0);
-          assert.ok(correctRows.filter((row) => row.c === "perf-2").length > 0 && correctRows.filter((row) => row.c === "perf-2").length < 60);
-        }
-        const queries = { oldJson: referenceSql({ ...options, strictOnly }), newScalar: newSql({ ...options, strictOnly }) };
-        for (const sql of Object.values(queries)) explain(sql);
-        const samples = { oldJson: [], newScalar: [] };
-        for (let repeat = 0; repeat < 6; repeat++) {
-          for (const label of repeat % 2 ? ["newScalar", "oldJson"] : ["oldJson", "newScalar"]) samples[label].push(explain(queries[label]));
-        }
-        const summary = Object.fromEntries(Object.entries(samples).map(([label, plans]) => [label, {
-          executionMs: statistics(plans.map((plan) => plan["Execution Time"])),
-          sharedHitBlocks: statistics(plans.map((plan) => plan.Plan["Shared Hit Blocks"] ?? 0)),
-          sharedReadBlocks: statistics(plans.map((plan) => plan.Plan["Shared Read Blocks"] ?? 0)),
-          rootSharedBlocks: statistics(plans.map((plan) => (plan.Plan["Shared Hit Blocks"] ?? 0) + (plan.Plan["Shared Read Blocks"] ?? 0))),
-          tempReadBlocks: statistics(plans.map((plan) => plan.Plan["Temp Read Blocks"] ?? 0)),
-          tempWrittenBlocks: statistics(plans.map((plan) => plan.Plan["Temp Written Blocks"] ?? 0)),
-          indexesUsed: plans.map((plan) => [...new Set(nodes(plan.Plan).map((node) => node["Index Name"]).filter(Boolean))]),
-        }]));
-        const candidate = indexMode === "identity-and-case-ordered" && strictOnly;
-        const bufferDecrease = summary.newScalar.rootSharedBlocks.median < summary.oldJson.rootSharedBlocks.median;
-        const identityIndexUsed = samples.newScalar.every((plan) => nodes(plan.Plan).some((node) => node["Index Name"] === "history_identity_ordered"));
-        const boundedIdentityScan = samples.newScalar.every((plan) => scannedHistoryRows(plan) < 2000);
-        // A final batch can contain one case. A plan that only works for an
-        // eight-row targets relation still starves sparse singleton lookups.
-        const singletonPlans = candidate ? Object.fromEntries(["perf-0", "perf-1", "perf-2", "perf-3"].map((caseId) => {
-          const singleton = { ...options, strictOnly: true, caseIds: [caseId] };
-          compare(singleton);
-          return [caseId, explain(newSql(singleton))];
-        })) : {};
-        const singletonSummary = Object.fromEntries(Object.entries(singletonPlans).map(([caseId, plan]) => [caseId, {
-          returnedRows: plan.Plan["Actual Rows"],
-          scannedHistoryRows: scannedHistoryRows(plan),
-          rootSharedBlocks: (plan.Plan["Shared Hit Blocks"] ?? 0) + (plan.Plan["Shared Read Blocks"] ?? 0),
-          indexesUsed: [...new Set(nodes(plan.Plan).map((node) => node["Index Name"]).filter(Boolean))],
-        }]));
-        const boundedSingletonScans = Object.values(singletonSummary).every((entry) => entry.scannedHistoryRows < 2000 && entry.indexesUsed.includes("history_identity_ordered"));
-        // Persist raw plans synchronously before any acceptance assertion: a
-        // failed assertion must not truncate buffered stdout evidence.
-        const report = { indexMode, strictOnly, rows: 631872, oldFields: 33, addedScalarFields: 2, fields: 35,
-          warmups: 1, repetitions: 6, interleaved: true, plannerForced: false,
-          performanceAcceptance: candidate ? { bufferDecrease, identityIndexUsed, boundedIdentityScan, boundedSingletonScans, passed: bufferDecrease && identityIndexUsed && boundedIdentityScan && boundedSingletonScans } : null,
-          summary, singletonSummary };
-        appendFileSync(outputPath ?? 1, `${JSON.stringify({ ...report, samples, singletonPlans })}\n`);
-        if (outputPath) appendFileSync(1, `${JSON.stringify({ ...report, rawPlansPath: outputPath })}\n`);
-        if (candidate) {
-          assert.ok(bufferDecrease, "Candidate strict scalar query must reduce root shared hit+read buffers");
-          assert.ok(identityIndexUsed, "Candidate strict scalar query must actually use the identity compound index");
-          assert.ok(boundedIdentityScan, "Candidate strict scalar index must not scan full wrong-identity histories");
-          assert.ok(boundedSingletonScans, "Singleton strict lookups must use the identity index without scanning full histories");
+    psql(`CREATE INDEX history_started_at ON ${table} ("Started_At")`);
+    for (const profile of profiles) {
+      // Each profile has the same 631872 rows and 33+2 user columns. The
+      // original eight-case data is unchanged; absent is a query-only target.
+      // Eligibility skew is separate, not a replacement that hides a bad plan.
+      psql(`DROP INDEX IF EXISTS "${schema}".history_identity_ordered, "${schema}".history_case_ordered, "${schema}".history_identity_eligibility, "${schema}".history_case_eligibility; TRUNCATE ${table}`);
+      if (profile.name === "original-eight") {
+        psql(`INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID", "Neutral_0")
+          SELECT 'perf-' || (n % 8), n, '2026-01-01'::timestamptz + n * interval '1 second',
+            jsonb_build_object('contract', jsonb_build_object('id', CASE
+              WHEN n % 8 = 0 AND n > 640 THEN 'wrong-contract'
+              WHEN n % 8 = 1 THEN 'wrong-contract'
+              WHEN n % 8 = 2 AND n > 64 THEN 'wrong-contract'
+              WHEN n % 8 NOT IN (0, 1, 2) AND n % 11 = 0 THEN 'wrong-contract'
+              ELSE 'contract-neutral' END), 'environment', jsonb_build_object('class', 'local-disposable'), 'padding', repeat(md5(n::text), 8))::text,
+            CASE WHEN n % 19 = 0 THEN 'fail' ELSE 'pass' END, CASE WHEN n % 23 = 0 THEN 'v1' ELSE 'v2' END,
+            CASE WHEN n % 29 = 0 THEN 'run-current' ELSE 'run-history' END, repeat(md5(n::text), 8)
+          FROM generate_series(1, 631872) n`);
+      } else {
+        psql(`INSERT INTO ${table} ("Case_ID", "Primary_Metric_Value", "Started_At", "Measurement_JSON", "Status", "Engine", "Run_ID", "Neutral_0")
+          SELECT (ARRAY[${eligibilityCases.map(literal).join(", ")}])[n % 16 + 1],
+            CASE WHEN n % 16 = 12 OR (n % 16 = 13 AND n > 128) THEN 0 ELSE n END,
+            '2026-01-01'::timestamptz + n * interval '1 second',
+            jsonb_build_object('contract', jsonb_build_object('id', CASE
+              WHEN (n % 16 = 0 AND n > 1280) OR n % 16 = 1 OR (n % 16 = 2 AND n > 128) THEN 'wrong-contract'
+              ELSE 'contract-neutral' END), 'environment', jsonb_build_object('class', 'local-disposable'), 'padding', repeat(md5(n::text), 8))::text,
+            CASE WHEN n % 16 = 4 OR (n % 16 = 7 AND n > 128) THEN 'fail' WHEN n % 16 = 10 THEN NULL ELSE 'pass' END,
+            CASE WHEN n % 16 = 5 OR (n % 16 = 8 AND n > 128) THEN 'v1' WHEN n % 16 = 11 THEN NULL ELSE 'v2' END,
+            CASE WHEN n % 16 = 6 OR (n % 16 = 9 AND n > 128) THEN 'run-current' WHEN n % 16 = 14 THEN NULL ELSE 'run-history' END,
+            repeat(md5(n::text), 8)
+          FROM generate_series(1, 631872) n`);
+      }
+      backfillFixture();
+      const fixtureCounts = readRows(`SELECT "Case_ID" AS c, COUNT(*)::integer AS n FROM ${table} GROUP BY "Case_ID"`);
+      assert.equal(fixtureCounts.reduce((sum, row) => sum + row.n, 0), 631872);
+      assert.ok(fixtureCounts.every((row) => row.n === 631872 / profile.cases.length));
+      const rangeCounts = readRows(`SELECT "Case_ID" AS c, "Contract_ID" AS k, "Environment_Class" AS h, COUNT(*)::integer AS n FROM ${table} WHERE "Engine" = 'v2' AND "Status" = 'pass' GROUP BY 1, 2, 3`);
+      const targets = [...profile.cases, "absent"];
+      const options = { ...common, caseIds: profile.sampleCases, identityByCase: Object.fromEntries(targets.map((id) => [id, identity])) };
+      const expectedCount = (caseId, strictOnly) => {
+        if (caseId === "absent") return 0;
+        if (profile.name === "original-eight") return strictOnly && caseId === "perf-1" ? 0 : strictOnly && caseId === "perf-2" ? 7 : 60;
+        if (["all-fail", "all-v1", "all-current", "null-status", "null-engine", "all-zero", "null-run"].includes(caseId)) return 0;
+        if (["scarce-pass", "scarce-v2", "scarce-history", "scarce-positive"].includes(caseId)) return 8;
+        return strictOnly && caseId === "wrong-identity" ? 0 : strictOnly && caseId === "scarce-identity" ? 8 : 60;
+      };
+      const checkRows = (queryOptions) => {
+        const rows = compare(queryOptions);
+        for (const caseId of queryOptions.caseIds) assert.equal(rows.filter((row) => row.c === caseId).length, expectedCount(caseId, queryOptions.strictOnly), `${profile.name}/${caseId}/strict=${queryOptions.strictOnly}`);
+        return rows;
+      };
+      const describeScope = (plan, ids, strictOnly) => {
+        const expectedIndex = strictOnly ? "history_identity_eligibility" : "history_case_eligibility";
+        const scans = nodes(plan.Plan).filter((node) => node["Relation Name"] === "history" && /Scan/.test(node["Node Type"]));
+        const scannedRowsApprox = scans.reduce((sum, node) => sum + ((node["Actual Rows"] ?? 0) + (node["Rows Removed by Filter"] ?? 0) + (node["Rows Removed by Index Recheck"] ?? 0)) * (node["Actual Loops"] ?? 0), 0);
+        // EXPLAIN rounds per-loop means. Three counters each round by <=0.5.
+        const roundingAllowance = scans.reduce((sum, node) => sum + ((node["Actual Loops"] ?? 0) > 1 ? 1.5 * node["Actual Loops"] : 0), 0);
+        const equalityRangeRows = rangeCounts.filter((row) => ids.includes(row.c) && (!strictOnly || (row.k === identity.contractId && row.h === identity.environmentClass))).reduce((sum, row) => sum + row.n, 0);
+        const scopedIndexes = scans.length > 0 && scans.every((node) => node["Index Name"] === expectedIndex || (node["Node Type"] === "Bitmap Heap Scan" && nodes(node).some((child) => child["Index Name"] === expectedIndex)));
+        return { caseIds: ids, returnedRows: plan.Plan["Actual Rows"], scannedRowsApprox, roundingAllowance, equalityRangeRows,
+          rootSharedBlocks: rootBuffers(plan), indexesUsed: indexesUsed(plan), scopedIndexes,
+          withinEqualityRange: scannedRowsApprox <= equalityRangeRows + roundingAllowance,
+          scans: scans.map((node) => ({ index: node["Index Name"], indexCondition: node["Index Cond"], filter: node.Filter, actualRows: node["Actual Rows"], removedByFilter: node["Rows Removed by Filter"] ?? 0, loops: node["Actual Loops"] })) };
+      };
+      for (const indexMode of ["started-at-only", "eligibility-prefix"]) {
+        const candidate = indexMode === "eligibility-prefix";
+        if (candidate) psql(`
+          CREATE INDEX history_identity_ordered ON ${table} ("Case_ID", "Contract_ID", "Environment_Class", "Started_At" DESC);
+          CREATE INDEX history_case_ordered ON ${table} ("Case_ID", "Started_At" DESC);
+          CREATE INDEX history_identity_eligibility ON ${table} ("Case_ID", "Contract_ID", "Environment_Class", "Engine", "Status", "Started_At" DESC);
+          CREATE INDEX history_case_eligibility ON ${table} ("Case_ID", "Engine", "Status", "Started_At" DESC); ANALYZE ${table}`);
+        for (const strictOnly of [false, true]) {
+          checkRows({ ...options, strictOnly });
+          const queries = { oldJson: referenceSql({ ...options, strictOnly }), newScalar: newSql({ ...options, strictOnly }) };
+          for (const sql of Object.values(queries)) explain(sql);
+          const samples = { oldJson: [], newScalar: [] };
+          for (let repeat = 0; repeat < 6; repeat++) {
+            for (const label of repeat % 2 ? ["newScalar", "oldJson"] : ["oldJson", "newScalar"]) samples[label].push(explain(queries[label]));
+          }
+          const summary = Object.fromEntries(Object.entries(samples).map(([label, plans]) => [label, {
+            executionMs: statistics(plans.map((plan) => plan["Execution Time"])),
+            sharedHitBlocks: statistics(plans.map((plan) => plan.Plan["Shared Hit Blocks"] ?? 0)),
+            sharedReadBlocks: statistics(plans.map((plan) => plan.Plan["Shared Read Blocks"] ?? 0)),
+            rootSharedBlocks: statistics(plans.map(rootBuffers)),
+            tempReadBlocks: statistics(plans.map((plan) => plan.Plan["Temp Read Blocks"] ?? 0)),
+            tempWrittenBlocks: statistics(plans.map((plan) => plan.Plan["Temp Written Blocks"] ?? 0)),
+            indexesUsed: plans.map(indexesUsed),
+          }]));
+          const scopePlans = [];
+          if (candidate) {
+            // Include every singleton and <=8-target batches, plus a mixed
+            // original-data batch with an absent case but no fixture changes.
+            const targetSets = [...targets.map((id) => [id]), ["absent", ...profile.cases.slice(0, 7)]];
+            for (let start = 0; start < targets.length; start += 8) targetSets.push(targets.slice(start, start + 8));
+            for (const ids of targetSets) {
+              const queryOptions = { ...options, caseIds: ids, strictOnly };
+              checkRows(queryOptions);
+              scopePlans.push({ caseIds: ids, plan: explain(newSql(queryOptions)) });
+            }
+          }
+          const sampleScopes = candidate ? samples.newScalar.map((plan) => describeScope(plan, options.caseIds, strictOnly)) : [];
+          const scopeSummary = scopePlans.map(({ caseIds: ids, plan }) => describeScope(plan, ids, strictOnly));
+          const allScopes = [...sampleScopes, ...scopeSummary];
+          const bufferDecrease = summary.newScalar.rootSharedBlocks.median < summary.oldJson.rootSharedBlocks.median;
+          const scopedAccess = allScopes.every((entry) => entry.scopedIndexes && entry.withinEqualityRange);
+          const rootReductionRequired = profile.name === "original-eight";
+          const comparisonDeltas = {
+            rootSharedBlocks: summary.newScalar.rootSharedBlocks.median - summary.oldJson.rootSharedBlocks.median,
+            medianExecutionMs: summary.newScalar.executionMs.median - summary.oldJson.executionMs.median,
+            p95ExecutionMs: summary.newScalar.executionMs.p95 - summary.oldJson.executionMs.p95,
+            tempReadBlocks: summary.newScalar.tempReadBlocks.median - summary.oldJson.tempReadBlocks.median,
+            tempWrittenBlocks: summary.newScalar.tempWrittenBlocks.median - summary.oldJson.tempWrittenBlocks.median,
+          };
+          // Explicit review decision: the unchanged primary workload must
+          // reduce root buffers. Adversarial eligibility cases must preserve
+          // results and equality-range access, not universally improve time or
+          // buffers. Residual predicates can exhaust each range and revisit
+          // heap pages that the old bitmap/window path reads only once.
+          // Always retain those regressions; never tune fixture values away.
+          const report = { profile: profile.name, indexMode, strictOnly, rows: 631872, oldFields: 33, addedScalarFields: 2, fields: 35, fixtureCounts,
+            warmups: 1, repetitions: 6, interleaved: true, plannerForced: false,
+            performancePolicy: "primary-workload-vs-adversarial-scope",
+            comparisonDeltas,
+            regressions: Object.entries(comparisonDeltas).filter(([, delta]) => delta > 0).map(([metric]) => metric),
+            performanceAcceptance: candidate ? { rootReductionRequired, bufferDecrease, scopedAccess, passed: scopedAccess && (!rootReductionRequired || bufferDecrease) } : null,
+            // Run_ID <> current and value > 0 are residual predicates. Work is
+            // bounded by the real equality range, not universally by quota 60.
+            summary, sampleScopes, scopeSummary };
+          appendFileSync(outputPath ?? 1, `${JSON.stringify({ ...report, samples, scopePlans })}\n`);
+          if (outputPath) appendFileSync(1, `${JSON.stringify({ ...report, rawPlansPath: outputPath })}\n`);
+          if (candidate) {
+            if (rootReductionRequired) assert.ok(bufferDecrease, `${profile.name}: candidate must reduce root shared hit+read buffers`);
+            assert.ok(scopedAccess, `${profile.name}: both modes must use equality-scoped indexes, not repeated global history scans`);
+          }
         }
       }
     }

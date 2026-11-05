@@ -56,25 +56,27 @@ export const buildSameRunHistorySql = ({
     const identity = identityByCase[caseId];
     if (strictOnly && (!identity?.contractId || !identity?.environmentClass)) return [];
     return [strictOnly
-      ? `(${sqlLiteral(caseId)}, ${sqlLiteral(identity.contractId)}, ${sqlLiteral(identity.environmentClass)})`
-      : `(${sqlLiteral(caseId)})`];
+      ? `(${sqlLiteral(caseId)}, ${sqlLiteral(identity.contractId)}, ${sqlLiteral(identity.environmentClass)}, 'v2', 'pass')`
+      : `(${sqlLiteral(caseId)}, 'v2', 'pass')`];
   });
   if (targets.length === 0) return undefined;
-  const columns = strictOnly ? "c, k, h" : "c";
+  const columns = strictOnly ? "c, k, h, e, s" : "c, e, s";
   const identityClause = strictOnly
     ? ` AND ${contract} = target.k AND ${environment} = target.h`
     : "";
-  // Keep the small target relation parameterized even for one case. Inlining
-  // its constants can make LIMIT choose a global time-index scan that never
-  // finds a missing identity. OFFSET 0 fences targets only, not history rows.
-  // The public SQL parser accepts this form but not CTE AS MATERIALIZED.
+  // Keep every equality-prefix key in the small parameterized target relation,
+  // even for one case. Folding case/engine/status/identity constants can make
+  // LIMIT choose a global time scan for missing or scarce matches. OFFSET 0
+  // fences targets only, never history. The public SQL parser accepts this form
+  // but not CTE AS MATERIALIZED. Residual metric/run filters may still traverse
+  // the matching index range; LIMIT bounds results, not all scanned rows.
   return `WITH target AS (SELECT * FROM (VALUES ${targets.join(", ")}) ` +
     `AS wanted(${columns}) OFFSET 0) ` +
     `SELECT history.c, history.v, history.t, history.k, history.h FROM target ` +
     `CROSS JOIN LATERAL (SELECT "Case_ID" AS c, "Primary_Metric_Value" AS v, ` +
     `"Started_At" AS t, ${contract} AS k, ${environment} AS h ` +
     `FROM ${sqlIdentifier(baseId)}.${sqlIdentifier(tableId)} ` +
-    `WHERE "Status" = 'pass' AND "Engine" = 'v2' AND "Primary_Metric_Value" > 0 ` +
+    `WHERE "Status" = target.s AND "Engine" = target.e AND "Primary_Metric_Value" > 0 ` +
     `AND "Case_ID" = target.c${runClause}${identityClause} ` +
     `ORDER BY "Started_At" DESC LIMIT ${Math.max(0, Math.floor(Number(perCase)))}) history`;
 };

@@ -9,7 +9,8 @@
  * Supply the token through your shell/secret injector, not a committed command.
  * Required local PAT permissions: table create/read/permanent-delete, field
  * read, record create/read/update, and project SQL SELECT. The API must use
- * PostgreSQL. No CLI, MCP, direct database access, or production fallback is used.
+ * PostgreSQL with UTC database sessions, matching the baseline deployment.
+ * No CLI, MCP, direct database access, or production fallback is used.
  *
  * This script ALWAYS creates a fresh randomly named table. It cannot accept an
  * existing table ID. Finally it permanently deletes only that returned table and
@@ -19,8 +20,9 @@
  *
  * Stages: metadata -> real writer create/update/repeat/clear and batch upsert ->
  * history + historical JSON fixtures -> read-only migration plan -> bounded
- * apply/resume -> idempotent reconciliation -> scalar history SQL and 51/52
- * selection -> permanent fixture cleanup. PASS is printed only after cleanup.
+ * apply/resume -> idempotent reconciliation -> JSON/scalar corpus grouping and
+ * ordered series equivalence -> scalar history SQL, partial strict exclusion,
+ * and 51/52 selection -> permanent cleanup. PASS is printed only after cleanup.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -40,6 +42,8 @@ import {
 import { resolvePerformanceTrackIdentityColumns } from "./performance-track-identity.mjs";
 import { buildSameRunHistorySql, rowsFromSqlResult } from "./resolve-same-run-history.mjs";
 import { comparableHistoryByCaseFromRows } from "./same-run-comparison-model.mjs";
+import { buildPerfCorpusPageSql } from "./build-perf-corpus.mjs";
+import { buildOrderedSeries } from "./commit-order-model.mjs";
 
 const HELP = `Usage: node scripts/check-performance-track-identity-api.mjs [--help]
 Required environment (no defaults):
@@ -48,11 +52,13 @@ Required environment (no defaults):
   T8351_API_TOKEN     Local PAT with table/field/record and SQL read permissions
                       that allows at least 100 records per read (this replay
                       paginates its own reads at 100)
+Database sessions must use UTC; fixture timestamps are exact UTC instants.
 Creates its OWN fresh fixture table; permanently deletes it in finally.
 Never accepts an existing target table. Rejects credentials/path/query/fragment
 in the origin, non-loopback URLs, and redirects. Never logs the token or payloads.
 No production calls, CLI, MCP, direct SQL writes, mocks, or benchmark claims.
-Stages: writer; migration plan/apply/resume/idempotence; scalar SQL; cleanup.
+Stages: writer; migration plan/apply/resume/idempotence; historical JSON versus
+scalar corpus groups/series; scalar history/strict exclusion/51-and-52; cleanup.
 `;
 
 const requireEnv = (name) => {
@@ -223,6 +229,19 @@ const main = async () => {
     assert.equal(batchUpdated.updated.length, 2);
     assert.equal(batchUpdated.created.length, 0);
     assert.equal((await listRecords()).length, 3, "Batch reporter write created duplicates");
+    const partialWriterRows = [
+      buildRecord({ caseId: "writer-contract-only", runId: "partial-writer-run", expected: { contractId: "writer-partial-contract" } }),
+      buildRecord({ caseId: "writer-environment-only", runId: "partial-writer-run", expected: { environmentClass: "writer-partial-environment" } }),
+    ];
+    const partialWriterCreated = await writer.upsertResults({ records: partialWriterRows, runId: "partial-writer-run", runAttempt: 1 });
+    assert.equal(partialWriterCreated.created.length, 2);
+    for (let index = 0; index < partialWriterRows.length; index++) {
+      const row = partialWriterRows[index];
+      assertIdentity(await readOne(partialWriterCreated.created[index].recordId), {
+        contractId: row.fields["Contract ID"] ?? null,
+        environmentClass: row.fields["Environment Class"] ?? null,
+      }, row.fields["Measurement JSON"]);
+    }
 
     const history = [];
     const addHistory = (options) => history.push(buildRecord(options));
@@ -240,7 +259,9 @@ const main = async () => {
       { result: "fail" }, { engine: "v1" }, { value: 0 }, { value: -1 },
       { runId: "run-current" }, { caseId: "wrong-case" },
     ].entries()) addHistory({ caseId: "case-alpha", runId: `ineligible-${index}`, seconds: 3000 + index, value: 9000 + index, ...override });
-    await adapter.createRecords(history.map(({ fields }) => ({ fields })));
+    // Route every normal history row through the real reporter upsert, not a
+    // raw record endpoint. Distinct run IDs keep repeated case history unique.
+    for (const row of history) await writer.upsertResult(row);
     const historicalSource = JSON.stringify({ ...measurement(), evidence: { padding: "synthetic evidence ".repeat(40), untouched: true } }, null, 2);
     const legacy = [
       { "Measurement JSON": historicalSource },
@@ -251,7 +272,64 @@ const main = async () => {
       { "Measurement JSON": null },
     ].map((values, index) => ({ fields: { "Run Key": `legacy-${nonce}-${index}`, "Case ID": "migration-only", "Summary Markdown": `untouched legacy ${index}`, ...values } }));
     const legacyRows = await adapter.createRecords(legacy);
-    const total = 3 + history.length + legacy.length;
+    const corpusEeCommit = "a".repeat(40);
+    const corpusPerfCommit = "b".repeat(40);
+    const partialCorpus = [
+      { caseId: "corpus-contract-only", expected: { contractId: "contract-only-A", environmentClass: null }, value: 1 },
+      ...Array.from({ length: 3 }, () => ({ caseId: "corpus-contract-only", expected: { contractId: "contract-only-B", environmentClass: null }, value: 100 })),
+      { caseId: "corpus-environment-only", expected: { contractId: null, environmentClass: "environment-only-X" }, value: 2 },
+      ...Array.from({ length: 3 }, () => ({ caseId: "corpus-environment-only", expected: { contractId: null, environmentClass: "environment-only-Y" }, value: 200 })),
+    ];
+    const partialCorpusRecords = partialCorpus.map(({ caseId, expected, value }, index) => ({ fields: {
+      "Run Key": `partial-corpus-${nonce}-${index}`, "Run ID": `partial-corpus-run-${index}`,
+      "Case ID": caseId, Engine: "v2", Result: "pass", "Started At": at(4000 + index),
+      "Teable EE Ref": corpusEeCommit, "Commit SHA": corpusPerfCommit,
+      "Primary Metric": "duration_ms", "Primary Metric Value": value,
+      "Summary Markdown": `untouched partial corpus evidence ${index}`,
+      // Historical reproduction: only JSON was written. There are deliberately
+      // NO scalar identity keys; the migration must retain whichever component
+      // exists without inventing the absent half of the identity pair.
+      "Measurement JSON": JSON.stringify({
+        ...(expected.contractId ? { contract: { id: expected.contractId } } : {}),
+        ...(expected.environmentClass ? { environment: { class: expected.environmentClass } } : {}),
+        evidence: { untouched: true, sample: index, padding: "partial historical evidence ".repeat(20) },
+      }, null, 2),
+    } }));
+    const partialCorpusCreated = await adapter.createRecords(partialCorpusRecords);
+    const quoteIdentifier = (value) => `"${value.replaceAll('"', '""')}"`;
+    const physicalSqlTable = [baseId, sqlTableId].map(quoteIdentifier).join(".");
+    const sqlRows = async (sql) => {
+      const result = await request({ method: "POST", path: `/base/${baseId}/sql-query`, body: { sql } });
+      assert.ok(Array.isArray(result?.rows), "SQL response has no rows array");
+      return result.rows;
+    };
+    // Independent old JSON-grouped SQL, NOT derived from the scalar builder or
+    // any model. duration_ms is intentionally not a substituted corpus metric.
+    // Only the eight pinned corpus fixtures enter this query; invalid JSON in
+    // other migration fixtures is not part of this historical corpus boundary.
+    const oldCorpusSql = `SELECT c, e, r, p, m, k, h,
+      percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v, COUNT(*) AS n
+      FROM (SELECT "Case_ID" AS c, "Engine" AS e,
+        LEFT("Teable_EE_Ref", 12) AS r, LEFT("Commit_SHA", 12) AS p,
+        "Primary_Metric" AS m, "Primary_Metric_Value" AS v,
+        NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}' AS k,
+        NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}' AS h
+        FROM ${physicalSqlTable}
+        WHERE "Status" = 'pass' AND "Engine" <> 'seed'
+          AND LENGTH("Teable_EE_Ref") = 40) historical
+      WHERE v > 0 GROUP BY c, e, r, p, m, k, h
+      ORDER BY c, e, r, p, m, k NULLS FIRST, h NULLS FIRST`;
+    const corpusCanonical = (rows) => rows.map(({ c, e, r, p, m, k, h, v, n }) =>
+      JSON.stringify([c, e, r, p, m, k ?? null, h ?? null, Number(v), Number(n)])).sort();
+    const expectedCorpusGroups = [
+      { c: "corpus-contract-only", k: "contract-only-A", h: null, v: 1, n: 1 },
+      { c: "corpus-contract-only", k: "contract-only-B", h: null, v: 100, n: 3 },
+      { c: "corpus-environment-only", k: null, h: "environment-only-X", v: 2, n: 1 },
+      { c: "corpus-environment-only", k: null, h: "environment-only-Y", v: 200, n: 3 },
+    ].map((row) => ({ ...row, e: "v2", r: corpusEeCommit.slice(0, 12), p: corpusPerfCommit.slice(0, 12), m: "duration_ms" }));
+    const oldCorpusRows = await sqlRows(oldCorpusSql);
+    assert.deepEqual(corpusCanonical(oldCorpusRows), corpusCanonical(expectedCorpusGroups), "Historical JSON oracle must retain four independently specified partial-identity groups");
+    const total = 5 + history.length + legacy.length + partialCorpusRecords.length;
     assert.equal((await listRecords()).length, total);
     const original = await snapshot();
     const businessBefore = await snapshot(true);
@@ -274,8 +352,8 @@ const main = async () => {
     assert.equal(plan.complete, true);
     assert.equal(plan.updated, 0);
     assert.deepEqual(plan.counts, {
-      "already-matching": total - 7, "valid-missing": 2, "partial-compatible": 1,
-      conflict: 0, "invalid-json": 1, "missing-or-incomplete-identity": 3,
+      "already-matching": 316, "valid-missing": 2, "partial-compatible": 1,
+      conflict: 0, "invalid-json": 1, "missing-or-incomplete-identity": 13,
     });
     assert.deepEqual(await snapshot(), original, "Plan mutated fixture data");
     const applyPath = join(temporary, "apply.json");
@@ -291,24 +369,56 @@ const main = async () => {
       assert.ok(applied.analyzed <= 47);
       invocations++;
     }
-    assert.equal(applied.updated, 3);
+    assert.equal(applied.updated, 12, "Three complete identities plus nine available partial components must be filled");
     assert.deepEqual(applied.counts, plan.counts);
     assert.deepEqual(await snapshot(true), businessBefore, "Migration changed source JSON or another business field");
     for (let index = 0; index < 3; index++) {
       assertIdentity(await readOne(legacyRows[index].id), identity, legacy[index].fields["Measurement JSON"]);
     }
+    assertIdentity(await readOne(legacyRows[4].id), { contractId: identity.contractId, environmentClass: null }, legacy[4].fields["Measurement JSON"]);
+    for (let index = 0; index < partialCorpusCreated.length; index++) {
+      assertIdentity(await readOne(partialCorpusCreated[index].id), partialCorpus[index].expected, partialCorpusRecords[index].fields["Measurement JSON"]);
+    }
+    for (let index = 0; index < partialWriterRows.length; index++) {
+      const before = partialWriterRows[index];
+      assertIdentity(await readOne(partialWriterCreated.created[index].recordId), {
+        contractId: before.fields["Contract ID"] ?? null,
+        environmentClass: before.fields["Environment Class"] ?? null,
+      }, before.fields["Measurement JSON"]);
+    }
     const afterApply = await snapshot();
     const completedResume = await migration("apply", applyPath, { resume: true, maxRows: 1 });
     assert.equal(completedResume.analyzed, 0);
-    assert.equal(completedResume.updated, 3);
+    assert.equal(completedResume.updated, 12);
     const repeated = await migration("apply", join(temporary, "idempotence.json"));
     assert.equal(repeated.complete, true);
     assert.equal(repeated.updated, 0);
-    assert.deepEqual(repeated.counts, { ...plan.counts, "already-matching": total - 4, "valid-missing": 0, "partial-compatible": 0 });
+    assert.deepEqual(repeated.counts, { ...plan.counts, "already-matching": 319, "valid-missing": 0, "partial-compatible": 0 });
     assert.deepEqual(await snapshot(), afterApply, "Reconciliation was not idempotent");
 
+    const scalarCorpusRows = await sqlRows(buildPerfCorpusPageSql({ table: physicalSqlTable, limit: 100, offset: 0, identityColumns: columns }));
+    assert.deepEqual(corpusCanonical(scalarCorpusRows), corpusCanonical(oldCorpusRows), "Scalar corpus grouping changed old JSON-grouped values or counts");
+    assert.deepEqual(corpusCanonical(scalarCorpusRows), corpusCanonical(expectedCorpusGroups));
+    const orderedCorpus = (rows) => buildOrderedSeries({
+      rows: rows.map(({ c, e, r, p, m, v }) => {
+        assert.equal(r, corpusEeCommit.slice(0, 12));
+        assert.equal(p, corpusPerfCommit.slice(0, 12));
+        return { caseId: c, engine: e, commit: corpusEeCommit, metric: m, result: "pass", value: Number(v) };
+      }),
+      ordinals: { [corpusEeCommit]: 0 },
+    });
+    const oldOrderedCorpus = orderedCorpus(oldCorpusRows);
+    const scalarOrderedCorpus = orderedCorpus(scalarCorpusRows);
+    assert.equal(oldOrderedCorpus.series.get("corpus-contract-only::v2").points[0].value, 50.5);
+    assert.equal(oldOrderedCorpus.series.get("corpus-environment-only::v2").points[0].value, 101);
+    assert.deepEqual(scalarOrderedCorpus, oldOrderedCorpus, "Partial identities changed ordered corpus series");
+
     const caseIds = ["case-alpha", "case-52", "case-51", "case'quoted", "case-no-match", "case-empty"];
-    const identityByCase = Object.fromEntries(caseIds.map((caseId) => [caseId, identity]));
+    const identityByCase = Object.fromEntries([...caseIds, "writer-contract-only", "writer-environment-only", "corpus-contract-only", "corpus-environment-only"].map((caseId) => [caseId, identity]));
+    identityByCase["writer-contract-only"] = { contractId: "writer-partial-contract", environmentClass: identity.environmentClass };
+    identityByCase["writer-environment-only"] = { contractId: identity.contractId, environmentClass: "writer-partial-environment" };
+    identityByCase["corpus-contract-only"] = { contractId: "contract-only-A", environmentClass: identity.environmentClass };
+    identityByCase["corpus-environment-only"] = { contractId: identity.contractId, environmentClass: "environment-only-X" };
     const expectedRows = (ids, strictOnly) => ids.flatMap((caseId) => history
       .map(({ fields: row }) => row)
       .filter((row) => row["Case ID"] === caseId && row.Result === "pass" && row.Engine === "v2"
@@ -337,6 +447,8 @@ const main = async () => {
       await queryHistory(ids, false);
       await queryHistory(ids, true);
     }
+    const incompleteStrict = await queryHistory(["writer-contract-only", "writer-environment-only", "corpus-contract-only", "corpus-environment-only"], true);
+    assert.equal(incompleteStrict.length, 0, "An incomplete identity pair must never enter strict history");
     assert.equal(strictHistory.filter(({ c }) => c === "case-alpha").length, 60);
     assert.ok(strictHistory.every(({ k, h }) => k === identity.contractId && h === identity.environmentClass));
     const selected = comparableHistoryByCaseFromRows(rowsFromSqlResult(legacyHistory), {
@@ -349,7 +461,7 @@ const main = async () => {
     assert.equal(selected.compatibilityByCase["case-no-match"].mode, "legacy-fallback");
     assert.equal(selected.compatibilityByCase["case-no-match"].strictPoints, 0);
     assert.deepEqual(selected.valuesByCase["case-alpha"], Array.from({ length: 60 }, (_, index) => index + 16));
-    summary = { fields: fields.length, records: total, writer: "PASS", plan: "PASS", migrationUpdates: applied.updated, boundedApplyInvocations: invocations, idempotence: "PASS", scalarSqlQueries: sqlQueries, selection51And52: "PASS" };
+    summary = { fields: fields.length, records: total, writer: "PASS", plan: "PASS", migrationUpdates: applied.updated, boundedApplyInvocations: invocations, idempotence: "PASS", scalarSqlQueries: sqlQueries, corpusSqlQueries: 2, partialCorpusGroups: scalarCorpusRows.length, partialCorpusSeries: { contractOnly: 50.5, environmentOnly: 101 }, selection51And52: "PASS" };
   } finally {
     try {
       if (ownedTableId) {

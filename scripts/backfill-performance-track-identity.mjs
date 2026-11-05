@@ -32,7 +32,9 @@ export const classifyPerformanceTrackIdentity = ({ measurement, contractId, envi
       return { category: "conflict" };
     }
   }
-  if (identity.contractId === null || identity.environmentClass === null) return { category: "missing-or-incomplete-identity" };
+  if (identity.contractId === null || identity.environmentClass === null) {
+    return { category: "missing-or-incomplete-identity", identity };
+  }
   const missing = [contractId, environmentClass].filter(empty).length;
   return {
     category: missing === 0 ? "already-matching" : missing === 2 ? "valid-missing" : "partial-compatible",
@@ -134,10 +136,12 @@ export const createIdentityBackfillHttpAdapter = ({ endpoint, token, baseId, tab
     },
     async patchIdentity(id, identity) {
       const [, contract, environment] = metadata.fields;
+      const fieldIds = { contractId: contract.id, environmentClass: environment.id };
+      const fields = Object.fromEntries(Object.entries(identity).map(([key, value]) => [fieldIds[key], value]));
       // No retries and no source/business fields. This is NOT compare-and-swap.
       await request(`/table/${encodeURIComponent(tableId)}/record/${encodeURIComponent(id)}`, {
         method: "PATCH",
-        body: { fieldKeyType: "id", typecast: false, record: { fields: { [contract.id]: identity.contractId, [environment.id]: identity.environmentClass } } },
+        body: { fieldKeyType: "id", typecast: false, record: { fields } },
       });
     },
   };
@@ -210,13 +214,16 @@ export const runIdentityBackfill = async ({
         error.counts = { ...counts };
         throw error;
       }
-      if (mode === "apply" && ["valid-missing", "partial-compatible"].includes(result.category)) {
+      // Preserve each available historical component for corpus grouping while
+      // leaving an incomplete pair strict-ineligible. Never clear/invent a key.
+      const changes = Object.fromEntries(Object.entries(result.identity ?? {}).filter(([key, value]) => value !== null && empty(snapshot.values[key])));
+      if (mode === "apply" && Object.keys(changes).length > 0) {
         await assertFence();
         if (bytes >= maxBytes) return { ...checkpoint, stopped: "byte-bound", analyzed, bytes };
         const fresh = await adapter.readRecord(row.id, maxBytes - bytes);
         bytes += fresh.bytes;
         if (fingerprint(fresh.values) !== fingerprint(snapshot.values)) throw new Error("Writer fence violation: source/targets changed before PATCH; page cursor unchanged");
-        await adapter.patchIdentity(row.id, result.identity);
+        await adapter.patchIdentity(row.id, changes);
         updated++;
       }
     }
@@ -241,9 +248,13 @@ in the target project, and a qualified one must name that project. Identity is
 copied from historical Measurement JSON, never regenerated. Invalid or incomplete
 data is counted without invented values or payload logging. Conflicts stop the run.
 Any populated scalar unsupported by the source is a conflict, including invalid
-JSON or missing source identity. A matching partial scalar may remain incomplete
-and strict-ineligible; the migration never invents its missing source component.
-Apply PATCHes only the two scalar identity fields.
+JSON or missing source identity. Each valid available source component is copied
+to its missing scalar, preserving partial-identity corpus groups without making
+an incomplete pair strict-eligible or inventing its missing source component.
+Partial rows remain counted as missing-or-incomplete-identity even after a valid
+component is copied; updated counts acknowledged row PATCHes, including partial
+rows. Reconciliation of an already copied component does not PATCH it again.
+Apply PATCHes only available missing values in the two scalar identity fields.
 
 APPLY REQUIRES A REAL EXTERNAL FENCE: pause and drain ALL report jobs, full-row
 saves, and every other writer to the table before starting; keep them fenced until

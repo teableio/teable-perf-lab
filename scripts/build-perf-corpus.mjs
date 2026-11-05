@@ -24,6 +24,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { env } from "./env.mjs";
 import { SUBSTITUTED_METRICS } from "./corpus-metric-model.mjs";
 import {
@@ -411,7 +412,9 @@ const main = async () => {
   );
 };
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : error);
+    process.exitCode = 1;
+  });
+}

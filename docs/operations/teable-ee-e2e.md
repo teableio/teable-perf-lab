@@ -378,12 +378,18 @@ historical JSON fallback remains; a missing/partial identity schema is an
 explicit error, not a silently downgraded strict comparison. The former
 `PERF_LAB_SAME_RUN_HISTORY_BRANCHED` switch is removed.
 
-The target relation keeps an `OFFSET 0` optimization boundary even for a single
-requested case. Without it the planner can fold the identity constants, price
-the LIMIT from a global time index and walk the whole history when that identity
-has few or no rows. Only the at-most-eight target rows are fenced; historical
-rows are never materialized. The real SQL endpoint accepts this form, while
-`AS MATERIALIZED` CTE syntax is rejected by its parser.
+The target relation carries the complete equality prefix: case, engine and
+status, plus contract/environment for strict reads. It keeps an `OFFSET 0`
+optimization boundary even for a single requested case. Folding these keys to
+literals can make LIMIT choose the global time index for absent/scarce matches,
+even when a case index exists. Only the at-most-eight target rows are fenced;
+historical rows are never materialized. The real SQL endpoint accepts this form,
+while `AS MATERIALIZED` CTE syntax is rejected by its parser.
+
+The requested limit bounds returned rows, not universally scanned rows. Residual
+metric/current-run exclusions can require visiting the entire matching equality
+range; the acceptance guard prevents repeated **global** history scans, rather
+than claiming O(60) work for every possible data distribution.
 
 The order contract is still only `Started_At DESC` (PostgreSQL's default `NULLS
 FIRST`); equal timestamps have no specified secondary order or unique winner at
@@ -408,12 +414,14 @@ production table.
    in force until reconciliation and index verification finish. A CLI flag is
    only an acknowledgement: it does not establish the fence. Public REST PATCH
    does not provide atomic CAS, so this migration is **not concurrent-safe**.
-4. Review and build ordered indexes. The non-strict candidate is
-   `(Case_ID, Started_At DESC)`; strict needs identity equalities and time
-   ordering, e.g. `(Case_ID, Contract_ID, Environment_Class, Started_At DESC)`.
-   Confirm the planner and filtered-row cost on the actual distribution; a
-   text-search GIN is not an ordered btree substitute. Keep unrelated existing
-   indexes.
+4. Review and build ordered indexes. The measured non-strict candidate is
+   `(Case_ID, Engine, Status, Started_At DESC)`; strict uses
+   `(Case_ID, Contract_ID, Environment_Class, Engine, Status, Started_At DESC)`.
+   Confirm equality-prefix Index Conds and filtered-row cost on the actual
+   distribution, including absent/failed/v1/current-run/zero-metric histories.
+   A text-search GIN or a bare global time btree is not a substitute. Keep
+   unrelated existing indexes. Extra equality keys increase index size/write cost;
+   their use here is based on plans, not a generic recommendation for every table.
 5. Reconcile complete logical results and comparison modes, deploy the scalar
    reader and writer together, then resume ordinary reporting. Missing/invalid
    historical identities are explicitly reported as legacy/incomplete, never
@@ -445,8 +453,31 @@ reclassifies already applied rows. Only the two scalar fields are patched. Wrong
 target/schema/mode, conflicts, observed source changes or new rows during apply
 stop progress. Narrow rereads detect obvious fence violations, not every race.
 Checkpoints contain target/schema/cursor/counters, never tokens or source JSON.
-Conflicting existing identities are never overwritten. Invalid or incomplete
-source data is counted rather than silently converted to a valid identity.
+Conflicting existing identities are never overwritten. Each valid available
+component is copied, including contract-only or environment-only historical
+identities, so corpus aggregation groups remain distinct. Incomplete pairs stay
+counted as incomplete and strict-ineligible; invalid source data is never assigned
+a default identity.
+
+#### Rollback and re-entry
+
+1. Pause and drain every result writer before changing versions. Roll back the
+   reader and writer together to the pinned pre-cutover deployment; do not leave
+   a scalar reader paired with an old writer. Verify the old JSON-backed read and
+   result-report path on the isolated acceptance fixture before resuming jobs.
+2. Leave the added scalar columns, source JSON and unrelated indexes in place.
+   Code rollback does not require a destructive schema/data rollback. Remove any
+   migration-owned index only through a separately reviewed policy replacement
+   that preserves the other indexes.
+3. Once old writers resume, consider scalar coverage stale: they can change JSON
+   without updating existing scalar values. Do not reactivate scalar readers or
+   reuse a completed migration checkpoint as evidence of current coverage.
+4. For re-entry, pause/drain again and start a **fresh plan checkpoint** across the
+   current high-water mark. Reconcile complete logical history/corpus outputs.
+   Stop on a populated-scalar/source conflict; review affected identities and
+   obtain separate approval for any repair. Never overwrite conflicts or clear
+   scalars in bulk just to let the backfill pass. Then repeat fenced apply with a
+   fresh apply checkpoint, index/plan verification and coordinated activation.
 
 #### Reproducible correctness and performance proof
 
@@ -475,12 +506,21 @@ admissible-set and quota assertions rather than inventing a winner. The optional
 performance fixture has 631,872 synthetic rows, 33 original columns plus two
 scalar columns, a warmup and six interleaved samples per mode/index stage.
 Counters come from root plans; cache residency and production latency are not
-claimed. The strict candidate must actually use the identity index, reduce root
-shared blocks and avoid scanning whole wrong-identity histories; correctness-only
-passes do not imply a performance pass.
+claimed. Both modes must use a case-scoped equality-prefix index on the candidate
+stage, reduce root shared blocks for the unchanged eight-case workload, and pass
+batch/singleton absent-case and sparse-eligibility guards. A separate eligibility
+profile covers failed/v1/current-run/zero-metric histories; its correctness and
+equality-range scope are mandatory, but it is not required to beat the old query
+on every root-buffer or latency sample. Residual exclusions can require scanning
+the whole matching range, and separate ordered scans can revisit heap pages that
+one bitmap/window query reads once. Raw plans and any buffer/latency regressions
+remain reported, not relabelled as improvements. This is a measured-distribution
+claim, not a universal O(60) scan quota. Correctness-only passes do not imply a
+performance pass for the primary workload.
 
 For the actual product API boundary, start a local PostgreSQL-backed Teable API
-and supply `T8351_API_TOKEN` through the environment. Its PAT needs project read
+with **UTC database sessions**, matching the baseline deployment, and supply
+`T8351_API_TOKEN` through the environment. Its PAT needs project read
 and SQL query, table create/read/delete, field read/create, and record
 create/read/update. The replay refuses non-loopback origins and existing target
 tables; it creates and permanently deletes only its fresh synthetic table:
@@ -492,9 +532,12 @@ node scripts/check-performance-track-identity-api.mjs
 ```
 
 Pass requires writer create/update/retry/clear, bounded migration plan/apply/
-resume/idempotence with source JSON unchanged, complete scalar SQL samples and
-51/52-point mode selection. `cleanup: PASS` confirms the fixture table is gone;
-any HTTP failure, wrong identity/sample/mode, overwritten business value or
+resume/idempotence with source JSON unchanged, complete scalar SQL samples,
+51/52-point mode selection, and old-JSON/scalar corpus grouping after the real
+migration. Contract-only and environment-only components must retain their
+distinct medians without becoming strict-eligible. `cleanup: PASS` confirms the
+fixture table is gone. Any HTTP failure, wrong identity/sample/mode, overwritten
+business value or
 cleanup failure is a failed replay. This is functional proof, not a timing claim.
 
 The original ranking producer was introduced in `2321067`; `bb5e703` added JSON

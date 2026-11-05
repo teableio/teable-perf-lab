@@ -89,7 +89,10 @@ const withServer = async (initialRows, callback, tableMeta = {}) => {
         assert.equal(body.fieldKeyType, "id");
         assert.equal(body.typecast, false);
         assert.deepEqual(Object.keys(body).sort(), ["fieldKeyType", "record", "typecast"]);
-        assert.deepEqual(Object.keys(body.record.fields).sort(), ["field-contract", "field-environment"]);
+        const patchKeys = Object.keys(body.record.fields);
+        assert.ok(patchKeys.length >= 1 && patchKeys.length <= 2);
+        assert.ok(patchKeys.every((key) => ["field-contract", "field-environment"].includes(key)));
+        assert.ok(Object.values(body.record.fields).every((value) => typeof value === "string" && value.trim().length > 0), "PATCH never invents or clears a missing source component");
         const attempt = { id: stored.id, fields: structuredClone(body.record.fields) };
         state.patches.push(attempt);
         if (state.beforePatch && await state.beforePatch(stored, state, response)) return;
@@ -122,6 +125,74 @@ const checkpoint = async (config) => JSON.parse(await readFile(config.checkpoint
 const assertUntouchedBusiness = (state) => {
   for (const stored of state.rows) assert.equal(stored.fields["field-business"], `unchanged-${stored.n}`);
 };
+
+const checkPartialIdentitySemantics = async () => {
+  // Deliberately independent historical source literals: contract-only A/B and
+  // environment-only local/ci partition legacy corpus aggregates separately.
+  const partialRows = [
+    [1, '{"contract":{"id":"partial-a"}}', 1],
+    [2, '{"contract":{"id":"partial-b"}}', 100],
+    [3, '{"contract":{"id":"partial-b"}}', 100],
+    [4, '{"contract":{"id":"partial-b"}}', 100],
+    [5, '{"environment":{"class":"partial-local"}}', 2],
+    [6, '{"environment":{"class":"partial-ci"}}', 200],
+    [7, '{"environment":{"class":"partial-ci"}}', 200],
+    [8, '{"environment":{"class":"partial-ci"}}', 200],
+  ].map(([n, source, value]) => {
+    const stored = row(n, source);
+    stored.fields["field-metric"] = value;
+    return stored;
+  });
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  };
+  const corpusGrouping = (rows, source) => {
+    const groups = new Map();
+    for (const stored of rows) {
+      const decoded = source ? JSON.parse(stored.fields["field-source"]) : null;
+      const key = JSON.stringify(source
+        ? [decoded.contract?.id ?? null, decoded.environment?.class ?? null]
+        : [stored.fields["field-contract"] ?? null, stored.fields["field-environment"] ?? null]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(stored.fields["field-metric"]);
+    }
+    return [...groups].map(([key, values]) => [key, median(values)]).sort(([a], [b]) => a.localeCompare(b));
+  };
+  await withServer(partialRows, async ({ state, config, apply, directory }) => {
+    const oldContractGroups = corpusGrouping(state.rows.slice(0, 4), true);
+    assert.deepEqual(oldContractGroups, [['["partial-a",null]', 1], ['["partial-b",null]', 100]]);
+    assert.equal(median(oldContractGroups.map(([, value]) => value)), 50.5);
+    assert.equal(median(corpusGrouping(state.rows.slice(0, 4), false).map(([, value]) => value)), 100, "fixture exposes the collapsed-scalar median regression before migration");
+    const expectedGroups = corpusGrouping(state.rows, true);
+    const initial = structuredClone(state.rows);
+    const result = await runIdentityBackfill({ ...config, ...apply });
+    const actualContractGroups = corpusGrouping(state.rows.slice(0, 4), false);
+    assert.equal(median(actualContractGroups.map(([, value]) => value)), 50.5, "migration must preserve legacy contract-only A/B corpus series median (not collapse to 100)");
+    assert.deepEqual(corpusGrouping(state.rows, false), expectedGroups, "contract-only and environment-only corpus group keys/medians must survive migration");
+    assert.equal(result.counts["missing-or-incomplete-identity"], 8, "partial identity audit category remains explicit after copying available components");
+    assert.equal(result.updated, 8);
+    assert.equal(state.patches.length, 8);
+    for (let index = 0; index < state.rows.length; index++) {
+      const stored = state.rows[index];
+      assert.equal(stored.fields["field-source"], initial[index].fields["field-source"]);
+      assert.equal(stored.fields["field-metric"], initial[index].fields["field-metric"]);
+      assert.ok(!stored.fields["field-contract"] || !stored.fields["field-environment"], "partial source must remain strict-ineligible: no fabricated pair component");
+      assert.equal(Object.keys(state.patches[index].fields).length, 1, "PATCH only the available missing component");
+      assert.ok(Object.values(state.patches[index].fields).every((value) => typeof value === "string" && value.length > 0));
+    }
+    assertUntouchedBusiness(state);
+    const repeated = await runIdentityBackfill({ ...config, ...apply, checkpointPath: join(directory, "partial-reconcile.json") });
+    assert.equal(repeated.counts["missing-or-incomplete-identity"], 8);
+    assert.equal(repeated.updated, 0);
+    assert.equal(state.patches.length, 8, "repeated reconciliation must not rewrite already copied partial components");
+  });
+  console.log("Partial identity migration: legacy A/B series median 50.5, environment-only grouping retained, 8 incomplete rows updated once, strict-ineligible and idempotent");
+};
+
+await checkPartialIdentitySemantics();
+if (!process.argv.includes("--partial-identity-only")) {
 
 assert.equal(classifyPerformanceTrackIdentity({ measurement: "{" }).category, "invalid-json");
 for (const measurement of [undefined, null, "", "null", "42", '"value"', '[]', '{"contract":{"id":"only"}}', '{"contract":{"id":{}},"environment":{"class":"local"}}']) {
@@ -398,3 +469,4 @@ await withServer([row(1)], async ({ state, config }) => {
 }, { dbTableName: "other-project.physical_table" });
 
 console.log("Performance Track identity backfill: classification, bounded plan/apply HTTP, immutable cursor, fence refusal, conflict preservation, partial/unknown acknowledgement resume, idempotence, target binding, source-change detection passed");
+}
