@@ -116,9 +116,18 @@ ready.
   verdict writer. It never checks out or executes product code and never resets
   infrastructure; a separately authorized trusted runner must collect the
   observations.
-- `scripts/sync-performance-track-schema.mjs`: dry-run-by-default migration for
-  optional owned result fields such as `Measurement JSON`; the manual workflow
-  applies it only when explicitly requested.
+- `scripts/sync-performance-track-schema.mjs`: dry-run-by-default schema planner
+  for owned result fields, including scalar `Contract ID` / `Environment Class`;
+  the manual workflow applies it only when explicitly requested.
+- `scripts/backfill-performance-track-identity.mjs`: bounded, resumable identity
+  backfill; apply requires all writers paused/drained and an external fence.
+  Follow the coordinated [schema/writer/backfill/index/reader cutover](docs/operations/teable-ee-e2e.md#deployment-order-and-migration-fence).
+- `scripts/performance-track-identity.mjs`: shared scalar field and measurement
+  identity contract, including resolution of actual database column names.
+- `scripts/check-same-run-history-postgres.mjs`: disposable loopback PostgreSQL
+  replay of complete logical results and optional indexed performance proof.
+- `scripts/check-performance-track-identity-api.mjs`: real loopback product API
+  replay of writer, fenced migration and history queries; creates/cleans its own table.
 - `scripts/full-run-comparison-model.mjs`: pure two-point comparison of this
   run against the released build — per-case ratios and exclusive
   `>1.2x / >1.5x / >2x` bands. Folded on the card; not the header.

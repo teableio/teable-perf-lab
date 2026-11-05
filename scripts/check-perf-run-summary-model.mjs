@@ -20,7 +20,6 @@ import {
   createInMemoryPerformanceTrackAdapter,
   createPerformanceTrackRecordModule,
   createTeablePerformanceTrackAdapter,
-  DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES,
 } from "./performance-track-record-model.mjs";
 import { PERFORMANCE_TRACK_CONTRACT_FIELDS } from "./performance-track-contract.fixture.mjs";
 
@@ -1134,7 +1133,7 @@ const measurementRecord = buildPerformanceTrackResultRecord({
     },
   },
   context: {
-    supportedFieldNames: new Set(["Measurement JSON"]),
+    supportedFieldNames: new Set(PERFORMANCE_TRACK_CONTRACT_FIELDS.map(({ name }) => name)),
   },
 });
 assert.deepEqual(JSON.parse(measurementRecord.fields["Measurement JSON"]), {
@@ -1142,7 +1141,29 @@ assert.deepEqual(JSON.parse(measurementRecord.fields["Measurement JSON"]), {
   environment: { class: "runner:Linux:X64:postgres-e2e" },
   execution: { lane: "historical", shardId: "v2-s01-of-08" },
 });
-assert.equal(resultRecord.fields["Measurement JSON"], undefined);
+assert.equal(measurementRecord.fields["Contract ID"], "contract-a");
+assert.equal(measurementRecord.fields["Environment Class"], "runner:Linux:X64:postgres-e2e");
+assert.equal(resultRecord.fields["Measurement JSON"], null);
+assert.equal(resultRecord.fields["Contract ID"], null);
+assert.equal(resultRecord.fields["Environment Class"], null);
+for (const supportedFieldNames of [
+  new Set(),
+  new Set(["Measurement JSON"]),
+  new Set(["Measurement JSON", "Contract ID"]),
+]) {
+  assert.throws(() => buildPerformanceTrackResultRecord({
+    payload: { measurement: { contract: { id: "contract-a" } } },
+    context: { supportedFieldNames },
+  }), /Missing Teable report fields/);
+}
+for (const measurement of [undefined, null, "{}", 1, false, []]) {
+  const legacy = buildPerformanceTrackResultRecord({
+    payload: { measurement }, context: {},
+  });
+  assert.equal(legacy.fields["Measurement JSON"], null);
+  assert.equal(legacy.fields["Contract ID"], null);
+  assert.equal(legacy.fields["Environment Class"], null);
+}
 
 const writeAdapter = createInMemoryPerformanceTrackAdapter({
   fields: PERFORMANCE_TRACK_CONTRACT_FIELDS,
@@ -1155,6 +1176,16 @@ await assert.rejects(
   ).assertContract(),
   /Missing Teable report fields: Run ID/,
 );
+for (const conflict of [undefined, "", "   "]) {
+  await assert.rejects(
+    createPerformanceTrackRecordModule(createInMemoryPerformanceTrackAdapter({
+      fields: PERFORMANCE_TRACK_CONTRACT_FIELDS.map((field) =>
+        field.name === "Run ID" ? { ...field, id: conflict } : field,
+      ),
+    })).assertContract(),
+    /Run ID field with a nonempty id/,
+  );
+}
 assert.deepEqual(
   await writeModule.upsertResult({
     fields: resultRecord.fields,
@@ -1169,6 +1200,17 @@ assert.deepEqual(
 );
 assert.equal(writeAdapter.snapshot().length, 1);
 assert.equal(writeAdapter.snapshot()[0].fields.Result, "fail");
+await writeModule.upsertResult({ fields: {
+  ...resultRecord.fields,
+  "Measurement JSON": measurementRecord.fields["Measurement JSON"],
+  "Contract ID": measurementRecord.fields["Contract ID"],
+  "Environment Class": measurementRecord.fields["Environment Class"],
+} });
+assert.equal(writeAdapter.snapshot()[0].fields["Contract ID"], "contract-a");
+await writeModule.upsertResult({ fields: resultRecord.fields });
+assert.equal(writeAdapter.snapshot()[0].fields["Measurement JSON"], null);
+assert.equal(writeAdapter.snapshot()[0].fields["Contract ID"], null);
+assert.equal(writeAdapter.snapshot()[0].fields["Environment Class"], null);
 await assert.rejects(
   writeModule.upsertResult({ fields: { Result: "pass" } }),
   /requires a non-empty "Run Key" field/,
@@ -1200,7 +1242,6 @@ assert.deepEqual(
     performanceTrackWriteRecords.slice(2),
   ],
 );
-assert.equal(DEFAULT_PERFORMANCE_TRACK_WRITE_MAX_BYTES, 512 * 1024);
 await assert.rejects(
   async () =>
     chunkPerformanceTrackWriteRecords(
@@ -1307,6 +1348,7 @@ const updateTrack = createPerformanceTrackRecordModule(
     tableId: "tbl-performance-track",
     request: async (request) => {
       updateRequests.push(request);
+      if (request.path.endsWith("/field")) return PERFORMANCE_TRACK_CONTRACT_FIELDS;
       if (request.method === "GET") {
         return {
           records: [
@@ -1330,8 +1372,11 @@ assert.deepEqual(
   }),
   { action: "updated", recordId: "rec-existing" },
 );
-const updateQuery = new URL(updateRequests[0].path, "https://teable.example");
-assert.equal(updateRequests[0].method, "GET");
+await updateTrack.assertContract();
+assert.equal(updateRequests.filter(({ path }) => path.endsWith("/field")).length, 1);
+assert.equal(updateRequests[0].path, "/table/tbl-performance-track/field");
+const updateQuery = new URL(updateRequests[1].path, "https://teable.example");
+assert.equal(updateRequests[1].method, "GET");
 assert.equal(updateQuery.pathname, "/table/tbl-performance-track/record");
 assert.equal(updateQuery.searchParams.get("fieldKeyType"), "name");
 assert.equal(updateQuery.searchParams.get("take"), "1");
@@ -1340,13 +1385,13 @@ assert.deepEqual(JSON.parse(updateQuery.searchParams.get("filter")), {
   conjunction: "and",
   filterSet: [
     {
-      fieldId: "fldBtUJjGxgsPWsqLua",
+      fieldId: PERFORMANCE_TRACK_CONTRACT_FIELDS.find(({ name }) => name === "Run Key").id,
       operator: "is",
       value: "run-existing",
     },
   ],
 });
-assert.deepEqual(updateRequests[1], {
+assert.deepEqual(updateRequests[2], {
   method: "PATCH",
   path: "/table/tbl-performance-track/record",
   body: {
@@ -1367,6 +1412,7 @@ const createTrack = createPerformanceTrackRecordModule(
     tableId: "tbl-performance-track",
     request: async (request) => {
       createRequests.push(request);
+      if (request.path.endsWith("/field")) return PERFORMANCE_TRACK_CONTRACT_FIELDS;
       if (request.method === "GET") {
         return { records: [] };
       }
@@ -1383,7 +1429,7 @@ assert.deepEqual(
   }),
   { action: "created", recordId: "rec-created" },
 );
-assert.deepEqual(createRequests[1], {
+assert.deepEqual(createRequests[2], {
   method: "POST",
   path: "/table/tbl-performance-track/record",
   body: {
@@ -1403,6 +1449,7 @@ const batchTrack = createPerformanceTrackRecordModule(
     tableId: "tbl-performance-track",
     request: async (request) => {
       batchRequests.push(request);
+      if (request.path.endsWith("/field")) return PERFORMANCE_TRACK_CONTRACT_FIELDS;
       if (request.method === "GET") {
         return {
           records: [
@@ -1463,9 +1510,10 @@ assert.deepEqual(
 );
 assert.deepEqual(
   batchRequests.map(({ method }) => method),
-  ["GET", "PATCH", "POST"],
+  ["GET", "GET", "PATCH", "POST"],
 );
-const batchQuery = new URL(batchRequests[0].path, "https://teable.example");
+assert.equal(batchRequests[0].path, "/table/tbl-performance-track/field");
+const batchQuery = new URL(batchRequests[1].path, "https://teable.example");
 assert.equal(batchQuery.searchParams.get("take"), "1000");
 assert.equal(batchQuery.searchParams.get("skip"), "0");
 assert.equal(batchQuery.searchParams.get("projection"), "Run Key");
@@ -1475,11 +1523,11 @@ assert.equal(batchQuery.searchParams.get("projection"), "Run Key");
 assert.deepEqual(JSON.parse(batchQuery.searchParams.get("filter")), {
   conjunction: "and",
   filterSet: [
-    { fieldId: "fldb344lzWE28AA2mvb", operator: "is", value: "902" },
-    { fieldId: "fldCIMp4dMco5zBBvJr", operator: "is", value: 1 },
+    { fieldId: PERFORMANCE_TRACK_CONTRACT_FIELDS.find(({ name }) => name === "Run ID").id, operator: "is", value: "902" },
+    { fieldId: PERFORMANCE_TRACK_CONTRACT_FIELDS.find(({ name }) => name === "Run Attempt").id, operator: "is", value: 1 },
   ],
 });
-assert.equal(batchRequests[1].body.records.length, 1);
 assert.equal(batchRequests[2].body.records.length, 1);
+assert.equal(batchRequests[3].body.records.length, 1);
 
 console.log("Perf run summary and Performance Track record checks ok");

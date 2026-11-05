@@ -282,11 +282,6 @@ const main = async () => {
     }),
   );
   const trackContract = await performanceTrack.assertContract();
-  if (!trackContract.optionalFieldNames.has("Measurement JSON")) {
-    console.warn(
-      'Performance Track has no "Measurement JSON" field; writing legacy-compatible rows without measurement identity.',
-    );
-  }
 
   const reportPayloads = payloads.filter(
     ({ payload }) => payload.engine !== "seed",

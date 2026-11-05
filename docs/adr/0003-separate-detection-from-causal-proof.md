@@ -75,8 +75,12 @@ arbitrary-ref code-execution surface.
 - The confirmed detector revision is persisted with the seen-set. A statistical
   method change re-seeds once instead of re-announcing shifted historical
   boundaries.
-- The Performance Track schema gains optional `Measurement JSON`; old rows and
-  old schemas continue to work during migration.
+- The Performance Track schema stores `Measurement JSON` as diagnostic evidence
+  and ordinary `Contract ID` / `Environment Class` text fields for comparisons.
+  Scalar readers require a coordinated schema, writer, fenced historical
+  backfill and ordered-index cutover; old schemas no longer silently downgrade
+  strict comparisons. Rows without a complete identity remain eligible only
+  for the explicitly labelled legacy fallback.
 - Existing calibration numbers derived from V1/V2 subtraction remain a
   historical record, not acceptance evidence for the new detector. The new
   historical detector must be recalibrated before any causal language is used.

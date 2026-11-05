@@ -24,6 +24,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { env } from "./env.mjs";
 import { SUBSTITUTED_METRICS } from "./corpus-metric-model.mjs";
 import {
@@ -32,7 +33,8 @@ import {
   segmentSeries,
 } from "./commit-order-model.mjs";
 import { preferredCorpusSegment } from "./corpus-compatibility-model.mjs";
-import { loadTeableFieldNames } from "./teable-field-read.mjs";
+import { loadTeableFields } from "./teable-field-read.mjs";
+import { resolvePerformanceTrackIdentityColumns } from "./performance-track-identity.mjs";
 
 export const PERF_CORPUS_FILE_NAME = "perf-corpus.json";
 
@@ -146,14 +148,11 @@ export const buildPerfCorpusPageSql = ({
   table,
   limit,
   offset,
-  includeMeasurement = false,
+  identityColumns = { contractId: "Contract_ID", environmentClass: "Environment_Class" },
 }) => {
-  const contractColumn = includeMeasurement
-    ? `NULLIF("Measurement_JSON", '')::jsonb#>>'{contract,id}'`
-    : "NULL::text";
-  const environmentColumn = includeMeasurement
-    ? `NULLIF("Measurement_JSON", '')::jsonb#>>'{environment,class}'`
-    : "NULL::text";
+  const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
+  const contractColumn = quote(identityColumns.contractId);
+  const environmentColumn = quote(identityColumns.environmentClass);
   return `
   SELECT c, e, r, p, m, k, h,
          percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v,
@@ -227,8 +226,8 @@ const main = async () => {
     ...Object.keys(order.excluded),
   ]);
   const perfIndex = prefixIndex(Object.keys(digests.byCommit));
-  const fieldNames = await loadTeableFieldNames({ endpoint, token, tableId });
-  const includeMeasurement = fieldNames.has("Measurement JSON");
+  const fields = await loadTeableFields({ endpoint, token, baseId, tableId });
+  const identityColumns = resolvePerformanceTrackIdentityColumns(fields);
 
   const rows = [];
   let pageSize = Number(
@@ -248,7 +247,7 @@ const main = async () => {
             table,
             limit: pageSize,
             offset,
-            includeMeasurement,
+            identityColumns,
           }),
         });
         break;
@@ -369,7 +368,7 @@ const main = async () => {
     const preferred = preferredCorpusSegment({
       segments,
       segmentCompatibility,
-      measurementIdentityAvailable: includeMeasurement,
+      measurementIdentityAvailable: true,
     });
     if (segments.length > 1) cut += 1;
     out[key] = {
@@ -399,7 +398,7 @@ const main = async () => {
     outputPath,
     `${JSON.stringify({
       rowCount: rows.length,
-      measurementIdentityAvailable: includeMeasurement,
+      measurementIdentityAvailable: true,
       seriesCount: Object.keys(out).length,
       dropped: { ...dropped, unknownEeRef: unknownEe },
       series: out,
@@ -413,7 +412,9 @@ const main = async () => {
   );
 };
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : error);
+    process.exitCode = 1;
+  });
+}

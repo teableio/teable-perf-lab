@@ -11,17 +11,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = await mkdtemp(join(tmpdir(), "perf-report-requests-"));
 const storedRecords = [];
 const requests = [];
+let schemaFields = PERFORMANCE_TRACK_CONTRACT_FIELDS;
 
 // The rows here are keyed by field name; production filters address columns by
 // id, because Teable silently drops a filter that names a field it cannot find.
 // Resolving ids the way the real API does keeps that from being a difference
 // between this fake and the service — an unmapped id matches nothing here,
 // which is what a wrong id does there.
-const FILTER_FIELD_NAMES_BY_ID = new Map([
-  ["fldBtUJjGxgsPWsqLua", "Run Key"],
-  ["fldb344lzWE28AA2mvb", "Run ID"],
-  ["fldCIMp4dMco5zBBvJr", "Run Attempt"],
-]);
+const FILTER_FIELD_NAMES_BY_ID = new Map(
+  PERFORMANCE_TRACK_CONTRACT_FIELDS.map(({ id, name }) => [id, name]),
+);
 
 const readJson = async (request) => {
   const chunks = [];
@@ -48,7 +47,7 @@ const server = http.createServer(async (request, response) => {
     requests.push(entry);
 
     if (request.method === "GET" && url.pathname.endsWith("/field")) {
-      respondJson(response, 200, PERFORMANCE_TRACK_CONTRACT_FIELDS);
+      respondJson(response, 200, schemaFields);
       return;
     }
 
@@ -106,7 +105,7 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-const writeArtifacts = async () => {
+const writeArtifacts = async (measurement) => {
   for (const engine of ["v1", "v2"]) {
     const directory = join(
       artifactDir,
@@ -129,6 +128,7 @@ const writeArtifacts = async () => {
           { metric: "readyMs", actual: 900, max: 2_000, passed: true },
         ],
         phases: [{ name: "ready", durationMs: 900 }],
+        measurement,
       };
       await writeFile(
         join(directory, `report-case-${index}-${engine}.json`),
@@ -138,7 +138,7 @@ const writeArtifacts = async () => {
   }
 };
 
-const runReport = async (endpoint) => {
+const runReport = async (endpoint, expectedError) => {
   const child = spawn(process.execPath, ["scripts/report-teable-result.mjs"], {
     cwd: repoRoot,
     env: {
@@ -168,11 +168,16 @@ const runReport = async (endpoint) => {
     child.once("error", reject);
     child.once("exit", resolve);
   });
-  assert.equal(exitCode, 0, stderr);
+  assert.equal(exitCode, expectedError ? 1 : 0, stderr);
+  if (expectedError) assert.match(stderr, expectedError);
   return stdout;
 };
 
-await writeArtifacts();
+const measurement = {
+  contract: { id: " Contract-A " },
+  environment: { class: "Local-X" },
+};
+await writeArtifacts(measurement);
 await new Promise((resolve, reject) => {
   server.once("error", reject);
   server.listen(0, "127.0.0.1", resolve);
@@ -202,6 +207,14 @@ try {
   assert.equal(firstRequests[1].take, 1_000);
   assert.equal(firstRequests[1].skip, 0);
   assert.equal(storedRecords.length, 6);
+  for (const { fields } of storedRecords) {
+    assert.equal(fields["Contract ID"], " Contract-A ");
+    assert.equal(fields["Environment Class"], "Local-X");
+    assert.deepEqual(JSON.parse(fields["Measurement JSON"]), measurement);
+  }
+  // Rewriting an existing run without measurement must clear all three cells
+  // in its normal batch PATCH, not preserve stale identity or add a second write.
+  await writeArtifacts();
 
   const secondStart = requests.length;
   const secondOutput = await runReport(endpoint);
@@ -220,6 +233,24 @@ try {
     ],
   );
   assert.equal(storedRecords.length, 6);
+  for (const { fields } of storedRecords) {
+    assert.equal(fields["Contract ID"], null);
+    assert.equal(fields["Environment Class"], null);
+    assert.equal(fields["Measurement JSON"], null);
+  }
+  await writeArtifacts(measurement);
+  for (const missing of ["Measurement JSON", "Contract ID", "Environment Class"]) {
+    schemaFields = PERFORMANCE_TRACK_CONTRACT_FIELDS.filter(({ name }) => name !== missing);
+    const before = requests.length;
+    await runReport(endpoint, /Missing Teable report fields/);
+    assert.deepEqual(requests.slice(before).map(({ method }) => method), ["GET"]);
+  }
+  schemaFields = PERFORMANCE_TRACK_CONTRACT_FIELDS.map((field) =>
+    field.name === "Contract ID" ? { ...field, isComputed: true } : field,
+  );
+  const beforeConflict = requests.length;
+  await runReport(endpoint, /Incompatible Performance Track field Contract ID/);
+  assert.deepEqual(requests.slice(beforeConflict).map(({ method }) => method), ["GET"]);
 
   console.log("Teable perf report request batching checks ok");
 } finally {
