@@ -1,11 +1,5 @@
 import { Colors, FieldKeyType, FieldType } from "@teable/core";
-import {
-  axios,
-  deleteById,
-  deleteSelection,
-  deleteSelectionStream,
-  RangeType,
-} from "@teable/openapi";
+import { axios, deleteById, deleteSelection } from "@teable/openapi";
 import type {
   IUndoRedoStreamDoneEvent,
   IUndoRedoStreamErrorEvent,
@@ -107,6 +101,7 @@ export type RecordReplayVerification = {
 
 type RestoreVerificationOptions = {
   verifySamples?: boolean;
+  onRecordId?: (recordId: string, rowNumber: number) => void;
 };
 
 export type RecordReplaySetupMeasurements = {
@@ -357,13 +352,6 @@ const resolveOperationFields = (
   });
 };
 
-const buildAllRowsRange = (fixture: RecordReplayFixture) => ({
-  viewId: fixture.viewId,
-  type: RangeType.Rows,
-  ranges: [[0, fixture.seededRecords.length - 1] as [number, number]],
-  projection: fixture.projection,
-});
-
 const buildUiSelectionDeleteRange = (fixture: RecordReplayFixture) => ({
   viewId: fixture.viewId,
   ranges: [
@@ -595,25 +583,6 @@ export const prepareRecordReplayFixture = async (
     }
     throw error;
   }
-};
-
-export const deleteAllRows = async (
-  fixture: RecordReplayFixture,
-  context: PerfRunContext,
-) => {
-  const result = await deleteSelectionStream(
-    fixture.tableId,
-    buildAllRowsRange(fixture),
-    {
-      headers: getStreamHeaders(context),
-    },
-  );
-  expect(result.errors).toHaveLength(0);
-  expect(result.done.deletedCount).toBe(fixture.seededRecords.length);
-  expect(result.done.data.deletedRecordIds).toHaveLength(
-    fixture.seededRecords.length,
-  );
-  return result;
 };
 
 export const deleteAllRowsViaSelectionDelete = async (
@@ -905,7 +874,7 @@ export const assertRowsRestored = async (
           take,
         }),
     },
-    () => {},
+    (record, rowNumber) => options.onRecordId?.(record.id, rowNumber),
   );
 
   const beyondLastPage = await getRecords(fixture.tableId, {

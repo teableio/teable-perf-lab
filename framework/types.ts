@@ -1755,16 +1755,21 @@ export interface RecordDeleteLinkCaseConfig
   };
 }
 
-// Streaming sibling of record-delete. The grid streams any selection delete
-// over ~200 effective rows; the sync record-delete runner only exercises the
-// small-selection path. Same user behavior ("delete the whole selection"),
-// each engine driving the endpoint its own grid uses: V1 → range
-// GET /selection/delete-stream (legacy range stream), V2 → by-id
-// PATCH /selection/delete-by-id-stream. Both legs are @UseV2Feature('deleteRecord').
+// Historical delete-stream case IDs now measure V2 durable deletion: POST
+// /selection/delete-operations, then read-only operation stream/status GETs.
+// timingProfile v2-durable-delete-total-ready starts before POST and ends at
+// succeeded + settled effects with zero pending/failed effects; the actual
+// empty-table scan is excluded. V1 skips before lifecycle work with no metrics
+// or thresholds. Legacy V1/V2 stream baselines require pinned old refs.
+// Primary metric identities intentionally differ from historical deleteStream*Ms
+// so release-baseline comparison rejects the incompatible timing boundary.
 export interface RecordDeleteStreamCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "deleteStream1kMs" | "deleteStream10kMs" | "deleteStream30kMs";
+    metric:
+      | "deleteOperationTotalReady1kMs"
+      | "deleteOperationTotalReady10kMs"
+      | "deleteOperationTotalReady30kMs";
     maxMs: number;
   };
 }

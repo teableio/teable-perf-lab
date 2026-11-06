@@ -8,7 +8,7 @@ tags:
   - 10k
   - 20fields
   - mixed-fields
-  - v1-v2
+  - v2
 enabled: true
 ---
 
@@ -16,16 +16,10 @@ enabled: true
 
 ## Goal
 
-Measure the grid **streaming** selection-delete path for deleting every record
-of a 10,000-row, 20-field table. This is the larger-scale sibling of
-`record-delete/delete-stream-1k`: same runner, same per-engine dispatch, 10x the
-rows. 10k is where the V1 legacy range stream's O(n) cost (if any) shows against
-the V2 by-id stream, so this case carries the real V1/V2 spread; the 1k case
-covers correctness and routing at small scale.
-
-This is a real V1/V2 comparison: the behavior exists on both engines through
-their respective stream endpoints, so each engine drives the endpoint its own
-grid uses.
+Measure V2 durable selection deletion of every record in a 10,000-row,
+20-field table, from operation creation through terminal success and settled
+effects. This is the 10x-scale sibling of `record-delete/delete-stream-1k`;
+the historical case ID is retained, and V1 is skipped without measurement.
 
 ## Seed Phase
 
@@ -33,76 +27,71 @@ grid uses.
 - The table mirrors the sync record-delete shape: 20 mixed fields covering text,
   long text, single select, multiple select, number, date, checkbox, and rating.
 - Inserts 10,000 deterministic records in ten 1,000-record batches.
-- Uses a plain grid view with no sort, filter, or group so the rows-range
-  `[[0, 9999]]` maps to the full inserted dataset.
+- Uses a plain grid view with no sort, filter, or group; the operation selects
+  the whole view with `selection: { kind: "all" }`, not a record-ID list.
 - Verifies the source table is ready by full-scanning 10,000 records and checking
   the expected row count (`seedReady` phase).
-- Reuses the shared record-replay seed but hashes this runner's own file, so the
-  streaming case gets its own seed table distinct from the sync delete seed.
+- Reuses the shared record-trash fixture family, with a runner-owned seed hash
+  and readiness validation before execute.
 - When seed cache is enabled, the hash-derived source table is reused across
   workflow runs. In GitHub Actions each engine restores its own seed database
   copy, so execute may delete local rows without repairing the shared seed dump.
 
 ## Execute Phase
 
-1. Start the primary timer only after the 10k source table is ready.
-2. Drive the streaming delete of the whole selection, engine-dispatched:
-   - **V1**: `GET /api/table/{tableId}/selection/delete-stream` with the
-     rows-range query params `type=rows`, `ranges=[[0, 9999]]`, `viewId`,
-     `projection` (the legacy range stream).
-   - **V2**: `PATCH /api/table/{tableId}/selection/delete-by-id-stream` with
-     body `{ viewId, selection: { allRecords: true } }` (the by-id stream).
-     Read the SSE to the `done` event.
-3. Assert the stream response routing matches the requested V1/V2 engine.
-4. Stop the primary timer after the stream emits its final `done` event.
-5. Verify the table has no visible records.
-6. Cleanup drops the execute table (delete-all is the measured workload, so the
-   empty post-state is not a reusable seed); isolated CI execute databases are
-   discarded after the job.
+1. Return an explicit `skipped` result for V1 with `metrics: {}` and
+   `thresholds: []`, before fixture preparation or mutation lifecycle work.
+2. Prepare the source table and complete `seedReady`. Keep real record IDs from
+   the pre-mutation readiness scan for cleanup, outside the timer.
+3. Start the primary timer before
+   `POST /api/table/{tableId}/selection/delete-operations` with body
+   `{ operationId: <UUID>, viewId, selection: { kind: "all" } }`.
+4. Require V2 routing and feature `deleteRecord`. Observe snapshots through
+   `GET /api/table/{tableId}/selection/delete-operations/{operationId}/stream`
+   until terminal state. The observer is read-only; POST creation starts work.
+5. Confirm state with
+   `GET /api/table/{tableId}/selection/delete-operations/{operationId}` and wait
+   for `status: "succeeded"`, `effectsStatus: "settled"`,
+   `pendingEffectCount: 0`, and `failedEffectCount: 0`. Stop the timer only then.
+6. Full-scan for zero visible records outside the primary timer. Stream EOF is
+   not success; a nonterminal status fails observation without reissuing POST.
+7. Cleanup locates existing record-trash items using pre-mutation known IDs and
+   restores/verifies reusable shared fixtures. Standalone isolated execute DBs
+   may be discarded; nonreusable fixtures are removed.
 
 ## Primary Metric
 
-- `deleteStream10kMs`: elapsed time for the single streaming selection-delete
-  request, from the stream call until its final `done` event.
+- `deleteOperationTotalReady10kMs`: before POST creation through durable success
+  and settled effects, using `timingProfile: "v2-durable-delete-total-ready"`.
 
-The timer starts after the 10k-row source table has passed `seedReady` and stops
-when the delete stream's `done` event reports 10,000 deleted ids. It does not
-include seed preparation, the pre-delete full-scan, post-delete empty-table
-verification, cleanup, or seed-cache restore/build work; those are emitted
-separately as diagnostic metrics and phases.
+Total-ready time includes create, worker/scheduler execution, observer and
+status requests, and effects settlement. Seed build, readiness and ID scans,
+the actual empty-table verification scan, cleanup, and cache restore are
+outside the primary timer. The numeric threshold is retained; the new metric
+name prevents automated comparison with historical `deleteStream10kMs`
+stream-`done` timings. A new durable-metric release baseline is required.
 
 ## Verification
 
-- The stream `done` event must report `totalCount`, `deletedCount`, and
-  `data.deletedRecordIds.length` all equal to 10,000, with no `error` events.
-- The table must contain no visible records after the delete.
-- V1 and V2 both run, and the run fails if routing falls back to the wrong
-  engine.
+- Final `totalCount`, `processedCount`, and `deletedCount` must be 10,000;
+  `failedCount` must be zero and no operation error may be present.
+- Require `status: "succeeded"`, `effectsStatus: "settled"`, and zero pending
+  and failed effects, not merely terminal deletion.
+- The independent scan must find no visible records.
+- V2 routing is mandatory; V1 returns only a skip with no measurement.
 
 ## Notes
 
-The product streams any selection delete with more than ~200 effective rows
-(`DELETE_SELECTION_STREAM_ROW_THRESHOLD = 200`), so a 10k delete in the real UI
-always uses this stream path. See `record-delete/delete-stream-1k` for the same
-case at 1k and `record-delete/delete-1k` for the small-selection synchronous
-delete.
+Operation snapshots carry counts and state, not a full success-ID array. Trace
+steps separate `<metric>-create-execution`, `<metric>-observe-readonly`, and
+`<metric>-status-readonly`; observation does not execute the mutation, even
+though its elapsed time is included in total-ready timing.
 
-Each engine deletes the same selection through the endpoint its own grid uses,
-so the metric compares the user behavior rather than one endpoint: V1 routes to
-the range-based `GET /selection/delete-stream` (`x-teable-v2: false`, no feature
-header), V2 routes to the by-id `PATCH /selection/delete-by-id-stream`
-(`x-teable-v2: true`, `x-teable-v2-feature: deleteRecord`). Both legs are
-`@UseV2Feature('deleteRecord')` and emit `IDeleteSelectionStreamEvent`, so the
-done-event parsing and routing assertion are identical across engines.
+See [the durable-delete reproduction procedure](../../docs/operations/teable-ee-e2e.md#durable-delete-baseline-and-candidate-runs)
+for the pinned old V1/V2 wire baselines and V2-only candidate workflow. Do not
+run same-head V1 as a baseline or mix old and new timing profiles as equivalent
+latency measurements.
 
-On a seed-cache hit only the row COUNT is restored, not the real record ids, so
-the V2 by-id selection uses `selection.allRecords` (the server resolves the
-query-scoped ids) instead of an explicit `recordIds` list. The same robustness
-is why the V1 leg deletes by a rows-range over `[[0, 9999]]` rather than by id.
-The HTTP method differs per leg: V1 `delete-stream` is a `GET` with query params,
-V2 `delete-by-id-stream` is a `PATCH` with a JSON body.
-
-Local note: seeding and deleting 10k rows against the shared CLOUD test space can
-hit environmental limits (402 row-quota on a polluted space, or 408 transaction
-timeout); the delete-stream path itself batches and skips the row-quota guard, so
-treat any such local failure as environmental and confirm on CI (isolated DB).
+Use the existing isolated CI database/bootstrap rather than a shared CLOUD
+space. Seeding quota failures and transaction timeouts require diagnosis; they
+are not evidence of successful durable-delete execution.

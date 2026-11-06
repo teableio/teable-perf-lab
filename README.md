@@ -20,10 +20,18 @@ ready.
   extension cannot express the case.
 - Verifying a case locally before handing it back: follow the localrun skill.
   It is not published with this repository — ask the team for it. A case is not
-  done until it has passed a local v1+v2 run with verified artifacts.
+  done until it has passed local runs for its supported engines with verified
+  artifacts. The durable-delete cases are V2-only; a V1 skip is not a measured
+  validation run.
 - Running the GitHub workflow: read
   [docs/operations/teable-ee-e2e.md](docs/operations/teable-ee-e2e.md). That file
   owns trigger commands and workflow inputs.
+- Reproducing durable-delete benchmarks: follow the
+  [pinned baseline and V2-only candidate procedure](docs/operations/teable-ee-e2e.md#durable-delete-baseline-and-candidate-runs).
+  `timingProfile: "v2-durable-delete-total-ready"` includes operation creation,
+  worker/scheduler execution, observation, and settled effects, but excludes the
+  actual empty-table verification scan. Historical V1/V2 wire baselines require
+  the old pinned lab/EE refs; this runner returns no same-head V1 measurement.
 
 ## File Map
 
@@ -973,22 +981,19 @@ workload.
   1,000 mixed-type records from a 20-field table.
 - `record-delete/delete-5k`: Scale synchronous selection delete from 1,000 to
   5,000 mixed records.
-- `record-delete/delete-stream-1k`: Measure the grid **streaming**
-  selection-delete path for deleting every record of a 1,000-row, 20-field table.
-  This is the streaming sibling of `record-delete/delete-1k`: the product
-  switches a selection delete to the stream endpoints once the affected row count
-  crosses ~200, so a 1k delete in the real UI never uses the synchronous endpoint
-  the sync case measures.
-- `record-delete/delete-stream-10k`: Measure the grid **streaming**
-  selection-delete path for deleting every record of a 10,000-row, 20-field
-  table. This is the larger-scale sibling of `record-delete/delete-stream-1k`:
-  same runner, same per-engine dispatch, 10x the rows. 10k is where the V1 legacy
-  range stream's O(n) cost (if any) shows against the V2 by-id stream, so this
-  case carries the real V1/V2 spread; the 1k case covers correctness and routing
-  at small scale.
-- `record-delete/delete-stream-30k`: Extend the 1k/10k selection-delete stream
-  curve to a 30,000-row workload that can expose nonlinear row-deletion and
-  stream-progress regressions.
+- `record-delete/delete-stream-1k`: Measure V2 durable selection deletion of
+  every record in a 1,000-row, 20-field table, from operation creation through
+  terminal success and settled effects. The historical case ID is retained; V1 is
+  explicitly skipped without a performance measurement.
+- `record-delete/delete-stream-10k`: Measure V2 durable selection deletion of
+  every record in a 10,000-row, 20-field table, from operation creation through
+  terminal success and settled effects. This is the 10x-scale sibling of
+  `record-delete/delete-stream-1k`; the historical case ID is retained, and V1 is
+  skipped without measurement.
+- `record-delete/delete-stream-30k`: Extend the V2 durable selection-delete
+  curve to a 30,000-row mixed table, measuring operation creation through
+  terminal success and settled effects. The historical case ID is retained; V1 is
+  skipped without measurement.
 - `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
   whose rows contain populated link cells, covering the record-trash path for
   linked records rather than plain scalar-row deletion.
