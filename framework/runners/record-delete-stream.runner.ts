@@ -1,22 +1,8 @@
-import {
-  axios,
-  RangeType,
-  restoreTrash,
-  X_CANARY_HEADER,
-} from "@teable/openapi";
-import type {
-  IDeleteSelectionStreamDoneEvent,
-  IDeleteSelectionStreamErrorEvent,
-  IDeleteSelectionStreamEvent,
-  IDeleteSelectionStreamProgressEvent,
-} from "@teable/openapi";
+import { restoreTrash } from "@teable/openapi";
 import { permanentDeleteTable } from "../../../utils/init-app";
 import { isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
-import { assertEngineRouting } from "../routing";
-import { perfStreamSse } from "../sse";
-import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCaseFor,
   PerfCase,
@@ -45,21 +31,12 @@ import {
   resolveRecordTrashCleanupPolling,
 } from "./record-trash-cleanup";
 import { findRecordTrashItems } from "./record-trash.shared";
-
-export type DeleteStreamResult = {
-  totalCount: number;
-  deletedCount: number;
-  deletedRecordIds: string[];
-  progressEventCount: number;
-  status: number;
-  routing: ReturnType<typeof assertEngineRouting> & {
-    canaryHeader: string;
-  };
-  trace: {
-    traceparent?: string;
-    traceLink?: string;
-  };
-};
+import {
+  deleteAllRowsDurably,
+  DeleteOperationObservationError,
+  DELETE_OPERATION_TIMING_PROFILE,
+  type DurableDeleteResult,
+} from "./record-delete-operation";
 
 // record-restore measures the inverse operation against the same flat fixture.
 // Canonicalize the seed case id + runner here so both runners resolve the same
@@ -89,131 +66,11 @@ export const prepareRecordTrashFixture = ({
     seedCodeFiles: [new URL(import.meta.url)],
   });
 
-// The single measured operation bundles the trace-wrapped delete stream and the
-// post-delete empty-table verification, mirroring selection-clear: the driver
-// hands back one primary measurement whose duration is the metric, and
-// buildResult splits the bundle back into the delete + verifyDeleted phases.
+// Primary excludes fixture readiness and the independent empty-table scan.
 type DeleteStreamPrimaryResult = {
-  delete?: DeleteStreamResult;
+  delete?: DurableDeleteResult;
   verify?: Measurement<RecordReplayVerification>;
-};
-
-const getStreamHeaders = (context: PerfRunContext, windowId: string) => ({
-  ...(context.cookie ? { Cookie: context.cookie } : {}),
-  // Sent so the request matches real grid behavior (the grid populates the undo
-  // stack via this header); this case never replays it.
-  "X-Window-Id": windowId,
-  [X_CANARY_HEADER]: context.engine === "v2" ? "true" : "false",
-});
-
-// V1 range leg: GET /selection/delete-stream with the rows-range query params
-// (mirrors the openapi deleteSelectionStream client's buildAllRowsRange shape).
-// A rows-type range over [0, lastRow] selects every seeded row. seededRecords on
-// a cache hit are synthetic (only the COUNT is restored), but `.length` equals
-// the configured row count, so the range bound is reliable without real ids.
-const buildDeleteStreamUrl = (fixture: RecordReplayFixture) =>
-  axios.getUri({
-    baseURL: axios.defaults.baseURL || "/api",
-    url: `/table/${fixture.tableId}/selection/delete-stream`,
-    params: {
-      viewId: fixture.viewId,
-      type: RangeType.Rows,
-      ranges: JSON.stringify([[0, fixture.seededRecords.length - 1]]),
-      projection: fixture.projection,
-    },
-  });
-
-// V2 by-id leg: PATCH /selection/delete-by-id-stream with selectionIdsRoSchema.
-// Use allRecords:true (NOT explicit recordIds) so the selection survives a
-// seed-cache hit that hydrates seededRecords with synthetic empty ids — the
-// server resolves the query-scoped ids itself. Delete is row-scoped, so no
-// fieldIds are needed.
-const buildDeleteByIdBody = (fixture: RecordReplayFixture) =>
-  JSON.stringify({
-    viewId: fixture.viewId,
-    selection: { allRecords: true },
-  });
-
-// Same user behavior ("delete the whole selection"), engine-specific endpoint:
-// V1's grid streams the range delete (GET /selection/delete-stream), V2's grid
-// streams the by-id delete (PATCH /selection/delete-by-id-stream). Both emit
-// IDeleteSelectionStreamEvent, so the done-event assertions and the routing
-// check below are identical for both engines.
-export const deleteAllRowsByEngineStream = async (
-  fixture: RecordReplayFixture,
-  stepId: string,
-  perfCase: PerfCase,
-  context: PerfRunContext,
-  windowId: string,
-): Promise<DeleteStreamResult> => {
-  const isV2 = context.engine === "v2";
-  const expectedDeletedCount = fixture.seededRecords.length;
-  const url = isV2
-    ? axios.getUri({
-        baseURL: axios.defaults.baseURL || "/api",
-        url: `/table/${fixture.tableId}/selection/delete-by-id-stream`,
-      })
-    : buildDeleteStreamUrl(fixture);
-
-  const sseResult = await perfStreamSse<IDeleteSelectionStreamEvent>({
-    context,
-    perfCase,
-    stepId,
-    url,
-    method: isV2 ? "PATCH" : "GET",
-    headers: {
-      ...(isV2 ? { "Content-Type": "application/json" } : {}),
-      ...getStreamHeaders(context, windowId),
-    },
-    body: isV2 ? buildDeleteByIdBody(fixture) : undefined,
-    errorPrefix: "Delete selection stream failed",
-  });
-
-  const progressEvents = sseResult.events.filter(
-    (event): event is IDeleteSelectionStreamProgressEvent =>
-      event.id === "progress",
-  );
-  const errors = sseResult.events.filter(
-    (event): event is IDeleteSelectionStreamErrorEvent => event.id === "error",
-  );
-  const done = sseResult.events.find(
-    (event): event is IDeleteSelectionStreamDoneEvent => event.id === "done",
-  );
-
-  if (!done) {
-    throw new Error(
-      errors.at(-1)?.message ?? "Delete selection stream ended without result",
-    );
-  }
-
-  expect(errors).toHaveLength(0);
-  expect(done.totalCount).toBe(expectedDeletedCount);
-  expect(done.deletedCount).toBe(expectedDeletedCount);
-  expect(done.data.deletedCount).toBe(expectedDeletedCount);
-  expect(done.data.deletedRecordIds).toHaveLength(expectedDeletedCount);
-
-  const routing = assertEngineRouting(context, sseResult.headers, {
-    feature: "deleteRecord",
-    operation: "deleteSelectionStream",
-  });
-  if (!routing.routeMatched) {
-    throw new Error(
-      `deleteSelectionStream route mismatch: ${JSON.stringify(routing)}`,
-    );
-  }
-
-  return {
-    totalCount: done.totalCount,
-    deletedCount: done.deletedCount,
-    deletedRecordIds: done.data.deletedRecordIds,
-    progressEventCount: progressEvents.length,
-    status: sseResult.status,
-    routing: {
-      canaryHeader: context.engine === "v2" ? "true" : "false",
-      ...routing,
-    },
-    trace: sseResult.trace,
-  };
+  failureSnapshot?: DurableDeleteResult["snapshot"];
 };
 
 const runDeleteStreamMeasuredOperation = async (
@@ -226,20 +83,17 @@ const runDeleteStreamMeasuredOperation = async (
   const result: DeleteStreamPrimaryResult = {};
   let durationMs = 0;
   try {
-    const deleteMeasurement = await withPerfTraceStep(
-      context,
-      perfCase,
-      config.threshold.metric,
-      () =>
-        measureAsync(config.threshold.metric, () =>
-          deleteAllRowsByEngineStream(
-            fixture,
-            config.threshold.metric,
-            perfCase,
-            context,
-            windowId,
-          ),
-        ),
+    const deleteMeasurement = await measureAsync(config.threshold.metric, () =>
+      deleteAllRowsDurably({
+        tableId: fixture.tableId,
+        viewId: fixture.viewId,
+        expectedCount: fixture.seededRecords.length,
+        stepId: config.threshold.metric,
+        perfCase,
+        context,
+        windowId,
+        timeoutMs: perfCase.timeoutMs ?? 120_000,
+      }),
     );
     result.delete = deleteMeasurement.result;
     durationMs = deleteMeasurement.durationMs;
@@ -247,10 +101,19 @@ const runDeleteStreamMeasuredOperation = async (
       assertDeleted(fixture),
     );
   } catch (error) {
+    result.failureSnapshot =
+      error instanceof DeleteOperationObservationError
+        ? error.snapshot
+        : undefined;
     throw new PerfRunDiagnosticError(error, {
       metrics: {},
       thresholds: [],
       details: {
+        timingProfile: DELETE_OPERATION_TIMING_PROFILE,
+        snapshot:
+          error instanceof DeleteOperationObservationError
+            ? error.snapshot
+            : undefined,
         partialPrimaryMeasurement: {
           name: config.threshold.metric,
           durationMs,
@@ -285,8 +148,8 @@ const buildDeleteStreamResult = ({
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
   error?: unknown;
-}): PerfRunResult =>
-  buildRecordReplayResult({
+}): PerfRunResult => {
+  const result = buildRecordReplayResult({
     config,
     operation: "delete",
     windowId,
@@ -303,21 +166,32 @@ const buildDeleteStreamResult = ({
     verifyMeasurement: primaryMeasurement?.result.verify,
     error,
   });
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      timingProfile: DELETE_OPERATION_TIMING_PROFILE,
+      timing:
+        "Before POST create through terminal status and settled effects; empty-table verification excluded",
+      failureSnapshot: primaryMeasurement?.result.failureSnapshot,
+      deleteOperation: primaryMeasurement?.result.delete,
+    },
+  };
+};
 
 const restoreDeletedStreamSeed = async ({
   fixture,
   config,
-  primaryMeasurement,
 }: {
   fixture: RecordReplayFixture;
   config: RecordDeleteStreamCaseConfig;
-  primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
 }) => {
-  const deletedRecordIds =
-    primaryMeasurement?.result.delete?.deletedRecordIds ?? [];
-  if (deletedRecordIds.length !== fixture.seededRecords.length) {
+  const deletedRecordIds = fixture.seededRecords.map(
+    (record) => record.recordId,
+  );
+  if (deletedRecordIds.some((recordId) => !recordId)) {
     throw new Error(
-      `Delete-stream cleanup has ${deletedRecordIds.length}/${fixture.seededRecords.length} deleted record ids`,
+      "Delete cleanup requires pre-mutation seed record identities",
     );
   }
   const cleanupPolling = resolveRecordTrashCleanupPolling(config.verify);
@@ -365,18 +239,13 @@ const cleanupDeleteStreamFixture = async ({
     executeDbIsolated: isExecuteDbIsolated(),
     sharedSeedIdentity: Boolean(fixture.seedCacheInfo?.seedAffinity),
     canRestoreSeed: Boolean(primaryMeasurement?.result.delete),
-    restoreSeed: () =>
-      restoreDeletedStreamSeed({ fixture, config, primaryMeasurement }),
+    restoreSeed: () => restoreDeletedStreamSeed({ fixture, config }),
     deleteFixture: () => permanentDeleteTable(baseId, fixture.tableId),
   });
 };
 
-// record-delete-stream rides the record-mutation lifecycle: seed a mixed table
-// (cache-aware, reusing the record-replay seed so it stays a true sibling of the
-// sync record-delete case), assert seed readiness, run one measured streaming
-// delete, verify the table is empty, drop the table. The seed shares the
-// record-replay fixture but hashes this runner file, so it gets its own seed
-// table distinct from the sync record-delete seed.
+// Case IDs and thresholds remain stable; the timing profile distinguishes this
+// V2 durable lifecycle from historical stream measurements on pinned refs.
 const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
   RecordDeleteStreamCaseConfig,
   RecordReplayFixture,
@@ -385,7 +254,14 @@ const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
 > = {
   prepareFixture: ({ baseId, tableName, config, perfCase }) =>
     prepareRecordTrashFixture({ baseId, tableName, config, perfCase }),
-  assertSeedReady: ({ fixture, config }) => assertRowsRestored(fixture, config),
+  assertSeedReady: ({ fixture, config }) =>
+    assertRowsRestored(fixture, config, {
+      // Cache fixtures start with synthetic IDs. Capture real identities in the
+      // existing readiness scan, before timing, solely for shared-seed cleanup.
+      onRecordId: (recordId, rowNumber) => {
+        fixture.seededRecords[rowNumber - 1].recordId = recordId;
+      },
+    }),
   runMeasuredOperation: ({ perfCase, context, config, fixture, windowId }) =>
     runDeleteStreamMeasuredOperation(
       perfCase,
@@ -401,8 +277,23 @@ const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
 export const runRecordDeleteStreamCase = async (
   perfCase: PerfCaseFor<"record-delete-stream">,
   context: PerfRunContext,
-): Promise<PerfRunResult> =>
-  runRecordMutationLifecycle(perfCase, context, recordDeleteStreamSpec);
+): Promise<PerfRunResult> => {
+  if (context.engine !== "v2") {
+    return {
+      result: "skipped",
+      metrics: {},
+      thresholds: [],
+      details: {
+        skipped: true,
+        requestedEngine: context.engine,
+        timingProfile: DELETE_OPERATION_TIMING_PROFILE,
+        skippedReason:
+          "V2-only durable delete lifecycle. Legacy V1 stream baseline must run with pinned legacy perf-lab/teable-ee refs; this run contains no V1 performance measurement.",
+      },
+    };
+  }
+  return runRecordMutationLifecycle(perfCase, context, recordDeleteStreamSpec);
+};
 
 export const seedRecordDeleteStreamCase = async (
   perfCase: PerfCaseFor<"record-delete-stream">,

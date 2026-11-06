@@ -20,17 +20,21 @@ the exact shape yet; future matching cases can reuse this seed identity.
 
 ## Execute Phase
 
-1. Verify the seed through a full row-count scan and sample values.
-2. As unmeasured setup, delete all rows through the engine-specific selection
-   delete stream, assert the table is empty, and resolve the matching 50,000-row
-   `Record` trash items whose record-id union covers all 50,000 deleted rows.
-   V1 uses two 25,000-row range requests so its attachment cleanup stays below
-   PostgreSQL's 32,767 bind-variable ceiling; V2 chunks its by-id stream
-   internally.
+1. Verify the seed through a full row-count scan and sample values. The existing
+   `seedReady` scan hydrates real IDs through `onRecordId`, replacing synthetic
+   cache-hit IDs without an extra scan.
+2. As unmeasured `deleteRecordSetup`, require the hydrated pre-mutation IDs to
+   be nonempty, then use `deleteAllRowsByEngine`. V1 uses two leading
+   25,000-row range `DELETE /api/table/{tableId}/selection/delete` requests so
+   attachment cleanup stays below PostgreSQL's 32,767 bind-variable ceiling.
+   V2 uses one `POST /api/table/{tableId}/selection/delete-by-id` request with
+   `selection.excludeRecordIds: []` for the whole view, chunked internally.
+   Assert the table is empty and locate `Record` trash items whose record-id
+   union covers all 50,000 pre-delete IDs.
 3. Measure the full ordered set of
    `POST /api/trash/restore/{trashId}?tableId={tableId}` requests until every
-   trash item produced by the delete stream has been restored. Both engines may
-   therefore emit multiple setup-batch trash items at this scale.
+   trash item produced by setup has been restored, including all trash items
+   from multiple direct setup batches.
 4. Full-scan all restored rows and verify `Title` plus `External ID` at offsets
    0, 24,999, and 49,999.
 
@@ -38,8 +42,12 @@ the exact shape yet; future matching cases can reuse this seed identity.
 
 - `restoreRecords50kMs` (initial guardrail: 600,000 ms).
 
-Delete-to-trash setup and post-restore verification are diagnostic phases and
-do not participate in the threshold.
+Seed readiness/ID hydration, direct delete/trash-poll setup, and post-restore
+verification remain outside the restore metric and threshold. Setup does not
+use any delete stream route or the V2-only durable-delete benchmark; the primary
+restore operation is unchanged. `details.deleteSetup` reports `status`, summed
+`deletedCount`, `routing` from the first batch, and `trace` from the last batch,
+without stream event counters.
 
 ## Notes
 

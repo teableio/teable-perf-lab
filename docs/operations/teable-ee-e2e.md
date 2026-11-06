@@ -86,6 +86,138 @@ Because `teableio/teable-ee` is private, configure a read-only deploy key on
 that repository and store the private key in this repository as
 `TEABLE_EE_CHECKOUT_SSH_KEY`.
 
+### Durable-delete baseline and candidate runs
+
+The retained case IDs `record-delete/delete-stream-1k`,
+`record-delete/delete-stream-10k`, and `record-delete/delete-stream-30k` now
+measure a **V2-only durable operation**, not a mutation performed by an SSE
+request. Their metric names (`deleteStream1kMs`, `deleteStream10kMs`, and
+`deleteStream30kMs`) and configured thresholds remain unchanged.
+
+The current wire contract is:
+
+1. `POST /api/table/{tableId}/selection/delete-operations` with
+   `{ operationId: <UUID>, viewId, selection: { kind: "all" } }` creates work.
+2. `GET /api/table/{tableId}/selection/delete-operations/{operationId}/stream`
+   observes bounded operation snapshots until terminal state, without executing
+   deletion. A closed stream alone does not establish success.
+3. `GET /api/table/{tableId}/selection/delete-operations/{operationId}` confirms
+   status. Success requires `status: "succeeded"`, the expected total,
+   processed, and deleted counts, zero failed records, no operation error,
+   `effectsStatus: "settled"`, `pendingEffectCount: 0`, and
+   `failedEffectCount: 0`.
+
+`timingProfile: "v2-durable-delete-total-ready"` starts **before POST creation**
+and stops only at that success/effects-ready boundary. It includes creation,
+worker and scheduler execution, observer/status latency, and waiting for effect
+settlement. The actual empty-table verification scan is outside the timer, as
+are seed/cache/bootstrap, pre-delete readiness/ID scans, and cleanup. Trace
+steps distinguish `<metric>-create-execution` from
+`<metric>-observe-readonly` and `<metric>-status-readonly`. Cleanup uses known
+pre-mutation IDs with the existing record-trash restore path; the operation
+response does not return a full success-ID array.
+
+On this runner, an engine other than V2 returns `skipped`, `metrics: {}`, and
+`thresholds: []` before fixture preparation or mutation lifecycle work. A V1
+skip is **not a V1 measurement**. Do not restore a legacy mutation fallback or
+dispatch this head for same-head V1 performance comparisons.
+
+#### Pinned provenance and parameters
+
+The recorded starting primary checkout was branch `main` at
+`b32476385c8898bf4f41a98afc55c2a3a2b9dc9f`. The implementation worktree was
+created from fetched remote-default `origin/main` at
+`571e3026f2ccce0def69381f8bd3bfcf8dfc07a2`, not from that older primary HEAD.
+These are source-provenance facts, not claims that a benchmark has run.
+
+Use the old perf-lab commit
+`571e3026f2ccce0def69381f8bd3bfcf8dfc07a2` with EE `4052de60` for both baseline
+legs, as **two separate runs**, one `engine_filter=v1`, one `engine_filter=v2`.
+Only this pinned historical pair preserves the real old routes:
+
+- V1: `GET /api/table/{tableId}/selection/delete-stream`, with rows-range
+  `type=rows`, `ranges=[[0, N-1]]`, `viewId`, and `projection` query parameters.
+- V2: `PATCH /api/table/{tableId}/selection/delete-by-id-stream`, with
+  `{ viewId, selection: { allRecords: true } }` and the old stream-`done`
+  completion boundary.
+
+These historical timings are wire baselines, not measurements of the new
+total-ready contract. Preserve their resolved lab/EE SHAs, engine, timing
+boundary, run ID, and trace links when reporting results; do not silently pool
+them with the new timing profile or claim a like-for-like speedup.
+
+The candidate uses lab branch `T8388-delete-operation-runner` and the **parent
+change's final T8388 EE commit SHA**, with `engine_filter=v2` only. Supply that
+actual full SHA as `FINAL_T8388_EE_SHA`; do not substitute `develop`, the old EE
+baseline, or an intermediate host/core branch. Supply the resolved lab branch
+SHA as `FINAL_T8388_LAB_SHA` so the workflow guard rejects branch movement.
+No final candidate SHA or measured result is asserted by this procedure.
+The historical lab commit must have a remotely available dispatchable branch
+or tag (`LEGACY_LAB_REF`) pinned to `BASE_LAB_SHA`; the exact-SHA workflow guard
+below prevents accidentally running a moved ref. Preparing that remote ref and
+pushing the candidate branch are separate authorized parent operations, not
+actions performed by this migration.
+
+```bash
+CASES=record-delete/delete-stream-1k,record-delete/delete-stream-10k,record-delete/delete-stream-30k
+BASE_LAB_SHA=571e3026f2ccce0def69381f8bd3bfcf8dfc07a2
+: "${LEGACY_LAB_REF:?Set a remote branch or tag pinned to BASE_LAB_SHA}"
+
+# Historical V1 baseline: old source pair only.
+gh workflow run "Teable EE e2e perf" --repo teableio/teable-perf-lab \
+  --ref "$LEGACY_LAB_REF" \
+  -f expected_perf_lab_sha="$BASE_LAB_SHA" \
+  -f teable_ee_ref=4052de60 -f engine_filter=v1 \
+  -f case_filter="$CASES" -f samples=10
+
+# Historical V2 baseline: a separate run at the same old source pair.
+gh workflow run "Teable EE e2e perf" --repo teableio/teable-perf-lab \
+  --ref "$LEGACY_LAB_REF" \
+  -f expected_perf_lab_sha="$BASE_LAB_SHA" \
+  -f teable_ee_ref=4052de60 -f engine_filter=v2 \
+  -f case_filter="$CASES" -f samples=10
+
+# Candidate: resolve both final SHAs before dispatch; never run a V1 leg here.
+: "${FINAL_T8388_EE_SHA:?Set the parent change's final full T8388 EE SHA}"
+: "${FINAL_T8388_LAB_SHA:?Set the resolved T8388-delete-operation-runner lab SHA}"
+gh workflow run "Teable EE e2e perf" --repo teableio/teable-perf-lab \
+  --ref T8388-delete-operation-runner \
+  -f expected_perf_lab_sha="$FINAL_T8388_LAB_SHA" \
+  -f teable_ee_ref="$FINAL_T8388_EE_SHA" -f engine_filter=v2 \
+  -f case_filter="$CASES" -f samples=10
+```
+
+Leave `primary_threshold_ms` unset to retain each case's threshold and leave
+`computed_update_mode` unset for these flat stored-field fixtures (the existing
+e2e default is sync). `samples=10` is the workflow input; retain the actual
+runner artifacts/sample count rather than inventing ten completed observations.
+
+#### Environment prerequisites
+
+Run through the existing workflow/bootstrap, not an unprepared local database
+or shared customer/CLOUD space. It checks out the selected private EE ref,
+installs the lockfile's dependencies, generates Prisma clients, injects this
+lab's cases, and starts the existing e2e auth/Nest setup with disposable
+Postgres and Redis. The runtime bootstrap uses the EE-pinned pnpm version and
+its configured Node version; reproduce the bootstrap from each selected lab
+ref rather than mixing historical and candidate harnesses.
+
+The seed job must produce or restore a valid schema-compatible seed dump;
+each execute job restores that dump into an isolated DB/cache environment with
+`PERF_LAB_EXECUTE_DB_ISOLATED=true`. Keep cache-mode evidence (exact hit,
+compatible candidate, or miss), resolved SHAs, and environment provenance in
+the artifacts. Cache restoration and fixture preparation are not deletion
+timing, and a compatible cache candidate still requires readiness validation.
+
+Prerequisites include authorized GitHub workflow/private-repository access,
+the existing `TEABLE_EE_CHECKOUT_SSH_KEY` checkout secret, and configured
+workflow publication credentials (`TEABLE_PERF_LAB_TOKEN`; the release-baseline
+panel additionally uses `TEABLE_LAUNCHES_TOKEN`). Use the workflow's normal
+secret configuration; never put secret values in commands, docs, or artifacts.
+The V2 candidate must include and run the durable operation worker/scheduler
+and effects processing from the parent's final EE change; an environment that
+only accepts creation but cannot reach settled effects is not a valid sample.
+
 ## Case model
 
 The seed job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=seed`. That mode
