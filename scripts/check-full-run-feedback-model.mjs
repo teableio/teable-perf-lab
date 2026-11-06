@@ -17,6 +17,7 @@ import {
   evaluateFullRunResultAcceptance,
   resolveTraceAcceptanceBudgets,
 } from "./verify-full-run-result-acceptance.mjs";
+import { loadRegisteredCases } from "./run-plan.mjs";
 
 const loadFixture = async (name) =>
   JSON.parse(
@@ -79,9 +80,7 @@ const traceEvidence = {
   traceFetchRecoveryProbeCount: 0,
   traceFetchRecoverySucceeded: false,
   refs: [{ traceId: "trace-a", stepId: "operation" }],
-  savedTraces: [
-    { traceId: "trace-a", stepId: "operation", status: "saved" },
-  ],
+  savedTraces: [{ traceId: "trace-a", stepId: "operation", status: "saved" }],
 };
 const acceptedPayloadEntries = acceptanceExecutePlan.flatMap((plan) =>
   plan.caseFilter.split(",").map((caseId) => ({
@@ -251,9 +250,7 @@ assert.equal(
   true,
   "duplicate captured refs reconcile against traceRefCount while uniqueTraceCount stays deduplicated",
 );
-const mismatchedTraceIdentityPayloads = structuredClone(
-  acceptedPayloadEntries,
-);
+const mismatchedTraceIdentityPayloads = structuredClone(acceptedPayloadEntries);
 mismatchedTraceIdentityPayloads[0].payload.details.observability.traces.savedTraces[0].traceId =
   "unrelated-trace";
 assert.deepEqual(
@@ -302,6 +299,70 @@ assert.deepEqual(
   }).failures.map(({ code }) => code),
   ["result-unexpected-skip"],
 );
+
+// Exercise the nightly gate against the actual registered delete contracts,
+// not a synthetic declaration that could stay green after a case drifts.
+const registeredCaseContracts = await loadRegisteredCases();
+const deleteStreamCaseIds = [
+  "record-delete/delete-stream-1k",
+  "record-delete/delete-stream-10k",
+  "record-delete/delete-stream-30k",
+];
+const deleteStreamContracts = deleteStreamCaseIds.map((caseId) => {
+  const contract = registeredCaseContracts.find(({ id }) => id === caseId);
+  assert.ok(contract, `${caseId} must remain in the actual case catalog`);
+  return contract;
+});
+const deleteSkipPayloadEntries = deleteStreamCaseIds.map((caseId) => ({
+  fileName: `${caseId.replace("/", "-")}-v1.json`,
+  payload: {
+    caseId,
+    engine: "v1",
+    result: "skipped",
+    metrics: {},
+    thresholds: [],
+    details: {
+      skipped: true,
+      skippedReason: "Durable delete operations require V2.",
+      requestedEngine: "v1",
+      observability: { traces: structuredClone(traceEvidence) },
+    },
+  },
+}));
+const deleteSkipAcceptanceInput = {
+  executePlan: [{ engine: "v1", caseFilter: deleteStreamCaseIds.join(",") }],
+  payloadEntries: deleteSkipPayloadEntries,
+  jobConclusions: {
+    resolveInputs: "success",
+    seed: "success",
+    execute: "success",
+  },
+  caseContracts: deleteStreamContracts,
+};
+assert.deepEqual(evaluateFullRunResultAcceptance(deleteSkipAcceptanceInput), {
+  passed: true,
+  expectedResults: 3,
+  observedResults: 3,
+  failures: [],
+});
+const unexpectedDeleteSkipInput = structuredClone(deleteSkipAcceptanceInput);
+unexpectedDeleteSkipInput.executePlan[0].engine = "v2";
+for (const entry of unexpectedDeleteSkipInput.payloadEntries) {
+  entry.fileName = entry.fileName.replace("-v1.json", "-v2.json");
+  entry.payload.engine = "v2";
+  entry.payload.details.requestedEngine = "v2";
+}
+assert.deepEqual(evaluateFullRunResultAcceptance(unexpectedDeleteSkipInput), {
+  passed: false,
+  expectedResults: 3,
+  observedResults: 3,
+  failures: [
+    {
+      code: "result-unexpected-skip",
+      results: deleteStreamCaseIds.map((caseId) => ({ caseId, engine: "v2" })),
+    },
+  ],
+});
 
 const missingRoutingPayloads = structuredClone(acceptedPayloadEntries);
 delete missingRoutingPayloads[0].payload.details.routing;

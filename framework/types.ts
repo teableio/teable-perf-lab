@@ -1761,10 +1761,15 @@ export interface RecordDeleteLinkCaseConfig
 // succeeded + settled effects with zero pending/failed effects; the actual
 // empty-table scan is excluded. V1 skips before lifecycle work with no metrics
 // or thresholds. Legacy V1/V2 stream baselines require pinned old refs.
+// Primary metric identities intentionally differ from historical deleteStream*Ms
+// so release-baseline comparison rejects the incompatible timing boundary.
 export interface RecordDeleteStreamCaseConfig
   extends RecordUndoRedoBaseCaseConfig {
   threshold: {
-    metric: "deleteStream1kMs" | "deleteStream10kMs" | "deleteStream30kMs";
+    metric:
+      | "deleteOperationTotalReady1kMs"
+      | "deleteOperationTotalReady10kMs"
+      | "deleteOperationTotalReady30kMs";
     maxMs: number;
   };
 }

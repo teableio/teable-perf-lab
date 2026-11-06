@@ -91,8 +91,12 @@ that repository and store the private key in this repository as
 The retained case IDs `record-delete/delete-stream-1k`,
 `record-delete/delete-stream-10k`, and `record-delete/delete-stream-30k` now
 measure a **V2-only durable operation**, not a mutation performed by an SSE
-request. Their metric names (`deleteStream1kMs`, `deleteStream10kMs`, and
-`deleteStream30kMs`) and configured thresholds remain unchanged.
+request. Their primary metrics are `deleteOperationTotalReady1kMs`,
+`deleteOperationTotalReady10kMs`, and `deleteOperationTotalReady30kMs`; the case
+IDs and numeric thresholds remain unchanged. The new metric names intentionally
+invalidate historical `deleteStream*Ms` release baselines: automated comparisons
+reject a metric mismatch rather than presenting a false like-for-like regression.
+Publish a new durable-metric baseline before expecting automated ratios.
 
 The current wire contract is:
 
@@ -121,6 +125,9 @@ On this runner, an engine other than V2 returns `skipped`, `metrics: {}`, and
 `thresholds: []` before fixture preparation or mutation lifecycle work. A V1
 skip is **not a V1 measurement**. Do not restore a legacy mutation fallback or
 dispatch this head for same-head V1 performance comparisons.
+All three case contracts declare `expectedSkipEngines: ["v1"]` so nightly
+acceptance recognizes that V1 result as intentional. V2 skips remain unexpected
+and fail acceptance.
 
 #### Pinned provenance and parameters
 

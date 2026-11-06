@@ -61,14 +61,15 @@ the historical case ID is retained, and V1 is skipped without measurement.
 
 ## Primary Metric
 
-- `deleteStream10kMs`: before POST creation through durable success and settled
-  effects, using `timingProfile: "v2-durable-delete-total-ready"`.
+- `deleteOperationTotalReady10kMs`: before POST creation through durable success
+  and settled effects, using `timingProfile: "v2-durable-delete-total-ready"`.
 
 Total-ready time includes create, worker/scheduler execution, observer and
 status requests, and effects settlement. Seed build, readiness and ID scans,
 the actual empty-table verification scan, cleanup, and cache restore are
-outside the primary timer. The existing metric name and threshold are retained;
-this timing profile is different from historical stream-`done` latency.
+outside the primary timer. The numeric threshold is retained; the new metric
+name prevents automated comparison with historical `deleteStream10kMs`
+stream-`done` timings. A new durable-metric release baseline is required.
 
 ## Verification
 

@@ -44,13 +44,15 @@ execute; capture real record IDs before mutation for existing trash cleanup.
 
 ## Primary Metric
 
-- `deleteStream30kMs`: before POST creation through durable success and settled
-  effects, under `timingProfile: "v2-durable-delete-total-ready"`.
+- `deleteOperationTotalReady30kMs`: before POST creation through durable success
+  and settled effects, under `timingProfile: "v2-durable-delete-total-ready"`.
 
 The profile includes create, worker/scheduler execution, observer/status reads,
 and effects settlement. Seed/cache work, pre-delete readiness, the actual final
-empty-table scan, and cleanup are excluded. The existing threshold and metric
-name remain unchanged; historical stream-`done` timings are a different profile.
+empty-table scan, and cleanup are excluded. The numeric threshold is unchanged;
+the new metric name prevents automated comparison with historical
+`deleteStream30kMs` stream-`done` timings. A new durable-metric release baseline
+is required.
 
 ## Verification
 

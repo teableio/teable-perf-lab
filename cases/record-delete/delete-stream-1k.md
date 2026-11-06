@@ -62,15 +62,16 @@ a performance measurement.
 
 ## Primary Metric
 
-- `deleteStream1kMs`: total elapsed time from before POST creation until durable
-  success and effects readiness, under
+- `deleteOperationTotalReady1kMs`: total elapsed time from before POST creation
+  until durable success and effects readiness, under
   `timingProfile: "v2-durable-delete-total-ready"`.
 
 This profile includes create latency, worker/scheduler execution, observation,
 status reads, and waiting for settled effects. It excludes seed preparation,
 pre-delete readiness scans, the actual post-delete empty-table scan, cleanup,
-and seed-cache restore/build work. The metric name and configured threshold
-remain unchanged, but this is not the old stream-`done` timing boundary.
+and seed-cache restore/build work. The configured threshold is unchanged; the
+new metric name prevents automated comparison with historical `deleteStream1kMs`
+stream-`done` timings. A new durable-metric release baseline is required.
 
 ## Verification
 
