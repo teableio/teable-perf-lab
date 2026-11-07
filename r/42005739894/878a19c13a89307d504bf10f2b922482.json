@@ -1,0 +1,4247 @@
+{
+  "traceId": "878a19c13a89307d504bf10f2b922482",
+  "spans": [
+    {
+      "id": "1fa071d278a86f16",
+      "name": "PATCH /api/table/:tableId/record",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778320000,
+      "durationUs": 1079621,
+      "tags": {
+        "client.address": "::ffff:127.0.0.1",
+        "http.method": "PATCH",
+        "http.request.method": "PATCH",
+        "http.response.status_code": "200",
+        "http.route": "/api/table/:tableId/record",
+        "http.status_code": "200",
+        "http.target": "/api/table/tblLlou6jLZzYos3axs/record",
+        "http.url": "http://127.0.0.1:42661/api/table/tblLlou6jLZzYos3axs/record",
+        "nest.controller": "RecordController",
+        "nest.handler": "updateRecords",
+        "network.peer.address": "::ffff:127.0.0.1",
+        "network.peer.port": "36770",
+        "network.protocol.version": "1.1",
+        "otel.scope.name": "@opentelemetry/instrumentation-http",
+        "otel.scope.version": "0.223.0",
+        "responseStatusCode": "200",
+        "server.address": "127.0.0.1",
+        "server.port": "42661",
+        "span.kind": "server",
+        "teable.app.id": "",
+        "teable.client": "",
+        "teable.request.attribution": "v1",
+        "teable.route.controller": "RecordController",
+        "teable.route.full": "PATCH /api/table/:tableId/record",
+        "teable.route.handler": "updateRecords",
+        "teable.space.id": "spcTestSpaceId",
+        "teable.space.plan": "free",
+        "teable.user.id": "usrTestUserId",
+        "teable.user.is_api": "false",
+        "teable.user.is_app": "false",
+        "teable.v2.enabled": "false",
+        "teable.v2.feature": "updateRecords",
+        "teable.v2.reason": "disabled",
+        "url.path": "/api/table/tblLlou6jLZzYos3axs/record",
+        "url.scheme": "http",
+        "user_agent.original": "node"
+      }
+    },
+    {
+      "id": "dd97bdefe6170b62",
+      "parentId": "a08188fe8a81e326",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778327000,
+      "durationUs": 3875,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "669a01f6b91ab0d3",
+      "parentId": "1fa071d278a86f16",
+      "name": "V2FeatureGuard.canActivate",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778327000,
+      "durationUs": 5185,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.precommand.stage": "canary",
+        "teable.v2.enabled": "false",
+        "teable.v2.feature": "updateRecords",
+        "teable.v2.reason": "disabled"
+      }
+    },
+    {
+      "id": "a08188fe8a81e326",
+      "parentId": "669a01f6b91ab0d3",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778327000,
+      "durationUs": 4034,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "false",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "e6ee89360fd8cb8c",
+      "parentId": "dd97bdefe6170b62",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778327680,
+      "durationUs": 2897,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "eb81c62708a32119",
+      "parentId": "e6ee89360fd8cb8c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778328031,
+      "durationUs": 1562,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\", \"public\".\"table_meta\".\"name\", \"public\".\"table_meta\".\"description\", \"public\".\"table_meta\".\"icon\", \"public\".\"table_meta\".\"db_table_name\", \"public\".\"table_meta\".\"db_view_name\", \"public\".\"table_meta\".\"search_index\", \"public\".\"table_meta\".\"search_index_policy\", \"public\".\"table_meta\".\"query_index_policy\", \"public\".\"table_meta\".\"provision_state\"::text, \"public\".\"table_meta\".\"version\", \"public\".\"table_meta\".\"order\", \"public\".\"table_meta\".\"created_time\", \"public\".\"table_meta\".\"last_modified_time\", \"public\".\"table_meta\".\"deleted_time\", \"public\".\"table_meta\".\"created_by\", \"public\".\"table_meta\".\"last_modified_by\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "824fb05abcd93b1f",
+      "parentId": "e6ee89360fd8cb8c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778329688,
+      "durationUs": 432,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\", \"public\".\"base\".\"name\", \"public\".\"base\".\"order\", \"public\".\"base\".\"icon\", \"public\".\"base\".\"schema_pass\", \"public\".\"base\".\"v2_enabled\", \"public\".\"base\".\"provision_state\"::text, \"public\".\"base\".\"deleted_time\", \"public\".\"base\".\"created_time\", \"public\".\"base\".\"created_by\", \"public\".\"base\".\"last_modified_by\", \"public\".\"base\".\"last_modified_time\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "027c0c4580d0d99b",
+      "parentId": "669a01f6b91ab0d3",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778331000,
+      "durationUs": 766,
+      "tags": {
+        "method": "findUnique",
+        "model": "Setting",
+        "name": "Setting.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a2e567a4f237af18",
+      "parentId": "027c0c4580d0d99b",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778331768,
+      "durationUs": 507,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "6ddd96af1f30d229",
+      "parentId": "a2e567a4f237af18",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778331886,
+      "durationUs": 375,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"setting\".\"name\", \"public\".\"setting\".\"content\" FROM \"public\".\"setting\" WHERE (\"public\".\"setting\".\"name\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3efee63f89c0a65f",
+      "parentId": "3822728a83145a6f",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778332000,
+      "durationUs": 610,
+      "tags": {
+        "method": "findUnique",
+        "model": "Setting",
+        "name": "Setting.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b99bb005989c6f44",
+      "parentId": "3822728a83145a6f",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778332000,
+      "durationUs": 5,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "3822728a83145a6f",
+      "parentId": "1fa071d278a86f16",
+      "name": "V2FeatureGuard.canActivate",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778332000,
+      "durationUs": 883,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.precommand.stage": "canary",
+        "teable.v2.enabled": "false",
+        "teable.v2.feature": "updateRecords",
+        "teable.v2.reason": "disabled"
+      }
+    },
+    {
+      "id": "db88de39a3e5c80d",
+      "parentId": "3efee63f89c0a65f",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778332796,
+      "durationUs": 407,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a9e986ef02441a3c",
+      "parentId": "db88de39a3e5c80d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778332874,
+      "durationUs": 318,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"setting\".\"name\", \"public\".\"setting\".\"content\" FROM \"public\".\"setting\" WHERE (\"public\".\"setting\".\"name\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "60e9b9452fb2b301",
+      "parentId": "5063c0ac0bba2e96",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 802,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "false",
+        "teable.meta.model": "space",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "spcTestSpaceId"
+      }
+    },
+    {
+      "id": "5d3749fd17e3dc7e",
+      "parentId": "5063c0ac0bba2e96",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 5,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "0dcf1e8ecfe73fab",
+      "parentId": "5063c0ac0bba2e96",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 4,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "base",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "bseTestBaseId"
+      }
+    },
+    {
+      "id": "d620f71b75ec0550",
+      "parentId": "5063c0ac0bba2e96",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 5,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "45c3181588f065c5",
+      "parentId": "60e9b9452fb2b301",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 718,
+      "tags": {
+        "method": "findUnique",
+        "model": "Space",
+        "name": "Space.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5063c0ac0bba2e96",
+      "parentId": "1fa071d278a86f16",
+      "name": "AuthorityGuard.canActivate",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778333000,
+      "durationUs": 1358,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.precommand.stage": "authority",
+        "teable.table_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "f7ce3c73cc74bc26",
+      "parentId": "45c3181588f065c5",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778334039,
+      "durationUs": 506,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a071f3784e631fdb",
+      "parentId": "f7ce3c73cc74bc26",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778334162,
+      "durationUs": 355,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space\".\"id\", \"public\".\"space\".\"name\", \"public\".\"space\".\"avatar\", \"public\".\"space\".\"credit\", \"public\".\"space\".\"deleted_time\", \"public\".\"space\".\"created_time\", \"public\".\"space\".\"created_by\", \"public\".\"space\".\"last_modified_by\", \"public\".\"space\".\"last_modified_time\", \"public\".\"space\".\"is_template\" FROM \"public\".\"space\" WHERE (\"public\".\"space\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "f3d3800c1b2a7bcd",
+      "parentId": "fbfdd44d0e4e75c0",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778339000,
+      "durationUs": 10238,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fbfdd44d0e4e75c0",
+      "parentId": "1fa071d278a86f16",
+      "name": "SpaceDataDbMigrationGuardService.assertTableRecordWritable",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778339000,
+      "durationUs": 13528,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.precommand.stage": "migration",
+        "teable.table_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "dc1db57c92b4b627",
+      "parentId": "f3d3800c1b2a7bcd",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778340057,
+      "durationUs": 9636,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a44219c540751900",
+      "parentId": "dc1db57c92b4b627",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778340263,
+      "durationUs": 8477,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "565453a1771b2636",
+      "parentId": "dc1db57c92b4b627",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778348836,
+      "durationUs": 773,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "cfcd9a9f0884cc3b",
+      "parentId": "5aabfdaeda8a15fe",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778350000,
+      "durationUs": 1132,
+      "tags": {
+        "method": "findFirst",
+        "model": "BaseDataDbMoveJob",
+        "name": "BaseDataDbMoveJob.findFirst",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5aabfdaeda8a15fe",
+      "parentId": "fbfdd44d0e4e75c0",
+      "name": "SpaceDataDbMigrationGuardService.findActiveBaseMove",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778350000,
+      "durationUs": 1270,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "6946b214de430374",
+      "parentId": "cfcd9a9f0884cc3b",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778350431,
+      "durationUs": 825,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "63d022e8cb300e74",
+      "parentId": "6946b214de430374",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778350654,
+      "durationUs": 563,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base_data_db_move_job\".\"id\", \"public\".\"base_data_db_move_job\".\"state\"::text FROM \"public\".\"base_data_db_move_job\" WHERE (\"public\".\"base_data_db_move_job\".\"base_id\" = $1 AND \"public\".\"base_data_db_move_job\".\"state\" IN (CAST($2::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($3::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($4::text AS \"public\".\"BaseDataDbMoveJobState\"),CAST($5::text AS \"public\".\"BaseDataDbMoveJobState\"))) LIMIT $6 OFFSET $7",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "89a7588e31247225",
+      "parentId": "6486622faa24155b",
+      "name": "SpaceDataDbMigrationGuardService.assertSpaceDataDbHealthy",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351000,
+      "durationUs": 11,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4cf17f7802020590",
+      "parentId": "763ea79d86a8d783",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351000,
+      "durationUs": 951,
+      "tags": {
+        "method": "findFirst",
+        "model": "SpaceDataDbMigrationJob",
+        "name": "SpaceDataDbMigrationJob.findFirst",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "6486622faa24155b",
+      "parentId": "fbfdd44d0e4e75c0",
+      "name": "SpaceDataDbMigrationGuardService.assertSpaceRecordWritable",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351000,
+      "durationUs": 1867,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.space_id": "spcTestSpaceId"
+      }
+    },
+    {
+      "id": "763ea79d86a8d783",
+      "parentId": "6486622faa24155b",
+      "name": "SpaceDataDbMigrationGuardService.findActiveMigrationForSpace",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351000,
+      "durationUs": 1841,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7a2dbbf1ef78e619",
+      "parentId": "4cf17f7802020590",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351650,
+      "durationUs": 692,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "1414a75620ea1bbb",
+      "parentId": "7a2dbbf1ef78e619",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778351838,
+      "durationUs": 478,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_migration_job\".\"id\", \"public\".\"space_data_db_migration_job\".\"state\"::text FROM \"public\".\"space_data_db_migration_job\" WHERE (\"public\".\"space_data_db_migration_job\".\"space_id\" = $1 AND \"public\".\"space_data_db_migration_job\".\"state\" IN (CAST($2::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($3::text AS \"public\".\"SpaceDataDbMigrationJobState\"))) LIMIT $4 OFFSET $5",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "d7035eb334528ec9",
+      "parentId": "763ea79d86a8d783",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778352000,
+      "durationUs": 762,
+      "tags": {
+        "method": "findMany",
+        "model": "SpaceDataDbMigrationJob",
+        "name": "SpaceDataDbMigrationJob.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "bfeba8f345394280",
+      "parentId": "d7035eb334528ec9",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778352624,
+      "durationUs": 544,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "77e0d8ab673624a5",
+      "parentId": "bfeba8f345394280",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778352755,
+      "durationUs": 398,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_migration_job\".\"id\", \"public\".\"space_data_db_migration_job\".\"state\"::text, \"public\".\"space_data_db_migration_job\".\"space_id\", \"public\".\"space_data_db_migration_job\".\"inventory\" FROM \"public\".\"space_data_db_migration_job\" WHERE \"public\".\"space_data_db_migration_job\".\"state\" IN (CAST($1::text AS \"public\".\"SpaceDataDbMigrationJobState\"),CAST($2::text AS \"public\".\"SpaceDataDbMigrationJobState\")) OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "b4b4e58695a1f31e",
+      "parentId": "1fa071d278a86f16",
+      "name": "RecordUpdateService.updateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778353000,
+      "durationUs": 1022608,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a74c1d0ca1e94726",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778353000,
+      "durationUs": 2607,
+      "tags": {
+        "method": "findMany",
+        "model": "TableMeta",
+        "name": "TableMeta.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ae79ee3c130f49ed",
+      "parentId": "a74c1d0ca1e94726",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778353602,
+      "durationUs": 1847,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "98398499263f96e8",
+      "parentId": "ae79ee3c130f49ed",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778353816,
+      "durationUs": 1223,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\", \"public\".\"table_meta\".\"name\", \"public\".\"table_meta\".\"description\", \"public\".\"table_meta\".\"icon\", \"public\".\"table_meta\".\"db_table_name\", \"public\".\"table_meta\".\"db_view_name\", \"public\".\"table_meta\".\"search_index\", \"public\".\"table_meta\".\"search_index_policy\", \"public\".\"table_meta\".\"query_index_policy\", \"public\".\"table_meta\".\"provision_state\"::text, \"public\".\"table_meta\".\"version\", \"public\".\"table_meta\".\"order\", \"public\".\"table_meta\".\"created_time\", \"public\".\"table_meta\".\"last_modified_time\", \"public\".\"table_meta\".\"deleted_time\", \"public\".\"table_meta\".\"created_by\", \"public\".\"table_meta\".\"last_modified_by\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" IN ($1) AND \"public\".\"table_meta\".\"deleted_time\" IS NULL) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "4978a7a07c1a5a21",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778356000,
+      "durationUs": 1444,
+      "tags": {
+        "method": "findMany",
+        "model": "Field",
+        "name": "Field.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "598b863c05686099",
+      "parentId": "4978a7a07c1a5a21",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778356259,
+      "durationUs": 1123,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e9d7dcf848caf4a0",
+      "parentId": "598b863c05686099",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778356490,
+      "durationUs": 649,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"field\".\"id\", \"public\".\"field\".\"name\", \"public\".\"field\".\"description\", \"public\".\"field\".\"options\", \"public\".\"field\".\"meta\", \"public\".\"field\".\"ai_config\", \"public\".\"field\".\"type\", \"public\".\"field\".\"cell_value_type\", \"public\".\"field\".\"is_multiple_cell_value\", \"public\".\"field\".\"db_field_type\", \"public\".\"field\".\"db_field_name\", \"public\".\"field\".\"provision_state\"::text, \"public\".\"field\".\"not_null\", \"public\".\"field\".\"unique\", \"public\".\"field\".\"is_primary\", \"public\".\"field\".\"is_computed\", \"public\".\"field\".\"is_lookup\", \"public\".\"field\".\"is_conditional_lookup\", \"public\".\"field\".\"is_pending\", \"public\".\"field\".\"has_error\", \"public\".\"field\".\"lookup_linked_field_id\", \"public\".\"field\".\"lookup_options\", \"public\".\"field\".\"table_id\", \"public\".\"field\".\"order\", \"public\".\"field\".\"version\", \"public\".\"field\".\"created_time\", \"public\".\"field\".\"last_modified_time\", \"public\".\"field\".\"deleted_time\", \"public\".\"field\".\"created_by\", \"public\".\"field\".\"last_modified_by\" FROM \"public\".\"field\" WHERE (\"public\".\"field\".\"table_id\" = $1 AND \"public\".\"field\".\"deleted_time\" IS NULL) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "bae7c1e91b72bd8a",
+      "parentId": "cb774b627cf9b1a7",
+      "name": "RecordModifySharedService.validateFieldsAndTypecast",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778358000,
+      "durationUs": 210095,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "47b3900cad0f761e",
+      "parentId": "03eb59baee90a0d7",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778358224,
+      "durationUs": 236,
+      "tags": {
+        "db.query.text": "BEGIN",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "271876fabf61b4cb",
+      "parentId": "cb774b627cf9b1a7",
+      "name": "SystemFieldService.getModifiedSystemOpsMap",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778569000,
+      "durationUs": 41617,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "230288d02805f904",
+      "parentId": "271876fabf61b4cb",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778571000,
+      "durationUs": 30,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "54c7eabf5bb7e44e",
+      "parentId": "271876fabf61b4cb",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778571000,
+      "durationUs": 1765,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c6db228953b36868",
+      "parentId": "54c7eabf5bb7e44e",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778571439,
+      "durationUs": 1316,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "62ba5a2ae86b83bd",
+      "parentId": "c6db228953b36868",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778571769,
+      "durationUs": 947,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "285ad7fb209022f4",
+      "parentId": "271876fabf61b4cb",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778573000,
+      "durationUs": 37688,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d769330852bc4963",
+      "parentId": "285ad7fb209022f4",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778573291,
+      "durationUs": 36841,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "448f69826551cce6",
+      "parentId": "d769330852bc4963",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778573431,
+      "durationUs": 36663,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"__last_modified_time\" = '2026-11-05T09:59:38.358Z', \"__last_modified_by\" = 'usrTestUserId' where \"__id\" in ('recaFFqdsljKwovPaRp', 'recJktY3QMAJDOLb3zw', 'recz0nKhkqQeemmuPcM', 'recwDKp8lNn2AcpM7HR', 'rec9jvU6mPJqGZ53aKV', 'rec3sYENekbZLAeyo11', 'recpd1vlsfNWpxTxePm', 'recfBHitUhxVimEWspc', 'recmqFFvzXs9x047grg', 'rec1Wx45iOJfyrzdyGR', 'recnqSLl4mRZr8Bb66m', 'recOyhoAMM7HhQkeEfR', 'recsZEudLsqPhuXRaNe', 'recon3iCvuEuAeKK2Sw', 'recUNWRHBHFiaufnWWt', 'recmXvlrrEfMM38Ptvy', 'rec7qJIY9trCqLg7LXn', 'recgO2l6THKH0YHbqDO', 'recH8xOomkNwq8jbKuF', 'recSVi2FcmP1LYnJTGS', 'reckn4c8yeKxvy4LDLw', 'recIW1ytUZDBZmHVd6x', 'recrSn9vobBpaAd2NwH', 'recZ9wU9LnTpI1xJBe8', 'recamxHXgILut3Wr2Il', 'recRFWVTMnBOZZsIwuM', 'recZKb7k8GppdTyu0O0', 'recBArjLn5tt9SSnLl3', 'recu8PUo3LouYF3zn8M', 'recKpui4m8x3RV8nNoQ', 'recymO9NfaW5zk4c7Lt', 'recI0mdDomIOAwm9wBR', 'recVjLfGMCeoN6CQEyZ', 'recVzFXGxQnLEenic2I', 'recUXB1iUCPVE6xoN1e', 'recpLXZ7drJoTO9uMGP', 'recQe955P0EfVx2Hv33', 'recuxqVIinvMh4SwfAh', 'recV7xnWdzCKPN2bUFe', 'recsxyP7ireVO7yJOtN', 'recxUt91QtTRr0osaT3', 'rectD1k8BlO8RiYWRor', 'recUJP93y0zDoK8kQNC', 'recjCfgDGEPrwL0BpyJ', 'recFT2i6Ditf1zWP7Pm', 'recwYtxcx2piWdCeZcI', 'recqnsA7e7ku9tEzFUe', 'recdM8uExQlNVvFqSaZ', 'recGSRL9DNal4GJFuUz', 'rec6eupFU9VIZcPzHrT', 'reci8SEtVc42ReDn9p1', 'recBk87t5mZTUmbnUCX', 'recIKy511MOBnEekDTi', 'recCEnoDhvuSwgUP95E', 'reckQCfbUpiylIB9VGs', 'recGlCr2Vk5kbT1jXTJ', 'recelsKKSnQUXV7ruNc', 'recE89zT4BYOl6b9N7o', 'recC8Msv0IDh1BJ8S6m', 'rec1hAmHgEkrJ9eGCbS', 'recjbtUeG5bGeWMmW4s', 'rec857vTA6Fu4Mv3g8v', 'rec3qfgQLmQJtd4nqrZ', 'recNnp3WY40dLyUXJSC', 'recSIuVBVdGqB4yjL4w', 'recOltt6ee8xw8mpL1E', 'recKr3rHItEeOnxo4d6', 'recHygoMhtwLxm5fojN', 'recnUKD98VW0qUjE5sO', 'recfYRG8ZR6fuHhAfh3', 'recD6IKuh9YDpyupisP', 'reciC8kWBRReiTJ1cWX', 'rectiX6VhaU7vV24nde', 'recRqS5Ol8y16BgP3Y2', 'recLUmYPWIRrCa2OKBA', 'recq97N8XRDQqseVxMv', 'recpOqdvRbX5ihg2o3K', 'recg0abGIWw9KeWQUFo', 'recEMOVY9oXgKMrlZ8v', 'recusWqm3vq5sCuRA4h', 'recwPY4gWwPrwrOn6bh', 'recPP…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "6dbd4a12f1505e04",
+      "parentId": "cb774b627cf9b1a7",
+      "name": "RecordModifySharedService.generateCellContexts",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778611000,
+      "durationUs": 61106,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c4c5e8b05488b8c2",
+      "parentId": "6dbd4a12f1505e04",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778611000,
+      "durationUs": 1402,
+      "tags": {
+        "method": "findUniqueOrThrow",
+        "model": "TableMeta",
+        "name": "TableMeta.findUniqueOrThrow",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "964c5cc4fa72f346",
+      "parentId": "c4c5e8b05488b8c2",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778611937,
+      "durationUs": 1034,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7079f83830876975",
+      "parentId": "964c5cc4fa72f346",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778612186,
+      "durationUs": 724,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"db_table_name\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2da5e04770876c39",
+      "parentId": "6dbd4a12f1505e04",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778614000,
+      "durationUs": 37842,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4fb33b8241d17b68",
+      "parentId": "6dbd4a12f1505e04",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778614000,
+      "durationUs": 13,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "803b6f1fe14b142d",
+      "parentId": "2da5e04770876c39",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778615153,
+      "durationUs": 28957,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "79a506310ee9e32c",
+      "parentId": "803b6f1fe14b142d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778615300,
+      "durationUs": 24642,
+      "tags": {
+        "db.query.text": "select \"t_tblLlou6jLZzYos3axs\".\"__id\", \"t_tblLlou6jLZzYos3axs\".\"__version\", \"t_tblLlou6jLZzYos3axs\".\"__auto_number\", \"t_tblLlou6jLZzYos3axs\".\"__created_time\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_time\", \"t_tblLlou6jLZzYos3axs\".\"__created_by\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_by\", \"t_tblLlou6jLZzYos3axs\".\"Start_Date\" as \"Start_Date\", \"t_tblLlou6jLZzYos3axs\".\"Due_Date\" as \"Due_Date\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" as \"t_tblLlou6jLZzYos3axs\" where \"__id\" in ('recaFFqdsljKwovPaRp', 'recJktY3QMAJDOLb3zw', 'recz0nKhkqQeemmuPcM', 'recwDKp8lNn2AcpM7HR', 'rec9jvU6mPJqGZ53aKV', 'rec3sYENekbZLAeyo11', 'recpd1vlsfNWpxTxePm', 'recfBHitUhxVimEWspc', 'recmqFFvzXs9x047grg', 'rec1Wx45iOJfyrzdyGR', 'recnqSLl4mRZr8Bb66m', 'recOyhoAMM7HhQkeEfR', 'recsZEudLsqPhuXRaNe', 'recon3iCvuEuAeKK2Sw', 'recUNWRHBHFiaufnWWt', 'recmXvlrrEfMM38Ptvy', 'rec7qJIY9trCqLg7LXn', 'recgO2l6THKH0YHbqDO', 'recH8xOomkNwq8jbKuF', 'recSVi2FcmP1LYnJTGS', 'reckn4c8yeKxvy4LDLw', 'recIW1ytUZDBZmHVd6x', 'recrSn9vobBpaAd2NwH', 'recZ9wU9LnTpI1xJBe8', 'recamxHXgILut3Wr2Il', 'recRFWVTMnBOZZsIwuM', 'recZKb7k8GppdTyu0O0', 'recBArjLn5tt9SSnLl3', 'recu8PUo3LouYF3zn8M', 'recKpui4m8x3RV8nNoQ', 'recymO9NfaW5zk4c7Lt', 'recI0mdDomIOAwm9wBR', 'recVjLfGMCeoN6CQEyZ', 'recVzFXGxQnLEenic2I', 'recUXB1iUCPVE6xoN1e', 'recpLXZ7drJoTO9uMGP', 'recQe955P0EfVx2Hv33', 'recuxqVIinvMh4SwfAh', 'recV7xnWdzCKPN2bUFe', 'recsxyP7ireVO7yJOtN', 'recxUt91QtTRr0osaT3', 'rectD1k8BlO8RiYWRor', 'recUJP93y0zDoK8kQNC', 'recjCfgDGEPrwL0BpyJ', 'recFT2i6Ditf1zWP7Pm', 'recwYtxcx2piWdCeZcI', 'recqnsA7e7ku9tEzFUe', 'recdM8uExQlNVvFqSaZ', 'recGSRL9DNal4GJFuUz', 'rec6eupFU9VIZcPzHrT', 'reci8SEtVc42ReDn9p1', 'recBk87t5mZTUmbnUCX', 'recIKy511MOBnEekDTi', 'recCEnoDhvuSwgUP95E', 'reckQCfbUpiylIB9VGs', 'recGlCr2Vk5kbT1jXTJ', 'recelsKKSnQUXV7ruNc', 'recE89zT4BYOl6b9N7o', 'recC8Msv0IDh1BJ8S6m', 'rec1hAmHgEkrJ9eGCbS', 'recjbtUeG5bGeWMmW4s', 'rec857vTA6Fu4Mv3g8v', 'rec3qfgQLmQJtd4nqrZ', 'recNnp3WY40dLyUXJSC', 'recSIuVBVdGqB4yjL4w', 'recOltt6ee8xw8mpL1E', 'recKr3rHItEeOnxo4d6', 're…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3f6940ac813ef4be",
+      "parentId": "6dbd4a12f1505e04",
+      "name": "RecordService.recordsPresignedUrl",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778670000,
+      "durationUs": 41,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3f036902e0c5dcbd",
+      "parentId": "cb774b627cf9b1a7",
+      "name": "ComputedOrchestratorService.computeCellChangesForRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778672000,
+      "durationUs": 374375,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a36224f964df924e",
+      "parentId": "3f036902e0c5dcbd",
+      "name": "ComputedDependencyCollectorService.collect",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778673000,
+      "durationUs": 4899,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "54ef676f16d28e81",
+      "parentId": "a36224f964df924e",
+      "name": "ComputedDependencyCollectorService.collectDependentFieldsByTable",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778674000,
+      "durationUs": 2295,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e1fece4c02ad3d0f",
+      "parentId": "a36224f964df924e",
+      "name": "ComputedDependencyCollectorService.resolveRelatedLinkFieldIds",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778674000,
+      "durationUs": 17,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "76548ce1342a7ae3",
+      "parentId": "54ef676f16d28e81",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778674000,
+      "durationUs": 1953,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "147ef42055ebe5d1",
+      "parentId": "76548ce1342a7ae3",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778675049,
+      "durationUs": 1514,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "160e98afc7b4d308",
+      "parentId": "147ef42055ebe5d1",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778675147,
+      "durationUs": 1388,
+      "tags": {
+        "db.query.text": "select * from (with recursive \"dep_graph\"(\"from_field_id\", \"to_field_id\") as (select \"from_field_id\", \"to_field_id\" from \"reference\" where \"from_field_id\" in ('flday7b3li553fksom3', 'fldyxVksNpURPTEXlNO') union select \"r\".\"from_field_id\", \"r\".\"to_field_id\" from \"reference\" as \"r\" inner join \"dep_graph\" as \"d\" on \"r\".\"from_field_id\" = \"d\".\"to_field_id\") select distinct \"dep_graph\".\"to_field_id\" as \"to_field_id\", \"f\".\"table_id\" as \"table_id\" from \"dep_graph\" inner join \"field\" as \"f\" on \"f\".\"id\" = \"dep_graph\".\"to_field_id\" where \"f\".\"deleted_time\" is null and (\"f\".\"is_lookup\" = true or \"f\".\"is_computed\" = true or \"f\".\"type\" = 'link' or \"f\".\"type\" = 'formula' or \"f\".\"type\" = 'rollup' or \"f\".\"type\" = 'conditionalRollup') and \"dep_graph\".\"to_field_id\" not in ('flday7b3li553fksom3', 'fldyxVksNpURPTEXlNO')) as \"dep\" union select * from (select \"f\".\"id\" as \"to_field_id\", \"f\".\"table_id\" as \"table_id\" from \"field\" as \"f\" where \"f\".\"id\" in ('flday7b3li553fksom3', 'fldyxVksNpURPTEXlNO') and \"f\".\"type\" = 'link' and \"f\".\"deleted_time\" is null) as \"link_self\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "aaabbd1fc5a148de",
+      "parentId": "a36224f964df924e",
+      "name": "ComputedDependencyCollectorService.getFormulaFieldsWithoutDependencies",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778676000,
+      "durationUs": 1117,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a2bbf571a3677e86",
+      "parentId": "aaabbd1fc5a148de",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778676000,
+      "durationUs": 966,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "decbeb457686d565",
+      "parentId": "3f036902e0c5dcbd",
+      "name": "LinkService.planDerivateByLink",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778677000,
+      "durationUs": 539,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "cf5185c0d546c157",
+      "parentId": "a2bbf571a3677e86",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778677054,
+      "durationUs": 720,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "85096d3e9d95139b",
+      "parentId": "cf5185c0d546c157",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778677094,
+      "durationUs": 660,
+      "tags": {
+        "db.query.text": "select \"f\".\"id\" as \"id\" from \"field\" as \"f\" left join \"reference\" as \"r\" on \"r\".\"to_field_id\" = \"f\".\"id\" where \"f\".\"table_id\" = 'tblLlou6jLZzYos3axs' and \"f\".\"deleted_time\" is null and \"f\".\"type\" = 'formula' and (\"f\".\"is_lookup\" is null or \"f\".\"is_lookup\" = false) and COALESCE(f.has_error, false) = false and \"f\".\"id\" not in ('flday7b3li553fksom3', 'fldyxVksNpURPTEXlNO') group by \"f\".\"id\" having COUNT(r.from_field_id) = 0",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "7b1af6bfadbcca19",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778697000,
+      "durationUs": 9517,
+      "tags": {
+        "method": "findMany",
+        "model": "TableMeta",
+        "name": "TableMeta.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fe9072adda6fe8a4",
+      "parentId": "3f036902e0c5dcbd",
+      "name": "BatchService.updateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778697000,
+      "durationUs": 348921,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a6a72dbd1d43acde",
+      "parentId": "7b1af6bfadbcca19",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778698216,
+      "durationUs": 8308,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "20ae8b366b13d4ad",
+      "parentId": "a6a72dbd1d43acde",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778698878,
+      "durationUs": 5878,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\", \"public\".\"table_meta\".\"name\", \"public\".\"table_meta\".\"description\", \"public\".\"table_meta\".\"icon\", \"public\".\"table_meta\".\"db_table_name\", \"public\".\"table_meta\".\"db_view_name\", \"public\".\"table_meta\".\"search_index\", \"public\".\"table_meta\".\"search_index_policy\", \"public\".\"table_meta\".\"query_index_policy\", \"public\".\"table_meta\".\"provision_state\"::text, \"public\".\"table_meta\".\"version\", \"public\".\"table_meta\".\"order\", \"public\".\"table_meta\".\"created_time\", \"public\".\"table_meta\".\"last_modified_time\", \"public\".\"table_meta\".\"deleted_time\", \"public\".\"table_meta\".\"created_by\", \"public\".\"table_meta\".\"last_modified_by\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" IN ($1) AND \"public\".\"table_meta\".\"deleted_time\" IS NULL) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "8d5518f810807389",
+      "parentId": "a6a72dbd1d43acde",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778704915,
+      "durationUs": 838,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"field\".\"id\", \"public\".\"field\".\"name\", \"public\".\"field\".\"description\", \"public\".\"field\".\"options\", \"public\".\"field\".\"meta\", \"public\".\"field\".\"ai_config\", \"public\".\"field\".\"type\", \"public\".\"field\".\"cell_value_type\", \"public\".\"field\".\"is_multiple_cell_value\", \"public\".\"field\".\"db_field_type\", \"public\".\"field\".\"db_field_name\", \"public\".\"field\".\"provision_state\"::text, \"public\".\"field\".\"not_null\", \"public\".\"field\".\"unique\", \"public\".\"field\".\"is_primary\", \"public\".\"field\".\"is_computed\", \"public\".\"field\".\"is_lookup\", \"public\".\"field\".\"is_conditional_lookup\", \"public\".\"field\".\"is_pending\", \"public\".\"field\".\"has_error\", \"public\".\"field\".\"lookup_linked_field_id\", \"public\".\"field\".\"lookup_options\", \"public\".\"field\".\"table_id\", \"public\".\"field\".\"order\", \"public\".\"field\".\"version\", \"public\".\"field\".\"created_time\", \"public\".\"field\".\"last_modified_time\", \"public\".\"field\".\"deleted_time\", \"public\".\"field\".\"created_by\", \"public\".\"field\".\"last_modified_by\" FROM \"public\".\"field\" WHERE (\"public\".\"field\".\"deleted_time\" IS NULL AND \"public\".\"field\".\"table_id\" IN ($1)) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "df7715fa2e72c0e8",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778711000,
+      "durationUs": 1254,
+      "tags": {
+        "method": "findMany",
+        "model": "TableMeta",
+        "name": "TableMeta.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b867aa93124c6fe4",
+      "parentId": "df7715fa2e72c0e8",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778711275,
+      "durationUs": 915,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c8ab2636556c126c",
+      "parentId": "b867aa93124c6fe4",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778711571,
+      "durationUs": 573,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"db_table_name\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" IN ($1) AND \"public\".\"table_meta\".\"deleted_time\" IS NULL) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "faeb0e467012f377",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778712000,
+      "durationUs": 1345,
+      "tags": {
+        "method": "findMany",
+        "model": "Field",
+        "name": "Field.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3c9ca09d5919f371",
+      "parentId": "faeb0e467012f377",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778712570,
+      "durationUs": 1073,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e5459b014d7f5de2",
+      "parentId": "3c9ca09d5919f371",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778712879,
+      "durationUs": 651,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"field\".\"id\", \"public\".\"field\".\"name\", \"public\".\"field\".\"description\", \"public\".\"field\".\"options\", \"public\".\"field\".\"meta\", \"public\".\"field\".\"ai_config\", \"public\".\"field\".\"type\", \"public\".\"field\".\"cell_value_type\", \"public\".\"field\".\"is_multiple_cell_value\", \"public\".\"field\".\"db_field_type\", \"public\".\"field\".\"db_field_name\", \"public\".\"field\".\"provision_state\"::text, \"public\".\"field\".\"not_null\", \"public\".\"field\".\"unique\", \"public\".\"field\".\"is_primary\", \"public\".\"field\".\"is_computed\", \"public\".\"field\".\"is_lookup\", \"public\".\"field\".\"is_conditional_lookup\", \"public\".\"field\".\"is_pending\", \"public\".\"field\".\"has_error\", \"public\".\"field\".\"lookup_linked_field_id\", \"public\".\"field\".\"lookup_options\", \"public\".\"field\".\"table_id\", \"public\".\"field\".\"order\", \"public\".\"field\".\"version\", \"public\".\"field\".\"created_time\", \"public\".\"field\".\"last_modified_time\", \"public\".\"field\".\"deleted_time\", \"public\".\"field\".\"created_by\", \"public\".\"field\".\"last_modified_by\" FROM \"public\".\"field\" WHERE (\"public\".\"field\".\"id\" IN ($1,$2) AND \"public\".\"field\".\"deleted_time\" IS NULL) OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "af68f876004d2558",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "RecordQueryService.getSnapshotBulk",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778714000,
+      "durationUs": 140666,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "0a4b00e873e63981",
+      "parentId": "af68f876004d2558",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778715000,
+      "durationUs": 12,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "033936f542788e65",
+      "parentId": "af68f876004d2558",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778715000,
+      "durationUs": 77235,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e9498b972510dabf",
+      "parentId": "033936f542788e65",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778716273,
+      "durationUs": 62738,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "10fbedb9fe079797",
+      "parentId": "e9498b972510dabf",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778716449,
+      "durationUs": 47888,
+      "tags": {
+        "db.query.text": "select \"t_tblLlou6jLZzYos3axs\".\"__id\", \"t_tblLlou6jLZzYos3axs\".\"__version\", \"t_tblLlou6jLZzYos3axs\".\"__auto_number\", \"t_tblLlou6jLZzYos3axs\".\"__created_time\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_time\", \"t_tblLlou6jLZzYos3axs\".\"__created_by\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_by\", \"t_tblLlou6jLZzYos3axs\".\"Title\" as \"Title\", \"t_tblLlou6jLZzYos3axs\".\"Description\" as \"Description\", \"t_tblLlou6jLZzYos3axs\".\"Status\" as \"Status\", \"t_tblLlou6jLZzYos3axs\".\"Priority\" as \"Priority\", \"t_tblLlou6jLZzYos3axs\".\"Tags\" as \"Tags\", \"t_tblLlou6jLZzYos3axs\".\"Amount\" as \"Amount\", \"t_tblLlou6jLZzYos3axs\".\"Quantity\" as \"Quantity\", \"t_tblLlou6jLZzYos3axs\".\"Start_Date\" as \"Start_Date\", \"t_tblLlou6jLZzYos3axs\".\"Due_Date\" as \"Due_Date\", \"t_tblLlou6jLZzYos3axs\".\"Active\" as \"Active\", \"t_tblLlou6jLZzYos3axs\".\"Score\" as \"Score\", \"t_tblLlou6jLZzYos3axs\".\"Owner_Text\" as \"Owner_Text\", \"t_tblLlou6jLZzYos3axs\".\"Notes\" as \"Notes\", \"t_tblLlou6jLZzYos3axs\".\"Category\" as \"Category\", \"t_tblLlou6jLZzYos3axs\".\"Labels\" as \"Labels\", \"t_tblLlou6jLZzYos3axs\".\"External_ID\" as \"External_ID\", \"t_tblLlou6jLZzYos3axs\".\"Source\" as \"Source\", \"t_tblLlou6jLZzYos3axs\".\"Percent\" as \"Percent\", \"t_tblLlou6jLZzYos3axs\".\"Approved\" as \"Approved\", \"t_tblLlou6jLZzYos3axs\".\"Comment\" as \"Comment\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" as \"t_tblLlou6jLZzYos3axs\" where \"__id\" in ('recaFFqdsljKwovPaRp', 'recJktY3QMAJDOLb3zw', 'recz0nKhkqQeemmuPcM', 'recwDKp8lNn2AcpM7HR', 'rec9jvU6mPJqGZ53aKV', 'rec3sYENekbZLAeyo11', 'recpd1vlsfNWpxTxePm', 'recfBHitUhxVimEWspc', 'recmqFFvzXs9x047grg', 'rec1Wx45iOJfyrzdyGR', 'recnqSLl4mRZr8Bb66m', 'recOyhoAMM7HhQkeEfR', 'recsZEudLsqPhuXRaNe', 'recon3iCvuEuAeKK2Sw', 'recUNWRHBHFiaufnWWt', 'recmXvlrrEfMM38Ptvy', 'rec7qJIY9trCqLg7LXn', 'recgO2l6THKH0YHbqDO', 'recH8xOomkNwq8jbKuF', 'recSVi2FcmP1LYnJTGS', 'reckn4c8yeKxvy4LDLw', 'recIW1ytUZDBZmHVd6x', 'recrSn9vobBpaAd2NwH', 'recZ9wU9LnTpI1xJBe8', 'recamxHXgILut3Wr2Il', 'recRFWVTMnBOZZsIwuM', 'recZKb7k8GppdTyu0O0', 'recBArjLn5tt9SSnLl3', 'recu8PUo3LouYF3zn8M', 'recKpui4m8…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "666f442447df5ae9",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778860000,
+      "durationUs": 2942,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ff741a027567defd",
+      "parentId": "666f442447df5ae9",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778860594,
+      "durationUs": 2488,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d2bd66b1a5ce7404",
+      "parentId": "ff741a027567defd",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778860934,
+      "durationUs": 862,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "e7e693930e6ff280",
+      "parentId": "ff741a027567defd",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778861851,
+      "durationUs": 1152,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "7945ee50b237410a",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778863000,
+      "durationUs": 899,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8924f11e01ce703d",
+      "parentId": "7945ee50b237410a",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778863533,
+      "durationUs": 672,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f75820ff6029292d",
+      "parentId": "8924f11e01ce703d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778863732,
+      "durationUs": 449,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "8aa9267173bc1258",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778864000,
+      "durationUs": 878,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4dee6f2303b5563f",
+      "parentId": "8aa9267173bc1258",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778864488,
+      "durationUs": 498,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "19a9f614b7685c26",
+      "parentId": "4dee6f2303b5563f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778864580,
+      "durationUs": 385,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "0d87e3ee91308a7e",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778865000,
+      "durationUs": 6931,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "49cedc73364b4d34",
+      "parentId": "0d87e3ee91308a7e",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778865495,
+      "durationUs": 5980,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3c172287c5fbdb9f",
+      "parentId": "49cedc73364b4d34",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778865546,
+      "durationUs": 5487,
+      "tags": {
+        "db.query.text": "select \"__id\", \"__version\", \"__last_modified_time\", \"__last_modified_by\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" where \"__id\" in ('recaFFqdsljKwovPaRp', 'recJktY3QMAJDOLb3zw', 'recz0nKhkqQeemmuPcM', 'recwDKp8lNn2AcpM7HR', 'rec9jvU6mPJqGZ53aKV', 'rec3sYENekbZLAeyo11', 'recpd1vlsfNWpxTxePm', 'recfBHitUhxVimEWspc', 'recmqFFvzXs9x047grg', 'rec1Wx45iOJfyrzdyGR', 'recnqSLl4mRZr8Bb66m', 'recOyhoAMM7HhQkeEfR', 'recsZEudLsqPhuXRaNe', 'recon3iCvuEuAeKK2Sw', 'recUNWRHBHFiaufnWWt', 'recmXvlrrEfMM38Ptvy', 'rec7qJIY9trCqLg7LXn', 'recgO2l6THKH0YHbqDO', 'recH8xOomkNwq8jbKuF', 'recSVi2FcmP1LYnJTGS', 'reckn4c8yeKxvy4LDLw', 'recIW1ytUZDBZmHVd6x', 'recrSn9vobBpaAd2NwH', 'recZ9wU9LnTpI1xJBe8', 'recamxHXgILut3Wr2Il', 'recRFWVTMnBOZZsIwuM', 'recZKb7k8GppdTyu0O0', 'recBArjLn5tt9SSnLl3', 'recu8PUo3LouYF3zn8M', 'recKpui4m8x3RV8nNoQ', 'recymO9NfaW5zk4c7Lt', 'recI0mdDomIOAwm9wBR', 'recVjLfGMCeoN6CQEyZ', 'recVzFXGxQnLEenic2I', 'recUXB1iUCPVE6xoN1e', 'recpLXZ7drJoTO9uMGP', 'recQe955P0EfVx2Hv33', 'recuxqVIinvMh4SwfAh', 'recV7xnWdzCKPN2bUFe', 'recsxyP7ireVO7yJOtN', 'recxUt91QtTRr0osaT3', 'rectD1k8BlO8RiYWRor', 'recUJP93y0zDoK8kQNC', 'recjCfgDGEPrwL0BpyJ', 'recFT2i6Ditf1zWP7Pm', 'recwYtxcx2piWdCeZcI', 'recqnsA7e7ku9tEzFUe', 'recdM8uExQlNVvFqSaZ', 'recGSRL9DNal4GJFuUz', 'rec6eupFU9VIZcPzHrT', 'reci8SEtVc42ReDn9p1', 'recBk87t5mZTUmbnUCX', 'recIKy511MOBnEekDTi', 'recCEnoDhvuSwgUP95E', 'reckQCfbUpiylIB9VGs', 'recGlCr2Vk5kbT1jXTJ', 'recelsKKSnQUXV7ruNc', 'recE89zT4BYOl6b9N7o', 'recC8Msv0IDh1BJ8S6m', 'rec1hAmHgEkrJ9eGCbS', 'recjbtUeG5bGeWMmW4s', 'rec857vTA6Fu4Mv3g8v', 'rec3qfgQLmQJtd4nqrZ', 'recNnp3WY40dLyUXJSC', 'recSIuVBVdGqB4yjL4w', 'recOltt6ee8xw8mpL1E', 'recKr3rHItEeOnxo4d6', 'recHygoMhtwLxm5fojN', 'recnUKD98VW0qUjE5sO', 'recfYRG8ZR6fuHhAfh3', 'recD6IKuh9YDpyupisP', 'reciC8kWBRReiTJ1cWX', 'rectiX6VhaU7vV24nde', 'recRqS5Ol8y16BgP3Y2', 'recLUmYPWIRrCa2OKBA', 'recq97N8XRDQqseVxMv', 'recpOqdvRbX5ihg2o3K', 'recg0abGIWw9KeWQUFo', 'recEMOVY9oXgKMrlZ8v', 'recusWqm3vq5sCuRA4h', 'recwPY4gWwPrwrOn6bh', 'recPPsLnF2FiI8zUzlY', 'rec4Jr9…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2654e19695308d29",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.executeUpdateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778874000,
+      "durationUs": 23343,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "1d6c678304f6a8f9",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778876000,
+      "durationUs": 1592,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "47facbd4e14f156f",
+      "parentId": "1d6c678304f6a8f9",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778876788,
+      "durationUs": 1268,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9de802768768edf7",
+      "parentId": "47facbd4e14f156f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778877065,
+      "durationUs": 605,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "fe45a6e03cad57ea",
+      "parentId": "47facbd4e14f156f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778877716,
+      "durationUs": 292,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "20080b4cf2914c8a",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778878000,
+      "durationUs": 784,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ba48a4827c44fd96",
+      "parentId": "20080b4cf2914c8a",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778878374,
+      "durationUs": 589,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "a6518ac029663fe6",
+      "parentId": "ba48a4827c44fd96",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778878573,
+      "durationUs": 365,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9a49e2bacf0d088f",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778879000,
+      "durationUs": 1162,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "6f87fd88d3804495",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778879000,
+      "durationUs": 784,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f9688d5f510fad73",
+      "parentId": "6f87fd88d3804495",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778879185,
+      "durationUs": 580,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f9bbe6d22d6eb288",
+      "parentId": "f9688d5f510fad73",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778879252,
+      "durationUs": 494,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "dd3f1d85c3af5f19",
+      "parentId": "9a49e2bacf0d088f",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778880055,
+      "durationUs": 965,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d68db39088360f3a",
+      "parentId": "dd3f1d85c3af5f19",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778880095,
+      "durationUs": 915,
+      "tags": {
+        "db.query.text": "create temporary table \"temp_sbppxlkvfp\" (\"__id\" varchar(255), \"Start_Date\" timestamptz, \"Due_Date\" timestamptz, \"__version\" integer, constraint \"temp_sbppxlkvfp_pkey\" primary key (\"__id\"))",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3f9de5961b7b00d4",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778881000,
+      "durationUs": 4752,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "1e0f915dfc1e0ee5",
+      "parentId": "3f9de5961b7b00d4",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778881327,
+      "durationUs": 4256,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f31dce22c8c4c78f",
+      "parentId": "1e0f915dfc1e0ee5",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778881443,
+      "durationUs": 4128,
+      "tags": {
+        "db.query.text": "insert into \"temp_sbppxlkvfp\" (\"Due_Date\", \"Start_Date\", \"__id\", \"__version\") values ('2026-01-09T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 'recaFFqdsljKwovPaRp', 9), ('2026-01-10T00:00:00.000Z', '2026-01-03T00:00:00.000Z', 'recJktY3QMAJDOLb3zw', 9), ('2026-01-11T00:00:00.000Z', '2026-01-04T00:00:00.000Z', 'recz0nKhkqQeemmuPcM', 9), ('2026-01-12T00:00:00.000Z', '2026-01-05T00:00:00.000Z', 'recwDKp8lNn2AcpM7HR', 9), ('2026-01-13T00:00:00.000Z', '2026-01-06T00:00:00.000Z', 'rec9jvU6mPJqGZ53aKV', 9), ('2026-01-14T00:00:00.000Z', '2026-01-07T00:00:00.000Z', 'rec3sYENekbZLAeyo11', 9), ('2026-01-15T00:00:00.000Z', '2026-01-08T00:00:00.000Z', 'recpd1vlsfNWpxTxePm', 9), ('2026-01-16T00:00:00.000Z', '2026-01-09T00:00:00.000Z', 'recfBHitUhxVimEWspc', 9), ('2026-01-17T00:00:00.000Z', '2026-01-10T00:00:00.000Z', 'recmqFFvzXs9x047grg', 9), ('2026-01-18T00:00:00.000Z', '2026-01-11T00:00:00.000Z', 'rec1Wx45iOJfyrzdyGR', 9), ('2026-01-19T00:00:00.000Z', '2026-01-12T00:00:00.000Z', 'recnqSLl4mRZr8Bb66m', 9), ('2026-01-20T00:00:00.000Z', '2026-01-13T00:00:00.000Z', 'recOyhoAMM7HhQkeEfR', 9), ('2026-01-21T00:00:00.000Z', '2026-01-14T00:00:00.000Z', 'recsZEudLsqPhuXRaNe', 9), ('2026-01-22T00:00:00.000Z', '2026-01-15T00:00:00.000Z', 'recon3iCvuEuAeKK2Sw', 9), ('2026-01-23T00:00:00.000Z', '2026-01-16T00:00:00.000Z', 'recUNWRHBHFiaufnWWt', 9), ('2026-01-24T00:00:00.000Z', '2026-01-17T00:00:00.000Z', 'recmXvlrrEfMM38Ptvy', 9), ('2026-01-25T00:00:00.000Z', '2026-01-18T00:00:00.000Z', 'rec7qJIY9trCqLg7LXn', 9), ('2026-01-26T00:00:00.000Z', '2026-01-19T00:00:00.000Z', 'recgO2l6THKH0YHbqDO', 9), ('2026-01-27T00:00:00.000Z', '2026-01-20T00:00:00.000Z', 'recH8xOomkNwq8jbKuF', 9), ('2026-01-28T00:00:00.000Z', '2026-01-21T00:00:00.000Z', 'recSVi2FcmP1LYnJTGS', 9), ('2026-01-29T00:00:00.000Z', '2026-01-22T00:00:00.000Z', 'reckn4c8yeKxvy4LDLw', 9), ('2026-01-30T00:00:00.000Z', '2026-01-23T00:00:00.000Z', 'recIW1ytUZDBZmHVd6x', 9), ('2026-01-31T00:00:00.000Z', '2026-01-24T00:00:00.000Z', 'recrSn9vobBpaAd2NwH', 9), ('2026-02-01T00:00:00.000Z', '2…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "d143a7e3ae6c80bd",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778885000,
+      "durationUs": 10950,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "60901dfe48ddd20d",
+      "parentId": "d143a7e3ae6c80bd",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778886023,
+      "durationUs": 10745,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ee910b8d96d86a61",
+      "parentId": "60901dfe48ddd20d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778886052,
+      "durationUs": 10699,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"Start_Date\" = \"temp_sbppxlkvfp\".\"Start_Date\", \"Due_Date\" = \"temp_sbppxlkvfp\".\"Due_Date\", \"__version\" = \"temp_sbppxlkvfp\".\"__version\" from \"temp_sbppxlkvfp\" where \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\".\"__id\" = \"temp_sbppxlkvfp\".\"__id\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "a513549f2d77341d",
+      "parentId": "2654e19695308d29",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778896000,
+      "durationUs": 683,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "2bd584d55c8de278",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.saveRawOps",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778897000,
+      "durationUs": 197,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4da5e0ebb2e7d9ea",
+      "parentId": "a513549f2d77341d",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778897014,
+      "durationUs": 457,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d2cda65b447daa48",
+      "parentId": "4da5e0ebb2e7d9ea",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778897047,
+      "durationUs": 413,
+      "tags": {
+        "db.query.text": "drop table \"temp_sbppxlkvfp\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "78bf95317a05799f",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778898000,
+      "durationUs": 11081,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "2751f4e850e61d8d",
+      "parentId": "78bf95317a05799f",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778898464,
+      "durationUs": 10679,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "351de8851ce638f2",
+      "parentId": "2751f4e850e61d8d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778898685,
+      "durationUs": 9884,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "7cebad4c969c8b91",
+      "parentId": "2751f4e850e61d8d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778908662,
+      "durationUs": 388,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "994873222e937aba",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778909000,
+      "durationUs": 1030,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "10a08bc7c76a5425",
+      "parentId": "994873222e937aba",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778909712,
+      "durationUs": 691,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "81026cad677a7442",
+      "parentId": "10a08bc7c76a5425",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778909977,
+      "durationUs": 391,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "129e4fcbd4f25b2a",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778910000,
+      "durationUs": 795,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c176830d9d0d6629",
+      "parentId": "129e4fcbd4f25b2a",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778910739,
+      "durationUs": 551,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7c65b78da7863b99",
+      "parentId": "c176830d9d0d6629",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778910838,
+      "durationUs": 433,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "ef49d5084a1dda46",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778911000,
+      "durationUs": 6118,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "eaabf8de76fc0b54",
+      "parentId": "ef49d5084a1dda46",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778911643,
+      "durationUs": 5459,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4ad687addb0d2dce",
+      "parentId": "eaabf8de76fc0b54",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778911696,
+      "durationUs": 5030,
+      "tags": {
+        "db.query.text": "select \"__id\", \"__version\", \"__last_modified_time\", \"__last_modified_by\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" where \"__id\" in ('recriBCGav5oIh7a0os', 'receJqrSe8p5a3Wb9ab', 'recunvYQkea4HMM801r', 'recxKYSW6askDusO4tV', 'recQRSgkYmWIzSG9jpa', 'recW0pI3w3uzmX9KvYE', 'rec3hjvjJUoT4y0fvP0', 'recqNBbNJVEN3dTzO2n', 'recuKKB8cGqPh6CFIhg', 'recLxTxx3AHY06UADTR', 'recCohjmzThNLEs4nKw', 'recUyI59gD1x4nIAXMf', 'recqnJ9F4DqCWnZywbR', 'rec93aeJ8kh0AOJrx05', 'recB1GnHiRPquUQEg6l', 'recV7F0uIxHWS0UVZdG', 'recX7Lq17rJHmPjstQC', 'recdOySAob9u2Ly6aPG', 'rec9fsDBWobShUuIXvs', 'recCSW4b51ELnGNUMoH', 'recMFbaxjy7mfbU9Rce', 'recAUu7rDxcd7uSLMkz', 'recKvbe9vWUOTVGYenA', 'rec5jGKDV3BLUeQhY1f', 'reczQDoilY1QfeYxJrm', 'recPRJOTSnpYxv0lpew', 'recNjud2c8wVLfCN8Ak', 'recc4a20FWM3G59aDz0', 'rec9BTTgs6xRveRW2gM', 'recClMKbHSNYcekbGVl', 'rec87ILuB7kIgvct6Ea', 'recUtdah48GfbaJmRdd', 'receLR5Dp67pZTAVVLH', 'rec9wpkoqepYLVdmjLP', 'recTZJkix88PIvk9tGY', 'recg1pe9PWQ6V7yoITO', 'reckEw3ENbGbUrq3wNv', 'recfgDE9eb2jI0kFK9R', 'rec5Ez14myuRupVjr27', 'recjuEYHDhkghhvqaUh', 'recvmTZjgXGPg1boWU5', 'recPFMyVq5SNkA56wAD', 'rece5rb2Sie90WIMBu0', 'rec8O01MQyrcGVfaR7E', 'recvCbSJx912X8s5xwx', 'recEO8s958k6J3nYRrw', 'rec2wHvJ0mF0I8tXvbJ', 'recq7xRNv2KK2U1AQYx', 'recnGuAHVX1OrFJnNbc', 'recwrPTwVqg4U3LJWk5', 'rec7yIPnXWncTSd1u9F', 'recCpzysqkNl14BaEXh', 'recegEkGm8Ig9lPUKfx', 'recHPij9Q4YFeg5aTmD', 'recIKvirdpIeHTj9o61', 'rec3zCaDcjM87LAivFM', 'recgNCOWNPEZ2p1ekfd', 'recodY23Tb0JtrlP2m4', 'recJ6rqDZcZkQXQj6L0', 'recWKw3WNAuYKhmL9Ac', 'rec6Sxx1A88sr9vns8z', 'recstF8K9EnURNEhDA6', 'recmmyYqR8evS97oHEA', 'recIV2joGWefH9nSWjt', 'recFG1YcYeQiazWstkY', 'recPGUbansPVdu6aKH1', 'recAABFGMBzV7ySEViC', 'reccx30ravAqbyv7yP0', 'reclgdU70lz3fkXmiDt', 'rec9sHW9b4aCsd4GmUQ', 'rec00NcDPcPI2ZcJHE1', 'reci3YjrclQSMNWLUlq', 'rec9lfzUSaagN46JWpW', 'rectRBvmw8OHRvM0p1t', 'rec9snKuyPL3HsrnMJe', 'recQaXoW4HNe2MyrCMo', 'recvdggxwz8dfjmjhNw', 'recRdINzlqtPv4dkED5', 'recFW0vUf78NdjyKw17', 'reccV1zkOfo2kC832bX', 'reczapTkczStcdtdRz5', 'recO7sn4TWnscA33lPK', 'rec0cfz…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "dd539ed9f03e4b24",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.executeUpdateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778919000,
+      "durationUs": 23336,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "04b747eeaf0e5d01",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778922000,
+      "durationUs": 1562,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c7e0c457fa12f113",
+      "parentId": "04b747eeaf0e5d01",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778922631,
+      "durationUs": 1247,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8b25ed8bdb357554",
+      "parentId": "c7e0c457fa12f113",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778922820,
+      "durationUs": 662,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "31ad1a52d20a013e",
+      "parentId": "c7e0c457fa12f113",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778923520,
+      "durationUs": 317,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2a91be96358a6498",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778924000,
+      "durationUs": 677,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9322a25738a00976",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778924000,
+      "durationUs": 737,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "cf02854a6a8aada0",
+      "parentId": "9322a25738a00976",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778924212,
+      "durationUs": 538,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "14e4cd6237489492",
+      "parentId": "cf02854a6a8aada0",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778924352,
+      "durationUs": 380,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "cdeac01b774dd14c",
+      "parentId": "2a91be96358a6498",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778924980,
+      "durationUs": 506,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "88c91d5741b6c250",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778925000,
+      "durationUs": 1080,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b2d23cb0ae512ad2",
+      "parentId": "cdeac01b774dd14c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778925039,
+      "durationUs": 432,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "d0673c01fa8c95aa",
+      "parentId": "88c91d5741b6c250",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778925716,
+      "durationUs": 905,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3ee384283e168bf4",
+      "parentId": "d0673c01fa8c95aa",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778925748,
+      "durationUs": 860,
+      "tags": {
+        "db.query.text": "create temporary table \"temp_zzqwclqpzs\" (\"__id\" varchar(255), \"Start_Date\" timestamptz, \"Due_Date\" timestamptz, \"__version\" integer, constraint \"temp_zzqwclqpzs_pkey\" primary key (\"__id\"))",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "0b1701a4fb63955d",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778926000,
+      "durationUs": 3954,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "728698ea1f79f481",
+      "parentId": "0b1701a4fb63955d",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778926942,
+      "durationUs": 3399,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "1ceface26de562dc",
+      "parentId": "728698ea1f79f481",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778927044,
+      "durationUs": 3282,
+      "tags": {
+        "db.query.text": "insert into \"temp_zzqwclqpzs\" (\"Due_Date\", \"Start_Date\", \"__id\", \"__version\") values ('2026-10-06T00:00:00.000Z', '2026-09-29T00:00:00.000Z', 'recriBCGav5oIh7a0os', 9), ('2026-10-07T00:00:00.000Z', '2026-09-30T00:00:00.000Z', 'receJqrSe8p5a3Wb9ab', 9), ('2026-10-08T00:00:00.000Z', '2026-10-01T00:00:00.000Z', 'recunvYQkea4HMM801r', 9), ('2026-10-09T00:00:00.000Z', '2026-10-02T00:00:00.000Z', 'recxKYSW6askDusO4tV', 9), ('2026-10-10T00:00:00.000Z', '2026-10-03T00:00:00.000Z', 'recQRSgkYmWIzSG9jpa', 9), ('2026-10-11T00:00:00.000Z', '2026-10-04T00:00:00.000Z', 'recW0pI3w3uzmX9KvYE', 9), ('2026-10-12T00:00:00.000Z', '2026-10-05T00:00:00.000Z', 'rec3hjvjJUoT4y0fvP0', 9), ('2026-10-13T00:00:00.000Z', '2026-10-06T00:00:00.000Z', 'recqNBbNJVEN3dTzO2n', 9), ('2026-10-14T00:00:00.000Z', '2026-10-07T00:00:00.000Z', 'recuKKB8cGqPh6CFIhg', 9), ('2026-10-15T00:00:00.000Z', '2026-10-08T00:00:00.000Z', 'recLxTxx3AHY06UADTR', 9), ('2026-10-16T00:00:00.000Z', '2026-10-09T00:00:00.000Z', 'recCohjmzThNLEs4nKw', 9), ('2026-10-17T00:00:00.000Z', '2026-10-10T00:00:00.000Z', 'recUyI59gD1x4nIAXMf', 9), ('2026-10-18T00:00:00.000Z', '2026-10-11T00:00:00.000Z', 'recqnJ9F4DqCWnZywbR', 9), ('2026-10-19T00:00:00.000Z', '2026-10-12T00:00:00.000Z', 'rec93aeJ8kh0AOJrx05', 9), ('2026-10-20T00:00:00.000Z', '2026-10-13T00:00:00.000Z', 'recB1GnHiRPquUQEg6l', 9), ('2026-10-21T00:00:00.000Z', '2026-10-14T00:00:00.000Z', 'recV7F0uIxHWS0UVZdG', 9), ('2026-10-22T00:00:00.000Z', '2026-10-15T00:00:00.000Z', 'recX7Lq17rJHmPjstQC', 9), ('2026-10-23T00:00:00.000Z', '2026-10-16T00:00:00.000Z', 'recdOySAob9u2Ly6aPG', 9), ('2026-10-24T00:00:00.000Z', '2026-10-17T00:00:00.000Z', 'rec9fsDBWobShUuIXvs', 9), ('2026-10-25T00:00:00.000Z', '2026-10-18T00:00:00.000Z', 'recCSW4b51ELnGNUMoH', 9), ('2026-10-26T00:00:00.000Z', '2026-10-19T00:00:00.000Z', 'recMFbaxjy7mfbU9Rce', 9), ('2026-10-27T00:00:00.000Z', '2026-10-20T00:00:00.000Z', 'recAUu7rDxcd7uSLMkz', 9), ('2026-10-28T00:00:00.000Z', '2026-10-21T00:00:00.000Z', 'recKvbe9vWUOTVGYenA', 9), ('2026-10-29T00:00:00.000Z', '2…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "837f6644a4460bae",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778930000,
+      "durationUs": 10858,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9971dd4bc779d791",
+      "parentId": "837f6644a4460bae",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778930836,
+      "durationUs": 10623,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b48773d5337e7314",
+      "parentId": "9971dd4bc779d791",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778930864,
+      "durationUs": 10575,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"Start_Date\" = \"temp_zzqwclqpzs\".\"Start_Date\", \"Due_Date\" = \"temp_zzqwclqpzs\".\"Due_Date\", \"__version\" = \"temp_zzqwclqpzs\".\"__version\" from \"temp_zzqwclqpzs\" where \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\".\"__id\" = \"temp_zzqwclqpzs\".\"__id\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "5c495be42e642972",
+      "parentId": "dd539ed9f03e4b24",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778941000,
+      "durationUs": 775,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "06b7e39a7ea8a0d8",
+      "parentId": "5c495be42e642972",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778941761,
+      "durationUs": 546,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "dba117479a83a47f",
+      "parentId": "06b7e39a7ea8a0d8",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778941801,
+      "durationUs": 495,
+      "tags": {
+        "db.query.text": "drop table \"temp_zzqwclqpzs\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "1a68733f00850b20",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.saveRawOps",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778942000,
+      "durationUs": 119,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3153f995665f315c",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778943000,
+      "durationUs": 1388,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "1963323fc7de3f2b",
+      "parentId": "3153f995665f315c",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778943179,
+      "durationUs": 1102,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "afbd38e24104b052",
+      "parentId": "1963323fc7de3f2b",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778943396,
+      "durationUs": 497,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "49df24281d04d13f",
+      "parentId": "1963323fc7de3f2b",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778943946,
+      "durationUs": 293,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "a7d4be7561953ff2",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778944000,
+      "durationUs": 784,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fca2ff378eb79e5f",
+      "parentId": "a7d4be7561953ff2",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778944661,
+      "durationUs": 564,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "80cc99e57fb41ae3",
+      "parentId": "fca2ff378eb79e5f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778944814,
+      "durationUs": 391,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "b2a2e56911ce6358",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778945000,
+      "durationUs": 771,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "51de5642e8cf5db6",
+      "parentId": "b2a2e56911ce6358",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778945491,
+      "durationUs": 572,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "655aabc8ecf4d9e2",
+      "parentId": "51de5642e8cf5db6",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778945599,
+      "durationUs": 441,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "480745d42dc2bb77",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778946000,
+      "durationUs": 5837,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "2d543cfb82b4bfb3",
+      "parentId": "480745d42dc2bb77",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778946321,
+      "durationUs": 5184,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "bece9e222b783c2e",
+      "parentId": "2d543cfb82b4bfb3",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778946363,
+      "durationUs": 4680,
+      "tags": {
+        "db.query.text": "select \"__id\", \"__version\", \"__last_modified_time\", \"__last_modified_by\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" where \"__id\" in ('recmLc8EDGGSuSreQ0U', 'recbeUqBX5lQGvwMR41', 'recuCOcImI9JKVCHSab', 'recWdOU6ngp5VYRijh2', 'recwVLUe1koEopn1Ko1', 'recJi0TLkCWLjFhjgOU', 'recndHLDGcG4j4A2xHM', 'recOsqUFCHJlnmcZZwS', 'recq1EPJ9jLxY2AKPeg', 'rechAhgOhTn6lMblTvE', 'rec7qYltR2volo1qI8P', 'rechyeftuBhJ9Waq0A8', 'recKwAloORvBBWb8iC6', 'recfaDBr5xySTcpsDbq', 'recgG9HyifqoiNA4liT', 'recGEIb23eCMl5wXOQp', 'recadNgjsmXjqKGjU0T', 'rec7OHj068xhUXJLCkf', 'recjjvVVFnFAWY39rB3', 'recRrssffu9rx7wlREq', 'recueSSE5F86ITlaBVm', 'recOodk8968GaKUd4nf', 'recdzFUh4j9PoiRYmWZ', 'recoEuTazif7NGdMw3K', 'reclWbk60PQcoUP79cq', 'recx8Iz9srjKk2yBZi2', 'reclWUurd28b8zNgxXs', 'reccHnH1cVdPbzXY9GD', 'recbQPNyD9EkAzyatM8', 'rec2Ho85FdZx0gPkmCj', 'recQdL0ypRxmZYNRkVQ', 'recpNqtCYV5xI0phVnf', 'rec1BouYutzfKbMSeiz', 'recHInT8X4eslARSQuO', 'rec7aILdHYQl1VQ2gWI', 'rechVqJ14tEi8n0FDP9', 'recX8YSb9V0ind6FvcK', 'recrSorvVO6oC2Pfw4Y', 'recxNqPO7v4RqaPWmc4', 'recjFl8nEld03VBX1mt', 'recW6SmsTM4E64CtWEx', 'recABSyqhNK9CQ0bLcC', 'recGXUGDIkdIKduQR1S', 'rec0cOX9wJsOILaYbLx', 'rec9c1eO9UlVSkzpnNg', 'recVlzmKQ3MbxmO2tC7', 'recsaj1JZVyp4t2P52M', 'recZsuatFbmY6qVxFaI', 'rect4wrRftC4wt82l6O', 'rec3TSMmc5v7qmwbTeA', 'recINfByOyG7FGDSuY7', 'rec7XwLUktkckxLFuEi', 'recu0nT2cq0RQZfkafO', 'recqwcxPHLhtU951gFq', 'recSe3qiiYwklrrbsjR', 'recxE4Zvpox3MMZgI8U', 'recRwAJPWJxLDmWPY6K', 'recLFGgStJ2qxeBkugZ', 'recdtHFmsXBvnagl9ry', 'recCkCYu6FlDSzJxa02', 'recCOl2WG1lcbtQveQZ', 'recMYicD2O4yXZBV85S', 'rec6jqMDexDVP6W6UsA', 'recd80mse5bpmWvu4T5', 'reczME321VPxIYQSSGH', 'reccg61SjLnmYJ7dzfR', 'recSWsFNdBqThQFKKSh', 'recSPjVjnn63StIMdmO', 'recSymj79V4hdzdfXvn', 'recoVlsgKscxbXHPuIm', 'recpkCyOaxMhUw6Xx7e', 'rec0i6hgyN5FWOEg02I', 'recf9UiKucgUOpHeJji', 'rec1pqHtemqgZXCDAVl', 'recRhUwPRtygssuOEjC', 'recrwDkbc9MwtPKDZ5D', 'recFxBVge4rFytMCw8m', 'reczgv53re08if7O6Zb', 'recjC1g1HWdN3WkUiMy', 'rec1d2TlKoUyBMu8hpo', 'recqahynsp2hxDo78hl', 'recHCkDX4Q1xou79C7u', 'rec8ING…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "711b88bfcc21590b",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.executeUpdateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778953000,
+      "durationUs": 22422,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4e0afa376f99fa8d",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778956000,
+      "durationUs": 1614,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "16066559a6089a0c",
+      "parentId": "4e0afa376f99fa8d",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778956374,
+      "durationUs": 1268,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "76a7858df8807c50",
+      "parentId": "16066559a6089a0c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778956637,
+      "durationUs": 577,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "a3b2d0084c3fbe57",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778957000,
+      "durationUs": 793,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5837271c7bfeceb0",
+      "parentId": "16066559a6089a0c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778957265,
+      "durationUs": 315,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "f955ee4c363cfefc",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778958000,
+      "durationUs": 728,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5ecb0ef7327d2d49",
+      "parentId": "a3b2d0084c3fbe57",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778958003,
+      "durationUs": 593,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3d5b70a34fc8ea81",
+      "parentId": "5ecb0ef7327d2d49",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778958180,
+      "durationUs": 395,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "cf75cb26c580c79f",
+      "parentId": "f955ee4c363cfefc",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778958836,
+      "durationUs": 513,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5327e135aee8b2e5",
+      "parentId": "cf75cb26c580c79f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778958925,
+      "durationUs": 406,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "c6863e630e078ba4",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778959000,
+      "durationUs": 1076,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d637a7610755904f",
+      "parentId": "c6863e630e078ba4",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778959633,
+      "durationUs": 855,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5bdec71561362c7b",
+      "parentId": "d637a7610755904f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778959666,
+      "durationUs": 808,
+      "tags": {
+        "db.query.text": "create temporary table \"temp_trsefryupq\" (\"__id\" varchar(255), \"Start_Date\" timestamptz, \"Due_Date\" timestamptz, \"__version\" integer, constraint \"temp_trsefryupq_pkey\" primary key (\"__id\"))",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "986d29a62bc64d76",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778960000,
+      "durationUs": 4540,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4d753cc26842ab83",
+      "parentId": "986d29a62bc64d76",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778960842,
+      "durationUs": 3961,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "0f1ec8540a7398da",
+      "parentId": "4d753cc26842ab83",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778960928,
+      "durationUs": 3859,
+      "tags": {
+        "db.query.text": "insert into \"temp_trsefryupq\" (\"Due_Date\", \"Start_Date\", \"__id\", \"__version\") values ('2026-07-03T00:00:00.000Z', '2026-06-26T00:00:00.000Z', 'recmLc8EDGGSuSreQ0U', 9), ('2026-07-04T00:00:00.000Z', '2026-06-27T00:00:00.000Z', 'recbeUqBX5lQGvwMR41', 9), ('2026-07-05T00:00:00.000Z', '2026-06-28T00:00:00.000Z', 'recuCOcImI9JKVCHSab', 9), ('2026-07-06T00:00:00.000Z', '2026-06-29T00:00:00.000Z', 'recWdOU6ngp5VYRijh2', 9), ('2026-07-07T00:00:00.000Z', '2026-06-30T00:00:00.000Z', 'recwVLUe1koEopn1Ko1', 9), ('2026-07-08T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 'recJi0TLkCWLjFhjgOU', 9), ('2026-07-09T00:00:00.000Z', '2026-07-02T00:00:00.000Z', 'recndHLDGcG4j4A2xHM', 9), ('2026-07-10T00:00:00.000Z', '2026-07-03T00:00:00.000Z', 'recOsqUFCHJlnmcZZwS', 9), ('2026-07-11T00:00:00.000Z', '2026-07-04T00:00:00.000Z', 'recq1EPJ9jLxY2AKPeg', 9), ('2026-07-12T00:00:00.000Z', '2026-07-05T00:00:00.000Z', 'rechAhgOhTn6lMblTvE', 9), ('2026-07-13T00:00:00.000Z', '2026-07-06T00:00:00.000Z', 'rec7qYltR2volo1qI8P', 9), ('2026-07-14T00:00:00.000Z', '2026-07-07T00:00:00.000Z', 'rechyeftuBhJ9Waq0A8', 9), ('2026-07-15T00:00:00.000Z', '2026-07-08T00:00:00.000Z', 'recKwAloORvBBWb8iC6', 9), ('2026-07-16T00:00:00.000Z', '2026-07-09T00:00:00.000Z', 'recfaDBr5xySTcpsDbq', 9), ('2026-07-17T00:00:00.000Z', '2026-07-10T00:00:00.000Z', 'recgG9HyifqoiNA4liT', 9), ('2026-07-18T00:00:00.000Z', '2026-07-11T00:00:00.000Z', 'recGEIb23eCMl5wXOQp', 9), ('2026-07-19T00:00:00.000Z', '2026-07-12T00:00:00.000Z', 'recadNgjsmXjqKGjU0T', 9), ('2026-07-20T00:00:00.000Z', '2026-07-13T00:00:00.000Z', 'rec7OHj068xhUXJLCkf', 9), ('2026-07-21T00:00:00.000Z', '2026-07-14T00:00:00.000Z', 'recjjvVVFnFAWY39rB3', 9), ('2026-07-22T00:00:00.000Z', '2026-07-15T00:00:00.000Z', 'recRrssffu9rx7wlREq', 9), ('2026-07-23T00:00:00.000Z', '2026-07-16T00:00:00.000Z', 'recueSSE5F86ITlaBVm', 9), ('2026-07-24T00:00:00.000Z', '2026-07-17T00:00:00.000Z', 'recOodk8968GaKUd4nf', 9), ('2026-07-25T00:00:00.000Z', '2026-07-18T00:00:00.000Z', 'recdzFUh4j9PoiRYmWZ', 9), ('2026-07-26T00:00:00.000Z', '2…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "b858bb083f09c972",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778965000,
+      "durationUs": 9702,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "dc449176c25cccf2",
+      "parentId": "b858bb083f09c972",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778965338,
+      "durationUs": 9439,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9469b91431cb00cf",
+      "parentId": "dc449176c25cccf2",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778965377,
+      "durationUs": 9382,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"Start_Date\" = \"temp_trsefryupq\".\"Start_Date\", \"Due_Date\" = \"temp_trsefryupq\".\"Due_Date\", \"__version\" = \"temp_trsefryupq\".\"__version\" from \"temp_trsefryupq\" where \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\".\"__id\" = \"temp_trsefryupq\".\"__id\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "7a009500d87d2dd3",
+      "parentId": "711b88bfcc21590b",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778975000,
+      "durationUs": 975,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "21fd8d95b7f95399",
+      "parentId": "7a009500d87d2dd3",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778975103,
+      "durationUs": 747,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d93cde9e345514b5",
+      "parentId": "21fd8d95b7f95399",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778975341,
+      "durationUs": 497,
+      "tags": {
+        "db.query.text": "drop table \"temp_trsefryupq\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "74f15c4883510549",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.saveRawOps",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778976000,
+      "durationUs": 119,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "59c5ea7d1e68eb81",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778976000,
+      "durationUs": 1223,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "19783a23fc555618",
+      "parentId": "59c5ea7d1e68eb81",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778976723,
+      "durationUs": 989,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "eec6641761f7aa16",
+      "parentId": "19783a23fc555618",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778976926,
+      "durationUs": 413,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "facee58e5015a531",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778977000,
+      "durationUs": 735,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d2aa85c75369474d",
+      "parentId": "19783a23fc555618",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778977383,
+      "durationUs": 286,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "1291a3e765320aee",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778978000,
+      "durationUs": 840,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "bf55cc7c33991f3e",
+      "parentId": "facee58e5015a531",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778978020,
+      "durationUs": 503,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "b4d05670f8cbdeff",
+      "parentId": "bf55cc7c33991f3e",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778978180,
+      "durationUs": 322,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "a3967803635f3595",
+      "parentId": "1291a3e765320aee",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778978811,
+      "durationUs": 633,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "19c23031a2c7ca98",
+      "parentId": "a3967803635f3595",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778978935,
+      "durationUs": 490,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9502ab76ed13f6aa",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778979000,
+      "durationUs": 6080,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d9392232962e575c",
+      "parentId": "9502ab76ed13f6aa",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778979731,
+      "durationUs": 5398,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ff556d606b024a04",
+      "parentId": "d9392232962e575c",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778979793,
+      "durationUs": 4875,
+      "tags": {
+        "db.query.text": "select \"__id\", \"__version\", \"__last_modified_time\", \"__last_modified_by\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" where \"__id\" in ('recDFXaNxlHFuJQsqmB', 'receT8u0kBCwsUJ1nnd', 'recomROt21TUBK9rbxT', 'rec9RE8CP7HNYlPJKor', 'recZ3hDQzW3jjozNtRk', 'rec0Dm6fskaDzVGHHTG', 'recOZqiElhbAvtSeHKv', 'recOFJpnlRwvBWBl3mB', 'recBJEASovmH1YfjbrR', 'recnmavm3nFqfoUdFCE', 'recXJPZ16g8kXMvoXvW', 'rec1x0VjAQu8ZD6hI1P', 'recEXSh3YB6tv57fDeh', 'recn1VXM7RCnWLlHIC2', 'recShMHh1IHJWKbGXNl', 'recsXlrKs7b8LUiuGZC', 'recFOx0Xkb872EYOimB', 'recIxBgYNEdtsx5qBX2', 'recvCawkZKljIvqkJkt', 'recSGddGnvCjiIxbcIt', 'rec4VPmhrWNXV7CGFFn', 'recErU5kyhhgXI5uSAS', 'recnOp4UBFULOXksvP6', 'recrMgfxqkoeqA5X5N9', 'recy46m9E7H4uYRsFKy', 'rec8s8cM6MlJNWhFYkS', 'rec3nx6Bvru4WWypsRk', 'recRlIWLLN0IKrbx8zj', 'recS4h0jcPf6VfI7Ffe', 'rece795sUg2lwrbj8qZ', 'rec1RLuxeLb9z21dsEo', 'reclUrJn0bzdLrOVSAv', 'recH7aRHjZhDcETxx7F', 'recOz7YBdnvIQn5Ry5B', 'recfGRwdWDvTqSBufLW', 'recwZ8sDNCVcFTxlLXB', 'reczZldcwqW9bhR6K5J', 'recqkFItFXOYGX2VJ7D', 'recuIkOQiaEo3B24a4b', 'rec0rutoQeWJPyUFRaF', 'recA5Q9YTY86bier7gY', 'recU7iieOC2VsgVNNW5', 'recL5AsokG5OrVSUT7B', 'recKHZTxNj5Mslz4VTU', 'reciGvjHJPJUje0j23s', 'rec1GwONTgZZjajLenV', 'recEVXtpM8pihKvgogb', 'recss2ErzmU7oJKNoVw', 'recWaubIFfEKASoaSuj', 'recCaFBxelGu2tU4E1D', 'rec63TL0KBtybMTZNjJ', 'recX2oHtW9nKJ56u1v5', 'rec5SCxEYiLUteMAYqr', 'recWJe28IFALVs3aNpk', 'recjTc8gs7bGw6IatCi', 'recg9UUGu5ePGlf78zX', 'recvOutf9Zzv22m2VEc', 'recmX8U5fQZ8ar6q4kI', 'recuIgysSWfAINGo4Jn', 'recMrMLp0ZMEk3SWXuu', 'reclw14h3WiSToLs2w4', 'recUMe02XnmLO4DlzIu', 'rec6mkY6OC7MOx5fox2', 'recXWqLg2sbIcUVZIEf', 'recT0TZInpU1TbX9QlS', 'recK00cokt3Qd0tgpZg', 'recOT3tFwgZ2PbWSF9R', 'recmi5dPBGMwnwU5aCK', 'recWdeyNQizNU6NzFJh', 'recnUOgWkKS46xjqd72', 'reco5dsR0zC1CFCSht9', 'rec00edWWDS5ao94AlH', 'rec6iBo00nIf6Iqivyv', 'recl6h7GUsIdWl7KaJ6', 'recPTCEAexV7ZFEwkd3', 'rec66iMgFiWAurhOtu4', 'recANKUpjAoXTKhIzG7', 'recE6COw6BUxpMgCxMO', 'recW4DOttlpBZACzCiP', 'recNU135WzVCbv3UadZ', 'reccYCprObLwrFq91H4', 'recMk1TGj6cn1BPu52g', 'recYdAu…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "35ae61af358b0879",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.executeUpdateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778987000,
+      "durationUs": 23198,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d1b235c90cdd163d",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778989000,
+      "durationUs": 1766,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f8e99a08501301f6",
+      "parentId": "d1b235c90cdd163d",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778989763,
+      "durationUs": 1395,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f08d1cb0ae2dde1d",
+      "parentId": "f8e99a08501301f6",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778990033,
+      "durationUs": 699,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "e8a478bc9e91e286",
+      "parentId": "f8e99a08501301f6",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778990782,
+      "durationUs": 314,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3e261435b57e365c",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778991000,
+      "durationUs": 867,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "191ea443b53c5ac8",
+      "parentId": "3e261435b57e365c",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778991578,
+      "durationUs": 628,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "597d69ea0db8c1c3",
+      "parentId": "191ea443b53c5ac8",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778991793,
+      "durationUs": 390,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "130726621189762b",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778992000,
+      "durationUs": 815,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fdba4593474759ed",
+      "parentId": "130726621189762b",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778992502,
+      "durationUs": 590,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "745a372cd7fee376",
+      "parentId": "fdba4593474759ed",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778992584,
+      "durationUs": 488,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "45e9952b7ec84a82",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778993000,
+      "durationUs": 1181,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "788fae681bac1e4e",
+      "parentId": "45e9952b7ec84a82",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778993396,
+      "durationUs": 925,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "857911a161af9bfe",
+      "parentId": "788fae681bac1e4e",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778993453,
+      "durationUs": 855,
+      "tags": {
+        "db.query.text": "create temporary table \"temp_ociywpylvu\" (\"__id\" varchar(255), \"Start_Date\" timestamptz, \"Due_Date\" timestamptz, \"__version\" integer, constraint \"temp_ociywpylvu_pkey\" primary key (\"__id\"))",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "60e15c562757c2c8",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778994000,
+      "durationUs": 4287,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "252be932bd0735a9",
+      "parentId": "60e15c562757c2c8",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778994740,
+      "durationUs": 3680,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8a26ee24f8a1739f",
+      "parentId": "252be932bd0735a9",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778994833,
+      "durationUs": 3552,
+      "tags": {
+        "db.query.text": "insert into \"temp_ociywpylvu\" (\"Due_Date\", \"Start_Date\", \"__id\", \"__version\") values ('2026-03-30T00:00:00.000Z', '2026-03-23T00:00:00.000Z', 'recDFXaNxlHFuJQsqmB', 9), ('2026-03-31T00:00:00.000Z', '2026-03-24T00:00:00.000Z', 'receT8u0kBCwsUJ1nnd', 9), ('2026-04-01T00:00:00.000Z', '2026-03-25T00:00:00.000Z', 'recomROt21TUBK9rbxT', 9), ('2026-04-02T00:00:00.000Z', '2026-03-26T00:00:00.000Z', 'rec9RE8CP7HNYlPJKor', 9), ('2026-04-03T00:00:00.000Z', '2026-03-27T00:00:00.000Z', 'recZ3hDQzW3jjozNtRk', 9), ('2026-04-04T00:00:00.000Z', '2026-03-28T00:00:00.000Z', 'rec0Dm6fskaDzVGHHTG', 9), ('2026-04-05T00:00:00.000Z', '2026-03-29T00:00:00.000Z', 'recOZqiElhbAvtSeHKv', 9), ('2026-04-06T00:00:00.000Z', '2026-03-30T00:00:00.000Z', 'recOFJpnlRwvBWBl3mB', 9), ('2026-04-07T00:00:00.000Z', '2026-03-31T00:00:00.000Z', 'recBJEASovmH1YfjbrR', 9), ('2026-04-08T00:00:00.000Z', '2026-04-01T00:00:00.000Z', 'recnmavm3nFqfoUdFCE', 9), ('2026-04-09T00:00:00.000Z', '2026-04-02T00:00:00.000Z', 'recXJPZ16g8kXMvoXvW', 9), ('2026-04-10T00:00:00.000Z', '2026-04-03T00:00:00.000Z', 'rec1x0VjAQu8ZD6hI1P', 9), ('2026-04-11T00:00:00.000Z', '2026-04-04T00:00:00.000Z', 'recEXSh3YB6tv57fDeh', 9), ('2026-04-12T00:00:00.000Z', '2026-04-05T00:00:00.000Z', 'recn1VXM7RCnWLlHIC2', 9), ('2026-04-13T00:00:00.000Z', '2026-04-06T00:00:00.000Z', 'recShMHh1IHJWKbGXNl', 9), ('2026-04-14T00:00:00.000Z', '2026-04-07T00:00:00.000Z', 'recsXlrKs7b8LUiuGZC', 9), ('2026-04-15T00:00:00.000Z', '2026-04-08T00:00:00.000Z', 'recFOx0Xkb872EYOimB', 9), ('2026-04-16T00:00:00.000Z', '2026-04-09T00:00:00.000Z', 'recIxBgYNEdtsx5qBX2', 9), ('2026-04-17T00:00:00.000Z', '2026-04-10T00:00:00.000Z', 'recvCawkZKljIvqkJkt', 9), ('2026-04-18T00:00:00.000Z', '2026-04-11T00:00:00.000Z', 'recSGddGnvCjiIxbcIt', 9), ('2026-04-19T00:00:00.000Z', '2026-04-12T00:00:00.000Z', 'rec4VPmhrWNXV7CGFFn', 9), ('2026-04-20T00:00:00.000Z', '2026-04-13T00:00:00.000Z', 'recErU5kyhhgXI5uSAS', 9), ('2026-04-21T00:00:00.000Z', '2026-04-14T00:00:00.000Z', 'recnOp4UBFULOXksvP6', 9), ('2026-04-22T00:00:00.000Z', '2…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "362f29722ea5a4e6",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778998000,
+      "durationUs": 10458,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d7359f68e8fe50f2",
+      "parentId": "362f29722ea5a4e6",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778999001,
+      "durationUs": 10100,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f78741902f738e60",
+      "parentId": "d7359f68e8fe50f2",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872778999043,
+      "durationUs": 10037,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"Start_Date\" = \"temp_ociywpylvu\".\"Start_Date\", \"Due_Date\" = \"temp_ociywpylvu\".\"Due_Date\", \"__version\" = \"temp_ociywpylvu\".\"__version\" from \"temp_ociywpylvu\" where \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\".\"__id\" = \"temp_ociywpylvu\".\"__id\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "cb033723ec095783",
+      "parentId": "35ae61af358b0879",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779009000,
+      "durationUs": 987,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "4fa04be4613603fd",
+      "parentId": "cb033723ec095783",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779009606,
+      "durationUs": 694,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d7c295f2ee6a32b1",
+      "parentId": "4fa04be4613603fd",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779009666,
+      "durationUs": 619,
+      "tags": {
+        "db.query.text": "drop table \"temp_ociywpylvu\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "49e522dc075655ef",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.saveRawOps",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779010000,
+      "durationUs": 128,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e7d009be347d0b8a",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779011000,
+      "durationUs": 1509,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9a64e62b7c336364",
+      "parentId": "e7d009be347d0b8a",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779011224,
+      "durationUs": 1206,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "64a04505a8611161",
+      "parentId": "9a64e62b7c336364",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779011469,
+      "durationUs": 532,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "d6715c07fb2ec1db",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779012000,
+      "durationUs": 830,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "72faf54f4e63591e",
+      "parentId": "9a64e62b7c336364",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779012064,
+      "durationUs": 287,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "08df7df110463d93",
+      "parentId": "d6715c07fb2ec1db",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779012800,
+      "durationUs": 595,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e3014ff75664654a",
+      "parentId": "08df7df110463d93",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779012986,
+      "durationUs": 383,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "fd884f95c46da1c4",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779013000,
+      "durationUs": 734,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d83b6b7a0ef82348",
+      "parentId": "fd884f95c46da1c4",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779013669,
+      "durationUs": 533,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8ec0ec09f64f47ab",
+      "parentId": "d83b6b7a0ef82348",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779013768,
+      "durationUs": 415,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "02bd443183bf88ff",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779014000,
+      "durationUs": 6826,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "106bf41f32bb7fc5",
+      "parentId": "02bd443183bf88ff",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779014534,
+      "durationUs": 6020,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e321db8395d6b088",
+      "parentId": "106bf41f32bb7fc5",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779014587,
+      "durationUs": 5379,
+      "tags": {
+        "db.query.text": "select \"__id\", \"__version\", \"__last_modified_time\", \"__last_modified_by\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" where \"__id\" in ('rec1frh1KpCSRpmRNzi', 'recCeefW77OoIvqcrZK', 'recy0DI0H9NcfArtojF', 'recAsPQARAEiprZ8OVu', 'rec1zRvCbLHSaN8og60', 'recwCOln6iF7t1JWpby', 'recaYWSOo18qReBKpQW', 'recVOye97RT3LSVwkNR', 'rechxwO5ulj68vXMcW8', 'rec0MOaWLhw3zKNVKRk', 'rec7fkXsIP9FdMk5HAz', 'recDOnd1ZYfSOYXcSjz', 'rec8JNkvKLEdS7Ob8yC', 'recBN6eGfAwokffRUAe', 'recXPoANCVOgUVbPIwQ', 'rec0pUrBnsfeWPZ5aoi', 'rec8c1AREiwtQmYn07P', 'rec2cXFX4vN4c4YOMJd', 'recjug6c8djM8Ez2pZ0', 'recramBByEdriTTkgu1', 'reckbkxtkZGCi1a8FcA', 'reccqQczfzTTi6rXZBE', 'recHGPIJP6kJgJLMqpn', 'recCD2O06XCUzrIQVqm', 'recSClXg4c9IzOjNOwL', 'rec6zZiUHqTsjGllAmF', 'recL1K2d5qHQxIM1Fmw', 'recGfXaC2HGWML9g02M', 'recLp6DtOwRF17gjTxw', 'recFGOra0CZotIG1kSY', 'recC2gyx3Am6qeptj4q', 'recMeFvSq3TaaMhbRi1', 'recoCKNlfkPvNk2J09h', 'recEvEC4buhaZfmj581', 'recATA8sdugcOjC4kOV', 'recpGCtBxvwaSd7LVQs', 'recm2CjLKNIvjeXPkRn', 'reczek1Tz2GxACl7VJI', 'recSyG3vgaduXDS1Q5T', 'recRozBxxQx6DgHCqy7', 'recIF1f1xIYXCe4bLKV', 'recUapLfDdQAindMEMe', 'recUSiUyLTIYuQIBINR', 'rec4FUhmxkTRpHxKYJ0', 'rec0jNYS80Te5HXRG62', 'rec1m9PIigM3ibZXZZI', 'recrPynrB7V8WZNq9LC', 'recY8OXKgG68XYDgEhW', 'recJ3LPrcLI6Mc8fA9w', 'recHRDPQoM6G838M3kS', 'recVq4286uDJtHa4zo7', 'recOQThAzSllMEiUaAP', 'recOBD1UmBsRktfi2z1', 'recfSPc3PmF8Ssq7198', 'recT421pi1JjH8Jqk7E', 'reca8M2ULLsFm2JoaXe', 'recshGGgZK4pKM5SB0X', 'recvuORwGPWQDa7rA47', 'recBTxBL9knoGW6pdPd', 'recne5nPFVYeLSX7gdQ', 'recbqxPA5sdiavps4vl', 'rec58nUBqT792zDAVXc', 'recmNput88K5zqx5sdj', 'recRzwo6ysTPqKnzLZv', 'recRJUsxncLYlNfO2P0', 'recpy89f5eN8bIKa7ue', 'recYqEiCEt0K7MbOKsS', 'recXF5wwKdhABNSgxHZ', 'recC2tYGDep53LadCtR', 'recE0SGXD7bVWEXFqS6', 'recLuaQrpoWymDoXrZH', 'recN7aUzU5bMju6apfp', 'recYiG9vNSX3O5Zfgwi', 'recGtv9weNHkLSkUQD3', 'recFAdBOhjXJV7B46EM', 'rec0rahfdPgf9Edt91D', 'rectwlb3jNjo6uAIEi5', 'rec7rmHdxKTO4MdPnlE', 'recv4C4L7m9fj0aMoZH', 'reckEdyA46m2OSg9NNe', 'rechDEOYmzNN2Pbo4b5', 'recIprLCUv7CDgc87xy', 'recWpGM…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "fb1b391b64451ea4",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.executeUpdateRecords",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779022000,
+      "durationUs": 23552,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c53fc90629155853",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779025000,
+      "durationUs": 2010,
+      "tags": {
+        "method": "findUnique",
+        "model": "TableMeta",
+        "name": "TableMeta.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8fde7a8fdd80ccfe",
+      "parentId": "c53fc90629155853",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779025438,
+      "durationUs": 1590,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7e81f659cde3a4dd",
+      "parentId": "8fde7a8fdd80ccfe",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779025701,
+      "durationUs": 817,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"base_id\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "67ca463534596ad9",
+      "parentId": "8fde7a8fdd80ccfe",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779026586,
+      "durationUs": 368,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"base\".\"id\", \"public\".\"base\".\"space_id\" FROM \"public\".\"base\" WHERE \"public\".\"base\".\"id\" IN ($1) OFFSET $2",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "1b159d18a6dfc130",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779027000,
+      "durationUs": 1149,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5ed8c73ec8114858",
+      "parentId": "1b159d18a6dfc130",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779027499,
+      "durationUs": 773,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8abfea38439caa02",
+      "parentId": "5ed8c73ec8114858",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779027730,
+      "durationUs": 504,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"space_id\", \"public\".\"space_data_db_binding\".\"data_db_connection_id\", \"public\".\"space_data_db_binding\".\"mode\"::text, \"public\".\"space_data_db_binding\".\"state\"::text, \"public\".\"space_data_db_binding\".\"created_by\", \"public\".\"space_data_db_binding\".\"created_time\", \"public\".\"space_data_db_binding\".\"last_modified_time\", \"public\".\"space_data_db_binding\".\"last_history_flushed_at\", \"public\".\"space_data_db_binding\".\"last_removal_flushed_at\" FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9c70b27d6e5802d7",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779028000,
+      "durationUs": 968,
+      "tags": {
+        "method": "findUnique",
+        "model": "SpaceDataDbBinding",
+        "name": "SpaceDataDbBinding.findUnique",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "5267ea0df422fea9",
+      "parentId": "9c70b27d6e5802d7",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779028694,
+      "durationUs": 668,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ec596cbd6c8cdd41",
+      "parentId": "5267ea0df422fea9",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779028806,
+      "durationUs": 529,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"space_data_db_binding\".\"id\", \"public\".\"space_data_db_binding\".\"mode\"::text FROM \"public\".\"space_data_db_binding\" WHERE (\"public\".\"space_data_db_binding\".\"space_id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "79e89a343c092994",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779029000,
+      "durationUs": 1211,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "0f4958829ed7c783",
+      "parentId": "79e89a343c092994",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779029739,
+      "durationUs": 978,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "e79622ec87a605fd",
+      "parentId": "0f4958829ed7c783",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779029777,
+      "durationUs": 923,
+      "tags": {
+        "db.query.text": "create temporary table \"temp_rqhtampyus\" (\"__id\" varchar(255), \"Start_Date\" timestamptz, \"Due_Date\" timestamptz, \"__version\" integer, constraint \"temp_rqhtampyus_pkey\" primary key (\"__id\"))",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "9e6187ee867b8395",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779030000,
+      "durationUs": 4383,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "246afc834f257f7b",
+      "parentId": "9e6187ee867b8395",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779031066,
+      "durationUs": 3748,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "c679c15a9ce2a62b",
+      "parentId": "246afc834f257f7b",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779031150,
+      "durationUs": 3637,
+      "tags": {
+        "db.query.text": "insert into \"temp_rqhtampyus\" (\"Due_Date\", \"Start_Date\", \"__id\", \"__version\") values ('2026-12-25T00:00:00.000Z', '2026-12-18T00:00:00.000Z', 'rec1frh1KpCSRpmRNzi', 9), ('2026-12-26T00:00:00.000Z', '2026-12-19T00:00:00.000Z', 'recCeefW77OoIvqcrZK', 9), ('2026-12-27T00:00:00.000Z', '2026-12-20T00:00:00.000Z', 'recy0DI0H9NcfArtojF', 9), ('2026-12-28T00:00:00.000Z', '2026-12-21T00:00:00.000Z', 'recAsPQARAEiprZ8OVu', 9), ('2026-12-29T00:00:00.000Z', '2026-12-22T00:00:00.000Z', 'rec1zRvCbLHSaN8og60', 9), ('2026-12-30T00:00:00.000Z', '2026-12-23T00:00:00.000Z', 'recwCOln6iF7t1JWpby', 9), ('2026-12-31T00:00:00.000Z', '2026-12-24T00:00:00.000Z', 'recaYWSOo18qReBKpQW', 9), ('2027-01-01T00:00:00.000Z', '2026-12-25T00:00:00.000Z', 'recVOye97RT3LSVwkNR', 9), ('2027-01-02T00:00:00.000Z', '2026-12-26T00:00:00.000Z', 'rechxwO5ulj68vXMcW8', 9), ('2027-01-03T00:00:00.000Z', '2026-12-27T00:00:00.000Z', 'rec0MOaWLhw3zKNVKRk', 9), ('2027-01-04T00:00:00.000Z', '2026-12-28T00:00:00.000Z', 'rec7fkXsIP9FdMk5HAz', 9), ('2027-01-05T00:00:00.000Z', '2026-12-29T00:00:00.000Z', 'recDOnd1ZYfSOYXcSjz', 9), ('2027-01-06T00:00:00.000Z', '2026-12-30T00:00:00.000Z', 'rec8JNkvKLEdS7Ob8yC', 9), ('2027-01-07T00:00:00.000Z', '2026-12-31T00:00:00.000Z', 'recBN6eGfAwokffRUAe', 9), ('2027-01-08T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 'recXPoANCVOgUVbPIwQ', 9), ('2026-01-09T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 'rec0pUrBnsfeWPZ5aoi', 9), ('2026-01-10T00:00:00.000Z', '2026-01-03T00:00:00.000Z', 'rec8c1AREiwtQmYn07P', 9), ('2026-01-11T00:00:00.000Z', '2026-01-04T00:00:00.000Z', 'rec2cXFX4vN4c4YOMJd', 9), ('2026-01-12T00:00:00.000Z', '2026-01-05T00:00:00.000Z', 'recjug6c8djM8Ez2pZ0', 9), ('2026-01-13T00:00:00.000Z', '2026-01-06T00:00:00.000Z', 'recramBByEdriTTkgu1', 9), ('2026-01-14T00:00:00.000Z', '2026-01-07T00:00:00.000Z', 'reckbkxtkZGCi1a8FcA', 9), ('2026-01-15T00:00:00.000Z', '2026-01-08T00:00:00.000Z', 'reccqQczfzTTi6rXZBE', 9), ('2026-01-16T00:00:00.000Z', '2026-01-09T00:00:00.000Z', 'recHGPIJP6kJgJLMqpn', 9), ('2026-01-17T00:00:00.000Z', '2…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "05dfe05a0c5cb037",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779035000,
+      "durationUs": 9940,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "84748d616abf806d",
+      "parentId": "05dfe05a0c5cb037",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779035496,
+      "durationUs": 9526,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "d7fc6c72f4d22e93",
+      "parentId": "84748d616abf806d",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779035557,
+      "durationUs": 9431,
+      "tags": {
+        "db.query.text": "update \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" set \"Start_Date\" = \"temp_rqhtampyus\".\"Start_Date\", \"Due_Date\" = \"temp_rqhtampyus\".\"Due_Date\", \"__version\" = \"temp_rqhtampyus\".\"__version\" from \"temp_rqhtampyus\" where \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\".\"__id\" = \"temp_rqhtampyus\".\"__id\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "fbe14850dd69ef11",
+      "parentId": "fb1b391b64451ea4",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779045000,
+      "durationUs": 1015,
+      "tags": {
+        "method": "executeRaw",
+        "name": "executeRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fcd5d621410fa12e",
+      "parentId": "fbe14850dd69ef11",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779045537,
+      "durationUs": 695,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "669a8fb66fea7090",
+      "parentId": "fcd5d621410fa12e",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779045601,
+      "durationUs": 620,
+      "tags": {
+        "db.query.text": "drop table \"temp_rqhtampyus\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "88768b03178abc7e",
+      "parentId": "fe9072adda6fe8a4",
+      "name": "BatchService.saveRawOps",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779046000,
+      "durationUs": 125,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "7558dfd5c20f278c",
+      "parentId": "eeb4b32571173323",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779047161,
+      "durationUs": 1792,
+      "tags": {
+        "db.query.text": "COMMIT",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "bfa43a57413f219e",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "ShareDbService.updateTableMetaByRawOpMap",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779049000,
+      "durationUs": 22943,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "0f8a37795742422c",
+      "parentId": "bfa43a57413f219e",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779049000,
+      "durationUs": 22823,
+      "tags": {
+        "method": "updateMany",
+        "model": "TableMeta",
+        "name": "TableMeta.updateMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "713854a33affdcf2",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779050000,
+      "durationUs": 17889,
+      "tags": {
+        "method": "findUniqueOrThrow",
+        "model": "TableMeta",
+        "name": "TableMeta.findUniqueOrThrow",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "140e034f4739cc22",
+      "parentId": "0f8a37795742422c",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779050187,
+      "durationUs": 21664,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "2b4e0e5fdcd246e5",
+      "parentId": "713854a33affdcf2",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779050284,
+      "durationUs": 17266,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "10256b21238669a6",
+      "parentId": "2b4e0e5fdcd246e5",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779050534,
+      "durationUs": 16908,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"table_meta\".\"id\", \"public\".\"table_meta\".\"db_table_name\" FROM \"public\".\"table_meta\" WHERE (\"public\".\"table_meta\".\"id\" = $1 AND 1=1) LIMIT $2 OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "5128e9a40ceb0633",
+      "parentId": "140e034f4739cc22",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779067179,
+      "durationUs": 3253,
+      "tags": {
+        "db.query.text": "BEGIN",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "f733a0229cd1e0e3",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "MetaAncestryCache.get",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779069000,
+      "durationUs": 17,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal",
+        "teable.cache.enabled": "true",
+        "teable.cache.hit": "true",
+        "teable.meta.model": "table",
+        "teable.meta.operation": "findUnique",
+        "teable.meta.resource_id": "tblLlou6jLZzYos3axs"
+      }
+    },
+    {
+      "id": "12b3fcf2af54dc42",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779070000,
+      "durationUs": 235885,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "cd70e9e263050e41",
+      "parentId": "12b3fcf2af54dc42",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779070444,
+      "durationUs": 224483,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "48c8e5181f09c373",
+      "parentId": "140e034f4739cc22",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779070513,
+      "durationUs": 717,
+      "tags": {
+        "db.query.text": "UPDATE \"public\".\"table_meta\" SET \"last_modified_time\" = $1 WHERE \"public\".\"table_meta\".\"id\" IN ($2,$3,$4,$5,$6)",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3fe5ce18e845e426",
+      "parentId": "cd70e9e263050e41",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779070668,
+      "durationUs": 203736,
+      "tags": {
+        "db.query.text": "select \"t_tblLlou6jLZzYos3axs\".\"__id\", \"t_tblLlou6jLZzYos3axs\".\"__version\", \"t_tblLlou6jLZzYos3axs\".\"__auto_number\", \"t_tblLlou6jLZzYos3axs\".\"__created_time\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_time\", \"t_tblLlou6jLZzYos3axs\".\"__created_by\", \"t_tblLlou6jLZzYos3axs\".\"__last_modified_by\", \"t_tblLlou6jLZzYos3axs\".\"Title\" as \"Title\", \"t_tblLlou6jLZzYos3axs\".\"Description\" as \"Description\", \"t_tblLlou6jLZzYos3axs\".\"Status\" as \"Status\", \"t_tblLlou6jLZzYos3axs\".\"Priority\" as \"Priority\", \"t_tblLlou6jLZzYos3axs\".\"Tags\" as \"Tags\", \"t_tblLlou6jLZzYos3axs\".\"Amount\" as \"Amount\", \"t_tblLlou6jLZzYos3axs\".\"Quantity\" as \"Quantity\", \"t_tblLlou6jLZzYos3axs\".\"Start_Date\" as \"Start_Date\", \"t_tblLlou6jLZzYos3axs\".\"Due_Date\" as \"Due_Date\", \"t_tblLlou6jLZzYos3axs\".\"Active\" as \"Active\", \"t_tblLlou6jLZzYos3axs\".\"Score\" as \"Score\", \"t_tblLlou6jLZzYos3axs\".\"Owner_Text\" as \"Owner_Text\", \"t_tblLlou6jLZzYos3axs\".\"Notes\" as \"Notes\", \"t_tblLlou6jLZzYos3axs\".\"Category\" as \"Category\", \"t_tblLlou6jLZzYos3axs\".\"Labels\" as \"Labels\", \"t_tblLlou6jLZzYos3axs\".\"External_ID\" as \"External_ID\", \"t_tblLlou6jLZzYos3axs\".\"Source\" as \"Source\", \"t_tblLlou6jLZzYos3axs\".\"Percent\" as \"Percent\", \"t_tblLlou6jLZzYos3axs\".\"Approved\" as \"Approved\", \"t_tblLlou6jLZzYos3axs\".\"Comment\" as \"Comment\" from \"bseTestBaseId\".\"perf_seed_record_update_shared_mix_d4b60\" as \"t_tblLlou6jLZzYos3axs\" where \"__id\" in ('recaFFqdsljKwovPaRp', 'recJktY3QMAJDOLb3zw', 'recz0nKhkqQeemmuPcM', 'recwDKp8lNn2AcpM7HR', 'rec9jvU6mPJqGZ53aKV', 'rec3sYENekbZLAeyo11', 'recpd1vlsfNWpxTxePm', 'recfBHitUhxVimEWspc', 'recmqFFvzXs9x047grg', 'rec1Wx45iOJfyrzdyGR', 'recnqSLl4mRZr8Bb66m', 'recOyhoAMM7HhQkeEfR', 'recsZEudLsqPhuXRaNe', 'recon3iCvuEuAeKK2Sw', 'recUNWRHBHFiaufnWWt', 'recmXvlrrEfMM38Ptvy', 'rec7qJIY9trCqLg7LXn', 'recgO2l6THKH0YHbqDO', 'recH8xOomkNwq8jbKuF', 'recSVi2FcmP1LYnJTGS', 'reckn4c8yeKxvy4LDLw', 'recIW1ytUZDBZmHVd6x', 'recrSn9vobBpaAd2NwH', 'recZ9wU9LnTpI1xJBe8', 'recamxHXgILut3Wr2Il', 'recRFWVTMnBOZZsIwuM', 'recZKb7k8GppdTyu0O0', 'recBArjLn5tt9SSnLl3', 'recu8PUo3LouYF3zn8M', 'recKpui4m8…[+6144 bytes]",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "8d96b5e726000c17",
+      "parentId": "140e034f4739cc22",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779071296,
+      "durationUs": 481,
+      "tags": {
+        "db.query.text": "COMMIT",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "ead3df643ecb060f",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "ShareDbService.publishOpsMap",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779072000,
+      "durationUs": 78588,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "171a0d86cb2f2dc5",
+      "parentId": "ead3df643ecb060f",
+      "name": "RepairAttachmentOpService.getCollectionsAttachmentsContext",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779072000,
+      "durationUs": 4973,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "60a2fd79538283f0",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "EventEmitterService.ops2Event",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779150000,
+      "durationUs": 72015,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "436f11a1400f0e5a",
+      "parentId": "60a2fd79538283f0",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229000,
+      "durationUs": 33266,
+      "tags": {
+        "method": "queryRaw",
+        "name": "queryRaw",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f6d7c18b580073fa",
+      "parentId": "60a2fd79538283f0",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229000,
+      "durationUs": 34180,
+      "tags": {
+        "method": "findMany",
+        "model": "TaskReference",
+        "name": "TaskReference.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "3db8effca9feb43c",
+      "parentId": "60a2fd79538283f0",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229000,
+      "durationUs": 33456,
+      "tags": {
+        "method": "create",
+        "model": "AuditLog",
+        "name": "AuditLog.create",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "f337c21e62586a1a",
+      "parentId": "f6d7c18b580073fa",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229555,
+      "durationUs": 32570,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "9aec66799756331f",
+      "parentId": "3db8effca9feb43c",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229732,
+      "durationUs": 32569,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "ae43eb04baec3348",
+      "parentId": "f337c21e62586a1a",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229840,
+      "durationUs": 32204,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"task_reference\".\"id\", \"public\".\"task_reference\".\"from_field_id\" FROM \"public\".\"task_reference\" WHERE \"public\".\"task_reference\".\"from_field_id\" IN ($1,$2) OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "63e33c4dfc181b6d",
+      "parentId": "9aec66799756331f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229951,
+      "durationUs": 32240,
+      "tags": {
+        "db.query.text": "INSERT INTO \"public\".\"audit_log\" (\"id\",\"user_id\",\"action\",\"resource_id\",\"space_id\",\"base_id\",\"operation_id\",\"origin\",\"payload_version\",\"payload\",\"created_time\") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING \"public\".\"audit_log\".\"id\", \"public\".\"audit_log\".\"user_id\", \"public\".\"audit_log\".\"action\", \"public\".\"audit_log\".\"resource_id\", \"public\".\"audit_log\".\"space_id\", \"public\".\"audit_log\".\"base_id\", \"public\".\"audit_log\".\"operation_id\", \"public\".\"audit_log\".\"origin\", \"public\".\"audit_log\".\"payload_version\", \"public\".\"audit_log\".\"payload\", \"public\".\"audit_log\".\"created_time\"",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "2c7361459fde3b15",
+      "parentId": "436f11a1400f0e5a",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779229985,
+      "durationUs": 32140,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "8c1f86ff1c81367b",
+      "parentId": "60a2fd79538283f0",
+      "name": "prisma:client:operation",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779230000,
+      "durationUs": 33233,
+      "tags": {
+        "method": "findMany",
+        "model": "Field",
+        "name": "Field.findMany",
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "6cd0767f80211d68",
+      "parentId": "2c7361459fde3b15",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779230022,
+      "durationUs": 32068,
+      "tags": {
+        "db.query.text": "select \"tm\".\"base_id\" as \"baseId\", \"tm\".\"name\" as \"tableName\", \"f\".\"id\" as \"fieldId\", \"f\".\"name\" as \"fieldName\", \"f\".\"options\" as \"fieldOptions\" from \"table_meta\" as \"tm\" inner join \"field\" as \"f\" on \"tm\".\"id\" = \"f\".\"table_id\" and \"tm\".\"deleted_time\" is null and \"f\".\"deleted_time\" is null where \"f\".\"table_id\" = 'tblLlou6jLZzYos3axs' and \"f\".\"type\" = 'user'",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "3dd7400b1243f79f",
+      "parentId": "8c1f86ff1c81367b",
+      "name": "prisma:engine:query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779230055,
+      "durationUs": 32450,
+      "tags": {
+        "otel.scope.name": "prisma",
+        "span.kind": "internal"
+      }
+    },
+    {
+      "id": "fad7e00531187c94",
+      "parentId": "3dd7400b1243f79f",
+      "name": "prisma:engine:db_query",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779230249,
+      "durationUs": 32074,
+      "tags": {
+        "db.query.text": "SELECT \"public\".\"field\".\"id\" FROM \"public\".\"field\" WHERE (\"public\".\"field\".\"table_id\" = $1 AND \"public\".\"field\".\"type\" = $2 AND \"public\".\"field\".\"is_lookup\" IS NULL AND \"public\".\"field\".\"deleted_time\" IS NULL) OFFSET $3",
+        "db.system": "postgresql",
+        "otel.scope.name": "prisma",
+        "span.kind": "client"
+      }
+    },
+    {
+      "id": "e7abdde2fed7d88b",
+      "parentId": "b4b4e58695a1f31e",
+      "name": "RecordService.recordsPresignedUrl",
+      "service": "teable-perf-v1-shard-4-of-8-v1",
+      "startUs": 1793872779375000,
+      "durationUs": 49,
+      "tags": {
+        "otel.scope.name": "default",
+        "span.kind": "internal"
+      }
+    }
+  ],
+  "spanCount": 310,
+  "droppedSpanCount": 0,
+  "droppedTagBytes": 86016,
+  "runId": "42005739894",
+  "case": {
+    "caseId": "record-update/5k-date-fields-bulk-update",
+    "title": "Bulk update 5k rows across two date fields",
+    "engine": "v1",
+    "result": "pass",
+    "durationMs": 1115.88,
+    "stepId": "bulkUpdate5kMs",
+    "url": "http://127.0.0.1:42661/api/table/tblLlou6jLZzYos3axs/record",
+    "runUrl": "https://github.com/teableio/teable-perf-lab/actions/runs/42005739894"
+  }
+}
