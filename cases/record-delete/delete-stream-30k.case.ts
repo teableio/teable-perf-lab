@@ -3,9 +3,8 @@ import { definePerfCase } from "../../framework/types";
 
 export default definePerfCase({
   id: "record-delete/delete-stream-30k",
-  title: "Delete a 30k-row table through a durable V2 operation",
+  title: "Delete a 30k-row table through the grid selection delete stream",
   runner: "record-delete-stream",
-  expectedSkipEngines: ["v1"],
   timeoutMs: 1_200_000,
   watchdogMs: 300_000,
   config: {
@@ -19,7 +18,7 @@ export default definePerfCase({
       fullScanPageSize: 1_000,
     },
     threshold: {
-      metric: "deleteOperationTotalReady30kMs",
+      metric: "deleteStream30kMs",
       // Initial scale guardrail; tighten after local and CI history.
       maxMs: 120_000,
     },

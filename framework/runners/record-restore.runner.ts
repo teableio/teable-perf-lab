@@ -25,35 +25,22 @@ import {
 import {
   assertDeleted,
   assertRowsRestored,
-  deleteAllRowsByEngine,
   waitForRowsRestored,
   type RecordReplayFixture,
   type RecordReplayVerification,
 } from "./record-replay.shared";
-import { prepareRecordTrashFixture } from "./record-delete-stream.runner";
+import {
+  deleteAllRowsByEngineStream,
+  prepareRecordTrashFixture,
+  type DeleteStreamResult,
+} from "./record-delete-stream.runner";
 import {
   findRecordTrashItems,
   type RecordTrashLookup,
 } from "./record-trash.shared";
 
-// The delete acknowledgement `deleteAllRowsByEngine` returns: a count plus the
-// routing/trace evidence for this engine. V1 batches repeat it, so the batched
-// setup reports the summed count with the first routing and last trace.
-type DeleteRowsByEngineResult = {
-  status: number;
-  deletedCount: number;
-  routing: {
-    xTeableV2?: string;
-    xTeableV2Reason?: string;
-    xTeableV2Feature?: string;
-  };
-  trace: {
-    traceparent?: string;
-  };
-};
-
 type RestoreSetupResult = {
-  delete: DeleteRowsByEngineResult;
+  delete: DeleteStreamResult;
   deletedState: RecordReplayVerification;
   trashLookups: RecordTrashLookup[];
 };
@@ -79,58 +66,48 @@ type RestorePrimaryResult = {
 // V1's range endpoint passes every selected record id through attachment
 // cleanup in one Prisma statement. Keep each setup request below PostgreSQL's
 // 32,767 bind-variable ceiling; the restore metric still covers the complete
-// ordered set of trash items created by these requests. V2 deletes the whole
-// selection by id in one request and chunks internally.
+// ordered set of trash items created by these requests. V2 already chunks its
+// by-id stream internally.
 const V1_DELETE_SETUP_BATCH_SIZE = 25_000;
-
-// The delete response carries nothing the trash scan can use: the shared helper
-// reports counts, and a seed-cache hit hydrates seededRecords with synthetic
-// ids where only the row COUNT survives. `assertSeedReady` already pages every
-// row of this view, so it writes the id each row really holds back into
-// seededRecords; setup only reads them out before the delete, so the
-// post-delete trash scan can match the item this setup produced. Setup-only
-// work: it never runs inside the measured restore.
-const deletedRecordIdsForTrash = (fixture: RecordReplayFixture): string[] => {
-  const recordIds = fixture.seededRecords.map((record) => record.recordId);
-  const missingRow = recordIds.indexOf("");
-  if (missingRow !== -1) {
-    throw new Error(
-      `Seed-ready scan did not report a record id for row ${missingRow + 1} of table ${fixture.tableId}; the trash lookup needs the ids of the rows being deleted`,
-    );
-  }
-  return recordIds;
-};
 
 const deleteRowsForRestoreSetup = async (
   fixture: RecordReplayFixture,
-  context: Pick<PerfRunContext, "engine">,
-): Promise<DeleteRowsByEngineResult> => {
+  perfCase: PerfCase,
+  context: PerfRunContext,
+  windowId: string,
+): Promise<DeleteStreamResult> => {
   if (
     context.engine !== "v1" ||
     fixture.seededRecords.length <= V1_DELETE_SETUP_BATCH_SIZE
   ) {
-    return deleteAllRowsByEngine(fixture, context);
+    return deleteAllRowsByEngineStream(
+      fixture,
+      "deleteRecordSetup",
+      perfCase,
+      context,
+      windowId,
+    );
   }
 
-  const results: DeleteRowsByEngineResult[] = [];
-  // V1 selects rows by range, so only the COUNT of seededRecords matters here.
-  // After each batch is deleted, the next remaining rows shift back to
-  // [0, batchSize), which keeps every request a leading first range.
-  for (
-    let remaining = fixture.seededRecords.length;
-    remaining > 0;
-    remaining -= V1_DELETE_SETUP_BATCH_SIZE
-  ) {
+  const results: DeleteStreamResult[] = [];
+  let remaining = fixture.seededRecords.length;
+  while (remaining > 0) {
     const batchSize = Math.min(V1_DELETE_SETUP_BATCH_SIZE, remaining);
     results.push(
-      await deleteAllRowsByEngine(
+      await deleteAllRowsByEngineStream(
         {
           ...fixture,
+          // V1 selects rows by their current view positions. After each batch
+          // is deleted, the next remaining rows shift back to [0, batchSize).
           seededRecords: fixture.seededRecords.slice(0, batchSize),
         },
+        "deleteRecordSetup",
+        perfCase,
         context,
+        windowId,
       ),
     );
+    remaining -= batchSize;
   }
 
   const first = results[0];
@@ -139,23 +116,39 @@ const deleteRowsForRestoreSetup = async (
     throw new Error("V1 restore setup did not execute a delete batch");
   }
   return {
-    status: last.status,
+    totalCount: results.reduce((total, result) => total + result.totalCount, 0),
     deletedCount: results.reduce(
       (total, result) => total + result.deletedCount,
       0,
     ),
+    lastCommittedBatchIndex: last.lastCommittedBatchIndex,
+    progressEventCount: results.reduce(
+      (total, result) => total + result.progressEventCount,
+      0,
+    ),
+    status: last.status,
     routing: first.routing,
     trace: last.trace,
   };
 };
 
 const setupRecordTrash = async (
+  perfCase: PerfCase,
   context: PerfRunContext,
   fixture: RecordReplayFixture,
   config: RecordRestoreCaseConfig,
+  windowId: string,
 ): Promise<RestoreSetupResult> => {
-  const deletedRecordIds = deletedRecordIdsForTrash(fixture);
-  const deleteResult = await deleteRowsForRestoreSetup(fixture, context);
+  const deletedRecordIds = fixture.seededRecords.map((record) => record.recordId);
+  if (deletedRecordIds.some((recordId) => !recordId)) {
+    throw new Error("Restore setup requires seed record identities");
+  }
+  const deleteResult = await deleteRowsForRestoreSetup(
+    fixture,
+    perfCase,
+    context,
+    windowId,
+  );
   const deletedState = await assertDeleted(fixture);
   const trashLookups = await pollUntilReady(
     {
@@ -241,11 +234,12 @@ const runRestoreMeasuredOperation = async (
   context: PerfRunContext,
   fixture: RecordReplayFixture,
   config: RecordRestoreCaseConfig,
+  windowId: string,
 ): Promise<Measurement<RestorePrimaryResult>> => {
   const result: RestorePrimaryResult = {};
   try {
     result.setupMeasurement = await measureAsync("deleteRecordSetup", () =>
-      setupRecordTrash(context, fixture, config),
+      setupRecordTrash(perfCase, context, fixture, config, windowId),
     );
     result.restoreMeasurement = await measureAsync(
       config.threshold.metric,
@@ -448,17 +442,11 @@ const recordRestoreSpec: RecordMutationLifecycleSpec<
     assertRowsRestored(fixture, config, {
       verifySamples: true,
       onRecordId: (recordId, rowNumber) => {
-        // seededRecords is ordered by rowNumber in both shapes (freshly seeded
-        // and the synthetic seed-cache one), so the scan's 1-based row number
-        // is the array position.
-        const seeded = fixture.seededRecords[rowNumber - 1];
-        if (seeded) {
-          seeded.recordId = recordId;
-        }
+        fixture.seededRecords[rowNumber - 1].recordId = recordId;
       },
     }),
-  runMeasuredOperation: ({ perfCase, context, fixture, config }) =>
-    runRestoreMeasuredOperation(perfCase, context, fixture, config),
+  runMeasuredOperation: ({ perfCase, context, fixture, config, windowId }) =>
+    runRestoreMeasuredOperation(perfCase, context, fixture, config, windowId),
   buildResult: buildRecordRestoreResult,
   cleanup: cleanupRecordRestoreFixture,
 };

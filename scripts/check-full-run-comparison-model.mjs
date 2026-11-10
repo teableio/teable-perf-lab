@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
-import { loadCaseCatalog } from "./case-catalog.mjs";
 import {
   baselineKey,
   buildReleaseComparison,
@@ -124,67 +122,6 @@ assert.equal(renamed.counts.slower, 0);
 assert.equal(renamed.counts.missingBaseline, 1);
 assert.equal(renamed.counts.compared, 0);
 assert.equal(renamed.rows[0].hasBaseline, false);
-
-// The retained delete-stream case IDs now measure durable total readiness.
-// Feed the catalog's current metric into the real full-run consumer: a legacy
-// stream baseline must not invent a regression across that measurement change.
-const caseCatalog = await loadCaseCatalog(
-  fileURLToPath(new URL("..", import.meta.url)),
-);
-for (const scale of ["1k", "10k", "30k"]) {
-  const caseId = `record-delete/delete-stream-${scale}`;
-  const contract = caseCatalog.find(({ id }) => id === caseId);
-  assert.ok(contract, `${caseId} must remain in the actual case catalog`);
-  assert.equal(contract.primaryMetric, `deleteOperationTotalReady${scale}Ms`);
-  const currentPayload = payload({
-    caseId: contract.id,
-    engine: "v2",
-    metric: contract.primaryMetric,
-    actual: 5000,
-  });
-  const legacyDeleteComparison = buildReleaseComparison({
-    payloads: [currentPayload],
-    baseline: baselineOf([[caseId, "v2", 1000, `deleteStream${scale}Ms`]]),
-  });
-  assert.equal(legacyDeleteComparison.available, true);
-  assert.deepEqual(legacyDeleteComparison.counts, {
-    compared: 0,
-    slower: 0,
-    faster: 0,
-    missingBaseline: 1,
-  });
-  assert.deepEqual(legacyDeleteComparison.rows, [
-    {
-      caseId,
-      v2Value: 5000,
-      baselineV2: undefined,
-      releaseRatio: undefined,
-      tier: undefined,
-      hasBaseline: false,
-    },
-  ]);
-
-  const matchingDeleteComparison = buildReleaseComparison({
-    payloads: [currentPayload],
-    baseline: baselineOf([[caseId, "v2", 1000, contract.primaryMetric]]),
-  });
-  assert.deepEqual(matchingDeleteComparison.counts, {
-    compared: 1,
-    slower: 1,
-    faster: 0,
-    missingBaseline: 0,
-  });
-  assert.deepEqual(matchingDeleteComparison.rows, [
-    {
-      caseId,
-      v2Value: 5000,
-      baselineV2: 1000,
-      releaseRatio: 5,
-      tier: "severe",
-      hasBaseline: true,
-    },
-  ]);
-}
 
 // A skipped engine has no measurement, so it is neither a regression nor a
 // missing baseline — it simply did not run.

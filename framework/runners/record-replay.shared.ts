@@ -1,5 +1,11 @@
 import { Colors, FieldKeyType, FieldType } from "@teable/core";
-import { axios, deleteById, deleteSelection } from "@teable/openapi";
+import {
+  axios,
+  deleteById,
+  deleteSelection,
+  deleteSelectionStream,
+  RangeType,
+} from "@teable/openapi";
 import type {
   IUndoRedoStreamDoneEvent,
   IUndoRedoStreamErrorEvent,
@@ -352,6 +358,13 @@ const resolveOperationFields = (
   });
 };
 
+const buildAllRowsRange = (fixture: RecordReplayFixture) => ({
+  viewId: fixture.viewId,
+  type: RangeType.Rows,
+  ranges: [[0, fixture.seededRecords.length - 1] as [number, number]],
+  projection: fixture.projection,
+});
+
 const buildUiSelectionDeleteRange = (fixture: RecordReplayFixture) => ({
   viewId: fixture.viewId,
   ranges: [
@@ -583,6 +596,25 @@ export const prepareRecordReplayFixture = async (
     }
     throw error;
   }
+};
+
+export const deleteAllRows = async (
+  fixture: RecordReplayFixture,
+  context: PerfRunContext,
+) => {
+  const result = await deleteSelectionStream(
+    fixture.tableId,
+    buildAllRowsRange(fixture),
+    {
+      headers: getStreamHeaders(context),
+    },
+  );
+  if (result.error) {
+    throw Object.assign(new Error(result.error.message), { event: result.error });
+  }
+  expect(result.done.deletedCount).toBe(fixture.seededRecords.length);
+  expect(result.done.data.deletedCount).toBe(fixture.seededRecords.length);
+  return result;
 };
 
 export const deleteAllRowsViaSelectionDelete = async (

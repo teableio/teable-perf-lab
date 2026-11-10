@@ -21,18 +21,13 @@ identity avoids rebuilding the same source table for the restore case.
 ## Execute Phase
 
 1. Verify the shared seed through a full row-count scan and sample values.
-   Its existing `seedReady` scan uses `onRecordId` to hydrate real IDs, including
-   cache hits with synthetic IDs; there is no additional ID scan.
-2. As unmeasured `deleteRecordSetup`, require those pre-mutation IDs to be
-   nonempty, then use shared direct helper `deleteAllRowsByEngine`: V1 calls
-   `DELETE /api/table/{tableId}/selection/delete` over the grid range; V2 calls
-   `POST /api/table/{tableId}/selection/delete-by-id` with
-   `selection.excludeRecordIds: []` for the whole view (one request, internally
-   chunked). Assert the table is empty and locate matching `Record` trash
-   items whose record-id union covers the 10,000 pre-delete IDs.
+2. As unmeasured setup, delete all rows through the engine-specific selection
+   delete stream, assert the table is empty, and resolve the matching 10,000-row
+   `Record` trash items whose record-id union covers all 10,000 deleted rows.
 3. Measure the full ordered set of
    `POST /api/trash/restore/{trashId}?tableId={tableId}` requests until every
-   trash item produced by the direct setup delete has been restored.
+   trash item produced by the delete stream has been restored. V1 currently
+   emits one item; V2 may emit multiple stream-batch items.
 4. Full-scan all restored rows and verify `Title` plus `External ID` at offsets
    0, 4,999, and 9,999.
 
@@ -40,14 +35,11 @@ identity avoids rebuilding the same source table for the restore case.
 
 - `restoreRecords10kMs` (initial guardrail: 180,000 ms).
 
-Seed readiness/ID hydration, direct delete/trash-poll setup, and post-restore
-verification are diagnostics outside the primary metric and threshold.
-`details.deleteSetup` contains `status`, `deletedCount`, `routing`, and `trace`,
-not stream counters. Setup uses neither the V2-only durable-delete benchmark
-nor a delete stream route; the measured restore path is unchanged.
+Delete-to-trash setup and post-restore verification are diagnostic phases and
+do not participate in the threshold.
 
 ## Notes
 
 V2 must report `x-teable-v2-feature: createRecord`; V1 must remain on the
-legacy route. Registry order runs restore before its delete benchmark sibling
-when both share one execute database.
+legacy route. Registry order runs restore before its destructive delete-stream
+sibling when both share one execute database.

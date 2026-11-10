@@ -5,6 +5,7 @@ import {
   recordPerfTraceRefFromHeaders,
 } from "./trace-collector";
 import { pokeWatchdogActivity } from "./watchdog";
+import { readSseEvents } from "./sse-reader";
 
 // Merge the per-case watchdog signal (context.signal) with any caller-supplied
 // signal so a watchdog trip aborts the stream. Returns undefined when neither is
@@ -98,56 +99,6 @@ const buildSseRequestHeaders = (
   };
 };
 
-const parseSseLine = <T extends PerfSseEvent>(line: string): T | undefined => {
-  if (!line.startsWith("data:")) {
-    return undefined;
-  }
-
-  const jsonStr = line.slice(5).trim();
-  if (!jsonStr || jsonStr === "[DONE]") {
-    return undefined;
-  }
-
-  return JSON.parse(jsonStr) as T;
-};
-
-const readSseEvents = async <T extends PerfSseEvent>(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-): Promise<T[]> => {
-  const decoder = new TextDecoder();
-  const events: T[] = [];
-  let buffer = "";
-
-  const processLine = (line: string) => {
-    const event = parseSseLine<T>(line);
-    if (event) {
-      events.push(event);
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    // Stream bytes arrived: the server is making progress, so keep the watchdog
-    // from tripping during long-but-healthy streams.
-    pokeWatchdogActivity();
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-    lines.forEach(processLine);
-  }
-
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    processLine(buffer);
-  }
-
-  return events;
-};
-
 const parseTraceLink = (linkHeader?: string) =>
   linkHeader
     ?.split(",")
@@ -165,6 +116,9 @@ export const perfStreamSse = async <T extends PerfSseEvent>({
   body,
   signal,
   errorPrefix = "SSE stream failed",
+  onEvent,
+  collectEvents,
+  isTerminal,
 }: {
   context: PerfRunContext;
   perfCase: PerfCase;
@@ -175,6 +129,9 @@ export const perfStreamSse = async <T extends PerfSseEvent>({
   body?: BodyInit;
   signal?: AbortSignal;
   errorPrefix?: string;
+  onEvent?: (event: T) => void | Promise<void>;
+  collectEvents?: boolean;
+  isTerminal?: (event: T) => boolean;
 }): Promise<PerfSseResult<T>> => {
   const response = await fetch(url, {
     method,
@@ -211,7 +168,12 @@ export const perfStreamSse = async <T extends PerfSseEvent>({
   }
 
   return {
-    events: await readSseEvents<T>(reader),
+    events: await readSseEvents<T>(reader, {
+      onEvent,
+      collectEvents,
+      isTerminal,
+      onActivity: pokeWatchdogActivity,
+    }),
     headers: responseHeaders,
     status: response.status,
     trace: {

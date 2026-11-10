@@ -3,9 +3,8 @@ import { recordReplay10kBaseConfig } from "../../framework/runners/record-replay
 
 export default definePerfCase({
   id: "record-delete/delete-stream-1k",
-  title: "Delete a 1k-row table through a durable V2 operation",
+  title: "Delete a 1k-row table through the grid selection delete stream",
   runner: "record-delete-stream",
-  expectedSkipEngines: ["v1"],
   timeoutMs: 900_000,
   config: {
     ...recordReplay10kBaseConfig,
@@ -17,9 +16,11 @@ export default definePerfCase({
       fullScanPageSize: 1_000,
     },
     threshold: {
-      metric: "deleteOperationTotalReady1kMs",
-      // Preserve the existing numeric guardrail; this new metric identity
-      // includes durable effect readiness, unlike historical stream timings.
+      metric: "deleteStream1kMs",
+      // Tightened from a loose first guard to match the sync delete-1k sibling
+      // (also 30s) now that local runs land sub-second (v1 ~0.26s / v2 ~0.41s
+      // for the stream itself). Still ~70x over local worst case for CI noise;
+      // refine again once CI history exists.
       maxMs: 30_000,
     },
   },
