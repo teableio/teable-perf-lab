@@ -1,63 +1,1446 @@
-# Temporary issue-branch validation; restore the original workflow after collecting evidence.
 name: Teable EE e2e perf
+
 on:
+  # A nightly full run, for the ten-run shadow validation in
+  # docs/change-point-alerting-acceptance.md section G. Twenty-five full runs
+  # were dispatched by hand over two days to get the last set of evidence, two
+  # of which died on a timeout without anyone noticing — a validation that
+  # depends on someone remembering to press a button is not a validation.
+  #
+  # 01:00 UTC is 09:00 in Beijing, so the night's card is waiting when the day
+  # starts and the run measures everything the previous working day landed.
+  # Every night rather than weekdays only: a weekend run re-measures
+  # Friday's commit, which adds nothing to the mainline coverage but is still a
+  # valid paired observation of the old gate against the new system, and G1 is
+  # counted in runs. Ten qualifying runs therefore take ten nights instead of a
+  # fortnight.
+  #
+  # Worth revisiting the moment G1 is met — this cadence is sized for a
+  # validation window, not for steady state, and a full run is 25-45 minutes of
+  # active wall across 8-12 shards.
+  #
+  # Scheduled runs execute on the default branch, which is also what the shadow
+  # state needs: Actions caches are scoped to the writing branch plus the
+  # default branch, so the seen-set and the run ledger only chain when the runs
+  # share a branch.
+  schedule:
+    - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      teable_ee_ref:
+        description: Branch, tag, or commit SHA in teableio/teable-ee
+        required: false
+        default: develop
+        type: string
+      case_filter:
+        description: Perf case id, comma-separated case ids, or all
+        required: false
+        default: smoke/auth-user
+        type: string
+      samples:
+        description: Measured samples for the case
+        required: false
+        default: "10"
+        type: string
+      primary_threshold_ms:
+        description: Optional primary threshold override in milliseconds
+        required: false
+        default: ""
+        type: string
+      engine_filter:
+        description: Engine list to run, comma-separated from v1,v2
+        required: false
+        default: v1,v2
+        type: string
+      computed_update_mode:
+        description: >-
+          Optional V2 computed update mode for execute jobs (sync | hybrid).
+          Leave empty to keep the e2e default (sync). Use hybrid to exercise the
+          production outbox + polling-worker path; only run async-tolerant cases
+          with it.
+        required: false
+        default: ""
+        type: string
+      seed_cache_namespace:
+        description: >-
+          Optional isolated namespace for controlled cold/warm seed-cache
+          acceptance. Leave empty for the shared default cache.
+        required: false
+        default: ""
+        type: string
+      expected_perf_lab_sha:
+        description: >-
+          Optional exact perf-lab commit SHA guard for cold/warm acceptance.
+          The workflow fails before planning if the dispatched ref moved.
+        required: false
+        default: ""
+        type: string
+      shadow_analysis:
+        description: >-
+          Run the change point analysis on this dispatch. Off by default: it
+          reads the whole measurement history rather than this run's cases, so
+          it costs the same nine to fifteen minutes whether one case ran or all
+          282 did. The nightly scheduled run always does it, which is the
+          cadence the detection was designed for. Turn this on only to exercise
+          the analysis itself.
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: read
+  actions: write
+
+concurrency:
+  # A comma-separated case list can exceed GitHub's 256-character concurrency
+  # key limit before any job starts. Keep single-case keys descriptive and
+  # collapse multi-case runs to one bounded key per ref.
+  #
+  # Full and multi-case runs drop the ref from the key so they serialize across
+  # every branch. Two full runs on different refs used to get different keys and
+  # overlap; run 30419682175 (a branch) and run 30420101419 (main) overlapped for
+  # 24 minutes, pushed ~2000 traces at one shared Jaeger, and both blew the
+  # traceFetchJobWaitMs budget (128,805ms and 146,212ms against 120,000ms) and
+  # failed acceptance. Re-running the same branch commit alone passed 31/31.
+  #
+  # Trace collection is now job-local, so that particular contention is gone.
+  # The key stays collapsed because full runs still share one org-wide runner
+  # pool and one published trace site, and because overlapping full runs measure
+  # each other's noise. Queueing is strictly better than two runs corrupting
+  # each other's measurements.
+  #
+  # Single-case runs stay keyed per ref: they publish few traces and are meant
+  # to be runnable in parallel while iterating.
+  #
+  # A scheduled run is always a full run, so it takes the full-run key. Left to
+  # `inputs.case_filter` it would read as empty here — `inputs` is null on
+  # `schedule` — and land on the per-ref single-case key, which is the one
+  # arrangement that lets two full runs overlap and measure each other's noise.
+  group: >-
+    ${{
+      (github.event_name == 'schedule'
+        || inputs.case_filter == 'all'
+        || contains(inputs.case_filter, ','))
+        && 'teable-ee-e2e-perf-full-run-shared-observability'
+        || format('teable-ee-e2e-perf-{0}-{1}', github.ref, inputs.case_filter)
+    }}
+  cancel-in-progress: false
+
+env:
+  NODE_ENV: test
+  PRISMA_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
+  PRISMA_META_DATABASE_URL: "postgresql://teable:teable@127.0.0.1:25432/e2e_test_teable?schema=public&statement_cache_size=0&connection_limit=20"
+  PRISMA_TRANSACTION_TIMEOUT: "30000"
+  BACKEND_CACHE_PROVIDER: redis
+  BACKEND_CACHE_REDIS_URI: "redis://default:teable@127.0.0.1:6379/1"
+  BACKEND_PERFORMANCE_CACHE: "redis://default:teable@127.0.0.1:6379/1"
+  TEABLE_SSRF_PROTECTION_DISABLED: "true"
+  PERF_LAB_TRACE_ENABLED: "true"
+  # Every trace endpoint is job-local. Execute jobs spool to their own relay
+  # container and the report job publishes into its own Jaeger container, so no
+  # job depends on a long-lived observability host staying up. These used to
+  # address a shared GCP VM, which was a single point of failure that took every
+  # full run red with it when it went away. See docs/operations/trace-viewer.md.
+  PERF_LAB_JAEGER_API_BASE_URL: "http://127.0.0.1:16686"
+  PERF_LAB_TRACE_MAX_SNAPSHOTS: "100"
+  PERF_LAB_TRACE_FETCH_SETTLE_MS: "5000"
+  # Bound verification for selected traces after the report job serially
+  # publishes them to the report-local Jaeger.
+  PERF_LAB_TRACE_FETCH_TIMEOUT_MS: "3000"
+  PERF_LAB_TRACE_FETCH_POLL_INTERVAL_MS: "500"
+  PERF_LAB_TRACE_FETCH_POLL_MAX_INTERVAL_MS: "4000"
+  PERF_LAB_TRACE_FETCH_POLL_MULTIPLIER: "2"
+  PERF_LAB_TRACE_FETCH_CONCURRENCY: "4"
+  PERF_LAB_TRACE_PARTIAL_LOSS_THRESHOLD: "3"
+  PERF_LAB_TRACE_RECOVERY_PROBE_LIMIT: "1"
+  PERF_LAB_TRACE_CASE_BUDGET_MS: "15000"
+  PERF_LAB_TRACE_JOB_BUDGET_MS: "120000"
+  # Stop network retrieval early enough to atomically reconcile every case's
+  # payload, summary, and manifest inside the full job-tail lifecycle SLO.
+  PERF_LAB_TRACE_FINALIZE_RESERVE_MS: "5000"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+  PERF_LAB_OTEL_UPSTREAM_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ""
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ""
+  # The engine's BatchSpanProcessor is single-exporter per process. Give its
+  # in-memory queue enough headroom for bursty writes to the job-local spool.
+  OTEL_BSP_MAX_QUEUE_SIZE: "4096"
+  OTEL_BSP_EXPORT_TIMEOUT: "60000"
+  # The engine only uses this to stamp a `Link: <...>; rel="trace"` response
+  # header. Trace ids come from `traceparent`, so leaving it empty costs no
+  # evidence and stops every ref carrying a link to a host that no longer
+  # answers. Result rows link to the published viewer below instead.
+  TRACE_LINK_BASE_URL: ""
+  PERF_LAB_TRACE_VIEW_BASE_URL: "https://teableio.github.io/teable-perf-lab"
+  OTEL_EXPORT_RATIO: "1"
+  TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
+  TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
+  TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+  # Read-only token for the Launches base, which lives outside the perf base and
+  # is not covered by TEABLE_PERF_LAB_TOKEN. It names the commit currently
+  # deployed; the run that measured that commit becomes the report's baseline.
+  TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
+  PERF_LAB_SEED_CACHE_ENABLED: "true"
+  PERF_LAB_SEED_CACHE_DIR: ${{ github.workspace }}/perf-lab-seed-cache
+  PERF_LAB_SEED_DB_DUMP: ${{ github.workspace }}/perf-lab-seed-cache/e2e_test_teable.dump
+
 jobs:
-  stream-contract-check:
-    if: github.ref == 'refs/heads/T8388-delete-operation-runner'
-    name: Request-local stream contract checks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  resolve_inputs:
+    name: Resolve workflow inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      engines: ${{ steps.engines.outputs.engines }}
+      seed_plan: ${{ steps.engines.outputs.seed_plan }}
+      execute_plan: ${{ steps.engines.outputs.execute_plan }}
+      case_filter_is_all: ${{ steps.engines.outputs.case_filter_is_all }}
+      case_filter_key: ${{ steps.engines.outputs.case_filter_key }}
+      seed_cache_namespace: ${{ steps.engines.outputs.seed_cache_namespace }}
+      seed_cache_namespace_segment: ${{ steps.engines.outputs.seed_cache_namespace_segment }}
+      plan_summary: ${{ steps.engines.outputs.plan_summary }}
+      teable_ee_sha: ${{ steps.teable-ee-revision.outputs.sha }}
+
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
         with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+          path: perf-lab
+
+      - name: Checkout teable-ee revision
+        uses: actions/checkout@v5
         with:
-          version: 12.11.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24.22.2
-      - run: pnpm install --frozen-lockfile
-      - name: Format only changed source
+          repository: teableio/teable-ee
+          # `inputs` is null on a scheduled run, so every input this workflow
+          # reads needs the dispatch default spelled out for that path. Written
+          # as `schedule && <default> || inputs.x` rather than `inputs.x ||
+          # <default>` so a dispatch that deliberately clears a box keeps
+          # behaving exactly as it did before this trigger existed.
+          ref: ${{ github.event_name == 'schedule' && 'develop' || inputs.teable_ee_ref }}
+          path: teable-ee-revision
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Resolve pinned teable-ee revision
+        id: teable-ee-revision
+        working-directory: teable-ee-revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify pinned perf-lab revision
+        if: inputs.expected_perf_lab_sha != ''
+        env:
+          EXPECTED_PERF_LAB_SHA: ${{ inputs.expected_perf_lab_sha }}
         run: |
-          node --input-type=module <<'NODE'
-          import { execFileSync } from 'node:child_process';
-          const files = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', '-z',
-            '571e3026f2ccce0def69381f8bd3bfcf8dfc07a2', 'HEAD']).toString().split('\0')
-            .filter(path => /\.(ts|js|json|md)$/.test(path));
-          if (files.length) execFileSync('pnpm', ['exec', 'prettier', '--write', ...files], { stdio: 'inherit' });
-          NODE
-      - name: Exercise native SSE reader and TypeScript syntax
-        run: pnpm check:sse && pnpm check:ts
-      - name: Collect formatted source
+          set -euo pipefail
+
+          if [ "${GITHUB_SHA}" != "${EXPECTED_PERF_LAB_SHA}" ]; then
+            echo "Expected perf-lab ${EXPECTED_PERF_LAB_SHA}, dispatched ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+
+      - name: Resolve engine matrix
+        id: engines
+        env:
+          ENGINE_FILTER: ${{ github.event_name == 'schedule' && 'v1,v2' || inputs.engine_filter }}
+          # The nightly run is the ten-run validation, and G1 counts full runs
+          # only. An empty filter here would plan something else entirely.
+          CASE_FILTER: ${{ github.event_name == 'schedule' && 'all' || inputs.case_filter }}
+          COMPUTED_UPDATE_MODE: ${{ inputs.computed_update_mode }}
+          SEED_CACHE_NAMESPACE: ${{ inputs.seed_cache_namespace }}
         run: |
-          node --input-type=module <<'NODE'
-          import { execFileSync } from 'node:child_process';
-          import { createHash } from 'node:crypto';
-          import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-          import { dirname, join } from 'node:path';
-          const root = join(process.env.RUNNER_TEMP, 't8388-companion-source');
-          mkdirSync(root, { recursive: true });
-          const files = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', '-z', 'HEAD'])
-            .toString().split('\0').filter(Boolean);
-          const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-          const manifest = { revision: process.env.GITHUB_SHA, files: [] };
-          for (const path of files) {
-            const target = join(root, 'files', path);
-            mkdirSync(dirname(target), { recursive: true });
-            copyFileSync(path, target);
-            manifest.files.push({ path, before: digest(execFileSync('git', ['show', `HEAD:${path}`])),
-              after: digest(readFileSync(path)) });
-          }
-          writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
-          NODE
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          set -euo pipefail
+
+          node perf-lab/scripts/run-plan.mjs
+
+  seed:
+    name: Prepare perf seed DB (${{ matrix.plan.name }})
+    needs: resolve_inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        plan: ${{ fromJSON(needs.resolve_inputs.outputs.seed_plan) }}
+
+    env:
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-seed-${{ matrix.plan.name }}
+      PERF_LAB_TRACE_ENABLED: "false"
+      OTEL_EXPORT_RATIO: "0"
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
         with:
-          name: t8388-companion-source-${{ github.run_id }}
-          path: ${{ runner.temp }}/t8388-companion-source
+          path: perf-lab
+
+      - name: Checkout teable-ee
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          path: teable-ee
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Restore perf seed database cache
+        id: seed-db-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: perf-lab-seed-cache
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+          restore-keys: |
+            perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-
+
+      - name: Record seed database cache mode
+        id: seed-cache-mode
+        env:
+          CACHE_HIT: ${{ steps.seed-db-cache.outputs.cache-hit }}
+          CACHE_PRIMARY_KEY: ${{ steps.seed-db-cache.outputs.cache-primary-key }}
+          CACHE_MATCHED_KEY: ${{ steps.seed-db-cache.outputs.cache-matched-key }}
+          CASE_SET_DIGEST: ${{ matrix.plan.caseSetDigest }}
+          STABLE_SLOT: ${{ matrix.plan.stableSlot }}
+          SEED_CONTRACT_GENERATION: ${{ matrix.plan.seedContractGeneration }}
+          SEED_CACHE_NAMESPACE: ${{ needs.resolve_inputs.outputs.seed_cache_namespace }}
+          PERF_LAB_SHA: ${{ github.sha }}
+          TEABLE_EE_SHA: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          OUTPUT_PATH: perf-lab-seed-artifacts/seed-cache-status-${{ matrix.plan.artifactSuffix }}.json
+        run: node perf-lab/scripts/write-seed-cache-status.mjs
+
+      - name: Publish seed database cache hit summary
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'false'
+        run: |
+          set -euo pipefail
+
+          test -s "$PERF_LAB_SEED_DB_DUMP"
+          {
+            echo "## Perf seed DB cache"
+            echo
+            echo "Exact perf seed DB cache hit. Seed app setup and seed validation were skipped."
+            echo
+            ls -lh "$PERF_LAB_SEED_DB_DUMP"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bootstrap perf runtime
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: bootstrap
+
+      - name: Prepare e2e database
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          if [ -s "$PERF_LAB_SEED_DB_DUMP" ]; then
+            echo "Restoring cached perf seed DB from ${PERF_LAB_SEED_DB_DUMP}"
+            set +e
+            (
+              set -e
+              docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+              docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
+              docker exec -i "$TEST_PG_CONTAINER_NAME" pg_restore \
+                -U teable \
+                -d e2e_test_teable \
+                --clean \
+                --if-exists \
+                < "$PERF_LAB_SEED_DB_DUMP"
+            )
+            restore_status=$?
+            set -e
+
+            if [ "$restore_status" -eq 0 ]; then
+              echo "Cached perf seed DB restored successfully."
+              exit 0
+            fi
+
+            echo "::warning::Cached perf seed DB restore failed; rebuilding from migrations."
+          fi
+
+          docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
+          make postgres.mode
+          pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
+
+      - name: Build perf seed DB
+        if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-seed-artifacts"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_MODE="seed"
+          export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
+          export PERF_LAB_ENGINE_LIST="v1"
+          export PERF_LAB_SAMPLES="${{ github.event_name == 'schedule' && '10' || inputs.samples }}"
+          export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed-${{ matrix.plan.artifactSuffix }}"
+          export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
+
+          pnpm -F @teable/backend-ee exec vitest run \
+            --config ./vitest-perf-lab.config.ts \
+            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
+            --silent=false
+
+      - name: Dump perf seed database
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$PERF_LAB_SEED_CACHE_DIR"
+          docker exec "$TEST_PG_CONTAINER_NAME" pg_dump \
+            -U teable \
+            -Fc \
+            e2e_test_teable \
+            > "$PERF_LAB_SEED_DB_DUMP"
+          ls -lh "$PERF_LAB_SEED_DB_DUMP"
+
+      - name: Save perf seed database cache
+        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: perf-lab-seed-cache
+          key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+
+      - name: Upload perf seed database dump
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          # Keep the name stable across attempts (no run_attempt) so a partial
+          # "Re-run failed jobs" of the execute matrix can still resolve the seed
+          # dump even when the already-passed seed job does not re-run. overwrite
+          # lets a full re-run (seed re-runs too) replace the stale dump.
+          name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}
+          path: perf-lab-seed-cache/e2e_test_teable.dump
           if-no-files-found: error
-          retention-days: 7
+          overwrite: true
+
+      - name: Upload perf seed artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-seed-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-seed-artifacts
+          if-no-files-found: warn
+
+      - name: Publish seed summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          summaries=(perf-lab-seed-artifacts/summary-*.md)
+          if [ "${#summaries[@]}" -gt 0 ]; then
+            for summary in "${summaries[@]}"; do
+              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "No perf seed summary was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cleanup perf runtime
+        if: always() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: cleanup
+
+  execute:
+    name: Run perf cases (${{ matrix.plan.name }})
+    needs:
+      - resolve_inputs
+      - seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        plan: ${{ fromJSON(needs.resolve_inputs.outputs.execute_plan) }}
+
+    env:
+      CI_JOB_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      NETWORK_MODE: teablenet-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      TEST_PG_CONTAINER_NAME: teable-postgres-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318/v1/traces"
+      OTEL_TRACE_RELAY_CONTAINER_NAME: otel-trace-relay-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.plan.name }}
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
+        with:
+          path: perf-lab
+
+      - name: Checkout teable-ee
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          path: teable-ee
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+
+      - name: Download perf seed database dump
+        uses: actions/download-artifact@v7
+        with:
+          name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.seedArtifactSuffix }}-${{ github.run_id }}
+          path: perf-lab-seed-cache
+
+      - name: Bootstrap perf runtime
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: bootstrap
+
+      - name: Restore perf seed database
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          test -s "$PERF_LAB_SEED_DB_DUMP"
+          docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
+          docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
+          docker exec -i "$TEST_PG_CONTAINER_NAME" pg_restore \
+            -U teable \
+            -d e2e_test_teable \
+            --clean \
+            --if-exists \
+            < "$PERF_LAB_SEED_DB_DUMP"
+
+      - name: Start job-local trace spool
+        run: |
+          set -euo pipefail
+
+          relay_root="${RUNNER_TEMP}/otel-trace-relay"
+          mkdir -p "${relay_root}/storage"
+          chmod 0777 "${relay_root}/storage"
+
+          docker run --detach \
+            --name "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            --publish 127.0.0.1:4318:4318 \
+            --publish 127.0.0.1:8888:8888 \
+            --publish 127.0.0.1:13133:13133 \
+            --volume "${GITHUB_WORKSPACE}/perf-lab/.github/otel/trace-relay.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+            --volume "${relay_root}/storage:/var/lib/otelcol:rw" \
+            ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.157.0 \
+            --config=/etc/otelcol-contrib/config.yaml
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:13133/ >/dev/null &&
+              curl --fail --silent --show-error http://127.0.0.1:8888/metrics >/dev/null; then
+              exit 0
+            fi
+            if ! docker inspect --format '{{.State.Running}}' "$OTEL_TRACE_RELAY_CONTAINER_NAME" |
+              grep -qx true; then
+              docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+          echo "Trace relay did not become healthy within 30 seconds." >&2
+          exit 1
+
+      - name: Run perf cases through teable-ee e2e
+        working-directory: teable-ee
+        run: |
+          set -euo pipefail
+
+          export PERF_LAB_ARTIFACT_DIR="${GITHUB_WORKSPACE}/perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+          export PERF_LAB_RUN_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export PERF_LAB_MODE="execute"
+          export PERF_LAB_CASE_FILTER="${{ matrix.plan.caseFilter }}"
+          export PERF_LAB_EXCLUDE_CASE_FILTER="${{ matrix.plan.excludeCaseFilter }}"
+          export PERF_LAB_ENGINE_LIST="${{ matrix.plan.engine }}"
+          export PERF_LAB_SAMPLES="${{ github.event_name == 'schedule' && '10' || inputs.samples }}"
+          export PERF_LAB_PRIMARY_THRESHOLD_MS="${{ inputs.primary_threshold_ms }}"
+          export PERF_LAB_COMPUTED_UPDATE_MODE="${{ matrix.plan.computedUpdateMode }}"
+          export PERF_LAB_EXECUTE_DB_ISOLATED="true"
+          export PERF_LAB_RUN_LANE="historical"
+          export PERF_LAB_SHA="${GITHUB_SHA}"
+          export PERF_LAB_TEABLE_EE_SHA="${{ needs.resolve_inputs.outputs.teable_ee_sha }}"
+          export PERF_LAB_SHARD_ID="${{ matrix.plan.artifactSuffix }}"
+          export PERF_LAB_DATABASE_CLASS="postgres-e2e"
+          export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-${{ matrix.plan.otelServiceSuffix }}"
+          export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
+          export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
+          export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
+          export PERF_LAB_TRACE_DEFER_SHARED_PUBLISH="true"
+
+          pnpm -F @teable/backend-ee exec vitest run \
+            --config ./vitest-perf-lab.config.ts \
+            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
+            --silent=false
+
+      - name: Stop job-local trace spool
+        if: always()
+        run: |
+          set -euo pipefail
+
+          artifact_dir="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+          mkdir -p "$artifact_dir"
+
+          if ! docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" >/dev/null 2>&1; then
+            echo "Trace relay container was not created." > "$artifact_dir/otel-trace-relay.log"
+            exit 0
+          fi
+
+          curl --fail --silent --show-error http://127.0.0.1:8888/metrics \
+            > "$artifact_dir/otel-trace-relay-metrics.txt" || true
+          docker stop --timeout 60 "$OTEL_TRACE_RELAY_CONTAINER_NAME" || true
+          docker logs "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay.log" 2>&1
+          docker inspect "$OTEL_TRACE_RELAY_CONTAINER_NAME" \
+            > "$artifact_dir/otel-trace-relay-inspect.json"
+          docker rm "$OTEL_TRACE_RELAY_CONTAINER_NAME"
+
+      - name: Prepare selected trace payload
+        if: always()
+        run: |
+          set -euo pipefail
+
+          node perf-lab/scripts/prepare-selected-traces.mjs \
+            --spool "${RUNNER_TEMP}/otel-trace-relay/storage/trace-spool.jsonl" \
+            --artifact-dir "perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}
+          if-no-files-found: warn
+          # Selected traces dominate this artifact (~414 MB of OTLP JSON across a
+          # full run), and Actions storage is free on a public repository, so the
+          # limit is attention rather than cost: two weeks covers investigating a
+          # regression that took days to notice, without leaving every run's raw
+          # traces around for a quarter.
+          retention-days: 14
+
+      - name: Stage lightweight perf results
+        if: always()
+        run: |
+          set -euo pipefail
+
+          src="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
+          dest="perf-lab-results/${{ matrix.plan.artifactSuffix }}"
+
+          if [ ! -d "$src" ]; then
+            echo "No perf artifacts at $src; skipping lightweight staging."
+            exit 0
+          fi
+
+          mkdir -p "$dest"
+
+          # Top-level perf payload JSON files; raw trace snapshots live under traces/.
+          find "$src" -maxdepth 1 -type f -name '*.json' -exec cp {} "$dest/" \;
+          find "$src" -maxdepth 1 -type f -name 'selected-traces.otlp.jsonl' -exec cp {} "$dest/" \;
+
+          # Per-result summary markdown.
+          find "$src" -maxdepth 1 -type f -name 'summary-*.md' -exec cp {} "$dest/" \;
+
+          # Trace manifests only; skip the heavy raw Jaeger snapshot JSON files.
+          while IFS= read -r -d '' manifest; do
+            rel="${manifest#"$src/"}"
+            mkdir -p "$dest/$(dirname "$rel")"
+            cp "$manifest" "$dest/$rel"
+          done < <(find "$src" -type f -name 'manifest.json' -print0)
+
+          echo "Staged lightweight perf results:"
+          find "$dest" -type f | sort
+
+      - name: Upload lightweight perf results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-results/${{ matrix.plan.artifactSuffix }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          summaries=(perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}/summary-*.md)
+          if [ "${#summaries[@]}" -gt 0 ]; then
+            for summary in "${summaries[@]}"; do
+              cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n---\n' >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "No perf summary was generated for ${{ matrix.plan.name }}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cleanup perf runtime
+        if: always()
+        uses: ./perf-lab/.github/actions/perf-runtime
+        with:
+          operation: cleanup
+
+  report:
+    name: Report perf results
+    needs:
+      - resolve_inputs
+      - seed
+      - execute
+    if: always()
+    # Was 30, which the report's own work clears in about a minute. The extra
+    # ten are headroom for the shadow analysis that now runs after everything
+    # else — it is bounded at 30 on its own step, and this keeps the job budget
+    # from becoming the thing that bounds it, since hitting a job timeout
+    # cancels rather than skips. Measured on the nightly runs the whole job is
+    # about 27 minutes, 22 of them the analysis; on a dispatch, where the
+    # analysis does not run, it is the report's own minute.
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    permissions:
+      # Keeps the workflow-level actions scope and adds the one this job needs
+      # on its own: pushing the published trace site.
+      actions: write
+      contents: write
+    env:
+      PERF_LAB_REPORT_JAEGER_CONTAINER: perf-report-jaeger-${{ github.run_id }}-${{ github.run_attempt }}
+      # The change point analysis is a nightly job, not a per-run one. Its cost
+      # is set by the length of the history it reads, not by how many cases this
+      # run measured, so a single-case dispatch pays the same nine to fifteen
+      # minutes as a full run — for a corpus that has not moved since last
+      # night. Every step below that belongs to it is gated on this.
+      PERF_LAB_SHADOW_ANALYSIS: ${{ github.event_name == 'schedule' || inputs.shadow_analysis }}
+
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
+        with:
+          path: perf-lab
+
+      - name: Resolve perf and seed artifact attempts
+        id: perf_artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PERF_LAB_ARTIFACT_INVENTORY: ${{ runner.temp }}/perf-artifact-inventory.json
+        run: |
+          set -euo pipefail
+
+          # Re-run failed jobs can leave one logical shard on a newer attempt
+          # while all successful siblings remain on an older attempt. Select
+          # the newest artifact independently per logical execute/seed shard.
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --paginate \
+            --slurp > "$PERF_LAB_ARTIFACT_INVENTORY"
+          node perf-lab/scripts/select-report-artifacts.mjs
+
+      - name: Download perf artifacts
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.execute_artifact_ids }}
+          path: perf-lab-artifacts
+          merge-multiple: false
+
+      - name: Download seed cache status artifacts
+        if: steps.perf_artifacts.outputs.seed_artifact_ids != ''
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_artifact_ids }}
+          path: perf-lab-seed-artifacts
+          merge-multiple: false
+
+      - name: Download prior seed payload provenance
+        if: steps.perf_artifacts.outputs.seed_provenance_artifact_ids != ''
+        uses: actions/download-artifact@v7
+        with:
+          artifact-ids: ${{ steps.perf_artifacts.outputs.seed_provenance_artifact_ids }}
+          path: perf-lab-seed-provenance-artifacts
+          merge-multiple: false
+
+      # The report job brings its own Jaeger. Execute jobs already spool their
+      # traces to a job-local file and ship them as artifacts, so the only thing
+      # the old always-on VM still provided was somewhere to replay OTLP into
+      # and read Jaeger-format JSON back out of. A container does that for the
+      # 90 seconds it is needed, and the snapshots it produces outlive it in the
+      # artifact.
+      - name: Start report-local Jaeger
+        run: |
+          set -euo pipefail
+
+          docker run --detach \
+            --name "$PERF_LAB_REPORT_JAEGER_CONTAINER" \
+            --publish 127.0.0.1:4318:4318 \
+            --publish 127.0.0.1:16686:16686 \
+            --env COLLECTOR_OTLP_ENABLED=true \
+            --env MEMORY_MAX_TRACES=20000 \
+            jaegertracing/all-in-one:1.76.0
+
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:16686/api/services; then
+              echo "Report-local Jaeger is ready."
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$PERF_LAB_REPORT_JAEGER_CONTAINER")" != "true" ]; then
+              docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER"
+              echo "Report-local Jaeger exited before it became ready." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER"
+          echo "Report-local Jaeger did not become ready within 60 seconds." >&2
+          exit 1
+
+      - name: Publish selected traces to report-local Jaeger
+        id: trace-publish
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_TRACE_PUBLISH_SUMMARY_PATH: ${{ github.workspace }}/perf-plan-observation/trace-publish.json
+          PERF_LAB_TRACE_PUBLISH_INTERVAL_MS: "50"
+          PERF_LAB_TRACE_PUBLISH_MAX_REQUEST_BYTES: "1000000"
+          PERF_LAB_TRACE_PUBLISH_SETTLE_MS: "5000"
+        run: >-
+          node --experimental-strip-types
+          scripts/publish-selected-traces.mjs
+
+      - name: Stop report-local Jaeger
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if ! docker inspect "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null 2>&1; then
+            echo "Report-local Jaeger container was not created."
+            exit 0
+          fi
+
+          mkdir -p perf-plan-observation
+          docker logs "$PERF_LAB_REPORT_JAEGER_CONTAINER" \
+            > perf-plan-observation/report-jaeger.log 2>&1 || true
+          docker stop --timeout 30 "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null || true
+          docker rm "$PERF_LAB_REPORT_JAEGER_CONTAINER" >/dev/null || true
+
+      # Result rows link here, so this has to land before the Teable and Feishu
+      # reports go out with URLs pointing at it.
+      - name: Publish trace viewer site
+        id: trace-site
+        if: always()
+        continue-on-error: true
+        uses: ./perf-lab/.github/actions/trace-site
+        with:
+          token: ${{ github.token }}
+          message: "perf traces for run ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+          run: |
+            node "${GITHUB_WORKSPACE}/perf-lab/scripts/publish-trace-pages.mjs" \
+              --artifact-dir "${GITHUB_WORKSPACE}/perf-lab-artifacts" \
+              --site "${TRACE_SITE_DIR}" \
+              --run-id "${GITHUB_RUN_ID}" \
+              --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              --teable-ee-ref "${{ needs.resolve_inputs.outputs.teable_ee_sha }}" \
+              --summary-path "${GITHUB_WORKSPACE}/perf-plan-observation/trace-site.json"
+
+      - name: Publish current-run stage observation
+        if: always()
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_PLAN_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/observation.json
+        run: node scripts/observe-stage-plan.mjs
+
+      - name: Verify physical seed affinity
+        id: seed-affinity
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_PLAN_SUMMARY: ${{ needs.resolve_inputs.outputs.plan_summary }}
+          PERF_LAB_SEED_PLAN: ${{ needs.resolve_inputs.outputs.seed_plan }}
+          PERF_LAB_SEED_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-artifacts
+          PERF_LAB_SEED_PROVENANCE_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-seed-provenance-artifacts
+          PERF_LAB_SEED_AFFINITY_OBSERVATION_PATH: ${{ github.workspace }}/perf-plan-observation/seed-affinity.json
+        run: node scripts/verify-full-run-seed-affinity.mjs
+
+      - name: Verify full-run result acceptance
+        id: result-acceptance
+        if: always() && needs.resolve_inputs.outputs.case_filter_is_all == 'true'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_RESOLVE_INPUTS_RESULT: ${{ needs.resolve_inputs.result }}
+          PERF_LAB_SEED_RESULT: ${{ needs.seed.result }}
+          PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
+        run: node scripts/verify-full-run-result-acceptance.mjs
+
+      - name: Resolve perf run verdict
+        id: run-verdict
+        if: always()
+        working-directory: perf-lab
+        env:
+          PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+          PERF_LAB_EXECUTE_RESULT: ${{ needs.execute.result }}
+          PERF_LAB_SEED_AFFINITY_OUTCOME: ${{ steps.seed-affinity.outcome }}
+          PERF_LAB_RESULT_ACCEPTANCE_OUTCOME: ${{ steps.result-acceptance.outcome }}
+          PERF_LAB_RUN_VERDICT_PATH: ${{ github.workspace }}/perf-plan-observation/run-verdict.json
+        run: node scripts/write-full-run-verdict.mjs
+
+      - name: Report perf results to Teable
+        id: teable-report
+        if: always() && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/report-teable-result.mjs
+
+      # Resolved once, read by both summaries below. Missing tokens or a
+      # released commit nobody has measured leave the file absent, and the
+      # summaries render their explicit "no baseline" state.
+      - name: Resolve release baseline
+        id: release-baseline
+        if: always() && env.TEABLE_LAUNCHES_TOKEN != '' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          # The resolved SHA, not the dispatched ref: `develop` is what gets
+          # asked for, and comparing a branch name against the released commit
+          # would never match even when they are the same build.
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/resolve-release-baseline.mjs
+
+      # The old gate's verdict, written down instead of being computed inside
+      # the card and thrown away with it. Shadow mode exists to reconcile
+      # against this list, and until now it was reading `release-baseline.json`
+      # — the released build's per-case values, which has no `regressions` key.
+      # The file existed and parsed, so nothing failed, and twenty-three runs
+      # recorded `old: 0, agreed: 0`: the shape of perfect agreement, produced
+      # by never asking. Runs from before this step cannot be recovered.
+      #
+      # Same function the card uses, not a second implementation of the 20%
+      # rule — two implementations would drift and the reconciliation would be
+      # between two different gates.
+      - name: Resolve release comparison
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+        run: node scripts/resolve-release-comparison.mjs
+
+      - name: Send Feishu perf summary
+        id: feishu-report
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
+          PERF_LAB_REQUIRE_DELIVERY: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+        run: node scripts/send-feishu-perf-summary.mjs
+
+      - name: Publish combined summary
+        id: github-summary
+        if: always()
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+          PERF_LAB_JOB_RESULT: ${{ steps.run-verdict.outputs.status }}
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+        run: node scripts/write-github-perf-summary.mjs
+
+      - name: Upload current-run stage observation
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-plan-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-plan-observation
+          if-no-files-found: ignore
+
+      - name: Upload reconciled lightweight perf results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-reconciled-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            perf-lab-artifacts
+            !perf-lab-artifacts/**/selected-traces.otlp.jsonl
+          if-no-files-found: warn
+          # Carries the Jaeger-format snapshots written by the publish step:
+          # download it, `docker run jaegertracing/all-in-one`, and drop any
+          # traces/<case>-<engine>/<step>-<traceId>.json into the Jaeger UI.
+          retention-days: 14
+
+      - name: Enforce full-run result and report acceptance
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all == 'true' &&
+          (
+            steps.run-verdict.outputs.status != 'success' ||
+            steps.trace-publish.outcome != 'success' ||
+            steps.trace-site.outcome != 'success' ||
+            steps.teable-report.outcome != 'success' ||
+            steps.feishu-report.outcome != 'success' ||
+            steps.github-summary.outcome != 'success'
+          )
+        run: |
+          echo "Full-run acceptance failed: run=${{ steps.run-verdict.outputs.status }} (${{ steps.run-verdict.outputs.reason_codes }}), traces=${{ steps.trace-publish.outcome }}, traceSite=${{ steps.trace-site.outcome }}, teable=${{ steps.teable-report.outcome }}, feishu=${{ steps.feishu-report.outcome }}, github=${{ steps.github-summary.outcome }}." >&2
+          exit 1
+
+      - name: Enforce targeted report delivery failures
+        if: >-
+          always() &&
+          needs.resolve_inputs.outputs.case_filter_is_all != 'true' &&
+          (
+            steps.trace-publish.outcome == 'failure' ||
+            steps.trace-site.outcome == 'failure' ||
+            steps.teable-report.outcome == 'failure' ||
+            steps.feishu-report.outcome == 'failure' ||
+            steps.github-summary.outcome == 'failure'
+          )
+        run: exit 1
+
+      # Shadow mode: the new detection running beside the existing report, never
+      # replacing it. Section G of docs/change-point-alerting-acceptance.md will
+      # not accept a switch until ten runs of this have been reconciled by hand.
+      #
+      # Nightly only, which is the cadence it was designed for: the analysis
+      # reads the whole measurement history, so its cost tracks the corpus and
+      # not this run, and a hand-dispatched single case paid the same nine to
+      # fifteen minutes to re-examine a history that had not moved since the
+      # night before. `PERF_LAB_SHADOW_ANALYSIS` on the job carries the rule,
+      # and the `shadow_analysis` dispatch input turns it on for a run that is
+      # exercising the analysis itself.
+      #
+      # Last in the job, deliberately. Everything the run itself depends on —
+      # the artifact uploads and both acceptance gates — has already happened by
+      # the time these steps start, so a shadow that is slow, stuck or broken
+      # costs the run nothing. It sat above them once and a hang cost the run
+      # all four.
+      #
+      # Commit ordering needs a teable-ee clone, and this job did not have one.
+      # The checkout that resolves the pinned revision lives in `resolve_inputs`
+      # — a different job, so a different workspace — and the deepen step below
+      # was written as if it carried over. It did not: `cannot change to
+      # 'teable-ee-revision'`, exit 128, swallowed by `continue-on-error`.
+      # `fetch-depth: 0` is load-bearing and `filter` is what makes it cheap.
+      # Checkout clones shallow by default, and a later `git fetch --filter=tree:0`
+      # does not undo that — it fetches to the shallow boundary and stops. That
+      # is what shipped: the mainline read one commit long, 572 of 573 refs came
+      # back `offMainline`, and the analysis reported zeroes off a history it did
+      # not have.
+      #
+      # Positioning needs commit objects only — `rev-list --first-parent` and
+      # `cat-file --batch-check` never look at a tree — so `tree:0` fetches the
+      # whole graph without a byte of source.
+      - name: Checkout teable-ee for commit ordering
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          repository: teableio/teable-ee
+          ref: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          path: teable-ee-revision
+          ssh-key: ${{ secrets.TEABLE_EE_CHECKOUT_SSH_KEY }}
+          fetch-depth: 0
+          filter: tree:0
+
+      # `ref` above is a SHA, so name the branch explicitly rather than trusting
+      # a remote-tracking ref to have been set up. The count is the signal worth
+      # having in the log: one means shallow, thousands means this worked.
+      - name: Deepen teable-ee history for commit ordering
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        run: |
+          git -C teable-ee-revision fetch --filter=tree:0 --no-tags --prune \
+            origin +refs/heads/develop:refs/remotes/origin/develop
+          git -C teable-ee-revision rev-list --count --first-parent origin/develop
+
+      # Same shallow trap, other repository. Case digests read `ls-tree` and the
+      # case-file blobs at each perf-lab commit that produced measurements — 278
+      # of them — and a depth-1 clone has exactly one. Every series was cut to a
+      # single point.
+      #
+      # Deepened here rather than on the job's own `Checkout perf lab` so only
+      # the shadow pays for it, and `blob:none` rather than `tree:0` because this
+      # one does read blobs; the case files come down in a single batched fetch
+      # while the rest of the history's contents stay on the server.
+      - name: Deepen perf-lab history for case digests
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        run: |
+          # `rev-parse --git-dir` answers relative to the repository, so testing
+          # for `$(...)/shallow` from here looked for `.git/shallow` in the
+          # workspace root, found nothing, and skipped the fetch. This flag
+          # answers the question being asked.
+          if [ "$(git -C perf-lab rev-parse --is-shallow-repository)" = "true" ]; then
+            git -C perf-lab fetch --unshallow --filter=blob:none --no-tags origin
+          fi
+          git -C perf-lab rev-list --count HEAD
+
+      # Carries the set of already-reported change points between runs. Cache
+      # keys are immutable, so each run saves under its own key and restores by
+      # prefix, picking up the most recent — the same rolling pattern the seed
+      # cache above uses.
+      #
+      # Without this the confirmed layer re-announces every change point in
+      # recent history each run: 101 of them, almost all seen before. That is a
+      # standing inventory, and nobody reads an alert that repeats itself.
+      - name: Restore shadow change point state
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          # Spelled the same way as SHADOW_SEEN_PATH below. Both resolve to the
+          # same file today only because the job's default directory happens to
+          # be the workspace; writing it out means a change to either one cannot
+          # silently disconnect the cache from the file it is meant to carry.
+          # The run ledger travels in the same entry. Both are state that only
+          # means something accumulated, and a lost ledger beside a kept
+          # seen-set would leave a run count that disagrees with the change
+          # points it is counting.
+          path: |
+            ${{ github.workspace }}/shadow-seen.json
+            ${{ github.workspace }}/shadow-runs.json
+          key: perf-shadow-seen-${{ github.run_id }}
+          restore-keys: |
+            perf-shadow-seen-
+
+      # The cache is not a reliable carrier for either piece of state it holds.
+      # Two distinct failures, both measured on real runs:
+      #
+      #   - **It forks.** `perf-shadow-seen-<run_id>` is immutable and the
+      #     restore matches by prefix, so two runs whose report jobs overlap
+      #     fork from one snapshot and each saves a lineage the other lacks.
+      #     G1 went 30 → 29 → 27 → 26 → 25 over seven full runs on 2026-08-13.
+      #     Cost to the seen-set over 2026-08-08/09: four change points
+      #     re-announced out of 143.
+      #   - **It misses, and the miss is silent.** On 2026-08-09 the scheduled
+      #     run logged `Cache not found for input keys: perf-shadow-seen-`, and
+      #     `actions/cache/restore` reports success on a miss. The analysis read
+      #     an empty seen-set, announced 117 historical change points as new
+      #     with `0 already reported`, and then saved that state back over the
+      #     good one. 229 keys became 117, and no later run could recover them.
+      #     Far more expensive than the fork, and nothing was watching for it.
+      #
+      # Every run already uploads both files as an artifact, described where it
+      # is uploaded as the thing that survives a cache eviction. Nothing ever
+      # read it back. This is the step that does; the analysis and the
+      # accumulator each union what it finds with what the cache gave them.
+      #
+      # Before the analysis rather than beside the accumulator, because the
+      # seen-set is consumed first and a wipe has to be repaired before it is
+      # acted on. Best-effort: the cache stays the fast path, every failure here
+      # is skipped, and the worst case is the behaviour from before this step
+      # existed.
+      - name: Recover shadow state lost to a forked or missed cache
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
+        run: |
+          set -uo pipefail
+          mkdir -p "$RECOVERY_DIR"
+          looked=0
+          named=0
+          found=0
+          failed=0
+          last_error=""
+          # This workflow's recent runs, newest first. Filtered by name because
+          # the repository-wide endpoint returns every workflow's runs.
+          if ! runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?per_page=40" \
+            --jq '.workflow_runs[] | select(.name == env.GITHUB_WORKFLOW) | .id' \
+            2>"$RUNNER_TEMP/shadow-recovery-list.err"); then
+            echo "::warning title=Shadow recovery could not list runs::$(head -c 300 "$RUNNER_TEMP/shadow-recovery-list.err")"
+            runs=""
+          fi
+          runs=$(printf '%s\n' "$runs" | head -20)
+          for rid in $runs; do
+            if [ "$rid" = "$GITHUB_RUN_ID" ]; then
+              continue
+            fi
+            looked=$((looked + 1))
+            # Named per run and per attempt, so it is looked up rather than
+            # constructed.
+            if ! name=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$rid/artifacts" \
+              --jq '.artifacts[] | select(.expired == false)
+                    | select(.name | startswith("teable-ee-e2e-perf-shadow-")) | .name' \
+              2>/dev/null | head -1); then
+              name=""
+            fi
+            if [ -z "$name" ]; then
+              continue
+            fi
+            named=$((named + 1))
+            # `-R` is not optional. Without it `gh` resolves the repository from
+            # the working directory's git remote, and this step runs at the
+            # workspace root where perf-lab is a subdirectory — so every download
+            # failed with "not a git repository", the step printed `Recovered 0`,
+            # and stayed green. Found on run 31688601389, which is the run that
+            # existed to test this.
+            if err=$(gh run download "$rid" -R "$GITHUB_REPOSITORY" -n "$name" \
+              -D "$RECOVERY_DIR/$rid" 2>&1); then
+              found=$((found + 1))
+            else
+              failed=$((failed + 1))
+              last_error="$err"
+            fi
+          done
+          echo "Shadow recovery: $looked runs examined, $named carried an artifact, $found downloaded, $failed failed → $RECOVERY_DIR"
+          # The counts above are the point. `found=0` has three causes that read
+          # identically in a log that only prints the total — nothing to recover,
+          # nothing reachable, and nothing downloadable — and the last two are
+          # faults. Each gets its own line.
+          if [ "$failed" -gt 0 ]; then
+            echo "::warning title=Shadow recovery could not download $failed copies::${last_error}"
+          fi
+          if [ "$named" -gt 0 ] && [ "$found" -eq 0 ]; then
+            echo "::warning title=Shadow recovery downloaded nothing::$named recent runs carry a shadow artifact and none could be fetched. The seen-set and the run ledger rest on the cache alone for this run."
+          fi
+
+      # A bound of its own. `continue-on-error` covers a step that fails and does
+      # nothing about a step that never returns, and the job timeout is not a
+      # backstop — reaching it cancels the job and every step queued behind.
+      # Which is what happened: an analysis stuck on a pipe ran out the job's
+      # thirty minutes and took the run's two acceptance gates and two artifact
+      # uploads with it. Hence both this bound and the move to last place.
+      #
+      # Fifteen minutes against a measured 8m30s in CI on a run that read the
+      # whole history: 1m24s positioning refs, 2m46s digesting 280 perf-lab
+      # commits, 3m33s building the corpus, 45s detecting. Roughly double, which
+      # leaves room for a slow day without leaving room for another silent hang.
+      #
+      # An earlier 5m56s is not the number to size against — that run was
+      # shallow-cloned and skipped most of the work it appeared to do.
+      #
+      # The same work takes 21m37s on a developer machine; the difference is the
+      # `teable` CLI starting a process per page, which CI does not pay because
+      # with a token it calls the API directly.
+      #
+      # The corpus dominates either way: the response cap is 50,000 characters,
+      # which puts 136,655 aggregated rows into 325 pages. That per-page cost is
+      # per-request overhead rather than the aggregation — measured, `OFFSET
+      # 120000` costs the same as `OFFSET 0` (2.02s against 2.24s) and narrowing
+      # to eight cases costs the same again. So paging differently cannot help;
+      # only asking fewer times can, and that is the follow-up in
+      # docs/perf-alerting-todo.md rather than a change made here.
+      # Thirty rather than fifteen, since 2026-08-13. Detection now reads each
+      # series whole instead of its last 80 points, which is 8.8x the work —
+      # measured on two independent samples, and the window-80 arm of that same
+      # measurement extrapolates to 53s against the 43s this step actually
+      # spends, so the multiplier is trustworthy even if the absolute is not.
+      # That puts the step near 890s against the 900s it used to allow.
+      #
+      # The ceiling is not what governs the cost here: this step is
+      # `continue-on-error`, runs after everything the run depends on, and the
+      # job around it allows 40 minutes. It exists to stop a hang, and 30
+      # minutes still does that.
+      - name: Shadow perf analysis
+        id: shadow-analysis
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        timeout-minutes: 30
+        working-directory: perf-lab
+        env:
+          TEABLE_EE_REPO: ${{ github.workspace }}/teable-ee-revision
+          TEABLE_EE_MAINLINE: origin/develop
+          SHADOW_WORK_DIR: ${{ runner.temp }}/shadow-work
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
+          # Copies of the seen-set from recent runs, unioned with the cached one
+          # so a forked or missed cache cannot make this run re-announce history.
+          SHADOW_RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
+          # The comparison, not the baseline. These are two different files and
+          # pointing at the wrong one is silent: the baseline parses fine and
+          # answers "no regressions" to a question it was never asked.
+          RELEASE_COMPARISON_PATH: ${{ github.workspace }}/perf-lab-artifacts/release-comparison.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          # This run's own measurements, so the same-run layer judges what this
+          # run measured rather than the newest point of every series. Without
+          # it a partial dispatch re-judges 282 cases on whenever they were last
+          # measured: two single-case runs flagged the same six cases at
+          # byte-identical ratios, which reads as stability and is days-old data
+          # twice. Cases this run did not measure go unjudged and are counted.
+          PERF_LAB_ARTIFACT_DIR: ${{ github.workspace }}/perf-lab-artifacts
+        run: node scripts/run-shadow-analysis.mjs
+
+      # A step that computed nothing must not read as a step that found nothing.
+      # `continue-on-error` already hides a failure, and the upload below is set
+      # to ignore a missing file, so the first CI run of this produced a green
+      # tick, an empty artifact list, and no signal at all — the 404 underneath
+      # was only found by going and looking for the file by hand.
+      #
+      # This writes the outcome into the job summary either way, so ten empty
+      # shadow runs cannot pass for ten quiet ones.
+      - name: Report shadow analysis outcome
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true' && env.TEABLE_PERF_LAB_TOKEN != ''
+        continue-on-error: true
+        run: |
+          if [ -s shadow-analysis.json ]; then
+            echo "### Shadow analysis" >> "$GITHUB_STEP_SUMMARY"
+            node -e '
+              const r = require("./shadow-analysis.json");
+              const c = r.reconciliation?.counts ?? {};
+              const confirmed = r.confirmed ?? [];
+              // Which engine moved, counted. A change point on the paired
+              // series says V2 moved relative to V1, and about one in ten of
+              // the ones large enough to classify is the control channel — so a
+              // summary that only counts change points invites four wasted
+              // triages per seventy-five.
+              const movers = confirmed.reduce((tally, point) => {
+                tally[point.mover ?? "unknown"] =
+                  (tally[point.mover ?? "unknown"] ?? 0) + 1;
+                return tally;
+              }, {});
+              const moverText = Object.entries(movers)
+                .map(([mover, count]) => `${count} ${mover}`)
+                .join(", ");
+              const incidents = r.incidents ?? [];
+              // `mover: v1` excluded from the count a person reads, on the same
+              // rule the card ranks by: the pair widened because the control
+              // channel moved, and there is nothing in V2 to open.
+              const openIncidents = incidents.filter(
+                (i) => i.open && i.mover !== "v1"
+              );
+              const longestOpen = Math.round(
+                Math.max(0, ...openIncidents.map((i) => i.days ?? 0))
+              );
+              // The same-run layer is deliberately absent from this panel,
+              // since 2026-08-21. It still runs and still travels in the
+              // artifact — G1 counts a run by `fast.source` and G2 is measured
+              // against its flag rate — but it had no reader here: it
+              // disagreed with the release comparison on the same page (32
+              // against 5 on 2026-08-11) and two of its cases flagged in 23
+              // runs out of 23, which is a standing inventory rather than a
+              // detection. Whether it is right is what G3 settles, from the
+              // artifact.
+              console.log(
+                `- new confirmed change points: ${confirmed.length}` +
+                ` (${r.confirmedRepeated ?? 0} already reported)` +
+                (moverText ? ` — ${moverText}` : "") + `\n` +
+                `- old gate ${c.old ?? 0}, agreed ${c.agreed ?? 0},` +
+                ` old only ${c.oldOnly ?? 0}, new only ${c.newOnly ?? 0}\n` +
+                // What the incident pairing makes of the whole record: how many
+                // slowdowns have never been undone, and how long the oldest of
+                // them has stood. A lower bound on both — a regression fixed
+                // within a few days is often never paired at all.
+                `- incidents: ${incidents.length} paired,` +
+                ` ${openIncidents.length} still open` +
+                (longestOpen > 0 ? `, longest standing ${longestOpen} days` : "")
+              );
+            ' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Shadow analysis produced nothing" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The step did not write a result. This is a failure, not a quiet run — check the \`Shadow perf analysis\` step log." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Shadow analysis produced no result::Shadow mode recorded nothing for this run; the ten-run reconciliation in acceptance section G cannot count it."
+          fi
+
+      # Acceptance G1 and G2 are the only two of section G that can be settled
+      # by counting, and nothing was counting. Each run wrote its own artifact
+      # and stopped, so ten runs would have left ten artifacts on a 90-day
+      # retention and a person with a spreadsheet — and "are we at run 3 or run
+      # 7" would have had no answer inside the system producing the evidence.
+      #
+      # Gated on the analysis having succeeded, for the same reason the seen-set
+      # save is: a run whose analysis refused to produce anything did not run
+      # the new system alongside the old one, and counting it would make the ten
+      # arrive sooner and mean less.
+      - name: Accumulate shadow validation progress
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_LEDGER_PATH: ${{ github.workspace }}/shadow-runs.json
+          SHADOW_RECOVERY_DIR: ${{ github.workspace }}/shadow-recovery
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          # G1 asks for ten *full* runs. Taken from the dispatch rather than
+          # inferred from how many cases were measured, so a full run with a
+          # dead shard reads as a full run that failed rather than as a
+          # single-case dispatch.
+          PERF_LAB_CASE_FILTER_IS_ALL: ${{ needs.resolve_inputs.outputs.case_filter_is_all }}
+        run: node scripts/accumulate-shadow-runs.mjs
+
+      # The night's second card. The first one went out at `Send Feishu perf
+      # summary`, about nine and a half minutes ago — the shadow analysis is the
+      # slow part of this job, and holding the run summary back for it would put
+      # the report everyone reads behind the step that is allowed to fail.
+      #
+      # Only the confirmed layer is pushed, and only when it found a V2 slowdown
+      # nobody has been told about. `change-point-card-model.mjs` holds that
+      # rule and the reasons; the short version is that a card which speaks
+      # every night is a card nobody opens on the night it matters.
+      #
+      # Gated on the analysis having succeeded, like the two steps around it: a
+      # run that produced no result has nothing to say, and the sender would
+      # otherwise report "nothing to push" for a step that failed.
+      #
+      # Ahead of `Save shadow change point state` on purpose. This step marks
+      # the standing cases it announced in the seen-set, and that mark has to be
+      # in the file the cache picks up or "新增" would mean "every case, every
+      # night".
+      - name: Send Feishu change point card
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        working-directory: perf-lab
+        env:
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          SHADOW_RESULT_PATH: ${{ github.workspace }}/shadow-analysis.json
+          SHADOW_SEEN_PATH: ${{ github.workspace }}/shadow-seen.json
+          PERF_LAB_TEABLE_EE_REF: ${{ needs.resolve_inputs.outputs.teable_ee_sha }}
+          PERF_LAB_CHART_URL: https://ppm.teable.app
+        run: node scripts/send-feishu-change-point-summary.mjs
+
+      # Only after the analysis actually succeeded. A failed run that saved its
+      # state would write back whatever was restored — or nothing at all — and
+      # a lost seen-set means the next run re-announces the entire history as
+      # new. `continue-on-error` makes `conclusion` success either way, so the
+      # real result is read from `outcome`.
+      - name: Save shadow change point state
+        if: always() && steps.shadow-analysis.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ github.workspace }}/shadow-seen.json
+            ${{ github.workspace }}/shadow-runs.json
+          key: perf-shadow-seen-${{ github.run_id }}
+
+      - name: Upload shadow analysis
+        if: always() && env.PERF_LAB_SHADOW_ANALYSIS == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-shadow-${{ github.run_id }}-${{ github.run_attempt }}
+          # `shadow-runs.json` is uploaded as well as cached. The cache is what
+          # carries it between runs; the artifact is what survives a cache
+          # eviction, and the ten runs G1 counts are a week of calendar time.
+          # (Comments cannot go inside the block below — it is a literal scalar,
+          # so a `#` line would be read as a path pattern.)
+          path: |
+            shadow-analysis.json
+            shadow-seen.json
+            shadow-runs.json
+          # Not `ignore`. A missing result is the thing worth knowing about, and
+          # silently uploading nothing is how the first run of this looked
+          # successful while having produced a 404.
+          if-no-files-found: warn
+          retention-days: 90
