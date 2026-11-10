@@ -361,7 +361,9 @@ const restoreDeletedStreamSeed = async ({
 }) => {
   // Fixture identities are captured before timing in the existing readiness
   // scan. The healthy stream returns counts, not a full-history ID list.
-  const deletedRecordIds = fixture.seededRecords.map((record) => record.recordId);
+  const deletedRecordIds = fixture.seededRecords.map(
+    (record) => record.recordId,
+  );
   if (deletedRecordIds.some((recordId) => !recordId)) {
     throw new Error("Delete-stream cleanup requires seed record identities");
   }

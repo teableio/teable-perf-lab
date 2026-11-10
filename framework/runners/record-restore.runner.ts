@@ -139,7 +139,9 @@ const setupRecordTrash = async (
   config: RecordRestoreCaseConfig,
   windowId: string,
 ): Promise<RestoreSetupResult> => {
-  const deletedRecordIds = fixture.seededRecords.map((record) => record.recordId);
+  const deletedRecordIds = fixture.seededRecords.map(
+    (record) => record.recordId,
+  );
   if (deletedRecordIds.some((recordId) => !recordId)) {
     throw new Error("Restore setup requires seed record identities");
   }

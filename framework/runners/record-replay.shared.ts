@@ -610,7 +610,9 @@ export const deleteAllRows = async (
     },
   );
   if (result.error) {
-    throw Object.assign(new Error(result.error.message), { event: result.error });
+    throw Object.assign(new Error(result.error.message), {
+      event: result.error,
+    });
   }
   expect(result.done.deletedCount).toBe(fixture.seededRecords.length);
   expect(result.done.data.deletedCount).toBe(fixture.seededRecords.length);
