@@ -66,7 +66,7 @@ grid uses.
   request, from the stream call until its final `done` event.
 
 The timer starts after the 10k-row source table has passed `seedReady` and stops
-when the delete stream's `done` event reports 10,000 deleted ids. It does not
+when the delete stream's `done` event reports 10,000 deleted records. It does not
 include seed preparation, the pre-delete full-scan, post-delete empty-table
 verification, cleanup, or seed-cache restore/build work; those are emitted
 separately as diagnostic metrics and phases.
@@ -74,7 +74,9 @@ separately as diagnostic metrics and phases.
 ## Verification
 
 - The stream `done` event must report `totalCount`, `deletedCount`, and
-  `data.deletedRecordIds.length` all equal to 10,000, with no `error` events.
+  `data.deletedCount` all equal to 10,000, with no `error` event.
+- Progress carries only the current committed batch's IDs and committed index;
+  callbacks are awaited and the runner retains counts, not all stream IDs.
 - The table must contain no visible records after the delete.
 - V1 and V2 both run, and the run fails if routing falls back to the wrong
   engine.
@@ -102,7 +104,10 @@ is why the V1 leg deletes by a rows-range over `[[0, 9999]]` rather than by id.
 The HTTP method differs per leg: V1 `delete-stream` is a `GET` with query params,
 V2 `delete-by-id-stream` is a `PATCH` with a JSON body.
 
-Local note: seeding and deleting 10k rows against the shared CLOUD test space can
-hit environmental limits (402 row-quota on a polluted space, or 408 transaction
-timeout); the delete-stream path itself batches and skips the row-quota guard, so
-treat any such local failure as environmental and confirm on CI (isolated DB).
+The stream is request-driven and is never retried or resumed automatically.
+An error fails the case with the observed committed prefix; a disconnect cannot
+prove the server's final state. V1 is the legacy synchronous delete behind SSE,
+not the V2 bounded transaction implementation. Keep stream timings separate from
+synchronous delete, seed readiness, verification, and cleanup. Fixture cleanup
+uses identities captured in the existing readiness scan before timing starts.
+No performance improvement is claimed without same-environment measurements.

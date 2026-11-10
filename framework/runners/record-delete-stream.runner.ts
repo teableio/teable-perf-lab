@@ -15,7 +15,7 @@ import { isExecuteDbIsolated } from "../env";
 import { measureAsync, type Measurement } from "../metrics";
 import { pollUntilReady } from "../readiness";
 import { assertEngineRouting } from "../routing";
-import { perfStreamSse } from "../sse";
+import { perfStreamSse, type PerfSseResult } from "../sse";
 import { withPerfTraceStep } from "../trace-collector";
 import type {
   PerfCaseFor,
@@ -49,7 +49,7 @@ import { findRecordTrashItems } from "./record-trash.shared";
 export type DeleteStreamResult = {
   totalCount: number;
   deletedCount: number;
-  deletedRecordIds: string[];
+  lastCommittedBatchIndex: number;
   progressEventCount: number;
   status: number;
   routing: ReturnType<typeof assertEngineRouting> & {
@@ -96,6 +96,7 @@ export const prepareRecordTrashFixture = ({
 type DeleteStreamPrimaryResult = {
   delete?: DeleteStreamResult;
   verify?: Measurement<RecordReplayVerification>;
+  terminalError?: IDeleteSelectionStreamErrorEvent;
 };
 
 const getStreamHeaders = (context: PerfRunContext, windowId: string) => ({
@@ -145,6 +146,9 @@ export const deleteAllRowsByEngineStream = async (
   perfCase: PerfCase,
   context: PerfRunContext,
   windowId: string,
+  onProgress?: (
+    event: IDeleteSelectionStreamProgressEvent,
+  ) => void | Promise<void>,
 ): Promise<DeleteStreamResult> => {
   const isV2 = context.engine === "v2";
   const expectedDeletedCount = fixture.seededRecords.length;
@@ -154,46 +158,79 @@ export const deleteAllRowsByEngineStream = async (
         url: `/table/${fixture.tableId}/selection/delete-by-id-stream`,
       })
     : buildDeleteStreamUrl(fixture);
+  const observed = {
+    totalCount: 0,
+    deletedCount: 0,
+    lastCommittedBatchIndex: -1,
+    batchIndex: 0,
+    progressEventCount: 0,
+    done: undefined as IDeleteSelectionStreamDoneEvent | undefined,
+  };
+  const interrupted = (message: string) => {
+    const event: IDeleteSelectionStreamErrorEvent = {
+      id: "error",
+      phase: "deleting",
+      batchIndex: observed.batchIndex,
+      totalCount: observed.totalCount,
+      deletedCount: observed.deletedCount,
+      recordIds: [],
+      message,
+      code: "DELETE_STREAM_INTERRUPTED",
+      lastCommittedBatchIndex: observed.lastCommittedBatchIndex,
+      committed: "unknown",
+    };
+    return Object.assign(new Error(message), { event });
+  };
 
-  const sseResult = await perfStreamSse<IDeleteSelectionStreamEvent>({
-    context,
-    perfCase,
-    stepId,
-    url,
-    method: isV2 ? "PATCH" : "GET",
-    headers: {
-      ...(isV2 ? { "Content-Type": "application/json" } : {}),
-      ...getStreamHeaders(context, windowId),
-    },
-    body: isV2 ? buildDeleteByIdBody(fixture) : undefined,
-    errorPrefix: "Delete selection stream failed",
-  });
-
-  const progressEvents = sseResult.events.filter(
-    (event): event is IDeleteSelectionStreamProgressEvent =>
-      event.id === "progress",
-  );
-  const errors = sseResult.events.filter(
-    (event): event is IDeleteSelectionStreamErrorEvent => event.id === "error",
-  );
-  const done = sseResult.events.find(
-    (event): event is IDeleteSelectionStreamDoneEvent => event.id === "done",
-  );
-
-  if (!done) {
-    throw new Error(
-      errors.at(-1)?.message ?? "Delete selection stream ended without result",
-    );
+  let sseResult: PerfSseResult<IDeleteSelectionStreamEvent>;
+  try {
+    sseResult = await perfStreamSse<IDeleteSelectionStreamEvent>({
+      context,
+      perfCase,
+      stepId,
+      url,
+      method: isV2 ? "PATCH" : "GET",
+      headers: {
+        ...(isV2 ? { "Content-Type": "application/json" } : {}),
+        ...getStreamHeaders(context, windowId),
+      },
+      body: isV2 ? buildDeleteByIdBody(fixture) : undefined,
+      errorPrefix: "Delete selection stream failed",
+      collectEvents: false,
+      isTerminal: (event) => event.id === "done" || event.id === "error",
+      onEvent: async (event) => {
+        if (event.id === "error") {
+          // Keep only the terminal event's bounded batch, never all stream IDs.
+          throw Object.assign(new Error(event.message), { event });
+        }
+        observed.totalCount = event.totalCount;
+        observed.deletedCount = event.deletedCount;
+        observed.lastCommittedBatchIndex = event.lastCommittedBatchIndex;
+        if (event.id === "progress") {
+          observed.batchIndex = event.batchIndex;
+          observed.progressEventCount += 1;
+          await onProgress?.(event);
+        } else if (event.id === "done") {
+          observed.done = event;
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && "event" in error) throw error;
+    throw interrupted(error instanceof Error ? error.message : String(error));
   }
 
-  expect(errors).toHaveLength(0);
+  const done = observed.done;
+  if (!done) {
+    throw interrupted("Delete selection stream ended without result");
+  }
+
   expect(done.totalCount).toBe(expectedDeletedCount);
   expect(done.deletedCount).toBe(expectedDeletedCount);
   expect(done.data.deletedCount).toBe(expectedDeletedCount);
-  expect(done.data.deletedRecordIds).toHaveLength(expectedDeletedCount);
 
   const routing = assertEngineRouting(context, sseResult.headers, {
-    feature: "deleteRecord",
+    feature: isV2 ? "deleteRecord" : undefined,
     operation: "deleteSelectionStream",
   });
   if (!routing.routeMatched) {
@@ -205,8 +242,8 @@ export const deleteAllRowsByEngineStream = async (
   return {
     totalCount: done.totalCount,
     deletedCount: done.deletedCount,
-    deletedRecordIds: done.data.deletedRecordIds,
-    progressEventCount: progressEvents.length,
+    lastCommittedBatchIndex: done.lastCommittedBatchIndex,
+    progressEventCount: observed.progressEventCount,
     status: sseResult.status,
     routing: {
       canaryHeader: context.engine === "v2" ? "true" : "false",
@@ -247,6 +284,9 @@ const runDeleteStreamMeasuredOperation = async (
       assertDeleted(fixture),
     );
   } catch (error) {
+    if (error instanceof Error && "event" in error) {
+      result.terminalError = error.event as IDeleteSelectionStreamErrorEvent;
+    }
     throw new PerfRunDiagnosticError(error, {
       metrics: {},
       thresholds: [],
@@ -285,8 +325,8 @@ const buildDeleteStreamResult = ({
   seedReadyMeasurement?: Measurement<RecordReplayVerification>;
   primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
   error?: unknown;
-}): PerfRunResult =>
-  buildRecordReplayResult({
+}): PerfRunResult => {
+  const result = buildRecordReplayResult({
     config,
     operation: "delete",
     windowId,
@@ -303,22 +343,29 @@ const buildDeleteStreamResult = ({
     verifyMeasurement: primaryMeasurement?.result.verify,
     error,
   });
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      terminalError: primaryMeasurement?.result.terminalError,
+    },
+  };
+};
 
 const restoreDeletedStreamSeed = async ({
   fixture,
   config,
-  primaryMeasurement,
 }: {
   fixture: RecordReplayFixture;
   config: RecordDeleteStreamCaseConfig;
-  primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
 }) => {
-  const deletedRecordIds =
-    primaryMeasurement?.result.delete?.deletedRecordIds ?? [];
-  if (deletedRecordIds.length !== fixture.seededRecords.length) {
-    throw new Error(
-      `Delete-stream cleanup has ${deletedRecordIds.length}/${fixture.seededRecords.length} deleted record ids`,
-    );
+  // Fixture identities are captured before timing in the existing readiness
+  // scan. The healthy stream returns counts, not a full-history ID list.
+  const deletedRecordIds = fixture.seededRecords.map(
+    (record) => record.recordId,
+  );
+  if (deletedRecordIds.some((recordId) => !recordId)) {
+    throw new Error("Delete-stream cleanup requires seed record identities");
   }
   const cleanupPolling = resolveRecordTrashCleanupPolling(config.verify);
   const trashLookups = await pollUntilReady(
@@ -365,8 +412,7 @@ const cleanupDeleteStreamFixture = async ({
     executeDbIsolated: isExecuteDbIsolated(),
     sharedSeedIdentity: Boolean(fixture.seedCacheInfo?.seedAffinity),
     canRestoreSeed: Boolean(primaryMeasurement?.result.delete),
-    restoreSeed: () =>
-      restoreDeletedStreamSeed({ fixture, config, primaryMeasurement }),
+    restoreSeed: () => restoreDeletedStreamSeed({ fixture, config }),
     deleteFixture: () => permanentDeleteTable(baseId, fixture.tableId),
   });
 };
@@ -385,7 +431,12 @@ const recordDeleteStreamSpec: RecordMutationLifecycleSpec<
 > = {
   prepareFixture: ({ baseId, tableName, config, perfCase }) =>
     prepareRecordTrashFixture({ baseId, tableName, config, perfCase }),
-  assertSeedReady: ({ fixture, config }) => assertRowsRestored(fixture, config),
+  assertSeedReady: ({ fixture, config }) =>
+    assertRowsRestored(fixture, config, {
+      onRecordId: (recordId, rowNumber) => {
+        fixture.seededRecords[rowNumber - 1].recordId = recordId;
+      },
+    }),
   runMeasuredOperation: ({ perfCase, context, config, fixture, windowId }) =>
     runDeleteStreamMeasuredOperation(
       perfCase,

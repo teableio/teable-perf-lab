@@ -107,6 +107,7 @@ export type RecordReplayVerification = {
 
 type RestoreVerificationOptions = {
   verifySamples?: boolean;
+  onRecordId?: (recordId: string, rowNumber: number) => void;
 };
 
 export type RecordReplaySetupMeasurements = {
@@ -608,11 +609,13 @@ export const deleteAllRows = async (
       headers: getStreamHeaders(context),
     },
   );
-  expect(result.errors).toHaveLength(0);
+  if (result.error) {
+    throw Object.assign(new Error(result.error.message), {
+      event: result.error,
+    });
+  }
   expect(result.done.deletedCount).toBe(fixture.seededRecords.length);
-  expect(result.done.data.deletedRecordIds).toHaveLength(
-    fixture.seededRecords.length,
-  );
+  expect(result.done.data.deletedCount).toBe(fixture.seededRecords.length);
   return result;
 };
 
@@ -905,7 +908,7 @@ export const assertRowsRestored = async (
           take,
         }),
     },
-    () => {},
+    (record, rowNumber) => options.onRecordId?.(record.id, rowNumber),
   );
 
   const beyondLastPage = await getRecords(fixture.tableId, {

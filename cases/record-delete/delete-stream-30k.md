@@ -37,11 +37,19 @@ history.
 
 ## Verification
 
-- Routing must match V1/V2 and feature `deleteRecord`.
-- The stream must report 30,000 deleted records without business errors.
+- Routing must match V1/V2; V2 must report feature `deleteRecord`.
+- The counts-only `done` event must report `totalCount`, `deletedCount`, and
+  `data.deletedCount` equal to 30,000 without a terminal error.
+- Awaited progress callbacks receive only each committed batch's IDs and
+  `lastCommittedBatchIndex`; the result retains counts, not all deleted IDs.
 - The table must contain zero visible records after completion.
 
 ## Notes
 
 The workload keeps the same UI behavior and schema as the 10k sibling; only row
 scale changes.
+V1 remains the legacy synchronous-delete baseline behind SSE, not the V2 bounded
+transaction implementation. The request is never retried or resumed automatically;
+a disconnect cannot establish final server state. Compare this stream boundary
+separately from direct-delete, seed readiness, verification, and cleanup. No
+performance improvement is claimed without same-environment measurements.

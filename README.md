@@ -989,6 +989,10 @@ workload.
 - `record-delete/delete-stream-30k`: Extend the 1k/10k selection-delete stream
   curve to a 30,000-row workload that can expose nonlinear row-deletion and
   stream-progress regressions.
+  These three cases consume request-driven SSE with awaited batch progress and
+  counts-only completion; failures are not automatically retried. V1 remains
+  the legacy synchronous-delete baseline behind SSE. Keep these stream metrics
+  separate from direct-delete, seed readiness, and verification timings.
 - `record-delete/link-trash-1k`: Measure deleting 1,000 records from a table
   whose rows contain populated link cells, covering the record-trash path for
   linked records rather than plain scalar-row deletion.

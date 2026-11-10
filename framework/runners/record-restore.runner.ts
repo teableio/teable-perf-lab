@@ -40,7 +40,7 @@ import {
 } from "./record-trash.shared";
 
 type RestoreSetupResult = {
-  delete: Omit<DeleteStreamResult, "deletedRecordIds">;
+  delete: DeleteStreamResult;
   deletedState: RecordReplayVerification;
   trashLookups: RecordTrashLookup[];
 };
@@ -121,7 +121,7 @@ const deleteRowsForRestoreSetup = async (
       (total, result) => total + result.deletedCount,
       0,
     ),
-    deletedRecordIds: results.flatMap((result) => result.deletedRecordIds),
+    lastCommittedBatchIndex: last.lastCommittedBatchIndex,
     progressEventCount: results.reduce(
       (total, result) => total + result.progressEventCount,
       0,
@@ -139,6 +139,12 @@ const setupRecordTrash = async (
   config: RecordRestoreCaseConfig,
   windowId: string,
 ): Promise<RestoreSetupResult> => {
+  const deletedRecordIds = fixture.seededRecords.map(
+    (record) => record.recordId,
+  );
+  if (deletedRecordIds.some((recordId) => !recordId)) {
+    throw new Error("Restore setup requires seed record identities");
+  }
   const deleteResult = await deleteRowsForRestoreSetup(
     fixture,
     perfCase,
@@ -152,13 +158,11 @@ const setupRecordTrash = async (
       pollIntervalMs: 500,
       description: `record trash item for ${config.rowCount} rows in table ${fixture.tableId}`,
     },
-    () => findRecordTrashItems(fixture.tableId, deleteResult.deletedRecordIds),
+    () => findRecordTrashItems(fixture.tableId, deletedRecordIds),
   );
-  const { deletedRecordIds: _deletedRecordIds, ...compactDelete } =
-    deleteResult;
 
   return {
-    delete: compactDelete,
+    delete: deleteResult,
     deletedState,
     trashLookups,
   };
@@ -437,7 +441,12 @@ const recordRestoreSpec: RecordMutationLifecycleSpec<
   prepareFixture: ({ baseId, tableName, config, perfCase }) =>
     prepareRecordTrashFixture({ baseId, tableName, config, perfCase }),
   assertSeedReady: ({ fixture, config }) =>
-    assertRowsRestored(fixture, config, { verifySamples: true }),
+    assertRowsRestored(fixture, config, {
+      verifySamples: true,
+      onRecordId: (recordId, rowNumber) => {
+        fixture.seededRecords[rowNumber - 1].recordId = recordId;
+      },
+    }),
   runMeasuredOperation: ({ perfCase, context, fixture, config, windowId }) =>
     runRestoreMeasuredOperation(perfCase, context, fixture, config, windowId),
   buildResult: buildRecordRestoreResult,

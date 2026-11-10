@@ -65,7 +65,7 @@ grid uses.
   request, from the stream call until its final `done` event.
 
 The timer starts after the 1k-row source table has passed `seedReady` and stops
-when the delete stream's `done` event reports 1,000 deleted ids. It does not
+when the delete stream's `done` event reports 1,000 deleted records. It does not
 include seed preparation, the pre-delete full-scan, post-delete empty-table
 verification, cleanup, or seed-cache restore/build work; those are emitted
 separately as diagnostic metrics and phases.
@@ -73,7 +73,10 @@ separately as diagnostic metrics and phases.
 ## Verification
 
 - The stream `done` event must report `totalCount`, `deletedCount`, and
-  `data.deletedRecordIds.length` all equal to 1,000, with no `error` events.
+  `data.deletedCount` all equal to 1,000, with no `error` event.
+- Each progress callback receives only the current committed batch's
+  `recordIds` and `lastCommittedBatchIndex`; the runner awaits it before reading
+  the next event and retains only counts. Completion carries no full ID list.
 - The table must contain no visible records after the delete.
 - V1 and V2 both run, and the run fails if routing falls back to the wrong
   engine.
@@ -101,3 +104,13 @@ query-scoped ids) instead of an explicit `recordIds` list. The same robustness
 is why the V1 leg deletes by a rows-range over `[[0, 999]]` rather than by id.
 The HTTP method differs per leg: V1 `delete-stream` is a `GET` with query params,
 V2 `delete-by-id-stream` is a `PATCH` with a JSON body.
+
+This is one request-driven stream with no automatic retry or resume. A terminal
+error fails the case and retains its committed prefix and `committed` flag;
+an interrupted response is not proof of the server's final state. V1 remains
+the legacy synchronous-delete implementation behind SSE, not the V2 bounded
+transaction implementation. Compare stream metrics only with the same stream
+timing boundary; synchronous delete, readiness, and verification remain separate.
+Fixture cleanup uses IDs captured during the existing pre-timer readiness scan,
+not an accumulated stream result. No performance improvement is claimed without
+same-environment measurements.
