@@ -1557,6 +1557,117 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 8000,
     traceMs: 500,
   },
+  // Provisional: no CI observation yet. Local runs seeded a fresh 20k table in
+  // 2-11s and finished each V2 execute in under 3s; padded for a slower runner.
+  // V1 only returns a skip. Overwritten by the next full-run refresh.
+  "record-delete/conditional-20k-by-ids-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-by-ids-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-computed-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 45000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-computed-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 45000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-indexed-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-indexed-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-no-match": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-delete/conditional-20k-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-by-ids-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-by-ids-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-computed-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 45000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-computed-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 45000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-indexed-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-indexed-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-no-match": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-tail-100": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
+  "record-update/conditional-20k-tail-18k": {
+    coldSeedMs: 0,
+    v1Ms: 100,
+    v2Ms: 15000,
+    traceMs: 500,
+  },
   // Provisional: no observation yet. The fixture is a 10k single table plus
   // five formula fields; execute is 420 bounded polls, which measured ~2-3s
   // locally. Padded for a slower runner. Overwritten by the next full-run
