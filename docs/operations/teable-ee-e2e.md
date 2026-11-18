@@ -86,6 +86,31 @@ Because `teableio/teable-ee` is private, configure a read-only deploy key on
 that repository and store the private key in this repository as
 `TEABLE_EE_CHECKOUT_SSH_KEY`.
 
+## Acceptance runs
+
+Use an acceptance run to measure a pull request or reproduce a problem without
+any outward effect. Push the case work to a temporary `acc/pr-<number>-<topic>`
+branch and dispatch from it. Every `acc/*` branch runs in this mode, and
+`acceptance_run=true` enables it on any other branch.
+
+```bash
+gh workflow run teable-ee-e2e-perf.yml --repo teableio/teable-perf-lab \
+  --ref acc/pr-<number>-<topic> \
+  -f teable_ee_ref=refs/pull/<number>/merge \
+  -f case_filter=<case-id> \
+  -f engine_filter=v2
+```
+
+An acceptance run collects no traces and does not touch the trace site, the
+result table, the release baseline or Feishu. The `report` job is replaced by
+`acceptance_report`, which prints each result and fails on a failed or missing
+case. Test output stays on the runner, the only result artifact holds outcomes
+and metric numbers, the seed database artifact is encrypted, and artifacts
+expire after one day.
+
+Run inputs, the branch and its code, setup step logs and resolved commit SHAs
+remain public. Delete the run and the branch when finished.
+
 ## Case model
 
 The seed job runs `perf-lab.e2e-spec.ts` with `PERF_LAB_MODE=seed`. That mode
