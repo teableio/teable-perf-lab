@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       teable_ee_ref:
-        description: Branch, tag, or commit SHA in teableio/teable-ee
+        description: Branch, tag, commit SHA, or refs/pull/<number>/merge in teableio/teable-ee
         required: false
         default: develop
         type: string
@@ -83,6 +83,14 @@ on:
           282 did. The nightly scheduled run always does it, which is the
           cadence the detection was designed for. Turn this on only to exercise
           the analysis itself.
+        required: false
+        default: false
+        type: boolean
+      acceptance_run:
+        description: >-
+          Run privately scoped PR acceptance: no traces, result table, baseline
+          or Feishu activity, and only pass/fail data and metric numbers in
+          public logs and artifacts. Always on for branches named acc/*.
         required: false
         default: false
         type: boolean
@@ -175,11 +183,14 @@ env:
   OTEL_EXPORT_RATIO: "1"
   TEABLE_PERF_LAB_BASE_ID: bselS3I2MeVI6RJhS4g
   TEABLE_PERF_LAB_TABLE_ID: tblwPqrcchUzvyEOqLo
-  TEABLE_PERF_LAB_TOKEN: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}
+  # Acceptance runs never receive the reporting credentials, so a reporting
+  # step cannot write even if its own condition is wrong.
+  PERF_LAB_ACCEPTANCE_RUN: ${{ github.event_name == 'schedule' && 'false' || ((inputs.acceptance_run || startsWith(github.ref, 'refs/heads/acc/')) && 'true' || 'false') }}
+  TEABLE_PERF_LAB_TOKEN: ${{ (github.event_name == 'schedule' || !(inputs.acceptance_run || startsWith(github.ref, 'refs/heads/acc/'))) && secrets.TEABLE_PERF_LAB_TOKEN || '' }}
   # Read-only token for the Launches base, which lives outside the perf base and
   # is not covered by TEABLE_PERF_LAB_TOKEN. It names the commit currently
   # deployed; the run that measured that commit becomes the report's baseline.
-  TEABLE_LAUNCHES_TOKEN: ${{ secrets.TEABLE_LAUNCHES_TOKEN }}
+  TEABLE_LAUNCHES_TOKEN: ${{ (github.event_name == 'schedule' || !(inputs.acceptance_run || startsWith(github.ref, 'refs/heads/acc/'))) && secrets.TEABLE_LAUNCHES_TOKEN || '' }}
   PERF_LAB_SEED_CACHE_ENABLED: "true"
   PERF_LAB_SEED_CACHE_DIR: ${{ github.workspace }}/perf-lab-seed-cache
   PERF_LAB_SEED_DB_DUMP: ${{ github.workspace }}/perf-lab-seed-cache/e2e_test_teable.dump
@@ -358,8 +369,18 @@ jobs:
 
           docker exec "$TEST_PG_CONTAINER_NAME" dropdb -U teable --if-exists e2e_test_teable
           docker exec "$TEST_PG_CONTAINER_NAME" createdb -U teable e2e_test_teable
-          make postgres.mode
-          pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
+          prepare_database() {
+            make postgres.mode
+            pnpm -F @teable/db-main-prisma-ee prisma-db-seed -- --e2e
+          }
+          if [ "$PERF_LAB_ACCEPTANCE_RUN" = "true" ]; then
+            prepare_database > "${RUNNER_TEMP}/acceptance-database.log" 2>&1 || {
+              echo "Database preparation failed; output is withheld in acceptance mode." >&2
+              exit 1
+            }
+          else
+            prepare_database
+          fi
 
       - name: Build perf seed DB
         if: steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
@@ -377,10 +398,21 @@ jobs:
           export PERF_LAB_OTEL_SERVICE_PREFIX="teable-perf-seed-${{ matrix.plan.artifactSuffix }}"
           export PERF_LAB_SEED_SCHEMA_SIGNATURE="${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}"
 
-          pnpm -F @teable/backend-ee exec vitest run \
-            --config ./vitest-perf-lab.config.ts \
-            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
-            --silent=false
+          run_cases() {
+            pnpm -F @teable/backend-ee exec vitest run \
+              --config ./vitest-perf-lab.config.ts \
+              ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
+              --silent=false
+          }
+          if [ "$PERF_LAB_ACCEPTANCE_RUN" = "true" ]; then
+            # Test output can carry SQL, stacks and server responses.
+            run_cases > "${RUNNER_TEMP}/acceptance-cases.log" 2>&1 || {
+              echo "Case run failed; output is withheld in acceptance mode." >&2
+              exit 1
+            }
+          else
+            run_cases
+          fi
 
       - name: Dump perf seed database
         if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
@@ -397,11 +429,25 @@ jobs:
           ls -lh "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Save perf seed database cache
-        if: success() && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
+        if: success() && env.PERF_LAB_ACCEPTANCE_RUN != 'true' && steps.seed-cache-mode.outputs.requires_seed_validation == 'true'
         uses: actions/cache/save@v5
         with:
           path: perf-lab-seed-cache
           key: perf-seed-db-${{ needs.resolve_inputs.outputs.seed_cache_namespace_segment }}${{ runner.os }}-${{ hashFiles('teable-ee/packages/db-main-prisma/prisma/postgres/schema.prisma', 'teable-ee/packages/db-main-prisma/prisma/postgres/migrations/**', 'teable-ee/community/packages/db-data-prisma/prisma/schema.prisma', 'teable-ee/community/packages/db-data-prisma/prisma/migrations/**') }}-${{ matrix.plan.seedContractGeneration }}-${{ matrix.plan.stableSlot }}-${{ matrix.plan.caseSetDigest }}-${{ hashFiles('perf-lab/cases/**/*.case.ts', 'perf-lab/framework/**/*.ts', 'perf-lab/perf-lab.e2e-spec.ts', 'perf-lab/registry.ts') }}
+
+      # Artifacts of a public repository can be downloaded by anyone, and the
+      # dump has to travel to the execute jobs as one.
+      - name: Encrypt perf seed database dump
+        if: success() && env.PERF_LAB_ACCEPTANCE_RUN == 'true'
+        env:
+          PERF_LAB_DUMP_KEY: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          test "$PERF_LAB_DUMP_KEY" != "-${GITHUB_RUN_ID}"
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PERF_LAB_DUMP_KEY \
+            -in "$PERF_LAB_SEED_DB_DUMP" -out "${PERF_LAB_SEED_DB_DUMP}.enc"
+          mv "${PERF_LAB_SEED_DB_DUMP}.enc" "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Upload perf seed database dump
         if: success()
@@ -415,6 +461,11 @@ jobs:
           path: perf-lab-seed-cache/e2e_test_teable.dump
           if-no-files-found: error
           overwrite: true
+          retention-days: ${{ env.PERF_LAB_ACCEPTANCE_RUN == 'true' && 1 || 0 }}
+
+      - name: Remove seed artifacts from acceptance runs
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN == 'true'
+        run: rm -rf perf-lab-seed-artifacts
 
       - name: Upload perf seed artifacts
         if: always()
@@ -425,7 +476,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Publish seed summary
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         run: |
           shopt -s nullglob
           summaries=(perf-lab-seed-artifacts/summary-*.md)
@@ -483,6 +534,17 @@ jobs:
           name: teable-ee-e2e-perf-seed-db-${{ matrix.plan.seedArtifactSuffix }}-${{ github.run_id }}
           path: perf-lab-seed-cache
 
+      - name: Decrypt perf seed database dump
+        if: env.PERF_LAB_ACCEPTANCE_RUN == 'true'
+        env:
+          PERF_LAB_DUMP_KEY: ${{ secrets.TEABLE_PERF_LAB_TOKEN }}-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:PERF_LAB_DUMP_KEY \
+            -in "$PERF_LAB_SEED_DB_DUMP" -out "${PERF_LAB_SEED_DB_DUMP}.plain"
+          mv "${PERF_LAB_SEED_DB_DUMP}.plain" "$PERF_LAB_SEED_DB_DUMP"
+
       - name: Bootstrap perf runtime
         uses: ./perf-lab/.github/actions/perf-runtime
         with:
@@ -504,6 +566,7 @@ jobs:
             < "$PERF_LAB_SEED_DB_DUMP"
 
       - name: Start job-local trace spool
+        if: env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         run: |
           set -euo pipefail
 
@@ -563,14 +626,29 @@ jobs:
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
           export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
           export PERF_LAB_TRACE_DEFER_SHARED_PUBLISH="true"
+          if [ "$PERF_LAB_ACCEPTANCE_RUN" = "true" ]; then
+            export PERF_LAB_TRACE_ENABLED="false"
+            export OTEL_EXPORT_RATIO="0"
+          fi
 
-          pnpm -F @teable/backend-ee exec vitest run \
-            --config ./vitest-perf-lab.config.ts \
-            ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
-            --silent=false
+          run_cases() {
+            pnpm -F @teable/backend-ee exec vitest run \
+              --config ./vitest-perf-lab.config.ts \
+              ../../community/apps/nestjs-backend/test/perf-lab/perf-lab.e2e-spec.ts \
+              --silent=false
+          }
+          if [ "$PERF_LAB_ACCEPTANCE_RUN" = "true" ]; then
+            # Test output can carry SQL, stacks and server responses.
+            run_cases > "${RUNNER_TEMP}/acceptance-cases.log" 2>&1 || {
+              echo "Case run failed; output is withheld in acceptance mode." >&2
+              exit 1
+            }
+          else
+            run_cases
+          fi
 
       - name: Stop job-local trace spool
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         run: |
           set -euo pipefail
 
@@ -592,7 +670,7 @@ jobs:
           docker rm "$OTEL_TRACE_RELAY_CONTAINER_NAME"
 
       - name: Prepare selected trace payload
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         run: |
           set -euo pipefail
 
@@ -601,7 +679,7 @@ jobs:
             --artifact-dir "perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
 
       - name: Upload perf artifacts
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -621,6 +699,11 @@ jobs:
 
           src="perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}"
           dest="perf-lab-results/${{ matrix.plan.artifactSuffix }}"
+
+          if [ "$PERF_LAB_ACCEPTANCE_RUN" = "true" ]; then
+            node perf-lab/scripts/sanitize-acceptance-results.mjs "$src" "$dest"
+            exit 0
+          fi
 
           if [ ! -d "$src" ]; then
             echo "No perf artifacts at $src; skipping lightweight staging."
@@ -647,7 +730,7 @@ jobs:
           find "$dest" -type f | sort
 
       - name: Upload lightweight perf results
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -655,8 +738,17 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload reduced acceptance results
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: teable-ee-e2e-perf-results-${{ matrix.plan.artifactSuffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-results/${{ matrix.plan.artifactSuffix }}
+          if-no-files-found: warn
+          retention-days: 1
+
       - name: Publish job summary
-        if: always()
+        if: always() && env.PERF_LAB_ACCEPTANCE_RUN != 'true'
         run: |
           shopt -s nullglob
           summaries=(perf-lab-artifacts/${{ matrix.plan.artifactSuffix }}/summary-*.md)
@@ -675,13 +767,41 @@ jobs:
         with:
           operation: cleanup
 
+  # Acceptance runs end here instead of in `report`: no trace site, result
+  # table, release baseline or notification is touched.
+  acceptance_report:
+    name: Summarize acceptance results
+    needs:
+      - resolve_inputs
+      - seed
+      - execute
+    if: always() && !(github.event_name == 'schedule') && (inputs.acceptance_run || startsWith(github.ref, 'refs/heads/acc/'))
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout perf lab
+        uses: actions/checkout@v5
+        with:
+          path: perf-lab
+
+      - name: Download reduced results
+        uses: actions/download-artifact@v7
+        with:
+          pattern: teable-ee-e2e-perf-results-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: perf-lab-results
+
+      - name: Check acceptance results
+        env:
+          PERF_LAB_EXECUTE_PLAN: ${{ needs.resolve_inputs.outputs.execute_plan }}
+        run: node perf-lab/scripts/report-acceptance-results.mjs perf-lab-results
+
   report:
     name: Report perf results
     needs:
       - resolve_inputs
       - seed
       - execute
-    if: always()
+    if: always() && (github.event_name == 'schedule' || !(inputs.acceptance_run || startsWith(github.ref, 'refs/heads/acc/')))
     # Was 30, which the report's own work clears in about a minute. The extra
     # ten are headroom for the shadow analysis that now runs after everything
     # else — it is bounded at 30 on its own step, and this keeps the job budget
