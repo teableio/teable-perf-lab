@@ -1557,115 +1557,53 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 8000,
     traceMs: 500,
   },
-  // Provisional: no CI observation yet. Local runs seeded a fresh 20k table in
-  // 2-11s and finished each V2 execute in under 3s; padded for a slower runner.
-  // V1 only returns a skip. Overwritten by the next full-run refresh.
-  "record-delete/conditional-20k-by-ids-tail-100": {
+  // Paused from the default full run: these run by exact id under production-pod.
+  "record-delete/conditional-wide-21k-by-ids-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-by-ids-tail-18k": {
+  "record-delete/conditional-wide-21k-computed-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-computed-tail-100": {
+  "record-delete/conditional-wide-21k-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 45000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-computed-tail-18k": {
+  "record-delete/conditional-wide-21k-tail-20k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 45000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-indexed-tail-100": {
+  "record-update/conditional-wide-21k-by-ids-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-indexed-tail-18k": {
+  "record-update/conditional-wide-21k-computed-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-no-match": {
+  "record-update/conditional-wide-21k-tail-10k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-tail-100": {
+  "record-update/conditional-wide-21k-tail-20k": {
     coldSeedMs: 0,
     v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-delete/conditional-20k-tail-18k": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-by-ids-tail-100": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-by-ids-tail-18k": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-computed-tail-100": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 45000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-computed-tail-18k": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 45000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-indexed-tail-100": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-indexed-tail-18k": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-no-match": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-tail-100": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
-    traceMs: 500,
-  },
-  "record-update/conditional-20k-tail-18k": {
-    coldSeedMs: 0,
-    v1Ms: 100,
-    v2Ms: 15000,
+    v2Ms: 300000,
     traceMs: 500,
   },
   // Provisional: no observation yet. The fixture is a 10k single table plus

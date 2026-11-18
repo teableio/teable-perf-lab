@@ -432,6 +432,17 @@ export interface RecordConditionalWriteCaseConfig {
   batchSize: number;
   // The last matchedRows rows are the ones written.
   matchedRows: number;
+  // Size of an incompressible JSON payload stored in a long-text column per row.
+  payloadBytes?: number;
+  // A second person updates and deletes single rows at the front of the table
+  // while the bulk write runs. A request that fails or does not answer within
+  // responseTimeoutMs fails the case.
+  collaborator: {
+    updateRows: number;
+    deleteRows: number;
+    responseTimeoutMs: number;
+    paceMs: number;
+  };
   // Adds a formula, a many-one link and a lookup and rollup over the written
   // column, and counts the time until the rollups are correct.
   computed?: {

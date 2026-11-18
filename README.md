@@ -971,56 +971,30 @@ workload.
   table's trash through the real V1/V2 restore route.
 - `record-delete/delete-1k`: Measure the grid selection delete path for deleting
   1,000 mixed-type records from a 20-field table.
-- `record-update/conditional-20k-tail-100`: Measure one V2 update request that
-  affects the last 100 rows of a 20,000-row table, matched by a filter on an
-  unindexed column.
-- `record-update/conditional-20k-tail-18k`: Measure one V2 update request that
-  affects the last 18,000 rows of a 20,000-row table, matched by a filter on an
-  unindexed column.
-- `record-update/conditional-20k-no-match`: Measure one V2 update request that
-  affects no rows of a 20,000-row table, matched by a filter on an unindexed
-  column.
-- `record-update/conditional-20k-indexed-tail-100`: Measure one V2 update
-  request that affects the last 100 rows of a 20,000-row table, matched by a
-  filter on an indexed column.
-- `record-update/conditional-20k-indexed-tail-18k`: Measure one V2 update
-  request that affects the last 18,000 rows of a 20,000-row table, matched by a
-  filter on an indexed column.
-- `record-update/conditional-20k-by-ids-tail-100`: Measure one V2 update request
-  that affects the last 100 rows of a 20,000-row table, listed by record id.
-- `record-update/conditional-20k-by-ids-tail-18k`: Measure one V2 update request
-  that affects the last 18,000 rows of a 20,000-row table, listed by record id.
-- `record-update/conditional-20k-computed-tail-100`: Measure one V2 update
-  request that affects the last 100 rows of a 20,000-row table, matched by a
-  filter on an unindexed column.
-- `record-update/conditional-20k-computed-tail-18k`: Measure one V2 update
-  request that affects the last 18,000 rows of a 20,000-row table, matched by a
-  filter on an unindexed column.
-- `record-delete/conditional-20k-tail-100`: Measure one V2 delete request that
-  affects the last 100 rows of a 20,000-row table, matched by a filter on an
-  unindexed column.
-- `record-delete/conditional-20k-tail-18k`: Measure one V2 delete request that
-  affects the last 18,000 rows of a 20,000-row table, matched by a filter on an
-  unindexed column.
-- `record-delete/conditional-20k-no-match`: Measure one V2 delete request that
-  affects no rows of a 20,000-row table, matched by a filter on an unindexed
-  column.
-- `record-delete/conditional-20k-indexed-tail-100`: Measure one V2 delete
-  request that affects the last 100 rows of a 20,000-row table, matched by a
-  filter on an indexed column.
-- `record-delete/conditional-20k-indexed-tail-18k`: Measure one V2 delete
-  request that affects the last 18,000 rows of a 20,000-row table, matched by a
-  filter on an indexed column.
-- `record-delete/conditional-20k-by-ids-tail-100`: Measure one V2 delete request
-  that affects the last 100 rows of a 20,000-row table, listed by record id.
-- `record-delete/conditional-20k-by-ids-tail-18k`: Measure one V2 delete request
-  that affects the last 18,000 rows of a 20,000-row table, listed by record id.
-- `record-delete/conditional-20k-computed-tail-100`: Measure one V2 delete
-  request that affects the last 100 rows of a 20,000-row table, matched by a
-  filter on an unindexed column.
-- `record-delete/conditional-20k-computed-tail-18k`: Measure one V2 delete
-  request that affects the last 18,000 rows of a 20,000-row table, matched by a
-  filter on an unindexed column.
+- `record-update/conditional-wide-21k-tail-10k`: Measure one V2 update request
+  over 10,000 wide rows, matched by a filter, under memory limits close to a
+  production pod, and whether a collaborator can keep working meanwhile.
+- `record-update/conditional-wide-21k-tail-20k`: Measure one V2 update request
+  over 20,000 wide rows, matched by a filter, under memory limits close to a
+  production pod, and whether a collaborator can keep working meanwhile.
+- `record-update/conditional-wide-21k-by-ids-tail-10k`: Measure one V2 update
+  request over 10,000 wide rows, listed by record id, under memory limits close
+  to a production pod, and whether a collaborator can keep working meanwhile.
+- `record-update/conditional-wide-21k-computed-tail-10k`: Measure one V2 update
+  request over 10,000 wide rows, matched by a filter, under memory limits close
+  to a production pod, and whether a collaborator can keep working meanwhile.
+- `record-delete/conditional-wide-21k-tail-10k`: Measure one V2 delete request
+  over 10,000 wide rows, matched by a filter, under memory limits close to a
+  production pod, and whether a collaborator can keep working meanwhile.
+- `record-delete/conditional-wide-21k-tail-20k`: Measure one V2 delete request
+  over 20,000 wide rows, matched by a filter, under memory limits close to a
+  production pod, and whether a collaborator can keep working meanwhile.
+- `record-delete/conditional-wide-21k-by-ids-tail-10k`: Measure one V2 delete
+  request over 10,000 wide rows, listed by record id, under memory limits close
+  to a production pod, and whether a collaborator can keep working meanwhile.
+- `record-delete/conditional-wide-21k-computed-tail-10k`: Measure one V2 delete
+  request over 10,000 wide rows, matched by a filter, under memory limits close
+  to a production pod, and whether a collaborator can keep working meanwhile.
 - `record-delete/delete-5k`: Scale synchronous selection delete from 1,000 to
   5,000 mixed records.
 - `record-delete/delete-stream-1k`: Measure the grid **streaming**

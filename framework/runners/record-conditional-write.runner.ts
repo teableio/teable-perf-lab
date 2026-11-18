@@ -1,5 +1,7 @@
-import { FieldKeyType, FieldType, Relationship } from "@teable/core";
-import { axios } from "@teable/openapi";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { FieldKeyType, FieldType, Relationship, Role } from "@teable/core";
+import { axios, emailBaseInvitation } from "@teable/openapi";
+import { createNewUserAxios } from "../../../utils/axios-instance/new-user";
 import {
   createField,
   createRecords,
@@ -9,10 +11,11 @@ import {
 } from "../../../utils/init-app";
 import { chunk } from "../chunk";
 import { getPrimaryThresholdMs, isExecuteDbIsolated } from "../env";
-import { measureAsync, roundMetric } from "../metrics";
-import { pollUntilReady } from "../readiness";
+import { measureAsync, percentile, roundMetric } from "../metrics";
+import { pollUntilReady, sleep } from "../readiness";
 import { forEachRecordPage } from "../record-page-scan";
 import { withPerfTraceStep } from "../trace-collector";
+import { PerfRunDiagnosticError } from "../types";
 import type {
   PerfCaseFor,
   PerfRunContext,
@@ -26,30 +29,100 @@ import type {
 // before it finds any of them. Setting matchedRows near rowCount is the worst
 // case, and 0 measures what it costs to find nothing.
 //
+// Rows can carry a long JSON payload. Wide rows are what make these writes
+// dangerous: the server reads whole rows, so memory grows with row width as well
+// as row count. Heap peak and event-loop delay are reported next to the timings.
+//
+// While that request runs, a second person in the base keeps updating and
+// deleting single rows at the front of the same table, away from the rows being
+// written. Each of their requests must answer successfully within the response
+// limit: a bulk write that leaves collaborators waiting is a failure even when
+// the bulk write itself is fast.
+//
 // Both write paths exist only on the V2 endpoints, so V1 returns a skip.
 
 const TITLE = "Title";
 const SEQ = "Seq";
 const SEQ_INDEXED = "Seq Indexed";
 const NOTE = "Note";
+const PAYLOAD = "Payload";
 const AMOUNT = "Amount";
 const DOUBLED = "Doubled";
 const GROUP = "Group";
 const GROUP_TOTAL = "Group Total";
 const GROUP_AMOUNTS = "Group Amounts";
 const UPDATED_NOTE = "updated";
+const COLLABORATOR_NOTE = "collaborator";
 const UPDATED_AMOUNT = 1;
 const PAGE_SIZE = 1_000;
 const SKIPPED_REASON =
   "Selector-based record writes exist only on the V2 record endpoints.";
 
 type Field = { id: string; name: string; options?: unknown };
+type CollaboratorClient = Awaited<ReturnType<typeof createNewUserAxios>>;
+type CollaboratorActivity = {
+  updateMs: number[];
+  deleteMs: number[];
+  updatedRows: Set<number>;
+  deletedRows: Set<number>;
+  failures: string[];
+};
 type Fixture = {
   tableId: string;
   groupTableId?: string;
   fieldIds: Record<string, string>;
   groupTotalFieldId?: string;
   recordIds: string[];
+};
+
+// Stays incompressible, so Postgres stores about the configured size per row.
+const PAYLOAD_POOL = (() => {
+  const alphabet =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let state = 2_166_136_261;
+  let pool = "";
+  for (let index = 0; index < 262_144; index += 1) {
+    state = (Math.imul(state, 16_807) + 11) >>> 0;
+    pool += alphabet[(state >>> 16) % alphabet.length];
+  }
+  return pool;
+})();
+
+const payloadForRow = (rowNumber: number, bytes: number) => {
+  const offset = (rowNumber * 7_919) % (PAYLOAD_POOL.length - bytes);
+  return JSON.stringify({
+    event: `row-${rowNumber}`,
+    body: PAYLOAD_POOL.slice(offset, offset + bytes),
+  });
+};
+
+const startPressureMonitor = (caseId: string) => {
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
+  let heapPeak = 0;
+  let rssPeak = 0;
+  let lastLog = 0;
+  const timer = setInterval(() => {
+    const memory = process.memoryUsage();
+    heapPeak = Math.max(heapPeak, memory.heapUsed);
+    rssPeak = Math.max(rssPeak, memory.rss);
+    if (Date.now() - lastLog >= 2_000) {
+      lastLog = Date.now();
+      console.log(
+        `[perf-lab] write-pressure case=${caseId} heapMb=${Math.round(memory.heapUsed / 1_048_576)} rssMb=${Math.round(memory.rss / 1_048_576)} loopMaxMs=${Math.round(loop.max / 1e6)}`,
+      );
+    }
+  }, 100);
+  return () => {
+    clearInterval(timer);
+    loop.disable();
+    return {
+      heapPeakMb: Math.round(heapPeak / 1_048_576),
+      rssPeakMb: Math.round(rssPeak / 1_048_576),
+      eventLoopP99Ms: roundMetric(loop.percentile(99) / 1e6),
+      eventLoopMaxMs: roundMetric(loop.max / 1e6),
+    };
+  };
 };
 
 const fieldIdsOf = (fields: Field[]) =>
@@ -61,10 +134,14 @@ const groupIndexOf = (rowNumber: number, groupCount: number) =>
 const firstMatchedRow = (c: RecordConditionalWriteCaseConfig) =>
   c.rowCount - c.matchedRows + 1;
 
-const expectedGroupTotals = (c: RecordConditionalWriteCaseConfig) => {
+const expectedGroupTotals = (
+  c: RecordConditionalWriteCaseConfig,
+  deletedRows: ReadonlySet<number>,
+) => {
   const totals = new Array<number>(c.computed?.groupCount ?? 0).fill(0);
   const firstMatched = firstMatchedRow(c);
   for (let rowNumber = 1; rowNumber <= c.rowCount; rowNumber += 1) {
+    if (deletedRows.has(rowNumber)) continue;
     const matched = rowNumber >= firstMatched;
     if (matched && c.operation === "delete") continue;
     totals[groupIndexOf(rowNumber, totals.length)] += matched
@@ -99,6 +176,7 @@ const prepareFixture = async (
       { name: SEQ_INDEXED, type: FieldType.Number, unique: true },
       { name: NOTE, type: FieldType.SingleLineText },
       { name: AMOUNT, type: FieldType.Number },
+      ...(c.payloadBytes ? [{ name: PAYLOAD, type: FieldType.LongText }] : []),
     ],
     records: [],
   });
@@ -118,29 +196,33 @@ const prepareFixture = async (
       .symmetricFieldId;
   }
 
-  const rows = Array.from({ length: c.rowCount }, (_, index) => {
-    const rowNumber = index + 1;
-    return {
-      fields: {
-        [TITLE]: `Row-${String(rowNumber).padStart(6, "0")}`,
-        [SEQ]: rowNumber,
-        [SEQ_INDEXED]: rowNumber,
-        [NOTE]: "seed",
-        [AMOUNT]: rowNumber,
-        ...(groups
-          ? {
-              [GROUP]: {
-                id: groups.records[
-                  groupIndexOf(rowNumber, groups.records.length)
-                ].id,
-              },
-            }
-          : {}),
-      },
-    };
+  const buildRow = (rowNumber: number) => ({
+    fields: {
+      [TITLE]: `Row-${String(rowNumber).padStart(6, "0")}`,
+      [SEQ]: rowNumber,
+      [SEQ_INDEXED]: rowNumber,
+      [NOTE]: "seed",
+      [AMOUNT]: rowNumber,
+      ...(c.payloadBytes
+        ? { [PAYLOAD]: payloadForRow(rowNumber, c.payloadBytes) }
+        : {}),
+      ...(groups
+        ? {
+            [GROUP]: {
+              id: groups.records[groupIndexOf(rowNumber, groups.records.length)]
+                .id,
+            },
+          }
+        : {}),
+    },
   });
   const recordIds: string[] = [];
-  for (const batch of chunk(rows, c.batchSize)) {
+  const rowNumbers = Array.from(
+    { length: c.rowCount },
+    (_, index) => index + 1,
+  );
+  // Rows are built per batch so wide payloads never sit in memory together.
+  for (const batch of chunk(rowNumbers, c.batchSize)) {
     const response = await withPerfTraceStep(
       context,
       perfCase,
@@ -148,7 +230,7 @@ const prepareFixture = async (
       () =>
         createRecords(table.id, {
           fieldKeyType: FieldKeyType.Name,
-          records: batch,
+          records: batch.map(buildRow),
         }),
     );
     for (const record of response.records) recordIds.push(record.id);
@@ -282,17 +364,113 @@ const sendWrite = async (
   return affected;
 };
 
+const createCollaborator = async (context: PerfRunContext) => {
+  const email =
+    `perf-collaborator-${context.engine}-${context.runId}-${Date.now()}@example.com`.toLowerCase();
+  const client = await createNewUserAxios({ email, password: "12345678a" });
+  await emailBaseInvitation({
+    baseId: globalThis.testConfig.baseId,
+    emailBaseInvitationRo: { emails: [email], role: Role.Editor },
+  });
+  return client;
+};
+
+// Runs at least one update and one delete, however quickly the bulk write ends.
+const runCollaborator = async (
+  c: RecordConditionalWriteCaseConfig,
+  fixture: Fixture,
+  client: CollaboratorClient,
+  isWriteDone: () => boolean,
+): Promise<CollaboratorActivity> => {
+  const { updateRows, deleteRows, responseTimeoutMs, paceMs } = c.collaborator;
+  const activity: CollaboratorActivity = {
+    updateMs: [],
+    deleteMs: [],
+    updatedRows: new Set(),
+    deletedRows: new Set(),
+    failures: [],
+  };
+  const options = { timeout: responseTimeoutMs, validateStatus: () => true };
+  const attempt = async (
+    label: "update" | "delete",
+    rowNumber: number,
+    send: () => Promise<{ status: number }>,
+  ) => {
+    const startedAt = performance.now();
+    try {
+      const { status } = await send();
+      if (status >= 200 && status < 300) {
+        const elapsedMs = performance.now() - startedAt;
+        (label === "update" ? activity.updateMs : activity.deleteMs).push(
+          elapsedMs,
+        );
+        (label === "update" ? activity.updatedRows : activity.deletedRows).add(
+          rowNumber,
+        );
+        return;
+      }
+      activity.failures.push(`${label} row ${rowNumber}: HTTP ${status}`);
+    } catch (error) {
+      activity.failures.push(
+        `${label} row ${rowNumber}: no response within ${responseTimeoutMs}ms (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      );
+    }
+  };
+
+  let round = 0;
+  do {
+    const updateRow = (round % updateRows) + 1;
+    await attempt("update", updateRow, () =>
+      client.patch(
+        `/table/${fixture.tableId}/record/${fixture.recordIds[updateRow - 1]}`,
+        {
+          fieldKeyType: FieldKeyType.Id,
+          record: { fields: { [fixture.fieldIds[NOTE]]: COLLABORATOR_NOTE } },
+        },
+        options,
+      ),
+    );
+    if (round < deleteRows) {
+      const deleteRow = updateRows + round + 1;
+      await attempt("delete", deleteRow, () =>
+        client.delete(
+          `/table/${fixture.tableId}/record/${fixture.recordIds[deleteRow - 1]}`,
+          options,
+        ),
+      );
+    }
+    round += 1;
+    if (!isWriteDone()) await sleep(paceMs);
+  } while (!isWriteDone());
+  return activity;
+};
+
+const latencyMetrics = (prefix: string, values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return {
+    [`${prefix}Count`]: sorted.length,
+    [`${prefix}P50Ms`]: roundMetric(percentile(sorted, 0.5)),
+    [`${prefix}P95Ms`]: roundMetric(percentile(sorted, 0.95)),
+    [`${prefix}MaxMs`]: roundMetric(sorted.at(-1) ?? 0),
+  };
+};
+
 const verifyRows = async (
   c: RecordConditionalWriteCaseConfig,
   fixture: Fixture,
+  collaborator: CollaboratorActivity,
 ) => {
   const firstMatched = firstMatchedRow(c);
   const totalRows =
-    c.operation === "delete" ? c.rowCount - c.matchedRows : c.rowCount;
+    (c.operation === "delete" ? c.rowCount - c.matchedRows : c.rowCount) -
+    collaborator.deletedRows.size;
   const seqId = fixture.fieldIds[SEQ];
   const noteId = fixture.fieldIds[NOTE];
   const amountId = fixture.fieldIds[AMOUNT];
   const doubledId = fixture.fieldIds[DOUBLED];
+  let lastRow = 0;
   const scan = await forEachRecordPage(
     {
       totalRows,
@@ -302,14 +480,28 @@ const verifyRows = async (
           fieldKeyType: FieldKeyType.Id,
           skip,
           take,
+          projection: [
+            seqId,
+            noteId,
+            amountId,
+            ...(doubledId ? [doubledId] : []),
+          ],
         }),
     },
-    (record, rowNumber) => {
+    (record) => {
+      const rowNumber = Number(record.fields[seqId]);
       const matched = rowNumber >= firstMatched;
       const amount = matched && c.computed ? UPDATED_AMOUNT : rowNumber;
-      const note = matched && !c.computed ? UPDATED_NOTE : "seed";
+      const unchangedNote = collaborator.updatedRows.has(rowNumber)
+        ? COLLABORATOR_NOTE
+        : "seed";
+      const note = matched && !c.computed ? UPDATED_NOTE : unchangedNote;
+      const previousRow = lastRow;
+      lastRow = rowNumber;
       const wrong =
-        record.fields[seqId] !== rowNumber ||
+        rowNumber <= previousRow ||
+        collaborator.deletedRows.has(rowNumber) ||
+        (c.operation === "delete" && matched) ||
         record.fields[noteId] !== note ||
         record.fields[amountId] !== amount ||
         (doubledId !== undefined && record.fields[doubledId] !== amount * 2);
@@ -322,6 +514,7 @@ const verifyRows = async (
   );
   const extra = await getRecords(fixture.tableId, {
     fieldKeyType: FieldKeyType.Id,
+    projection: [seqId],
     skip: totalRows,
     take: 1,
   });
@@ -351,6 +544,12 @@ export const runRecordConditionalWriteCase = async (
   }
 
   const baseId = globalThis.testConfig.baseId;
+  const reservedRows = c.collaborator.updateRows + c.collaborator.deleteRows;
+  if (c.rowCount - c.matchedRows < reservedRows) {
+    throw new Error(
+      `The collaborator needs ${reservedRows} rows outside the bulk write`,
+    );
+  }
   let fixture: Fixture | undefined;
   try {
     const prepared = await measureAsync("prepareFixture", () =>
@@ -370,20 +569,69 @@ export const runRecordConditionalWriteCase = async (
       );
     }
 
-    const expectedTotals = expectedGroupTotals(c);
-    const startedAt = performance.now();
-    const request = await measureAsync("writeRequest", () =>
-      sendWrite(perfCase, context, ready),
+    const collaboratorClient = await createCollaborator(context);
+    const stopPressureMonitor = startPressureMonitor(perfCase.id);
+    let writeDone = false;
+    const collaboratorRun = runCollaborator(
+      c,
+      ready,
+      collaboratorClient,
+      () => writeDone,
     );
-    if (c.computed) {
+    let request;
+    try {
+      request = await measureAsync("writeRequest", () =>
+        sendWrite(perfCase, context, ready),
+      );
+    } catch (error) {
+      writeDone = true;
+      await collaboratorRun.catch(() => undefined);
+      throw new PerfRunDiagnosticError(error, {
+        metrics: stopPressureMonitor(),
+        thresholds: [],
+        details: { tableId: ready.tableId, operation: c.operation },
+      });
+    }
+    writeDone = true;
+    const collaborator = await collaboratorRun;
+    const pressure = stopPressureMonitor();
+    const collaboratorMetrics = {
+      ...latencyMetrics("collaboratorUpdate", collaborator.updateMs),
+      ...latencyMetrics("collaboratorDelete", collaborator.deleteMs),
+      collaboratorFailedRequests: collaborator.failures.length,
+      ...pressure,
+    };
+    if (collaborator.failures.length > 0) {
+      throw new PerfRunDiagnosticError(
+        `A collaborator got no successful response during the ${c.operation}: ${collaborator.failures
+          .slice(0, 5)
+          .join("; ")}`,
+        {
+          metrics: {
+            writeRequestMs: request.durationMs,
+            ...collaboratorMetrics,
+          },
+          thresholds: [],
+          details: {
+            tableId: ready.tableId,
+            failures: collaborator.failures.slice(0, 20),
+          },
+        },
+      );
+    }
+    const readyAfterRequest = await measureAsync("computedReady", async () => {
+      if (!c.computed) return;
+      const expectedTotals = expectedGroupTotals(c, collaborator.deletedRows);
       await pollUntilReady(
         { ...readiness, description: "group totals after the write" },
         () => assertGroupTotals(ready, expectedTotals, "after write"),
       );
-    }
-    const writeReadyMs = roundMetric(performance.now() - startedAt);
+    });
+    const writeReadyMs = roundMetric(
+      request.durationMs + (c.computed ? readyAfterRequest.durationMs : 0),
+    );
     const verified = await measureAsync("verifyRows", () =>
-      verifyRows(c, ready),
+      verifyRows(c, ready, collaborator),
     );
 
     return {
@@ -393,6 +641,7 @@ export const runRecordConditionalWriteCase = async (
         writeRequestMs: request.durationMs,
         [c.threshold.metric]: writeReadyMs,
         verifyRowsMs: verified.durationMs,
+        ...collaboratorMetrics,
         matchedRows: c.matchedRows,
         scannedRows: verified.result,
       },
@@ -415,6 +664,12 @@ export const runRecordConditionalWriteCase = async (
         filterField: c.selector === "filter" ? c.filterField : undefined,
         rowCount: c.rowCount,
         matchedRows: c.matchedRows,
+        collaborator: {
+          role: "editor",
+          responseTimeoutMs: c.collaborator.responseTimeoutMs,
+          updatedRows: collaborator.updatedRows.size,
+          deletedRows: collaborator.deletedRows.size,
+        },
         request: {
           method: c.operation === "update" ? "POST" : "DELETE",
           path:
