@@ -313,30 +313,35 @@ export const formatComparisonLine = (row, chartUrl) =>
 export const formatSameRunLine = (row, chartUrl) =>
   `🔴 **[${row.caseId}](${chartUrlForCase(row.caseId, chartUrl)})**：本次 ${formatMetricSeconds(row.latest)} · 近期中位 ${formatMetricSeconds(row.level)} 慢${Number(row.ratio).toFixed(1)}x（门槛 ${Number(row.thresholdRatio).toFixed(2)}x）`;
 
-const sameRunHeader = ({ sameRun, failed }) => {
-  if (!sameRun?.available) {
-    return {
-      template: failed ? "red" : "grey",
-      title: "性能 · 未做历史判断",
-    };
-  }
-  if (sameRun.flagged.length > 0) {
-    return {
-      template: failed ? "red" : "orange",
-      title: `性能候选 · 相对近期 ${sameRun.flagged.length}`,
-    };
-  }
-  if (sameRun.judged > 0) {
-    return {
-      template: failed ? "red" : "green",
-      title: `性能正常 · 相对近期已判 ${sameRun.judged}`,
-    };
-  }
-  return {
-    template: failed ? "red" : "grey",
-    title: "性能 · 历史不足未判",
-  };
+// Red alone is easy to miss in a busy group, and the title otherwise speaks only
+// about timing, so a run with failures says so before anything else.
+const failurePrefix = ({ failed, failedCaseCount }) => {
+  if (!failed) return "";
+  return failedCaseCount > 0
+    ? `❌ 失败 ${failedCaseCount} · `
+    : "❌ 运行失败 · ";
 };
+
+const sameRunTitle = ({ sameRun }) => {
+  if (!sameRun?.available) return "性能 · 未做历史判断";
+  if (sameRun.flagged.length > 0) {
+    return `性能候选 · 相对近期 ${sameRun.flagged.length}`;
+  }
+  if (sameRun.judged > 0) return `性能正常 · 相对近期已判 ${sameRun.judged}`;
+  return "性能 · 历史不足未判";
+};
+
+const sameRunTemplate = ({ sameRun, failed }) => {
+  if (failed) return "red";
+  if (!sameRun?.available) return "grey";
+  if (sameRun.flagged.length > 0) return "orange";
+  return sameRun.judged > 0 ? "green" : "grey";
+};
+
+const sameRunHeader = ({ sameRun, failed, failedCaseCount }) => ({
+  template: sameRunTemplate({ sameRun, failed }),
+  title: `${failurePrefix({ failed, failedCaseCount })}${sameRunTitle({ sameRun })}`,
+});
 
 const sameRunStatColumns = (sameRun) => ({
   tag: "column_set",
@@ -518,6 +523,7 @@ export const buildPerfSummaryCard = ({
   const { template: headerTemplate, title: headerTitle } = sameRunHeader({
     sameRun,
     failed,
+    failedCaseCount: failures.length,
   });
 
   const compute = buildComputeComparison({

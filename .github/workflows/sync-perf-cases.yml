@@ -42,4 +42,11 @@ jobs:
           node-version: 22.18.0
 
       - name: Sync perf cases
-        run: node scripts/sync-perf-cases.mjs
+        run: node scripts/sync-perf-cases.mjs 2>&1 | tee sync-perf-cases.log
+
+      - name: Send Feishu sync failure
+        if: failure()
+        env:
+          FEISHU_PERF_WEBHOOK_URL: ${{ secrets.FEISHU_PERF_WEBHOOK_URL }}
+          PERF_LAB_SYNC_LOG: sync-perf-cases.log
+        run: node scripts/send-feishu-sync-failure.mjs
