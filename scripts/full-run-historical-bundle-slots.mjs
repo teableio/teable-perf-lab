@@ -4,7 +4,7 @@
 // shared affinities and singleton bundles so unrelated edits preserve slots.
 export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:record-delete/conditional-80k-by-ids-tail-100": 1,
-  "case:record-delete/conditional-80k-by-ids-tail-72k": 2,
+  "case:record-delete/conditional-80k-by-ids-tail-20k": 2,
   "case:record-delete/conditional-80k-computed-tail-100": 3,
   "case:record-delete/conditional-80k-computed-tail-72k": 4,
   "case:record-delete/conditional-80k-indexed-tail-100": 5,
@@ -13,7 +13,7 @@ export const FULL_RUN_HISTORICAL_BUNDLE_SLOTS = {
   "case:record-delete/conditional-80k-tail-100": 8,
   "case:record-delete/conditional-80k-tail-72k": 1,
   "case:record-update/conditional-80k-by-ids-tail-100": 2,
-  "case:record-update/conditional-80k-by-ids-tail-72k": 3,
+  "case:record-update/conditional-80k-by-ids-tail-20k": 3,
   "case:record-update/conditional-80k-computed-tail-100": 4,
   "case:record-update/conditional-80k-computed-tail-72k": 5,
   "case:record-update/conditional-80k-indexed-tail-100": 6,

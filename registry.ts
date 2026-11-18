@@ -388,7 +388,7 @@ import updateWhere80kNoMatchCase from "./cases/record-update/conditional-80k-no-
 import updateWhere80kIndexedTail100Case from "./cases/record-update/conditional-80k-indexed-tail-100.case";
 import updateWhere80kIndexedTail72kCase from "./cases/record-update/conditional-80k-indexed-tail-72k.case";
 import updateWhere80kByIdsTail100Case from "./cases/record-update/conditional-80k-by-ids-tail-100.case";
-import updateWhere80kByIdsTail72kCase from "./cases/record-update/conditional-80k-by-ids-tail-72k.case";
+import updateWhere80kByIdsTail20kCase from "./cases/record-update/conditional-80k-by-ids-tail-20k.case";
 import updateWhere80kComputedTail100Case from "./cases/record-update/conditional-80k-computed-tail-100.case";
 import updateWhere80kComputedTail72kCase from "./cases/record-update/conditional-80k-computed-tail-72k.case";
 import deleteWhere80kTail100Case from "./cases/record-delete/conditional-80k-tail-100.case";
@@ -397,7 +397,7 @@ import deleteWhere80kNoMatchCase from "./cases/record-delete/conditional-80k-no-
 import deleteWhere80kIndexedTail100Case from "./cases/record-delete/conditional-80k-indexed-tail-100.case";
 import deleteWhere80kIndexedTail72kCase from "./cases/record-delete/conditional-80k-indexed-tail-72k.case";
 import deleteWhere80kByIdsTail100Case from "./cases/record-delete/conditional-80k-by-ids-tail-100.case";
-import deleteWhere80kByIdsTail72kCase from "./cases/record-delete/conditional-80k-by-ids-tail-72k.case";
+import deleteWhere80kByIdsTail20kCase from "./cases/record-delete/conditional-80k-by-ids-tail-20k.case";
 import deleteWhere80kComputedTail100Case from "./cases/record-delete/conditional-80k-computed-tail-100.case";
 import deleteWhere80kComputedTail72kCase from "./cases/record-delete/conditional-80k-computed-tail-72k.case";
 import recordDelete5kCase from "./cases/record-delete/delete-5k.case";
@@ -666,7 +666,7 @@ const cases = [
   updateWhere80kIndexedTail100Case,
   updateWhere80kIndexedTail72kCase,
   updateWhere80kByIdsTail100Case,
-  updateWhere80kByIdsTail72kCase,
+  updateWhere80kByIdsTail20kCase,
   updateWhere80kComputedTail100Case,
   updateWhere80kComputedTail72kCase,
   deleteWhere80kTail100Case,
@@ -675,7 +675,7 @@ const cases = [
   deleteWhere80kIndexedTail100Case,
   deleteWhere80kIndexedTail72kCase,
   deleteWhere80kByIdsTail100Case,
-  deleteWhere80kByIdsTail72kCase,
+  deleteWhere80kByIdsTail20kCase,
   deleteWhere80kComputedTail100Case,
   deleteWhere80kComputedTail72kCase,
   recordDelete5kCase,

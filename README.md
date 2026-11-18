@@ -994,8 +994,8 @@ workload.
 - `record-update/conditional-80k-by-ids-tail-100`: Measure one V2 update request
   that affects the last 100 rows of an 80,000-row table, listed by record id, and
   whether a collaborator can keep working in the same table meanwhile.
-- `record-update/conditional-80k-by-ids-tail-72k`: Measure one V2 update request
-  that affects the last 72,000 rows of an 80,000-row table, listed by record id,
+- `record-update/conditional-80k-by-ids-tail-20k`: Measure one V2 update request
+  that affects the last 20,000 rows of an 80,000-row table, listed by record id,
   and whether a collaborator can keep working in the same table meanwhile.
 - `record-update/conditional-80k-computed-tail-100`: Measure one V2 update
   request that affects the last 100 rows of an 80,000-row table, matched by a
@@ -1028,8 +1028,8 @@ workload.
 - `record-delete/conditional-80k-by-ids-tail-100`: Measure one V2 delete request
   that affects the last 100 rows of an 80,000-row table, listed by record id, and
   whether a collaborator can keep working in the same table meanwhile.
-- `record-delete/conditional-80k-by-ids-tail-72k`: Measure one V2 delete request
-  that affects the last 72,000 rows of an 80,000-row table, listed by record id,
+- `record-delete/conditional-80k-by-ids-tail-20k`: Measure one V2 delete request
+  that affects the last 20,000 rows of an 80,000-row table, listed by record id,
   and whether a collaborator can keep working in the same table meanwhile.
 - `record-delete/conditional-80k-computed-tail-100`: Measure one V2 delete
   request that affects the last 100 rows of an 80,000-row table, matched by a

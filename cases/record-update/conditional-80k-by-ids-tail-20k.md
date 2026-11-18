@@ -1,18 +1,18 @@
 ---
 owner: backend-v2
 tags:
-  - record-delete
+  - record-update
   - conditional-write
   - concurrency
   - v2-only
 enabled: true
 ---
 
-# record-delete/conditional-80k-by-ids-tail-72k
+# record-update/conditional-80k-by-ids-tail-20k
 
 ## Goal
 
-Measure one V2 delete request that affects the last 72,000 rows of an 80,000-row table, listed by record id,
+Measure one V2 update request that affects the last 20,000 rows of an 80,000-row table, listed by record id,
 and whether a collaborator can keep working in the same table meanwhile.
 
 ## Seed Phase
@@ -25,8 +25,8 @@ and whether a collaborator can keep working in the same table meanwhile.
 
 ## Execute Phase
 
-- Sends one request to `/api/v2/tables/deleteRecords`, selecting the rows at the
-  end of the table. Deletes the rows.
+- Sends one request to `/api/v2/tables/updateRecords`, selecting the rows at the
+  end of the table. Writes one text column.
 - While it runs, the collaborator repeatedly updates one row and deletes another
   among the first 1,000 rows. At least one update and one delete always run.
 - Checks the affected-row count in the response and then scans every
@@ -43,6 +43,10 @@ seconds. Any failed or unanswered request fails the case and is counted in
 `collaboratorFailedRequests`.
 
 ## Notes
+
+The by-id selection stays at 20,000 rows: record-id writes accept at most
+20,000 records per update, and larger delete lists currently fail in the database
+parameter binding.
 
 V1 is skipped because these request shapes exist only on the V2 endpoints.
 The 80,000-row size stays below the point where a conditional update of about

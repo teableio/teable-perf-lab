@@ -24,6 +24,6 @@ export default definePerfCase({
       paceMs: 100,
     },
     computed: { groupCount: 200, readyTimeoutMs: 600_000 },
-    threshold: { metric: "recordWriteReadyMs", maxMs: 300_000 },
+    threshold: { metric: "recordWriteReadyMs", maxMs: 30_000 },
   },
 });

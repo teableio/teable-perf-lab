@@ -1566,7 +1566,7 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-80k-by-ids-tail-72k": {
+  "record-delete/conditional-80k-by-ids-tail-20k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
@@ -1620,7 +1620,7 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-80k-by-ids-tail-72k": {
+  "record-update/conditional-80k-by-ids-tail-20k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
