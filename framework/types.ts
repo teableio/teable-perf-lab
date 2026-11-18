@@ -15,6 +15,7 @@ export interface PerfCaseConfigByRunner {
   "conditional-query": ConditionalQueryCaseConfig;
   "blocked-writer": BlockedWriterCaseConfig;
   "compute-activity-poll": ComputeActivityPollCaseConfig;
+  "record-conditional-write": RecordConditionalWriteCaseConfig;
   "link-computed-propagation": LinkComputedPropagationCaseConfig;
   "circular-link-propagation": CircularLinkPropagationCaseConfig;
   "computed-chain-mutation": ComputedChainMutationCaseConfig;
@@ -420,6 +421,29 @@ export interface BlockedWriterCaseConfig {
 // in the same direction in every pair while the tail percentiles overlapped:
 // removing per-poll work shows up as what a typical viewer waits, and the tail
 // is dominated by scheduling noise at this sample size.
+export interface RecordConditionalWriteCaseConfig {
+  baseId: "seed-base";
+  tableNamePrefix: string;
+  operation: "update" | "delete";
+  selector: "filter" | "recordIds";
+  // "indexed" filters on a unique number column, "plain" on its unindexed twin.
+  filterField: "plain" | "indexed";
+  rowCount: number;
+  batchSize: number;
+  // The last matchedRows rows are the ones written.
+  matchedRows: number;
+  // Adds a formula, a many-one link and a lookup and rollup over the written
+  // column, and counts the time until the rollups are correct.
+  computed?: {
+    groupCount: number;
+    readyTimeoutMs: number;
+  };
+  threshold: {
+    metric: string;
+    maxMs: number;
+  };
+}
+
 export interface ComputeActivityPollCaseConfig {
   baseId: "seed-base";
   tableNamePrefix: string;

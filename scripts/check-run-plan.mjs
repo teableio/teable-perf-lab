@@ -448,7 +448,7 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.equal(legacyFullRunShardCount, 7);
+assert.equal(legacyFullRunShardCount, 8);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   expectedFullRunCaseIds.slice().sort(),
@@ -623,7 +623,7 @@ const currentBundleIds = buildAffinityStageBundles({
   affinities: resolvedFullRunAffinities,
   caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
 }).map(({ id }) => id);
-assert.equal(currentBundleIds.length, 193);
+assert.equal(currentBundleIds.length, 211);
 assert.deepEqual(
   currentBundleIds.filter(
     (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,
