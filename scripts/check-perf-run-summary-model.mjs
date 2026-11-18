@@ -298,7 +298,10 @@ assert.equal(card.msg_type, "interactive");
 // A failed case outranks the same-run colour. Without history the title does
 // not pretend the 1.2x vs-release list is a regression verdict.
 assert.equal(card.card.header.template, "red");
-assert.equal(card.card.header.title.content, "性能 · 未做历史判断");
+assert.equal(
+  card.card.header.title.content,
+  "❌ 失败 1 · 性能 · 未做历史判断",
+);
 assert.match(card.card.elements[0].text.content, /6✓ 1⊘ 1✗/);
 // The baseline itself is on the card, so a comparison against the wrong build
 // is visible rather than inferred.
@@ -462,7 +465,10 @@ const sameRunCard = buildPerfSummaryCard({
   },
 });
 assert.equal(sameRunCard.card.header.template, "red");
-assert.equal(sameRunCard.card.header.title.content, "性能候选 · 相对近期 1");
+assert.equal(
+  sameRunCard.card.header.title.content,
+  "❌ 失败 1 · 性能候选 · 相对近期 1",
+);
 const sameRunPanel = panelByTitle(sameRunCard.card, "相对近期 · 候选 1");
 assert.ok(sameRunPanel);
 assert.equal(sameRunPanel.expanded, true);
@@ -585,7 +591,10 @@ const sameCommitCard = buildPerfSummaryCard({
   baseline: sameCommitBaseline,
   context: { chartUrl: "https://charts.example", executeResult: "success" },
 });
-assert.equal(sameCommitCard.card.header.title.content, "性能 · 未做历史判断");
+assert.equal(
+  sameCommitCard.card.header.title.content,
+  "❌ 失败 1 · 性能 · 未做历史判断",
+);
 assert.match(
   sameCommitCard.card.elements[0].text.content,
   /本次测的就是线上版本 release\.2026-08-09T14-50-08Z\.2564/,

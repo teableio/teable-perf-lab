@@ -321,8 +321,8 @@ only if that deviation exceeds the case's own 0.99 quantile of historical
 deviations (`fast-check-model.mjs`). Unmeasurable series (jitter above 1.4x)
 and differential overhead metrics are not judged. The header colour and title
 come from this panel: `性能候选 · 相对近期 N`, or `性能正常` when history was
-read and nothing flagged. It says "look at this", not "this is a confirmed
-regression". Confirmed change points stay on the nightly second card
+read and nothing flagged. A run with failures puts `❌ 失败 N` in front of that
+title. It says "look at this", not "this is a confirmed regression". Confirmed change points stay on the nightly second card
 (`send-feishu-change-point-summary.mjs`).
 
 **对照线上单次** is the old 1.2x vs-one-release-run list, folded shut. It is
