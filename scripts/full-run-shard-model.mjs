@@ -327,6 +327,16 @@ export const FULL_RUN_SCALE_REPLACEMENTS = {
 // runs and its worst paired V1 / V2 primary-metric ratio was at least 5x.
 // Cases stay registered and remain runnable through an exact case filter.
 export const FULL_RUN_STABLE_PAUSED_CASE_IDS = [
+  // Not stable-fast like the rest: these wide-row cases need the production-pod
+  // resource profile and may end the test process, so they run by exact id only.
+  "record-update/conditional-wide-21k-tail-10k",
+  "record-update/conditional-wide-21k-tail-20k",
+  "record-update/conditional-wide-21k-by-ids-tail-10k",
+  "record-update/conditional-wide-21k-computed-tail-10k",
+  "record-delete/conditional-wide-21k-tail-10k",
+  "record-delete/conditional-wide-21k-tail-20k",
+  "record-delete/conditional-wide-21k-by-ids-tail-10k",
+  "record-delete/conditional-wide-21k-computed-tail-10k",
   "csv-import/mixed-10k-20fields-create-table-import",
   "csv-import/mixed-10k-20fields-inplace-import",
   "field-create/10k-create-1-single-line-text-field",

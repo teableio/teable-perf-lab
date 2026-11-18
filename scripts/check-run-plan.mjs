@@ -448,13 +448,13 @@ const fullRunCaseShards = defaultFullRunPlan.seedPlan.map((plan, index) => {
   assert.equal(plan.artifactSuffix, shardLabel);
   return caseIds;
 });
-assert.equal(legacyFullRunShardCount, 8);
+assert.equal(legacyFullRunShardCount, 7);
 assert.deepEqual(
   fullRunCaseShards.flat().slice().sort(),
   expectedFullRunCaseIds.slice().sort(),
 );
 assert.equal(Object.keys(FULL_RUN_SCALE_REPLACEMENTS).length, 71);
-assert.equal(FULL_RUN_STABLE_PAUSED_CASE_IDS.length, 46);
+assert.equal(FULL_RUN_STABLE_PAUSED_CASE_IDS.length, 54);
 assert.deepEqual(
   validateFullRunStablePausedCaseIds({ allCaseIds }),
   [],
@@ -487,7 +487,7 @@ assert.deepEqual(
   }),
   [`Full-run stable pause policy repeats scale omission ${scaleOmittedCaseId}`],
 );
-assert.equal(expectedFullRunCaseIds.length, allCaseIds.length - 71 - 46);
+assert.equal(expectedFullRunCaseIds.length, allCaseIds.length - 71 - 54);
 for (const [omittedCaseId, replacementCaseId] of Object.entries(
   FULL_RUN_SCALE_REPLACEMENTS,
 )) {
@@ -623,7 +623,7 @@ const currentBundleIds = buildAffinityStageBundles({
   affinities: resolvedFullRunAffinities,
   caseCosts: FULL_RUN_STAGE_CALIBRATION.caseCosts,
 }).map(({ id }) => id);
-assert.equal(currentBundleIds.length, 211);
+assert.equal(currentBundleIds.length, 193);
 assert.deepEqual(
   currentBundleIds.filter(
     (bundleId) => FULL_RUN_HISTORICAL_BUNDLE_SLOTS[bundleId] == null,

@@ -75,6 +75,16 @@ on:
         required: false
         default: ""
         type: string
+      resource_profile:
+        description: >-
+          Optional execute limits. production-pod caps the Node heap at 2304 MiB
+          and the Postgres container at 1 GiB.
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - production-pod
       shadow_analysis:
         description: >-
           Run the change point analysis on this dispatch. Off by default: it
@@ -563,6 +573,10 @@ jobs:
           export PERF_LAB_TRACE_MAX_SNAPSHOTS="500"
           export PERF_LAB_TRACE_BACKGROUND_FLUSH_MS="1000"
           export PERF_LAB_TRACE_DEFER_SHARED_PUBLISH="true"
+          if [ "${{ github.event_name == 'schedule' && 'none' || inputs.resource_profile }}" = "production-pod" ]; then
+            export NODE_OPTIONS="--max-old-space-size=2304"
+            docker update --memory 1g --memory-swap 1g "$TEST_PG_CONTAINER_NAME"
+          fi
 
           pnpm -F @teable/backend-ee exec vitest run \
             --config ./vitest-perf-lab.config.ts \

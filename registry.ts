@@ -382,24 +382,14 @@ import recordUpdateSingleForeignSelectFanout500_20kCase from "./cases/record-upd
 import selectionClearFlat1k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-1k-20fields-cell-clear-stream.case";
 import selectionClearFlat10k20FieldsCellClearStreamCase from "./cases/selection-clear/flat-10k-20fields-cell-clear-stream.case";
 import recordDelete1kCase from "./cases/record-delete/delete-1k.case";
-import updateWhere80kTail100Case from "./cases/record-update/conditional-80k-tail-100.case";
-import updateWhere80kTail72kCase from "./cases/record-update/conditional-80k-tail-72k.case";
-import updateWhere80kNoMatchCase from "./cases/record-update/conditional-80k-no-match.case";
-import updateWhere80kIndexedTail100Case from "./cases/record-update/conditional-80k-indexed-tail-100.case";
-import updateWhere80kIndexedTail72kCase from "./cases/record-update/conditional-80k-indexed-tail-72k.case";
-import updateWhere80kByIdsTail100Case from "./cases/record-update/conditional-80k-by-ids-tail-100.case";
-import updateWhere80kByIdsTail20kCase from "./cases/record-update/conditional-80k-by-ids-tail-20k.case";
-import updateWhere80kComputedTail100Case from "./cases/record-update/conditional-80k-computed-tail-100.case";
-import updateWhere80kComputedTail72kCase from "./cases/record-update/conditional-80k-computed-tail-72k.case";
-import deleteWhere80kTail100Case from "./cases/record-delete/conditional-80k-tail-100.case";
-import deleteWhere80kTail72kCase from "./cases/record-delete/conditional-80k-tail-72k.case";
-import deleteWhere80kNoMatchCase from "./cases/record-delete/conditional-80k-no-match.case";
-import deleteWhere80kIndexedTail100Case from "./cases/record-delete/conditional-80k-indexed-tail-100.case";
-import deleteWhere80kIndexedTail72kCase from "./cases/record-delete/conditional-80k-indexed-tail-72k.case";
-import deleteWhere80kByIdsTail100Case from "./cases/record-delete/conditional-80k-by-ids-tail-100.case";
-import deleteWhere80kByIdsTail20kCase from "./cases/record-delete/conditional-80k-by-ids-tail-20k.case";
-import deleteWhere80kComputedTail100Case from "./cases/record-delete/conditional-80k-computed-tail-100.case";
-import deleteWhere80kComputedTail72kCase from "./cases/record-delete/conditional-80k-computed-tail-72k.case";
+import updateWhereWideTail10kCase from "./cases/record-update/conditional-wide-21k-tail-10k.case";
+import updateWhereWideTail20kCase from "./cases/record-update/conditional-wide-21k-tail-20k.case";
+import updateWhereWideByIdsTail10kCase from "./cases/record-update/conditional-wide-21k-by-ids-tail-10k.case";
+import updateWhereWideComputedTail10kCase from "./cases/record-update/conditional-wide-21k-computed-tail-10k.case";
+import deleteWhereWideTail10kCase from "./cases/record-delete/conditional-wide-21k-tail-10k.case";
+import deleteWhereWideTail20kCase from "./cases/record-delete/conditional-wide-21k-tail-20k.case";
+import deleteWhereWideByIdsTail10kCase from "./cases/record-delete/conditional-wide-21k-by-ids-tail-10k.case";
+import deleteWhereWideComputedTail10kCase from "./cases/record-delete/conditional-wide-21k-computed-tail-10k.case";
 import recordDelete5kCase from "./cases/record-delete/delete-5k.case";
 import recordDeleteStream1kCase from "./cases/record-delete/delete-stream-1k.case";
 import recordDeleteStream10kCase from "./cases/record-delete/delete-stream-10k.case";
@@ -660,24 +650,14 @@ const cases = [
   recordRestore10kCase,
   recordRestore50kCase,
   recordDelete1kCase,
-  updateWhere80kTail100Case,
-  updateWhere80kTail72kCase,
-  updateWhere80kNoMatchCase,
-  updateWhere80kIndexedTail100Case,
-  updateWhere80kIndexedTail72kCase,
-  updateWhere80kByIdsTail100Case,
-  updateWhere80kByIdsTail20kCase,
-  updateWhere80kComputedTail100Case,
-  updateWhere80kComputedTail72kCase,
-  deleteWhere80kTail100Case,
-  deleteWhere80kTail72kCase,
-  deleteWhere80kNoMatchCase,
-  deleteWhere80kIndexedTail100Case,
-  deleteWhere80kIndexedTail72kCase,
-  deleteWhere80kByIdsTail100Case,
-  deleteWhere80kByIdsTail20kCase,
-  deleteWhere80kComputedTail100Case,
-  deleteWhere80kComputedTail72kCase,
+  updateWhereWideTail10kCase,
+  updateWhereWideTail20kCase,
+  updateWhereWideByIdsTail10kCase,
+  updateWhereWideComputedTail10kCase,
+  deleteWhereWideTail10kCase,
+  deleteWhereWideTail20kCase,
+  deleteWhereWideByIdsTail10kCase,
+  deleteWhereWideComputedTail10kCase,
   recordDelete5kCase,
   recordDeleteStream1kCase,
   recordDeleteStream10kCase,

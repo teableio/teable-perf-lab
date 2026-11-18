@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { FieldKeyType, FieldType, Relationship, Role } from "@teable/core";
 import { axios, emailBaseInvitation } from "@teable/openapi";
 import { createNewUserAxios } from "../../../utils/axios-instance/new-user";
@@ -28,6 +29,10 @@ import type {
 // before it finds any of them. Setting matchedRows near rowCount is the worst
 // case, and 0 measures what it costs to find nothing.
 //
+// Rows can carry a long JSON payload. Wide rows are what make these writes
+// dangerous: the server reads whole rows, so memory grows with row width as well
+// as row count. Heap peak and event-loop delay are reported next to the timings.
+//
 // While that request runs, a second person in the base keeps updating and
 // deleting single rows at the front of the same table, away from the rows being
 // written. Each of their requests must answer successfully within the response
@@ -40,6 +45,7 @@ const TITLE = "Title";
 const SEQ = "Seq";
 const SEQ_INDEXED = "Seq Indexed";
 const NOTE = "Note";
+const PAYLOAD = "Payload";
 const AMOUNT = "Amount";
 const DOUBLED = "Doubled";
 const GROUP = "Group";
@@ -67,6 +73,56 @@ type Fixture = {
   fieldIds: Record<string, string>;
   groupTotalFieldId?: string;
   recordIds: string[];
+};
+
+// Stays incompressible, so Postgres stores about the configured size per row.
+const PAYLOAD_POOL = (() => {
+  const alphabet =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let state = 2_166_136_261;
+  let pool = "";
+  for (let index = 0; index < 262_144; index += 1) {
+    state = (Math.imul(state, 16_807) + 11) >>> 0;
+    pool += alphabet[(state >>> 16) % alphabet.length];
+  }
+  return pool;
+})();
+
+const payloadForRow = (rowNumber: number, bytes: number) => {
+  const offset = (rowNumber * 7_919) % (PAYLOAD_POOL.length - bytes);
+  return JSON.stringify({
+    event: `row-${rowNumber}`,
+    body: PAYLOAD_POOL.slice(offset, offset + bytes),
+  });
+};
+
+const startPressureMonitor = (caseId: string) => {
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
+  let heapPeak = 0;
+  let rssPeak = 0;
+  let lastLog = 0;
+  const timer = setInterval(() => {
+    const memory = process.memoryUsage();
+    heapPeak = Math.max(heapPeak, memory.heapUsed);
+    rssPeak = Math.max(rssPeak, memory.rss);
+    if (Date.now() - lastLog >= 2_000) {
+      lastLog = Date.now();
+      console.log(
+        `[perf-lab] write-pressure case=${caseId} heapMb=${Math.round(memory.heapUsed / 1_048_576)} rssMb=${Math.round(memory.rss / 1_048_576)} loopMaxMs=${Math.round(loop.max / 1e6)}`,
+      );
+    }
+  }, 100);
+  return () => {
+    clearInterval(timer);
+    loop.disable();
+    return {
+      heapPeakMb: Math.round(heapPeak / 1_048_576),
+      rssPeakMb: Math.round(rssPeak / 1_048_576),
+      eventLoopP99Ms: roundMetric(loop.percentile(99) / 1e6),
+      eventLoopMaxMs: roundMetric(loop.max / 1e6),
+    };
+  };
 };
 
 const fieldIdsOf = (fields: Field[]) =>
@@ -120,6 +176,7 @@ const prepareFixture = async (
       { name: SEQ_INDEXED, type: FieldType.Number, unique: true },
       { name: NOTE, type: FieldType.SingleLineText },
       { name: AMOUNT, type: FieldType.Number },
+      ...(c.payloadBytes ? [{ name: PAYLOAD, type: FieldType.LongText }] : []),
     ],
     records: [],
   });
@@ -139,29 +196,33 @@ const prepareFixture = async (
       .symmetricFieldId;
   }
 
-  const rows = Array.from({ length: c.rowCount }, (_, index) => {
-    const rowNumber = index + 1;
-    return {
-      fields: {
-        [TITLE]: `Row-${String(rowNumber).padStart(6, "0")}`,
-        [SEQ]: rowNumber,
-        [SEQ_INDEXED]: rowNumber,
-        [NOTE]: "seed",
-        [AMOUNT]: rowNumber,
-        ...(groups
-          ? {
-              [GROUP]: {
-                id: groups.records[
-                  groupIndexOf(rowNumber, groups.records.length)
-                ].id,
-              },
-            }
-          : {}),
-      },
-    };
+  const buildRow = (rowNumber: number) => ({
+    fields: {
+      [TITLE]: `Row-${String(rowNumber).padStart(6, "0")}`,
+      [SEQ]: rowNumber,
+      [SEQ_INDEXED]: rowNumber,
+      [NOTE]: "seed",
+      [AMOUNT]: rowNumber,
+      ...(c.payloadBytes
+        ? { [PAYLOAD]: payloadForRow(rowNumber, c.payloadBytes) }
+        : {}),
+      ...(groups
+        ? {
+            [GROUP]: {
+              id: groups.records[groupIndexOf(rowNumber, groups.records.length)]
+                .id,
+            },
+          }
+        : {}),
+    },
   });
   const recordIds: string[] = [];
-  for (const batch of chunk(rows, c.batchSize)) {
+  const rowNumbers = Array.from(
+    { length: c.rowCount },
+    (_, index) => index + 1,
+  );
+  // Rows are built per batch so wide payloads never sit in memory together.
+  for (const batch of chunk(rowNumbers, c.batchSize)) {
     const response = await withPerfTraceStep(
       context,
       perfCase,
@@ -169,7 +230,7 @@ const prepareFixture = async (
       () =>
         createRecords(table.id, {
           fieldKeyType: FieldKeyType.Name,
-          records: batch,
+          records: batch.map(buildRow),
         }),
     );
     for (const record of response.records) recordIds.push(record.id);
@@ -419,6 +480,12 @@ const verifyRows = async (
           fieldKeyType: FieldKeyType.Id,
           skip,
           take,
+          projection: [
+            seqId,
+            noteId,
+            amountId,
+            ...(doubledId ? [doubledId] : []),
+          ],
         }),
     },
     (record) => {
@@ -447,6 +514,7 @@ const verifyRows = async (
   );
   const extra = await getRecords(fixture.tableId, {
     fieldKeyType: FieldKeyType.Id,
+    projection: [seqId],
     skip: totalRows,
     take: 1,
   });
@@ -502,6 +570,7 @@ export const runRecordConditionalWriteCase = async (
     }
 
     const collaboratorClient = await createCollaborator(context);
+    const stopPressureMonitor = startPressureMonitor(perfCase.id);
     let writeDone = false;
     const collaboratorRun = runCollaborator(
       c,
@@ -509,16 +578,28 @@ export const runRecordConditionalWriteCase = async (
       collaboratorClient,
       () => writeDone,
     );
-    const request = await measureAsync("writeRequest", () =>
-      sendWrite(perfCase, context, ready),
-    ).finally(() => {
+    let request;
+    try {
+      request = await measureAsync("writeRequest", () =>
+        sendWrite(perfCase, context, ready),
+      );
+    } catch (error) {
       writeDone = true;
-    });
+      await collaboratorRun.catch(() => undefined);
+      throw new PerfRunDiagnosticError(error, {
+        metrics: stopPressureMonitor(),
+        thresholds: [],
+        details: { tableId: ready.tableId, operation: c.operation },
+      });
+    }
+    writeDone = true;
     const collaborator = await collaboratorRun;
+    const pressure = stopPressureMonitor();
     const collaboratorMetrics = {
       ...latencyMetrics("collaboratorUpdate", collaborator.updateMs),
       ...latencyMetrics("collaboratorDelete", collaborator.deleteMs),
       collaboratorFailedRequests: collaborator.failures.length,
+      ...pressure,
     };
     if (collaborator.failures.length > 0) {
       throw new PerfRunDiagnosticError(
