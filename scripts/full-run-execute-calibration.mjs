@@ -1557,112 +1557,112 @@ export const FULL_RUN_EXECUTE_CALIBRATION_BY_CASE_ID = {
     v2Ms: 8000,
     traceMs: 500,
   },
-  // Provisional: no CI observation yet. Local runs seeded a fresh 20k table in
-  // 2-11s and finished each V2 execute in under 3s; padded for a slower runner.
+  // Provisional: no CI observation yet. These placeholders keep the shard
+  // plan stable until real 80k timings arrive.
   // V1 only returns a skip. Overwritten by the next full-run refresh.
-  "record-delete/conditional-20k-by-ids-tail-100": {
+  "record-delete/conditional-80k-by-ids-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-by-ids-tail-18k": {
+  "record-delete/conditional-80k-by-ids-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-computed-tail-100": {
+  "record-delete/conditional-80k-computed-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 45000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-computed-tail-18k": {
+  "record-delete/conditional-80k-computed-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 45000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-indexed-tail-100": {
+  "record-delete/conditional-80k-indexed-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-indexed-tail-18k": {
+  "record-delete/conditional-80k-indexed-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-no-match": {
+  "record-delete/conditional-80k-no-match": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-tail-100": {
+  "record-delete/conditional-80k-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-delete/conditional-20k-tail-18k": {
+  "record-delete/conditional-80k-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-by-ids-tail-100": {
+  "record-update/conditional-80k-by-ids-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-by-ids-tail-18k": {
+  "record-update/conditional-80k-by-ids-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-computed-tail-100": {
+  "record-update/conditional-80k-computed-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 45000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-computed-tail-18k": {
+  "record-update/conditional-80k-computed-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 45000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-indexed-tail-100": {
+  "record-update/conditional-80k-indexed-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-indexed-tail-18k": {
+  "record-update/conditional-80k-indexed-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-no-match": {
+  "record-update/conditional-80k-no-match": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-tail-100": {
+  "record-update/conditional-80k-tail-100": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,
     traceMs: 500,
   },
-  "record-update/conditional-20k-tail-18k": {
+  "record-update/conditional-80k-tail-72k": {
     coldSeedMs: 0,
     v1Ms: 100,
     v2Ms: 15000,

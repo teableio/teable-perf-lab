@@ -167,12 +167,15 @@ try {
     ),
   );
   assert.deepEqual(
-    firstRequests.map(({ method, recordCount }) => [method, recordCount]),
-    [
-      ["GET", undefined],
-      ["GET", undefined],
-      ["POST", expectedCaseCount],
-    ],
+    firstRequests.slice(0, 2).map(({ method }) => method),
+    ["GET", "GET"],
+  );
+  // The catalog may span several size-limited create batches.
+  const createRequests = firstRequests.slice(2);
+  assert.ok(createRequests.every(({ method }) => method === "POST"));
+  assert.equal(
+    createRequests.reduce((sum, { recordCount }) => sum + recordCount, 0),
+    expectedCaseCount,
   );
   assert.equal(firstRequests[1].take, 1000);
   assert.equal(firstRequests[1].skip, 0);
