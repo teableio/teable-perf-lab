@@ -52,7 +52,6 @@ const VITEST_GLOBALS = [
 const RELATIVE_MODULE_STUBS = [
   "test/utils/init-app",
   "src/tracing",
-  "src/features/table/table-index.service",
   "src/features/v2/v2-container.service",
   "src/features/v2/v2-execution-context.factory",
 ];
@@ -223,9 +222,7 @@ try {
 
   const diagnostics = ts
     .getPreEmitDiagnostics(program)
-    .filter(
-      (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
-    )
+    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
     // TS2347 ("Untyped function calls may not accept type arguments") only
     // fires against the any-typed stubs (e.g. axios.get<T>, client.query<T>);
     // with the real monorepo types those calls are fine.

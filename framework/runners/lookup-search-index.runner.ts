@@ -1,7 +1,12 @@
 import { performance } from "node:perf_hooks";
 import { FieldKeyType, FieldType } from "@teable/core";
 import { PrismaService } from "@teable/db-main-prisma";
-import { TableIndex, axios } from "@teable/openapi";
+import {
+  TableIndex,
+  axios,
+  getTableActivatedIndex,
+  toggleTableIndex,
+} from "@teable/openapi";
 import bcrypt from "bcrypt";
 import {
   createField,
@@ -13,7 +18,6 @@ import {
   getViews,
   permanentDeleteTable,
 } from "../../../utils/init-app";
-import { TableIndexService } from "../../../../src/features/table/table-index.service";
 import { chunk } from "../chunk";
 import { getPositiveIntegerEnv, getPrimaryThresholdMs } from "../env";
 import {
@@ -761,19 +765,19 @@ const createFixture = async (
     await waitForLookupSamples(offTableId, allOffFieldIds, config);
     await waitForLookupSamples(onTableId, allOnFieldIds, config);
 
-    const tableIndexService =
-      context.app.get<TableIndexService>(TableIndexService);
+    // Through the public API, which stays put when the service behind it moves.
+    const activatedIndexes = async (tableId: string) =>
+      (await getTableActivatedIndex(baseId, tableId)).data;
     const indexOnMeasurement = await measureAsync(
       "activateSearchIndexOnHost",
       async () => {
-        const active =
-          await tableIndexService.getActivatedTableIndexes(onTableId);
+        const active = await activatedIndexes(onTableId);
         if (!active.includes(TableIndex.search)) {
-          await tableIndexService.toggleIndex(onTableId, {
+          await toggleTableIndex(baseId, onTableId, {
             type: TableIndex.search,
           });
         }
-        return tableIndexService.getActivatedTableIndexes(onTableId);
+        return activatedIndexes(onTableId);
       },
     );
 
@@ -897,11 +901,8 @@ const restoreFixture = async (
   try {
     await ensurePerfUsers(context, config);
     await assertLookupSeedReady(fixture, config);
-    const tableIndexService =
-      context.app.get<TableIndexService>(TableIndexService);
-    const onIndexes = await tableIndexService.getActivatedTableIndexes(
-      fixture.onTableId,
-    );
+    const onIndexes = (await getTableActivatedIndex(baseId, fixture.onTableId))
+      .data;
     if (!onIndexes.includes(TableIndex.search)) {
       return;
     }
