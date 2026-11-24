@@ -218,3 +218,70 @@ test("non-record trash is excluded from the record-item count", async () => {
     },
   );
 });
+
+// The delete stream's done event caps `deletedRecordIds` at 5,000, so a 10k
+// deletion knows only half of its ids. Batches holding the other half are
+// placed by when they were trashed, and coverage is sized by deletedCount.
+const trashedAt = (item, deletedTime) => ({ ...item, deletedTime });
+
+test("a capped id list is completed by batches trashed after the delete started", async () => {
+  setPages([
+    {
+      trashItems: [
+        trashedAt(
+          recordItem("t1", ids("rec", 20), 5_000),
+          "2026-11-24T03:00:01.000Z",
+        ),
+        trashedAt(
+          recordItem("t2", ids("rec", 20, 5_000), 5_000),
+          "2026-11-24T03:00:02.000Z",
+        ),
+      ],
+      nextCursor: null,
+    },
+  ]);
+  const lookups = await findRecordTrashItems("tbl1", ids("rec", 5_000), {
+    expectedCount: 10_000,
+    deletedSince: "2026-11-24T03:00:00.000Z",
+  });
+  assert.deepEqual(
+    lookups.map((lookup) => lookup.trashId),
+    ["t1", "t2"],
+  );
+});
+
+test("a capped id list still skips batches trashed before the delete started", async () => {
+  setPages([
+    {
+      trashItems: [
+        trashedAt(
+          recordItem("old", ids("prior", 20), 5_000),
+          "2026-11-24T02:00:00.000Z",
+        ),
+        trashedAt(
+          recordItem("t1", ids("rec", 20), 5_000),
+          "2026-11-24T03:00:01.000Z",
+        ),
+      ],
+      nextCursor: null,
+    },
+  ]);
+  await assert.rejects(
+    findRecordTrashItems("tbl1", ids("rec", 5_000), {
+      expectedCount: 10_000,
+      deletedSince: "2026-11-24T03:00:00.000Z",
+    }),
+    (error) => {
+      assert.match(error.message, /cover 5000\/10000 deleted records/);
+      return true;
+    },
+  );
+});
+
+test("a capped id list without deletedSince fails instead of guessing", async () => {
+  setPages([]);
+  await assert.rejects(
+    findRecordTrashItems("tbl1", ids("rec", 5_000), { expectedCount: 10_000 }),
+    /knows 5000\/10000 deleted ids and has no deletedSince/,
+  );
+});

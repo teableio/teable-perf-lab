@@ -26,6 +26,12 @@ import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { env } from "./env.mjs";
+import {
+  autoNumberRange,
+  forEachAutoNumberWindow,
+  percentileDisc,
+  readMaxAutoNumber,
+} from "./auto-number-windows.mjs";
 import { SUBSTITUTED_METRICS } from "./corpus-metric-model.mjs";
 import {
   buildOrderedSeries,
@@ -148,14 +154,23 @@ export const buildPerfCorpusPageSql = ({
   table,
   limit,
   offset,
-  identityColumns = { contractId: "Contract_ID", environmentClass: "Environment_Class" },
+  identityColumns = {
+    contractId: "Contract_ID",
+    environmentClass: "Environment_Class",
+  },
+  // Optional `{ from, to }` over `__auto_number`. With a window the page also
+  // returns every value of the group (`vs`), so groups that straddle two
+  // windows can be merged and their median recomputed exactly.
+  window,
 }) => {
   const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
   const contractColumn = quote(identityColumns.contractId);
   const environmentColumn = quote(identityColumns.environmentClass);
   return `
   SELECT c, e, r, p, m, k, h,
-         percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v,
+         percentile_disc(0.5) WITHIN GROUP (ORDER BY v) AS v,${
+           window ? "\n         array_agg(v ORDER BY v) AS vs," : ""
+         }
          COUNT(*) AS n
   FROM (
     SELECT "Case_ID" AS c,
@@ -169,7 +184,9 @@ export const buildPerfCorpusPageSql = ({
     FROM ${table}
     WHERE "Status" = 'pass'
       AND "Engine" <> 'seed'
-      AND LENGTH("Teable_EE_Ref") = 40
+      AND LENGTH("Teable_EE_Ref") = 40${
+        window ? `\n      AND ${autoNumberRange(window)}` : ""
+      }
   ) t
   WHERE v > 0
   GROUP BY 1, 2, 3, 4, 5, 6, 7
@@ -229,52 +246,101 @@ const main = async () => {
   const fields = await loadTeableFields({ endpoint, token, baseId, tableId });
   const identityColumns = resolvePerformanceTrackIdentityColumns(fields);
 
-  const rows = [];
   let pageSize = Number(
     env("PERF_CORPUS_PAGE_SIZE", String(DEFAULT_PAGE_SIZE)),
   );
-  let offset = 0;
-  for (;;) {
-    let page;
-    let attempt = 0;
+  const query = (sql) => sqlQuery({ endpoint, token, baseId, sql });
+
+  // Pages of one `__auto_number` window. Aggregating the whole table on every
+  // page re-scans 700k+ rows per page and hits the statement timeout, so each
+  // page only aggregates its window. A window is collected in full before it
+  // is kept, so a window that times out and is retried narrower never leaves
+  // half its groups behind.
+  const readWindow = async (window) => {
+    const windowRows = [];
+    let offset = 0;
     for (;;) {
-      try {
-        page = await sqlQuery({
-          endpoint,
-          token,
-          baseId,
-          sql: buildPerfCorpusPageSql({
-            table,
-            limit: pageSize,
-            offset,
-            identityColumns,
-          }),
-        });
-        break;
-      } catch (error) {
-        const reported = `${error.teableError ?? ""} ${error.message ?? ""}`;
-        // The cap is reported as an error, not a truncation, so a page that is
-        // too wide is retried narrower rather than silently losing its tail.
-        if (pageSize > 25 && /exceeds the limit/.test(reported)) {
-          pageSize = Math.floor(pageSize / 2);
-          continue;
-        }
-        attempt += 1;
-        if (attempt > 5 || !TRANSIENT.test(reported)) {
-          throw new Error(
-            `Page at offset ${offset} failed after ${attempt} attempt(s): ${reported.trim()}`,
+      let page;
+      let attempt = 0;
+      for (;;) {
+        try {
+          page = await query(
+            buildPerfCorpusPageSql({
+              table,
+              limit: pageSize,
+              offset,
+              identityColumns,
+              window,
+            }),
           );
+          break;
+        } catch (error) {
+          const reported = `${error.teableError ?? ""} ${error.message ?? ""}`;
+          // The cap is reported as an error, not a truncation, so a page that is
+          // too wide is retried narrower rather than silently losing its tail.
+          if (pageSize > 25 && /exceeds the limit/.test(reported)) {
+            pageSize = Math.floor(pageSize / 2);
+            continue;
+          }
+          attempt += 1;
+          if (attempt > 5 || !TRANSIENT.test(reported)) {
+            throw new Error(
+              `Page at offset ${offset} of __auto_number (${window.from}, ${window.to}] failed after ${attempt} attempt(s): ${reported.trim()}`,
+            );
+          }
+          await sleep(500 * 2 ** (attempt - 1));
         }
-        await sleep(500 * 2 ** (attempt - 1));
       }
+      windowRows.push(...page);
+      if (page.length < pageSize) return windowRows;
+      offset += page.length;
     }
-    rows.push(...page);
-    if (page.length < pageSize) break;
-    offset += page.length;
-    if (rows.length % 4000 === 0) {
-      console.log(`  ${rows.length} rows…`);
-    }
-  }
+  };
+
+  // A group (case, engine, ref, perf-lab commit, metric, identity) can straddle
+  // two windows. Its values are merged and the median recomputed exactly as
+  // `percentile_disc(0.5)` would have over the whole table.
+  const groups = new Map();
+  const max = await readMaxAutoNumber({ query, table });
+  await forEachAutoNumberWindow({
+    max,
+    windowRows: Number(env("PERF_CORPUS_WINDOW_ROWS", "50000")),
+    visit: async (window) => {
+      const windowRows = await readWindow(window);
+      for (const row of windowRows) {
+        const key = JSON.stringify([
+          row.c,
+          row.e,
+          row.r,
+          row.p,
+          row.m,
+          row.k ?? null,
+          row.h ?? null,
+        ]);
+        const values = (Array.isArray(row.vs) ? row.vs : [row.v]).map(Number);
+        const entry = groups.get(key);
+        if (entry) {
+          entry.values.push(...values);
+          entry.count += Number(row.n);
+        } else {
+          groups.set(key, { row, values, count: Number(row.n) });
+        }
+      }
+      if (groups.size > 0 && window.to < max) {
+        console.log(
+          `  ${groups.size} groups through __auto_number ${window.to}/${max}…`,
+        );
+      }
+    },
+  });
+  const rows = [...groups.values()].map(({ row, values, count }) => {
+    const { vs: _vs, ...rest } = row;
+    return {
+      ...rest,
+      v: String(percentileDisc(values, 0.5)),
+      n: String(count),
+    };
+  });
 
   // Expand the abbreviations, and record what the digest was at the perf-lab
   // commit that took each measurement.
@@ -412,9 +478,14 @@ const main = async () => {
   );
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.stack || error.message : error);
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
     process.exitCode = 1;
   });
 }

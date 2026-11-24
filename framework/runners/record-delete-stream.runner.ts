@@ -49,7 +49,12 @@ import { findRecordTrashItems } from "./record-trash.shared";
 export type DeleteStreamResult = {
   totalCount: number;
   deletedCount: number;
+  // At most the server's cap (5,000 since teable-ee 5150387a60); exact counts
+  // live in `deletedCount`.
   deletedRecordIds: string[];
+  // Runner clock just before the request, so trash items from this deletion
+  // can be told apart from older ones when `deletedRecordIds` is partial.
+  startedAt: string;
   progressEventCount: number;
   status: number;
   routing: ReturnType<typeof assertEngineRouting> & {
@@ -59,6 +64,23 @@ export type DeleteStreamResult = {
     traceparent?: string;
     traceLink?: string;
   };
+};
+
+// The done event carries a capped sample of ids (5,000 since teable-ee
+// 5150387a60), not the full list: a 10k delete reports 5,000. The exact size is
+// asserted through `deletedCount`; the sample only has to be non-empty, unique
+// and no larger than the deletion.
+export const assertDeletedRecordIdSample = (
+  deletedRecordIds: string[],
+  expectedDeletedCount: number,
+) => {
+  if (expectedDeletedCount === 0) {
+    expect(deletedRecordIds).toHaveLength(0);
+    return;
+  }
+  expect(deletedRecordIds.length).toBeGreaterThan(0);
+  expect(deletedRecordIds.length).toBeLessThanOrEqual(expectedDeletedCount);
+  expect(new Set(deletedRecordIds).size).toBe(deletedRecordIds.length);
 };
 
 // record-restore measures the inverse operation against the same flat fixture.
@@ -148,6 +170,7 @@ export const deleteAllRowsByEngineStream = async (
 ): Promise<DeleteStreamResult> => {
   const isV2 = context.engine === "v2";
   const expectedDeletedCount = fixture.seededRecords.length;
+  const startedAt = new Date().toISOString();
   const url = isV2
     ? axios.getUri({
         baseURL: axios.defaults.baseURL || "/api",
@@ -190,7 +213,7 @@ export const deleteAllRowsByEngineStream = async (
   expect(done.totalCount).toBe(expectedDeletedCount);
   expect(done.deletedCount).toBe(expectedDeletedCount);
   expect(done.data.deletedCount).toBe(expectedDeletedCount);
-  expect(done.data.deletedRecordIds).toHaveLength(expectedDeletedCount);
+  assertDeletedRecordIdSample(done.data.deletedRecordIds, expectedDeletedCount);
 
   const routing = assertEngineRouting(context, sseResult.headers, {
     feature: "deleteRecord",
@@ -206,6 +229,7 @@ export const deleteAllRowsByEngineStream = async (
     totalCount: done.totalCount,
     deletedCount: done.deletedCount,
     deletedRecordIds: done.data.deletedRecordIds,
+    startedAt,
     progressEventCount: progressEvents.length,
     status: sseResult.status,
     routing: {
@@ -313,11 +337,10 @@ const restoreDeletedStreamSeed = async ({
   config: RecordDeleteStreamCaseConfig;
   primaryMeasurement?: Measurement<DeleteStreamPrimaryResult>;
 }) => {
-  const deletedRecordIds =
-    primaryMeasurement?.result.delete?.deletedRecordIds ?? [];
-  if (deletedRecordIds.length !== fixture.seededRecords.length) {
+  const deleted = primaryMeasurement?.result.delete;
+  if (!deleted || deleted.deletedCount !== fixture.seededRecords.length) {
     throw new Error(
-      `Delete-stream cleanup has ${deletedRecordIds.length}/${fixture.seededRecords.length} deleted record ids`,
+      `Delete-stream cleanup has ${deleted?.deletedCount ?? 0}/${fixture.seededRecords.length} deleted records`,
     );
   }
   const cleanupPolling = resolveRecordTrashCleanupPolling(config.verify);
@@ -326,7 +349,11 @@ const restoreDeletedStreamSeed = async ({
       ...cleanupPolling,
       description: `record trash cleanup for ${fixture.tableId}`,
     },
-    () => findRecordTrashItems(fixture.tableId, deletedRecordIds),
+    () =>
+      findRecordTrashItems(fixture.tableId, deleted.deletedRecordIds, {
+        expectedCount: deleted.deletedCount,
+        deletedSince: deleted.startedAt,
+      }),
   );
   for (const trashLookup of trashLookups) {
     const response = await restoreTrash(trashLookup.trashId, fixture.tableId);

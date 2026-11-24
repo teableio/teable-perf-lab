@@ -155,7 +155,11 @@ try {
       assert.equal(typeof sql, "string");
 
       let rows;
-      if (/percentile_disc/.test(sql)) {
+      if (/MAX\("__auto_number"\)/.test(sql)) {
+        // The window probe. One window covers the whole stand-in table.
+        queryKinds.push("max");
+        rows = [{ m: 1_000 }];
+      } else if (/percentile_disc/.test(sql)) {
         queryKinds.push("corpus");
         // Paged. The offset is honoured so the loop in `build-perf-corpus.mjs`
         // terminates rather than reading the same page forever.
@@ -256,8 +260,11 @@ try {
   assert.equal(metadataReads, 1);
   assert.equal(queryKinds.filter((kind) => kind === "ee-refs").length, 1);
   assert.equal(queryKinds.filter((kind) => kind === "perf-refs").length, 1);
-  assert.equal(queryKinds.filter((kind) => kind === "corpus").length, 1,
-    "one short page must terminate the corpus read");
+  assert.equal(
+    queryKinds.filter((kind) => kind === "corpus").length,
+    1,
+    "one short page must terminate the corpus read",
+  );
 
   // --- a missing clone says so ------------------------------------------------
 

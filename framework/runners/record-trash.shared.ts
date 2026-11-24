@@ -32,11 +32,43 @@ const MAX_TRASH_PAGES = 25;
 // - a non-zero `mixed-batch ... covering N expected records` means the
 //   membership filter is hiding matches, and N is how many previewed ids it
 //   hid (a lower bound on the batch, which the preview cannot size).
+// The delete stream's done event lists at most the first few thousand ids
+// (teable-ee 5150387a60 caps `done.data.deletedRecordIds` at 5,000 while
+// `deletedCount` stays exact), so a large deletion arrives with a partial id
+// list. When the list is shorter than `expectedCount`, a batch whose preview
+// is not covered by the known ids still belongs to this deletion if it was
+// trashed at or after `deletedSince`; coverage is counted against
+// `expectedCount`, not against the ids we happen to know.
+export type RecordTrashDeletion = {
+  expectedCount?: number;
+  deletedSince?: string;
+};
+
+// Tolerates the runner and the server disagreeing on the clock by a little.
+const DELETED_SINCE_SKEW_MS = 5_000;
+
 export const findRecordTrashItems = async (
   tableId: string,
   deletedRecordIds: string[],
+  deletion: RecordTrashDeletion = {},
 ): Promise<RecordTrashLookup[]> => {
   const expectedIds = new Set(deletedRecordIds);
+  const expectedCount = Math.max(expectedIds.size, deletion.expectedCount ?? 0);
+  const idsArePartial = expectedIds.size < expectedCount;
+  const deletedSinceMs =
+    idsArePartial && deletion.deletedSince
+      ? Date.parse(deletion.deletedSince) - DELETED_SINCE_SKEW_MS
+      : undefined;
+  if (idsArePartial && deletedSinceMs === undefined) {
+    throw new Error(
+      `Record trash lookup for table ${tableId} knows ${expectedIds.size}/${expectedCount} deleted ids and has no deletedSince to place the rest`,
+    );
+  }
+  const trashedInWindow = (deletedTime?: string) => {
+    if (deletedSinceMs === undefined || !deletedTime) return false;
+    const at = Date.parse(deletedTime);
+    return Number.isFinite(at) && at >= deletedSinceMs;
+  };
   const seenTrashIds = new Set<string>();
   const lookups: RecordTrashLookup[] = [];
   let coveredCount = 0;
@@ -72,7 +104,10 @@ export const findRecordTrashItems = async (
       }
       recordItemCount += 1;
       const previewIds = item.resourceIds;
-      if (!previewIds.every((recordId) => expectedIds.has(recordId))) {
+      if (
+        !previewIds.every((recordId) => expectedIds.has(recordId)) &&
+        !trashedInWindow(item.deletedTime)
+      ) {
         // A batch whose preview mixes this deletion's records with other ids is
         // dropped whole. Count what its preview would have covered so the loss
         // stays visible.
@@ -95,7 +130,7 @@ export const findRecordTrashItems = async (
         scannedPages: page,
       });
     }
-    if (coveredCount >= expectedIds.size) {
+    if (coveredCount >= expectedCount) {
       return lookups;
     }
 
@@ -111,7 +146,7 @@ export const findRecordTrashItems = async (
   }
 
   throw new Error(
-    `Record trash items cover ${coveredCount}/${expectedIds.size} deleted records in table ${tableId} ` +
+    `Record trash items cover ${coveredCount}/${expectedCount} deleted records in table ${tableId} ` +
       `(scanned ${scannedPages}/${MAX_TRASH_PAGES} pages, stopped on ${stopReason}; ` +
       `${recordItemCount}/${seenItemCount} record trash items; ` +
       `${mixedBatchCount} mixed-batch items skipped covering ${mixedBatchOverlap} expected records)`,
