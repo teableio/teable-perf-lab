@@ -122,6 +122,7 @@ const deleteRowsForRestoreSetup = async (
       0,
     ),
     deletedRecordIds: results.flatMap((result) => result.deletedRecordIds),
+    startedAt: first.startedAt,
     progressEventCount: results.reduce(
       (total, result) => total + result.progressEventCount,
       0,
@@ -152,7 +153,11 @@ const setupRecordTrash = async (
       pollIntervalMs: 500,
       description: `record trash item for ${config.rowCount} rows in table ${fixture.tableId}`,
     },
-    () => findRecordTrashItems(fixture.tableId, deleteResult.deletedRecordIds),
+    () =>
+      findRecordTrashItems(fixture.tableId, deleteResult.deletedRecordIds, {
+        expectedCount: deleteResult.deletedCount,
+        deletedSince: deleteResult.startedAt,
+      }),
   );
   const { deletedRecordIds: _deletedRecordIds, ...compactDelete } =
     deleteResult;

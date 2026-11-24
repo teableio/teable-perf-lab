@@ -16,6 +16,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { env } from "./env.mjs";
+import {
+  autoNumberRange,
+  forEachAutoNumberWindow,
+  readMaxAutoNumber,
+} from "./auto-number-windows.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,18 +87,33 @@ const main = async () => {
   const table = `"${baseId}"."${env("TEABLE_PERF_LAB_TABLE_ID", DEFAULT_TABLE)}"`;
   const column = COLUMNS[flag];
 
-  const rows = await sqlQuery({
-    endpoint: env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT),
-    token: env("TEABLE_PERF_LAB_TOKEN"),
-    baseId,
-    // Only full SHAs. A branch name pins nothing, and the ordering resolver
-    // reports those as unpinned anyway — filtering here keeps the list honest
-    // and the response small.
-    sql: `SELECT DISTINCT "${column}" AS r FROM ${table}
-          WHERE "${column}" IS NOT NULL AND LENGTH("${column}") = 40`,
+  const query = (sql) =>
+    sqlQuery({
+      endpoint: env("TEABLE_ENDPOINT", DEFAULT_ENDPOINT),
+      token: env("TEABLE_PERF_LAB_TOKEN"),
+      baseId,
+      sql,
+    });
+
+  // One DISTINCT over the whole table times out once it holds a few hundred
+  // thousand rows, so the scan walks `__auto_number` windows and unions them.
+  const max = await readMaxAutoNumber({ query, table });
+  const refs = new Set();
+  await forEachAutoNumberWindow({
+    max,
+    windowRows: Number(env("PERF_CORPUS_WINDOW_ROWS", "50000")),
+    visit: async (window) => {
+      // Only full SHAs. A branch name pins nothing, and the ordering resolver
+      // reports those as unpinned anyway — filtering here keeps the list honest
+      // and the response small.
+      const rows = await query(`SELECT DISTINCT "${column}" AS r FROM ${table}
+          WHERE ${autoNumberRange(window)}
+            AND "${column}" IS NOT NULL AND LENGTH("${column}") = 40`);
+      for (const row of rows) refs.add(row.r);
+    },
   });
 
-  process.stdout.write(`${rows.map((row) => row.r).join("\n")}\n`);
+  process.stdout.write(`${[...refs].sort().join("\n")}\n`);
 };
 
 main().catch((error) => {
